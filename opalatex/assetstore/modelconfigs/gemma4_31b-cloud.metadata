@@ -1,0 +1,4 @@
+desc: Exported modelconfig for ollama/gemma4:31b-cloud
+id: gemma4_31b-cloud
+model: ollama/gemma4:31b-cloud
+type: modelconfig

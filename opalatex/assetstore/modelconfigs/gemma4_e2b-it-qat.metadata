@@ -1,0 +1,4 @@
+desc: Exported modelconfig for ollama/gemma4:e2b-it-qat
+id: gemma4_e2b-it-qat
+model: ollama/gemma4:e2b-it-qat
+type: modelconfig

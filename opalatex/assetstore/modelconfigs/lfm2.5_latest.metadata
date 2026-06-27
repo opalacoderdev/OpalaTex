@@ -1,0 +1,4 @@
+desc: Exported modelconfig for ollama_chat/lfm2.5:latest
+id: lfm2.5_latest
+model: ollama_chat/lfm2.5:latest
+type: modelconfig

@@ -1,0 +1,4 @@
+desc: Exported modelconfig for ollama/gemma4:12b
+id: gemma4_12b
+model: ollama/gemma4:12b
+type: modelconfig

@@ -1,0 +1,4 @@
+desc: Exported modelconfig for ollama/qwen3.5:4b
+id: qwen3.5_4b
+model: ollama/qwen3.5:4b
+type: modelconfig

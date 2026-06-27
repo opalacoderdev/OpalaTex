@@ -1,0 +1,4 @@
+desc: Exported modelconfig for ollama_chat/gpt-oss:latest
+id: gpt-oss_latest
+model: ollama_chat/gpt-oss:latest
+type: modelconfig

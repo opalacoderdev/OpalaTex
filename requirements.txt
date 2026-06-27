@@ -1,0 +1,23 @@
+# >=0.8.37 required: the MemGPT block's text-emitted tool-call parser must handle
+# the nested {"tool_calls":[{"function":{...}}]} shape small models emit on later
+# turns. Older versions reject it, poisoning context until the turn returns empty.
+agenticblocks.io>=0.9.7
+pyyaml>=6.0
+python-dotenv>=1.0.0
+rich>=13.0.0
+numpy>=1.21.0
+instructor>=1.15.1
+litellm>=1.40.0
+tree-sitter>=0.25.0
+tree-sitter-language-pack>=1.8.0
+chromadb>=0.4.0
+pywebview>=4.0
+pywinpty>=2.0.0; sys_platform == "win32"
+PyQt6>=6.0.0
+PyQt6-WebEngine>=6.0.0
+qtpy>=2.4.0
+ddgs>=1.0.0
+pymupdf4llm>=0.0.17
+Pillow>=10.0.0
+duckduckgo-search>=6.4.0
+pytest-asyncio>=0.23.0

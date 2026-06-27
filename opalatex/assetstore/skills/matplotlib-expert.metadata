@@ -1,0 +1,5 @@
+desc: Specialized skill for generating charts, plots, and data visualizations using
+  matplotlib.
+id: matplotlib-expert
+name: matplotlib-expert
+type: skill

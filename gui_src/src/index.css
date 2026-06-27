@@ -1,0 +1,1040 @@
+/* VSCode Color Palette & Design System */
+:root {
+  --vscode-bg: #1e1e1e;
+  --vscode-sidebar-bg: #252526;
+  --vscode-activitybar-bg: #333333;
+  --vscode-editor-bg: #1e1e1e;
+  --vscode-panel-bg: #1e1e1e;
+  --vscode-statusbar-bg: #007acc;
+  --vscode-statusbar-fg: #ffffff;
+  --vscode-text-fg: #cccccc;
+  --vscode-text-light: #ffffff;
+  --vscode-border: #3c3c3c;
+  --vscode-active-item: #37373d;
+  --vscode-hover-item: #2a2d2e;
+  --vscode-active-border: #007acc;
+  --vscode-input-bg: #2d2d2d;
+  --vscode-button-bg: #0e639c;
+  --vscode-button-hover: #1177bb;
+  --vscode-tab-active-bg: #1e1e1e;
+  --vscode-tab-inactive-bg: #2d2d2d;
+  --vscode-terminal-bg: #1e1e1e;
+  
+  /* Markdown blocks */
+  --editor-bg: #1e1e1e;
+  --titlebar-bg: #1a1a1a;
+  --border-color: #3c3c3c;
+  --vscode-textPreformat-foreground: #d7ba7d;
+  --vscode-widget-border: #3c3c3c;
+  
+  /* Battery colors */
+  --battery-good: #4ade80;
+  --battery-low: #fbbf24;
+  --battery-exploded: #f87171;
+}
+
+/* ─── Light Theme ──────────────────────────────────────────────────────────
+   Palette inspired by VS Code Light+ with improved contrast throughout.
+   Main surfaces:
+     page bg        #f5f5f5
+     sidebar        #ebebeb
+     editor         #ffffff
+     panel          #f5f5f5
+   Text:
+     primary        #1e1e1e   (near-black, high contrast)
+     secondary      #555555
+     muted          #767676   (AA-compliant on white)
+   Accent:
+     blue           #005fb8   (primary interactive)
+     blue-hover     #0047a0
+   ─────────────────────────────────────────────────────────────────────── */
+.light-theme {
+  --vscode-bg: #f5f5f5;
+  --vscode-sidebar-bg: #ebebeb;
+  --vscode-activitybar-bg: #e8e8e8;
+  --vscode-editor-bg: #ffffff;
+  --vscode-panel-bg: #f0f0f0;
+  --vscode-statusbar-bg: #005fb8;
+  --vscode-statusbar-fg: #ffffff;
+  --vscode-text-fg: #1e1e1e;
+  --vscode-text-light: #1e1e1e;
+  --vscode-border: #c8c8c8;
+  --vscode-active-item: #d4e4f7;
+  --vscode-hover-item: #e3ecf7;
+  --vscode-active-border: #005fb8;
+  --vscode-input-bg: #ffffff;
+  --vscode-button-bg: #005fb8;
+  --vscode-button-hover: #0047a0;
+  --vscode-tab-active-bg: #ffffff;
+  --vscode-tab-inactive-bg: #ebebeb;
+  --vscode-terminal-bg: #ffffff;
+
+  /* Markdown blocks */
+  --editor-bg: #f5f5f5;
+  --titlebar-bg: #e0e0e0;
+  --border-color: #c8c8c8;
+  --vscode-textPreformat-foreground: #1a3a6b;
+  --vscode-widget-border: #c8c8c8;
+
+  /* Battery colors */
+  --battery-good: #059669;
+  --battery-low: #d97706;
+  --battery-exploded: #dc2626;
+}
+
+/* ── Light-theme component overrides ──────────────────────────────────────
+   These target elements that use hardcoded colors not covered by variables.
+   ────────────────────────────────────────────────────────────────────── */
+
+/* Tree nodes */
+.light-theme .vscode-tree-node {
+  color: #2d2d2d;
+}
+.light-theme .vscode-tree-node:hover {
+  background-color: var(--vscode-hover-item);
+}
+.light-theme .vscode-tree-node.active {
+  background-color: var(--vscode-active-item);
+  color: #003a80;
+}
+
+/* Tabs */
+.light-theme .vscode-tab {
+  border-right-color: #d0d0d0;
+}
+.light-theme .vscode-tab span {
+  color: #555555 !important;
+}
+.light-theme .vscode-tab.active span {
+  color: #1e1e1e !important;
+}
+.light-theme .vscode-tab-close-btn {
+  color: #666666;
+}
+.light-theme .vscode-tab-close-btn:hover {
+  background-color: #c8c8c8;
+  color: #1e1e1e;
+}
+
+/* Sidebar title / section labels */
+.light-theme .vscode-sidebar-title {
+  color: #555555;
+}
+.light-theme .vscode-sidebar-section-title {
+  color: #666666;
+}
+
+/* Project items */
+.light-theme .vscode-project-item {
+  color: #2d2d2d;
+}
+.light-theme .vscode-project-item:hover {
+  background-color: var(--vscode-hover-item);
+  color: #003a80;
+}
+.light-theme .vscode-project-item.active {
+  background-color: var(--vscode-active-item);
+  color: #003a80;
+}
+
+/* Bottom panel tabs */
+.light-theme .vscode-bottom-tab {
+  color: #555555;
+}
+.light-theme .vscode-bottom-tab.active {
+  color: #1e1e1e;
+  border-bottom-color: var(--vscode-active-border);
+}
+
+/* Bottom panel logs */
+.light-theme .vscode-logs {
+  background-color: #ffffff;
+  color: #1e1e1e;
+}
+
+/* Chat panel */
+.light-theme .vscode-chat {
+  background-color: #f0f0f0;
+  border-left-color: #c8c8c8;
+}
+.light-theme .vscode-chat-header {
+  background-color: #ebebeb;
+}
+.light-theme .vscode-chat-history {
+  background-color: #f5f5f5;
+}
+.light-theme .vscode-chat-msg-content {
+  color: #1e1e1e;
+  border-left-color: #b0b8c8;
+}
+
+/* Chat message header colors — override inline style values */
+.light-theme .vscode-chat-msg-header {
+  color: #555555;
+}
+
+/* Chat themed text utility classes — light overrides */
+.light-theme .chat-text-primary {
+  color: #1e1e1e !important;
+}
+.light-theme .chat-text-secondary {
+  color: #444444 !important;
+}
+.light-theme .chat-inline-code {
+  background: #e8edf5 !important;
+  color: #1a3a6b !important;
+}
+/* Chat header color classes — light overrides */
+.light-theme .chat-header-user {
+  color: #0047a0 !important;
+}
+.light-theme .chat-header-agent {
+  color: #6f3fa8 !important;
+}
+.light-theme .vscode-chat-form {
+  background-color: #ebebeb;
+  border-top-color: #c8c8c8;
+}
+.light-theme .vscode-chat-toolbar {
+  background-color: #f5f5f5;
+  border-bottom-color: #c8c8c8;
+}
+.light-theme .vscode-chat-tool-btn {
+  color: #444444;
+}
+.light-theme .vscode-chat-tool-btn:hover {
+  background-color: var(--vscode-hover-item);
+  color: #003a80;
+}
+
+/* Context menu */
+.light-theme .vscode-context-menu {
+  background-color: #ffffff;
+  border-color: #c0c0c0;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+}
+.light-theme .vscode-context-menu-item {
+  color: #1e1e1e;
+}
+.light-theme .vscode-context-menu-item:hover {
+  background-color: #005fb8;
+  color: #ffffff;
+}
+
+/* Scrollbars on light mode */
+.light-theme ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.22);
+}
+.light-theme ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* Resizers */
+.light-theme .vscode-resizer-horizontal,
+.light-theme .vscode-resizer-vertical {
+  background-color: #d0d0d0;
+  border-color: #c0c0c0;
+}
+
+/* Buttons */
+.light-theme .vscode-bottom-panel-clear-btn {
+  color: #444444;
+}
+.light-theme .vscode-bottom-panel-clear-btn:hover {
+  background-color: rgba(0, 95, 184, 0.1);
+  color: #003a80;
+}
+
+/* Activity bar icon color hint */
+.light-theme .vscode-activitybar-btn {
+  color: #6e6e6e;
+}
+.light-theme .vscode-activitybar-btn.active,
+.light-theme .vscode-activitybar-btn:hover {
+  color: #1e1e1e;
+}
+
+/* Input/select inside light theme */
+.light-theme input,
+.light-theme select,
+.light-theme textarea {
+  background-color: #ffffff;
+  border-color: #bdbdbd;
+  color: #1e1e1e;
+}
+.light-theme input:focus,
+.light-theme select:focus,
+.light-theme textarea:focus {
+  border-color: #005fb8;
+}
+
+
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--vscode-bg);
+  color: var(--vscode-text-fg);
+  overflow: hidden;
+  height: 100vh;
+  font-size: 13px;
+}
+
+/* Custom Scrollbars to match VSCode */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.4);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 100, 0.7);
+}
+
+code, pre {
+  font-family: "Fira Code", "Courier New", Courier, monospace;
+}
+
+/* VSCode Input Elements */
+input, select, textarea {
+  background-color: var(--vscode-input-bg);
+  border: 1px solid var(--vscode-border);
+  color: var(--vscode-text-fg);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  outline: none;
+}
+
+select option {
+  background-color: var(--vscode-input-bg);
+  color: var(--vscode-text-fg);
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--vscode-active-border);
+}
+
+/* VSCode Button */
+.vscode-button {
+  background-color: var(--vscode-button-bg);
+  color: #ffffff;
+  border: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.vscode-button:hover:not(:disabled) {
+  background-color: var(--vscode-button-hover);
+}
+
+.vscode-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* App layout and columns */
+.vscode-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.vscode-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Activity Bar */
+.vscode-activitybar {
+  width: 48px;
+  background-color: var(--vscode-activitybar-bg);
+  border-right: 1px solid var(--vscode-border);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  flex-shrink: 0;
+}
+
+.vscode-activitybar-top {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
+}
+
+.vscode-activitybar-btn {
+  background: transparent;
+  border: none;
+  color: #858585;
+  padding: 8px;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-left: 2px solid transparent;
+  outline: none;
+}
+
+.vscode-activitybar-btn.active {
+  color: #ffffff;
+  border-left-color: var(--vscode-active-border);
+}
+
+.vscode-activitybar-btn:hover {
+  color: #ffffff;
+}
+
+/* Sidebar */
+.vscode-sidebar {
+  width: 260px;
+  background-color: var(--vscode-sidebar-bg);
+  border-right: 1px solid var(--vscode-border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.vscode-sidebar-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vscode-sidebar-title {
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  color: #969696;
+  letter-spacing: 0.5px;
+}
+
+.vscode-sidebar-section {
+  border-bottom: 1px solid var(--vscode-border);
+  padding: 8px;
+}
+
+.vscode-sidebar-section-title {
+  font-size: 10px;
+  font-weight: bold;
+  color: #808080;
+  text-transform: uppercase;
+  padding: 2px 4px;
+  margin-bottom: 4px;
+}
+
+.vscode-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+/* Project item */
+.vscode-project-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: #b0b0b0;
+  border-radius: 2px;
+}
+
+.vscode-project-item:hover {
+  background-color: var(--vscode-hover-item);
+  color: #ffffff;
+}
+
+.vscode-project-item.active {
+  background-color: var(--vscode-active-item);
+  color: #ffffff;
+}
+
+/* File Tree Node */
+.vscode-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: #cccccc;
+  font-size: 13px;
+}
+
+.vscode-tree-node:hover {
+  background-color: var(--vscode-hover-item);
+}
+
+.vscode-tree-node.active {
+  background-color: var(--vscode-active-item);
+  color: #ffffff;
+  border-left: 2px solid var(--vscode-active-border);
+}
+
+/* Editor Panel */
+.vscode-editor-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--vscode-bg);
+  overflow: hidden;
+}
+
+.vscode-tabs {
+  height: 35px;
+  background-color: var(--vscode-tab-inactive-bg);
+  border-bottom: 1px solid #252526;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 16px;
+  flex-shrink: 0;
+}
+
+.vscode-tab {
+  height: 100%;
+  background-color: var(--vscode-tab-inactive-bg);
+  border-top: 2px solid transparent;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-right: 1px solid #252526;
+}
+
+.vscode-tab.active {
+  background-color: var(--vscode-tab-active-bg);
+  border-top-color: var(--vscode-active-border);
+}
+
+.vscode-tab-close-btn {
+  background: transparent;
+  border: none;
+  color: #858585;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+}
+
+.vscode-tab-close-btn:hover {
+  background-color: #3c3c3c;
+  color: #ffffff;
+  border-radius: 50%;
+}
+
+.vscode-editor-container {
+  flex: 1;
+  position: relative;
+  background-color: var(--vscode-bg);
+}
+
+/* Bottom Panel */
+.vscode-bottom-panel {
+  border-top: 1px solid var(--vscode-border);
+  background-color: var(--vscode-bg);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.vscode-bottom-tabs {
+  height: 30px;
+  background-color: var(--vscode-sidebar-bg);
+  border-bottom: 1px solid var(--vscode-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.vscode-bottom-tab-list {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+}
+
+.vscode-bottom-tab {
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  color: #808080;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  height: 100%;
+}
+
+.vscode-bottom-tab.active {
+  color: #ffffff;
+  border-bottom: 2px solid var(--vscode-active-border);
+}
+
+.vscode-logs {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  font-family: "Fira Code", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  background-color: var(--vscode-terminal-bg);
+}
+
+/* Copilot Chat (Right) */
+.vscode-chat {
+  width: 320px;
+  background-color: var(--vscode-sidebar-bg);
+  border-left: 1px solid var(--vscode-border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.vscode-chat-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vscode-chat-toolbar {
+  display: flex;
+  border-bottom: 1px solid var(--vscode-border);
+  background-color: var(--vscode-bg);
+}
+
+.vscode-chat-tool-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--vscode-border);
+  color: #a0a0a0;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 6px 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.vscode-chat-tool-btn:hover {
+  background-color: var(--vscode-hover-item);
+  color: #ffffff;
+}
+
+.vscode-chat-history {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background-color: var(--vscode-sidebar-bg);
+}
+
+.vscode-chat-msg-header {
+  font-size: 10px;
+  font-weight: bold;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.vscode-chat-msg-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--vscode-text-fg);
+  padding-left: 8px;
+  border-left: 1px solid var(--vscode-border);
+  white-space: pre-wrap;
+}
+
+/* ── Chat themed text utility classes (used by formatMessage.jsx) ──────── */
+.chat-text-primary {
+  color: #cccccc;   /* dark theme default */
+}
+.chat-text-secondary {
+  color: #cccccc;
+}
+.chat-inline-code {
+  background: #2d2d2d;
+  color: #f8f8f2;
+}
+
+/* ── Chat header color classes (dark defaults) ──────────────────────────── */
+.chat-header-user {
+  color: #75beff;
+}
+.chat-header-agent {
+  color: #da70d6;
+}
+
+.vscode-chat-form {
+  padding: 12px;
+  border-top: 1px solid var(--vscode-border);
+  background-color: var(--vscode-bg);
+}
+
+.vscode-chat-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.vscode-chat-textarea {
+  flex: 1;
+  resize: none;
+  overflow-y: auto;
+  max-height: 200px;
+  min-height: 32px;
+  line-height: 1.5;
+  border-radius: 2px;
+}
+
+/* Status Bar */
+.vscode-statusbar {
+  height: 22px;
+  background-color: var(--vscode-statusbar-bg);
+  color: var(--vscode-statusbar-fg);
+  font-size: 11px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+/* Modal */
+.vscode-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.vscode-modal {
+  background-color: var(--vscode-sidebar-bg);
+  border: 1px solid var(--vscode-border);
+  width: 100%;
+  max-w: 400px;
+  max-height: 85vh;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Layout Utilities (No-Tailwind equivalents) */
+.flex { display: flex; }
+.flex-1 { flex: 1; }
+.flex-col { flex-direction: column; }
+.flex-shrink-0 { flex-shrink: 0; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.relative { position: relative; }
+.h-full { height: 100%; }
+.w-full { width: 100%; }
+.overflow-hidden { overflow: hidden; }
+.overflow-y-auto { overflow-y: auto; }
+.text-white { color: #ffffff; }
+.truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Resizer split drag lines */
+.vscode-resizer-horizontal {
+  width: 4px;
+  background-color: #252526;
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background-color 0.2s ease;
+  z-index: 10;
+  border-left: 1px solid var(--vscode-border);
+  border-right: 1px solid var(--vscode-border);
+}
+
+.vscode-resizer-horizontal:hover,
+.vscode-resizer-horizontal:active {
+  background-color: var(--vscode-active-border);
+  border-left-color: var(--vscode-active-border);
+  border-right-color: var(--vscode-active-border);
+}
+
+.vscode-resizer-vertical {
+  height: 4px;
+  background-color: #252526;
+  cursor: row-resize;
+  flex-shrink: 0;
+  transition: background-color 0.2s ease;
+  z-index: 10;
+  border-top: 1px solid var(--vscode-border);
+  border-bottom: 1px solid var(--vscode-border);
+}
+
+.vscode-resizer-vertical:hover,
+.vscode-resizer-vertical:active {
+  background-color: var(--vscode-active-border);
+  border-top-color: var(--vscode-active-border);
+  border-bottom-color: var(--vscode-active-border);
+}
+
+/* Custom Context Menu */
+.vscode-context-menu {
+  position: fixed;
+  background-color: var(--vscode-sidebar-bg);
+  border: 1px solid var(--vscode-border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  padding: 4px 0;
+  z-index: 1000;
+  min-width: 150px;
+}
+
+.vscode-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #cccccc;
+  cursor: pointer;
+  user-select: none;
+}
+
+.vscode-context-menu-item:hover {
+  background-color: #007acc;
+  color: #ffffff;
+}
+
+/* Thinking Indicator Animation */
+.thinking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.thinking-indicator .dot {
+  width: 6px;
+  height: 6px;
+  background-color: #da70d6;
+  border-radius: 50%;
+  display: inline-block;
+  animation: pulse 1.4s infinite ease-in-out both;
+}
+
+.thinking-indicator .dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.thinking-indicator .dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes pulse {
+  0%, 80%, 100% {
+    transform: scale(0);
+    opacity: 0.3;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Clear Button & UI Selection Restrictions */
+.vscode-bottom-panel-clear-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #a0a0a0;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  transition: all 0.1s ease;
+}
+
+.vscode-bottom-panel-clear-btn:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.select-none {
+  user-select: none;
+}
+
+/* Protect UI chrome from text selection */
+.vscode-activitybar,
+.vscode-sidebar-header,
+.vscode-sidebar-section-title,
+.vscode-tabs,
+.vscode-bottom-tabs,
+.vscode-chat-header,
+.vscode-chat-toolbar,
+.vscode-statusbar,
+.vscode-button,
+.vscode-context-menu,
+.vscode-tree-node,
+.vscode-tab {
+  user-select: none;
+}
+
+/* Enable selection in chat messages */
+.vscode-chat-history,
+.vscode-chat-msg-content,
+.vscode-chat-msg-header {
+  user-select: text !important;
+}
+
+/* Inline Prompt Overlay animation */
+@keyframes inlineOverlayFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+
+
+
+
+/* Settings Modal Input overrides to prevent native OS white backgrounds */
+.vscode-settings-input {
+  background-color: var(--vscode-input-bg) !important;
+  color: var(--vscode-text-fg) !important;
+  border: 1px solid var(--vscode-border) !important;
+  padding: 6px 8px;
+  outline: none;
+}
+.vscode-settings-input:focus {
+  border-color: var(--vscode-active-border) !important;
+}
+
+/* Force native styles off for inputs to ensure theme compliance on Linux GTK */
+select.vscode-settings-input,
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23cccccc%22%20d%3D%22M2%204l4%204%204-4z%22%2F%3E%3C%2Fsvg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+
+.msg-action-btn:hover {
+  background-color: var(--vscode-hover-item);
+  color: var(--vscode-text-light) !important;
+}
+
+@media print {
+  html, body, #root, .vscode-app, .vscode-main, .vscode-editor-panel, .vscode-editor-container, .vscode-chat, .vscode-chat-history, .markdown-preview-container {
+    height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Hide UI elements not meant for printing */
+  .vscode-activitybar, 
+  .vscode-sidebar, 
+  .vscode-tabs, 
+  .vscode-bottom-panel, 
+  .vscode-chat-header, 
+  .vscode-chat-toolbar,
+  #web-search-toggle,
+  .vscode-settings-input,
+  .vscode-statusbar,
+  .msg-action-btn {
+    display: none !important;
+  }
+
+  /* Chat printing (default behavior) */
+  body:not(.printing-editor) .vscode-editor-panel {
+    display: none !important;
+  }
+  body:not(.printing-editor) .vscode-chat {
+    width: 100% !important;
+    border: none !important;
+  }
+  body:not(.printing-editor) .vscode-chat-msg-content {
+    color: black !important;
+  }
+  body:not(.printing-editor) .vscode-chat-msg-header {
+    color: #333 !important;
+  }
+
+  /* Editor preview printing */
+  body.printing-editor .vscode-chat {
+    display: none !important;
+  }
+
+  /* Force high contrast text colors for all elements */
+  .vscode-chat-history *, 
+  .markdown-preview-container * {
+    color: black !important;
+    text-shadow: none !important;
+  }
+  
+  /* Fix code block backgrounds and borders for print */
+  .vscode-chat-history pre, 
+  .markdown-preview-container pre,
+  .vscode-chat-history code, 
+  .markdown-preview-container code,
+  .vscode-chat-history .chat-inline-code,
+  .markdown-preview-container .chat-inline-code,
+  .vscode-chat-history div[style*="background"],
+  .markdown-preview-container div[style*="background"] {
+    background: #f8f8f8 !important;
+    color: #222 !important;
+    border-color: #ccc !important;
+  }
+
+  /* Fix links */
+  .vscode-chat-history a, 
+  .markdown-preview-container a {
+    color: #0056b3 !important;
+  }
+
+  .thinking-indicator {
+    display: none !important;
+  }
+}

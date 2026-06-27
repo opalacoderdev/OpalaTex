@@ -1,0 +1,16 @@
+# OpalaTex — non-agent configuration
+# Agent model/LLM settings live in agents.yaml
+
+git_strategy: auto
+response_mode: "last"
+heartbeats_scale_factor: 1
+
+vector_index:
+  embedding_model: ollama/nomic-embed-text
+  embedding_fallback: sentence-transformers/all-MiniLM-L6-v2
+  chunk_size: 500        # max lines per chunk (one file per chunk)
+  chunk_overlap: 50      # overlap lines between adjacent chunks of the same file
+  top_k: 10              # number of chunks returned by retrieval
+
+project_overview:
+  max_depth: 5           # max directory tree depth shown in get_project_overview
