@@ -1,6 +1,7 @@
 import sys
 import os
 import io
+import base64
 
 # ── Force UTF-8 on all I/O streams (critical for PyInstaller --windowed) ─────
 os.environ["PYTHONUTF8"] = "1"
@@ -436,7 +437,6 @@ class AsyncHTTPServer:
             
             # Save the pdf bytes in memory to bypass WebView blob restrictions
             if result.get("success") and result.get("pdf_base64"):
-                import base64
                 self.last_pdf_bytes = base64.b64decode(result["pdf_base64"])
                 
             self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
@@ -465,8 +465,6 @@ class AsyncHTTPServer:
                 return
             
             try:
-                import os
-                import base64
                 target_pdf = os.path.splitext(file_path)[0] + ".pdf"
                 if os.path.exists(target_pdf):
                     with open(target_pdf, "rb") as pdf_file:
