@@ -17,7 +17,7 @@ def get_tectonic_path():
     # Fallback to PATH
     return shutil.which("tectonic")
 
-def compile_latex(tex_content: str) -> dict:
+def compile_latex(tex_content: str, file_path: str = None) -> dict:
     """
     Compiles LaTeX content using Tectonic.
     Returns a dictionary with:
@@ -51,6 +51,14 @@ def compile_latex(tex_content: str) -> dict:
         if success:
             pdf_path = os.path.join(temp_dir, "document.pdf")
             if os.path.exists(pdf_path):
+                # If a real file_path was provided, copy the PDF there
+                if file_path:
+                    try:
+                        target_pdf = os.path.splitext(file_path)[0] + ".pdf"
+                        shutil.copy2(pdf_path, target_pdf)
+                    except Exception as copy_err:
+                        log += f"\nWarning: could not save PDF to {file_path}'s directory: {copy_err}"
+                        
                 with open(pdf_path, "rb") as pdf_file:
                     pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
             else:

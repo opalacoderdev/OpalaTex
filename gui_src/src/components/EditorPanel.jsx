@@ -61,6 +61,26 @@ export default function EditorPanel({
 
   useEffect(() => {
     setIsPreviewMode(false);
+    
+    // Check if there is an existing PDF for this file
+    if (selectedFile && selectedFile.toLowerCase().endsWith('.tex')) {
+      fetch(`/api/latex/check-pdf?filePath=${encodeURIComponent(selectedFile)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.found && data.pdf_base64) {
+            setPdfBase64(data.pdf_base64);
+            setPdfErrorLog('');
+          } else {
+            setPdfBase64(null);
+            setPdfErrorLog('');
+          }
+        })
+        .catch(() => {
+          setPdfBase64(null);
+        });
+    } else {
+      setPdfBase64(null);
+    }
   }, [selectedFile]);
 
   const handleCompile = async () => {
@@ -71,7 +91,7 @@ export default function EditorPanel({
       const res = await fetch('/api/latex/compile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: fileContent })
+        body: JSON.stringify({ content: fileContent, filePath: selectedFile })
       });
       const data = await res.json();
       if (data.success) {

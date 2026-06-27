@@ -426,12 +426,13 @@ class AsyncHTTPServer:
         if path == '/api/latex/compile':
             from opalatex.latex_compiler import compile_latex
             content = data.get('content', '')
+            file_path = data.get('filePath', '')
             if not content:
                 self.send_response(writer, 400, b'{"error":"content is required"}', "application/json")
                 return
             
             # run compilation
-            result = compile_latex(content)
+            result = compile_latex(content, file_path)
             
             # Save the pdf bytes in memory to bypass WebView blob restrictions
             if result.get("success") and result.get("pdf_base64"):
@@ -446,13 +447,40 @@ class AsyncHTTPServer:
             tectonic = get_tectonic_path()
             found = tectonic is not None
             self.send_response(writer, 200, json.dumps({"found": found}).encode('utf-8'), "application/json")
+            return
 
         # 0.1 Serve Latest PDF
         if path == '/api/latex/pdf':
             if hasattr(self, 'last_pdf_bytes') and self.last_pdf_bytes:
                 self.send_response(writer, 200, self.last_pdf_bytes, "application/pdf")
             else:
-                self.send_response(writer, 404, b'PDF not found', "text/plain")
+                self.send_response(writer, 404, b'No PDF generated yet.', "text/plain")
+            return
+            
+        # 0.2 Check for existing PDF
+        elif path == '/api/latex/check-pdf' and method == 'GET':
+            file_path = query.get('filePath', [''])[0]
+            if not file_path:
+                self.send_response(writer, 400, b'{"error":"filePath is required"}', "application/json")
+                return
+            
+            try:
+                import os
+                import base64
+                target_pdf = os.path.splitext(file_path)[0] + ".pdf"
+                if os.path.exists(target_pdf):
+                    with open(target_pdf, "rb") as pdf_file:
+                        pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
+                        
+                    self.last_pdf_bytes = base64.b64decode(pdf_base64)
+                    self.send_response(writer, 200, json.dumps({
+                        "found": True,
+                        "pdf_base64": pdf_base64
+                    }).encode('utf-8'), "application/json")
+                else:
+                    self.send_response(writer, 200, json.dumps({"found": False}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             return
 
         # 1. List Files
