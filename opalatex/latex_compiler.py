@@ -15,7 +15,7 @@ def get_tectonic_path():
         return local_exe
     
     # Fallback to PATH
-    return "tectonic"
+    return shutil.which("tectonic")
 
 def compile_latex(tex_content: str) -> dict:
     """

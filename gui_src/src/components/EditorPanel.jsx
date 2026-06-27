@@ -44,6 +44,20 @@ export default function EditorPanel({
   const [pdfBase64, setPdfBase64] = useState(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [pdfErrorLog, setPdfErrorLog] = useState('');
+  const [isTectonicAvailable, setIsTectonicAvailable] = useState(true);
+
+  const checkTectonic = () => {
+    fetch('/api/latex/check-tectonic')
+      .then(r => r.json())
+      .then(data => setIsTectonicAvailable(data.found))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    checkTectonic();
+    window.addEventListener('focus', checkTectonic);
+    return () => window.removeEventListener('focus', checkTectonic);
+  }, []);
 
   useEffect(() => {
     setIsPreviewMode(false);
@@ -295,15 +309,23 @@ export default function EditorPanel({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            onClick={handleCompile}
-            disabled={isCompiling || isSaving}
-            className="vscode-button"
-            style={{ backgroundColor: '#217b3b', color: 'white' }}
-          >
-            {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <Printer size={12} />}
-            <span>{isCompiling ? 'Compiling...' : (isSaving ? t('editorPanel.saving') : 'Compile LaTeX')}</span>
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <button
+              onClick={handleCompile}
+              disabled={isCompiling || isSaving || !isTectonicAvailable}
+              className="vscode-button"
+              style={{ backgroundColor: isTectonicAvailable ? '#217b3b' : '#3c3c3c', color: isTectonicAvailable ? 'white' : '#888', cursor: isTectonicAvailable ? 'pointer' : 'not-allowed' }}
+              title={!isTectonicAvailable ? 'Compilador ausente. Instale via Settings.' : ''}
+            >
+              {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <Printer size={12} />}
+              <span>{isCompiling ? 'Compiling...' : (isSaving ? t('editorPanel.saving') : 'Compile LaTeX')}</span>
+            </button>
+            {!isTectonicAvailable && (
+              <span style={{ fontSize: '10px', color: '#ffcc00', marginTop: '2px', position: 'absolute', top: '100%' }}>
+                Install Tectonic in Settings
+              </span>
+            )}
+          </div>
           <button
             onClick={saveFile}
             disabled={isSaving}

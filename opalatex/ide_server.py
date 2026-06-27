@@ -440,6 +440,12 @@ class AsyncHTTPServer:
                 
             self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
             return
+        # 0.0 Check Tectonic
+        elif path == '/api/latex/check-tectonic' and method == 'GET':
+            from opalatex.latex_compiler import get_tectonic_path
+            tectonic = get_tectonic_path()
+            found = tectonic is not None
+            self.send_response(writer, 200, json.dumps({"found": found}).encode('utf-8'), "application/json")
 
         # 0.1 Serve Latest PDF
         if path == '/api/latex/pdf':
