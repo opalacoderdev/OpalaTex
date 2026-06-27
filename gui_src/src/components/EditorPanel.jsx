@@ -309,23 +309,21 @@ export default function EditorPanel({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <button
-              onClick={handleCompile}
-              disabled={isCompiling || isSaving || !isTectonicAvailable}
-              className="vscode-button"
-              style={{ backgroundColor: isTectonicAvailable ? '#217b3b' : '#3c3c3c', color: isTectonicAvailable ? 'white' : '#888', cursor: isTectonicAvailable ? 'pointer' : 'not-allowed' }}
-              title={!isTectonicAvailable ? 'Compilador ausente. Instale via Settings.' : ''}
-            >
-              {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <Printer size={12} />}
-              <span>{isCompiling ? 'Compiling...' : (isSaving ? t('editorPanel.saving') : 'Compile LaTeX')}</span>
-            </button>
-            {!isTectonicAvailable && (
-              <span style={{ fontSize: '10px', color: '#ffcc00', marginTop: '2px', position: 'absolute', top: '100%' }}>
-                Install Tectonic in Settings
-              </span>
-            )}
-          </div>
+          {!isTectonicAvailable && (
+            <span style={{ fontSize: '11px', color: '#ffcc00', fontWeight: 'bold' }}>
+              Falta compilador! Instale em Settings.
+            </span>
+          )}
+          <button
+            onClick={handleCompile}
+            disabled={isCompiling || isSaving || !isTectonicAvailable}
+            className="vscode-button"
+            style={{ backgroundColor: isTectonicAvailable ? '#217b3b' : '#3c3c3c', color: isTectonicAvailable ? 'white' : '#888', cursor: isTectonicAvailable ? 'pointer' : 'not-allowed' }}
+            title={!isTectonicAvailable ? 'Compilador ausente. Instale via Settings.' : ''}
+          >
+            {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <Printer size={12} />}
+            <span>{isCompiling ? 'Compiling...' : (isSaving ? t('editorPanel.saving') : 'Compile LaTeX')}</span>
+          </button>
           <button
             onClick={saveFile}
             disabled={isSaving}
