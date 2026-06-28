@@ -6,7 +6,7 @@ echo "       OpalaTex - Build do Executável       "
 echo "=========================================="
 
 echo -e "\n[1/4] Instalando dependências e PyInstaller..."
-pip3 install pyinstaller wheel setuptools --break-system-packages
+pip3 install pyinstaller wheel setuptools
 
 echo -e "\n[2/4] Construindo o frontend (React/Vite)..."
 pushd gui_src > /dev/null
