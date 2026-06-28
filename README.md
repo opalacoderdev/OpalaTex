@@ -51,6 +51,32 @@ python main.py
 
 ---
 
-## Licença
+## Deploy e Build (Como atualizar)
 
-OpalaTex é um software Open-Source disponibilizado sob a licença **MIT**.
+Sempre que fizer alterações no projeto, siga os passos abaixo para construir (build) e atualizar os componentes:
+
+### 1. Build da Interface (Site/GUI)
+Se você alterou qualquer arquivo dentro da pasta `gui_src` (React/Vite), você precisa regerar o pacote estático para que o backend Python possa servi-lo ou o WebView possa exibi-lo:
+```bash
+npm run build --prefix .\gui_src\
+```
+*Este comando gera os arquivos minificados na pasta `opalatex/gui`, que são lidos pelo backend.*
+
+### 2. Build do Executável Desktop (.exe)
+Para gerar a versão executável final do OpalaTex para Windows (que empacota o backend e o navegador WebView), execute:
+```powershell
+.\build_exe.ps1
+```
+Após rodar o script, o arquivo compilado ficará disponível em `.\dist\OpalaTex\OpalaTex.exe`.
+
+### 3. Deploy do Instalador para os Usuários (VPS)
+Para compactar a versão final do Windows e enviar para o seu servidor VPS de modo que o comando de instalação (`irm https://opalacoder.com/install.ps1 | iex`) passe a baixar a nova versão, rode o script:
+```powershell
+.\binpacking.ps1
+```
+*Ele fará o `.zip` da pasta `dist` e fará o upload via SCP/SSH para a sua VPS (REDACTED_RELEASE_HOST), atualizando o link de download público.*
+
+### 4. Deploy da API/Cloud (Opcional)
+Se houver alterações que afetam a versão em nuvem (OpalaTexCloud API) hospedada na sua VPS:
+1. Faça o commit das alterações geradas e rode `git push`.
+2. No servidor, rode `git pull` e reinicie o serviço (`systemctl restart opalatex` ou similar).
