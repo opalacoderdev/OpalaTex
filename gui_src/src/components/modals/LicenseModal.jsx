@@ -37,52 +37,120 @@ export default function LicenseModal({ licenseData, isOpen, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-[#1e1e1e] border border-[#333] rounded-lg shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-[#333] flex justify-between items-center bg-[#252526]">
-          <h2 className="text-lg font-semibold text-[#e8e8e8]">
+    <div style={{
+      position: 'fixed',
+      top: 0, left: 0, right: 0, bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.75)',
+      backdropFilter: 'blur(5px)',
+      zIndex: 10000,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px'
+    }}>
+      <div style={{
+        backgroundColor: 'var(--vscode-editor-background, #1e1e1e)',
+        border: '1px solid var(--vscode-panel-border, #333)',
+        borderRadius: '8px',
+        boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+        width: '100%',
+        maxWidth: '450px',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        color: 'var(--vscode-editor-foreground, #cccccc)'
+      }}>
+        <div style={{
+          padding: '16px',
+          borderBottom: '1px solid var(--vscode-panel-border, #333)',
+          backgroundColor: 'var(--vscode-sideBar-background, #252526)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--vscode-editor-foreground, #e8e8e8)' }}>
             {isExpired ? 'Trial Expired' : 'Activate OpalaTex'}
           </h2>
           {!isExpired && (
-            <button onClick={onClose} className="text-[#858585] hover:text-[#e8e8e8] transition-colors">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            <button onClick={onClose} style={{
+              background: 'none', border: 'none', color: '#858585', cursor: 'pointer', fontSize: '18px'
+            }}>
+              &times;
             </button>
           )}
         </div>
         
-        <div className="p-6 space-y-4">
-          <p className="text-sm text-[#cccccc]">
+        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.5', color: '#cccccc' }}>
             {isExpired 
               ? 'Your 14-day free trial has expired. To continue using OpalaTex, please enter a valid license key.'
               : 'Enter your license key to activate OpalaTex and unlock all features.'}
           </p>
           
-          <div>
-            <label className="block text-xs text-[#858585] mb-1 uppercase tracking-wider">License Key</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '12px', color: '#858585', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              License Key
+            </label>
             <input
               type="text"
               value={key}
               onChange={(e) => setKey(e.target.value)}
               placeholder="OPALA-XXXX-XXXX-XXXX"
-              className="w-full bg-[#3c3c3c] text-[#cccccc] border border-[#444] rounded px-3 py-2 text-sm focus:outline-none focus:border-[#007acc] transition-colors font-mono"
               autoFocus
+              style={{
+                width: '100%',
+                backgroundColor: 'var(--vscode-input-background, #3c3c3c)',
+                color: 'var(--vscode-input-foreground, #cccccc)',
+                border: '1px solid var(--vscode-input-border, #444)',
+                borderRadius: '4px',
+                padding: '10px 12px',
+                fontSize: '14px',
+                fontFamily: 'monospace',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
             />
           </div>
 
-          {error && <div className="text-red-400 text-xs p-2 bg-red-400/10 rounded">{error}</div>}
-          {success && <div className="text-green-400 text-xs p-2 bg-green-400/10 rounded">{success}</div>}
+          {error && <div style={{ color: '#f48771', fontSize: '13px', padding: '10px', backgroundColor: 'rgba(244,135,113,0.1)', borderRadius: '4px' }}>{error}</div>}
+          {success && <div style={{ color: '#89d185', fontSize: '13px', padding: '10px', backgroundColor: 'rgba(137,209,133,0.1)', borderRadius: '4px' }}>{success}</div>}
         </div>
         
-        <div className="p-4 bg-[#252526] border-t border-[#333] flex justify-end gap-2">
+        <div style={{
+          padding: '16px',
+          backgroundColor: 'var(--vscode-sideBar-background, #252526)',
+          borderTop: '1px solid var(--vscode-panel-border, #333)',
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: '12px'
+        }}>
           {!isExpired && (
-            <button onClick={onClose} className="px-4 py-2 text-sm text-[#cccccc] hover:bg-[#3c3c3c] rounded transition-colors">
+            <button onClick={onClose} style={{
+              padding: '8px 16px',
+              fontSize: '14px',
+              backgroundColor: 'transparent',
+              color: '#cccccc',
+              border: 'none',
+              cursor: 'pointer',
+              borderRadius: '4px'
+            }}>
               Cancel
             </button>
           )}
           <button 
             onClick={handleActivate}
             disabled={!key.trim() || isLoading}
-            className="px-4 py-2 text-sm bg-[#0e639c] text-white rounded hover:bg-[#1177bb] disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium shadow-sm"
+            style={{
+              padding: '8px 16px',
+              fontSize: '14px',
+              fontWeight: 500,
+              backgroundColor: (!key.trim() || isLoading) ? '#4d4d4d' : 'var(--vscode-button-background, #0e639c)',
+              color: 'var(--vscode-button-foreground, #ffffff)',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: (!key.trim() || isLoading) ? 'not-allowed' : 'pointer',
+              opacity: (!key.trim() || isLoading) ? 0.7 : 1
+            }}
           >
             {isLoading ? 'Activating...' : 'Activate License'}
           </button>

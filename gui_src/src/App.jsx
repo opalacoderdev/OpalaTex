@@ -1786,10 +1786,9 @@ export default function App() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="vscode-app">
-      <div className="vscode-main">
+      <div className={`vscode-main ${licenseData?.status === 'TRIAL_EXPIRED' ? 'pointer-events-none opacity-20' : ''}`}>
 
-        {/* Layout */}
-      <div className={`flex flex-col h-full ${licenseData?.status === 'TRIAL_EXPIRED' ? 'pointer-events-none opacity-20' : ''}`}>
+        {/* Activity Bar */}
         <ActivityBar
           activeSidebarTab={activeSidebarTab}
           setActiveSidebarTab={(tab) => {
