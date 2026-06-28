@@ -571,11 +571,13 @@ class AsyncHTTPServer:
                     main_file = guess_main_file(project_path)
 
                 if main_file:
-                    full_path = os.path.abspath(os.path.join(project_path, main_file))
+                    main_full_path = os.path.abspath(os.path.join(project_path, main_file))
                 else:
-                    full_path = os.path.abspath(os.path.join(project_path, file_path))
+                    main_full_path = os.path.abspath(os.path.join(project_path, file_path))
+                
+                target_full_path = os.path.abspath(os.path.join(project_path, file_path))
 
-                synctex_path = os.path.splitext(full_path)[0] + ".synctex.gz"
+                synctex_path = os.path.splitext(main_full_path)[0] + ".synctex.gz"
                 
                 if not os.path.exists(synctex_path):
                     self.send_response(writer, 404, b'{"error":"synctex file not found"}', "application/json")
@@ -594,7 +596,7 @@ class AsyncHTTPServer:
                     self.send_response(writer, 200, json.dumps({"result": result}).encode('utf-8'), "application/json")
                 elif action == 'tex2pdf':
                     line = int(query.get('line', ['1'])[0])
-                    result = find_pdf_position(synctex_path, full_path, line)
+                    result = find_pdf_position(synctex_path, target_full_path, line)
                     self.send_response(writer, 200, json.dumps({"result": result}).encode('utf-8'), "application/json")
                 else:
                     self.send_response(writer, 400, b'{"error":"invalid action"}', "application/json")
