@@ -65,7 +65,7 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
 
       <div className="flex items-center" style={{ gap: '12px' }}>
         <a 
-          href="https://opalacoder.com/#products" 
+          href={licenseData?.key ? `https://opalacoder.com/?license=${licenseData.key}#products` : "https://opalacoder.com/#products"} 
           target="_blank" 
           rel="noopener noreferrer"
           className="flex items-center underline cursor-pointer"
