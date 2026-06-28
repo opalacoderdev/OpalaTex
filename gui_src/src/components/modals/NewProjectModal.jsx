@@ -29,6 +29,15 @@ export default function NewProjectModal({
   const { hardware: workerHardware, modelStatus: workerModelStatus } = useModelValidation(newProjWorkerModel);
 
   const [activeTab, setActiveTab] = useState('geral');
+  const [globalAiProvider, setGlobalAiProvider] = useState('local');
+
+  React.useEffect(() => {
+    fetch('/api/settings/ai-provider')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
+      .catch(() => {});
+  }, []);
+
   const isWindows = navigator.userAgent.toLowerCase().includes('windows');
   const dynamicPathHint = isWindows ? 'Ex: C:\\Projetos' : 'Ex: /home/user/projetos';
 
@@ -199,40 +208,64 @@ export default function NewProjectModal({
 
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.aiModel')}</label>
-                <input
-                  type="text"
-                  list="default-models"
-                  value={newProjModel}
-                  onChange={(e) => setNewProjModel(e.target.value)}
-                  onBlur={() => onLoadModelConfig(true)}
-                  placeholder={t('newProjectModal.modelPlaceholder')}
-                  style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
-                />
-                <datalist id="default-models">
-                  <option value="gemini/gemini-flash-lite-latest" />
-                  <option value="anthropic/claude-3-5-sonnet-latest" />
-                  <option value="openai/gpt-4o" />
-                  <option value="ollama/gemma4:12b" />
-                  <option value="ollama/gemma4:31b-cloud" />
-                </datalist>
-                {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>✓ Modelo adequado.</span>}
-                {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>⚠ Poderá ficar lento.</span>}
-                {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>❌ Pode exceder VRAM.</span>}
+                {globalAiProvider === 'cloud' ? (
+                  <select
+                    className="vscode-settings-input"
+                    value={newProjModel || 'OpalaTexCloud'}
+                    onChange={(e) => setNewProjModel(e.target.value)}
+                  >
+                    <option value="OpalaTexCloud">OpalaTex Cloud (Padrão)</option>
+                    <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                    <option value="openai/gpt-4o">GPT-4o</option>
+                    <option value="anthropic/claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+                  </select>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      list="default-models"
+                      value={newProjModel}
+                      onChange={(e) => setNewProjModel(e.target.value)}
+                      onBlur={() => onLoadModelConfig(true)}
+                      placeholder={t('newProjectModal.modelPlaceholder')}
+                      style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
+                    />
+                    <datalist id="default-models">
+                      <option value="gemini/gemini-flash-lite-latest" />
+                      <option value="anthropic/claude-3-5-sonnet-latest" />
+                      <option value="openai/gpt-4o" />
+                      <option value="ollama/gemma4:12b" />
+                      <option value="ollama/gemma4:31b-cloud" />
+                    </datalist>
+                  </>
+                )}
+                {globalAiProvider !== 'cloud' && (
+                  <>
+                    {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>✓ Modelo adequado.</span>}
+                    {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>⚠ Poderá ficar lento.</span>}
+                    {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>❌ Pode exceder VRAM.</span>}
+                  </>
+                )}
               </div>
 
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.apiKey')}</label>
-                  <input type="password" value={newProjApiKey} onChange={(e) => setNewProjApiKey(e.target.value)} placeholder={t('newProjectModal.apiKeyPlaceholder')} />
-                </div>
-                <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.apiBase')}</label>
-                  <input type="text" value={newProjApiBase} onChange={(e) => setNewProjApiBase(e.target.value)} placeholder={t('newProjectModal.apiBasePlaceholder')} />
-                </div>
-              </div>
-              <div style={{ fontSize: '11px', color: '#808080', marginTop: '-6px', lineHeight: '1.4' }}>
-                <Trans i18nKey="newProjectModal.ollamaTip" components={[<span />, <strong />]} />
-              </div>
+              {globalAiProvider !== 'cloud' && (
+                <>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
+                      <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.apiKey')}</label>
+                      <input type="password" value={newProjApiKey} onChange={(e) => setNewProjApiKey(e.target.value)} placeholder={t('newProjectModal.apiKeyPlaceholder')} />
+                    </div>
+                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
+                      <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.apiBase')}</label>
+                      <input type="text" value={newProjApiBase} onChange={(e) => setNewProjApiBase(e.target.value)} placeholder={t('newProjectModal.apiBasePlaceholder')} />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#808080', marginTop: '-6px', lineHeight: '1.4' }}>
+                    <Trans i18nKey="newProjectModal.ollamaTip" components={[<span />, <strong />]} />
+                  </div>
+                </>
+              )}
 
               {/* Advanced params for Orchestrator */}
               <details style={{ background: 'var(--vscode-input-bg)', padding: '8px', borderRadius: '4px', border: '1px solid var(--vscode-border)' }}>
@@ -276,35 +309,57 @@ export default function NewProjectModal({
             <>
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Worker Model</label>
-                <input
-                  type="text"
-                  list="default-worker-models"
-                  value={newProjWorkerModel}
-                  onChange={e => setNewProjWorkerModel(e.target.value)}
-                  placeholder="ollama/gemma4:12b (Opcional)"
-                  style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
-                />
-                <datalist id="default-worker-models">
-                  <option value="gemini/gemini-flash-lite-latest" />
-                  <option value="anthropic/claude-3-5-sonnet-latest" />
-                  <option value="ollama/gemma4:12b" />
-                  <option value="ollama/gemma4:31b-cloud" />
-                </datalist>
-                {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>✓ Modelo adequado.</span>}
-                {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>⚠ Poderá ficar lento.</span>}
-                {workerModelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>❌ Pode exceder VRAM.</span>}
+                {globalAiProvider === 'cloud' ? (
+                  <select
+                    className="vscode-settings-input"
+                    value={newProjWorkerModel || 'OpalaTexCloud'}
+                    onChange={e => setNewProjWorkerModel(e.target.value)}
+                  >
+                    <option value="OpalaTexCloud">OpalaTex Cloud (Padrão)</option>
+                    <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                    <option value="openai/gpt-4o">GPT-4o</option>
+                    <option value="anthropic/claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+                  </select>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      list="default-worker-models"
+                      value={newProjWorkerModel}
+                      onChange={e => setNewProjWorkerModel(e.target.value)}
+                      placeholder="ollama/gemma4:12b (Opcional)"
+                      style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
+                    />
+                    <datalist id="default-worker-models">
+                      <option value="gemini/gemini-flash-lite-latest" />
+                      <option value="anthropic/claude-3-5-sonnet-latest" />
+                      <option value="ollama/gemma4:12b" />
+                      <option value="ollama/gemma4:31b-cloud" />
+                    </datalist>
+                  </>
+                )}
+                {globalAiProvider !== 'cloud' && (
+                  <>
+                    {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>✓ Modelo adequado.</span>}
+                    {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>⚠ Poderá ficar lento.</span>}
+                    {workerModelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>❌ Pode exceder VRAM.</span>}
+                  </>
+                )}
               </div>
 
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Worker API Key</label>
-                  <input type="password" value={newProjWorkerApiKey} onChange={e => setNewProjWorkerApiKey(e.target.value)} placeholder="API Key for Worker" />
+              {globalAiProvider !== 'cloud' && (
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
+                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Worker API Key</label>
+                    <input type="password" value={newProjWorkerApiKey} onChange={e => setNewProjWorkerApiKey(e.target.value)} placeholder="API Key for Worker" />
+                  </div>
+                  <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
+                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Worker API Base</label>
+                    <input type="text" value={newProjWorkerApiBase} onChange={e => setNewProjWorkerApiBase(e.target.value)} placeholder="http://localhost:11434/v1" />
+                  </div>
                 </div>
-                <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Worker API Base</label>
-                  <input type="text" value={newProjWorkerApiBase} onChange={e => setNewProjWorkerApiBase(e.target.value)} placeholder="http://localhost:11434/v1" />
-                </div>
-              </div>
+              )}
 
               {/* Advanced params for Worker */}
               <details style={{ background: 'var(--vscode-input-bg)', padding: '8px', borderRadius: '4px', border: '1px solid var(--vscode-border)' }}>

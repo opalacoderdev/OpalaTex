@@ -1,4 +1,4 @@
-﻿{
+{
   "activityBar": {
     "explorer": "Explorer",
     "sourceControl": "Source Control",
@@ -8,7 +8,10 @@
   "statusBar": {
     "workspace": "Workspace: {{name}}",
     "noWorkspace": "No Workspace",
-    "agentRunning": "OpalaTex Active..."
+    "agentRunning": "OpalaTex Active...",
+    "balance": "Balance: {{amount}}",
+    "buyCredits": "☁️ Buy Credits",
+    "buyCreditsTitle": "Buy more AI credits or Subscription"
   },
   "explorerSidebar": {
     "header": "EXPLORER: PROJECTS",
@@ -204,8 +207,12 @@
     "tabPreferences": "Preferences",
     "tabAbout": "About",
     "language": "Interface Language",
+    "aiProvider": "AI Provider",
+    "aiProviderHint": "Choose how Artificial Intelligence will be provided.",
+    "aiProviderLocal": "Own Key / Local Model",
+    "aiProviderCloud": "OpalaTex Cloud (Requires Credits/License)",
     "languageSystem": "System (automatic)",
-    "languagePtBR": "PortuguÃªs (Brasil)",
+    "languagePtBR": "Português (Brasil)",
     "languageEn": "English",
     "colorTheme": "Color Theme",
     "editorFontSize": "Editor Font Size",
@@ -315,5 +322,8 @@
     "apiKeyPlaceholder": "Paste your key here...",
     "skipKeyBtn": "Skip Key (I'll provide it later)",
     "createPilotBtn": "Create Pilot Project"
+  },
+  "common": {
+    "noCredits": "Insufficient balance to use the cloud. Please add credits."
   }
 }

@@ -117,7 +117,7 @@ export default function SettingsModal({
 
               {/* AI Provider */}
               <div className="flex flex-col" style={{ gap: '6px' }}>
-                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.aiProvider') || 'Provedor de IA'}</label>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.aiProvider')}</label>
                 <select
                   value={aiProvider}
                   onChange={(e) => {
@@ -132,11 +132,11 @@ export default function SettingsModal({
                   className="vscode-settings-input"
                   style={{ width: '100%' }}
                 >
-                  <option value="local">Chave Própria / Modelo Local</option>
-                  <option value="cloud">OpalaTex Cloud (Requer Créditos/Licença)</option>
+                  <option value="local">{t('settingsModal.aiProviderLocal')}</option>
+                  <option value="cloud">{t('settingsModal.aiProviderCloud')}</option>
                 </select>
                 <span style={{ fontSize: '11px', color: '#888888' }}>
-                  Escolha como a Inteligência Artificial será fornecida.
+                  {t('settingsModal.aiProviderHint')}
                 </span>
               </div>
 
@@ -341,7 +341,7 @@ export default function SettingsModal({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', color: 'var(--vscode-text-fg)' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.version')}</span>
-                <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--vscode-text-fg)' }}>0.2.15</span>
+                <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--vscode-text-fg)' }}>0.1.0</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.author')}</span>
@@ -350,7 +350,7 @@ export default function SettingsModal({
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.license')}</span>
-                <span style={{ fontSize: '13px', color: 'var(--vscode-text-fg)' }}>MIT</span>
+                <span style={{ fontSize: '13px', color: 'var(--vscode-text-fg)' }}>OpalaTex License</span>
               </div>
             </div>
           )}

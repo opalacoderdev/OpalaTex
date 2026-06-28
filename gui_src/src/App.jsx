@@ -1444,6 +1444,17 @@ export default function App() {
   const handleSendMessage = async (e, retryMsg = null) => {
     if (e && e.preventDefault) e.preventDefault();
     
+    try {
+      const r = await fetch('/api/settings/ai-provider');
+      if (r.ok) {
+        const cfg = await r.json();
+        if (cfg.provider === 'cloud' && (!licenseData || !licenseData.creditBalance || licenseData.creditBalance <= 0)) {
+          alert(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
+          return;
+        }
+      }
+    } catch (_) {}
+    
     let userText = '';
     let attachmentsSnapshot = [];
 
@@ -1744,6 +1755,16 @@ export default function App() {
    *   (avoids re-reading Monaco selection which may be gone by now).
    */
   const handleSendMessageWithPrompt = async (userText, capturedSelectedText) => {
+    try {
+      const r = await fetch('/api/settings/ai-provider');
+      if (r.ok) {
+        const cfg = await r.json();
+        if (cfg.provider === 'cloud' && (!licenseData || !licenseData.creditBalance || licenseData.creditBalance <= 0)) {
+          alert(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
+          return;
+        }
+      }
+    } catch (_) {}
     if (!userText.trim() || !activeProject || isAgentRunning) return;
     setChatInput('');
     setChatMessages(prev => [...prev, { role: 'user', content: userText, timestamp: new Date().toISOString() }]);

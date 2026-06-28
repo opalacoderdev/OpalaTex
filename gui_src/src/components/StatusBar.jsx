@@ -17,14 +17,12 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
         .then(cfg => {
           if (cfg?.provider) {
             setAiProvider(cfg.provider);
-            if (cfg.provider === 'cloud') {
-              fetch('/api/settings/token-balance')
-                .then(r => r.ok ? r.json() : null)
-                .then(bal => {
-                  if (bal && bal.balance !== undefined) setTokenBalance(bal.balance);
-                }).catch(() => {});
-            }
           }
+          fetch('/api/settings/token-balance')
+            .then(r => r.ok ? r.json() : null)
+            .then(bal => {
+              if (bal && bal.balance !== undefined) setTokenBalance(bal.balance);
+            }).catch(() => {});
         }).catch(() => {});
     };
     checkBalance();
@@ -72,16 +70,14 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
           rel="noopener noreferrer"
           className="flex items-center underline cursor-pointer"
           style={{ gap: '4px', color: '#ffffff', fontSize: '12px', fontWeight: 'bold', padding: '2px 6px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px' }}
-          title="Comprar mais créditos de IA ou Assinatura"
+          title={t('statusBar.buyCreditsTitle', 'Comprar mais créditos de IA ou Assinatura')}
         >
-          ☁️ Comprar Créditos
+          {t('statusBar.buyCredits', '☁️ Comprar Créditos')}
         </a>
         
-        {aiProvider === 'cloud' && (
-          <span style={{ color: '#a3be8c', fontWeight: 'bold' }}>
-            Saldo: {tokenBalance !== null ? tokenBalance.toLocaleString('pt-BR') : '...'}
-          </span>
-        )}
+        <span style={{ color: '#a3be8c', fontWeight: 'bold' }}>
+          {t('statusBar.balance', { amount: tokenBalance !== null ? tokenBalance.toLocaleString() : '...' })}
+        </span>
         
         <span>UTF-8</span>
         <span>LF</span>

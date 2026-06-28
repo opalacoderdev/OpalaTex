@@ -39,6 +39,16 @@ export default function EditProjectModal({
   const { hardware: workerHardware, modelStatus: workerModelStatus } = useModelValidation(editingProject?.worker_model);
 
   const [activeTab, setActiveTab] = useState('geral');
+  const [globalAiProvider, setGlobalAiProvider] = useState('local');
+
+  React.useEffect(() => {
+    if (editingProject) {
+      fetch('/api/settings/ai-provider')
+        .then(r => r.ok ? r.json() : null)
+        .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
+        .catch(() => {});
+    }
+  }, [editingProject]);
 
   const getBorderColor = (status) => {
     if (status === 'green') return '#4ade80';
@@ -511,40 +521,76 @@ export default function EditProjectModal({
 
           {/* WORKER TAB */}
           {activeTab === 'worker' && (
-            <>
-              {/* Worker model */}
+            <div className="flex flex-col" style={{ gap: '14px' }}>
+              {/* Worker Model */}
               <div className="flex flex-col" style={{ gap: '4px' }}>
-                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerModel')}</label>
-                <input
-                  type="text"
-                  list="edit-worker-models"
-                  value={editingProject.worker_model}
-                  onChange={e => setEditingProject(p => ({ ...p, worker_model: e.target.value }))}
-                  placeholder={t('editProjectModal.workerModelPlaceholder')}
-                  style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
-                />
-                <datalist id="edit-worker-models">
-                  <option value="gemini/gemini-flash-lite-latest" />
-                  <option value="anthropic/claude-3-5-sonnet-latest" />
-                  <option value="ollama/gemma4:12b" />
-                  <option value="ollama/gemma4:31b-cloud" />
-                </datalist>
-                {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>✓ Modelo adequado.</span>}
-                {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>⚠ Poderá ficar lento.</span>}
-                {workerModelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>❌ Pode exceder VRAM.</span>}
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerModel')}</label>
+                </div>
+                {globalAiProvider === 'cloud' ? (
+                  <select
+                    className="vscode-settings-input"
+                    value={editingProject.worker_model || 'OpalaTexCloud'}
+                    onChange={e => setEditingProject(p => ({ ...p, worker_model: e.target.value }))}
+                  >
+                    <option value="OpalaTexCloud">OpalaTex Cloud (Padrão)</option>
+                    <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                    <option value="openai/gpt-4o">GPT-4o</option>
+                    <option value="anthropic/claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+                  </select>
+                ) : (
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <input
+                      type="text"
+                      className="vscode-settings-input"
+                      value={editingProject.worker_model || ''}
+                      onChange={e => setEditingProject(p => ({ ...p, worker_model: e.target.value }))}
+                      placeholder={t('editProjectModal.workerModelPlaceholder')}
+                      style={{ flex: 1, borderColor: getBorderColor(workerModelStatus) }}
+                    />
+                  </div>
+                )}
+                {globalAiProvider !== 'cloud' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                    {workerHardware ? (
+                      <span style={{ fontSize: '10px', color: '#888888' }}>
+                        HW: {workerHardware.gpu_vram_gb}GB VRAM | {workerHardware.ram_gb}GB RAM
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '10px', color: '#888888' }}>Detectando hardware...</span>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* API credentials (worker model) */}
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiKey')}</label>
-                  <input type="password" value={editingProject.worker_api_key} onChange={e => setEditingProject(p => ({ ...p, worker_api_key: e.target.value }))} placeholder={t('editProjectModal.apiKeyPlaceholder')} />
-                </div>
-                <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiBase')}</label>
-                  <input type="text" value={editingProject.worker_api_base} onChange={e => setEditingProject(p => ({ ...p, worker_api_base: e.target.value }))} placeholder={t('editProjectModal.apiBasePlaceholder')} />
-                </div>
-              </div>
+              {globalAiProvider !== 'cloud' && (
+                <>
+                  {/* Worker API Key */}
+                  <div className="flex flex-col" style={{ gap: '4px' }}>
+                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiKey')}</label>
+                    <input
+                      type="password"
+                      className="vscode-settings-input"
+                      value={editingProject.worker_api_key || ''}
+                      onChange={e => setEditingProject(p => ({ ...p, worker_api_key: e.target.value }))}
+                      placeholder={t('editProjectModal.apiKeyPlaceholder')}
+                    />
+                  </div>
+
+                  {/* Worker API Base */}
+                  <div className="flex flex-col" style={{ gap: '4px' }}>
+                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiBase')}</label>
+                    <input
+                      type="text"
+                      className="vscode-settings-input"
+                      value={editingProject.worker_api_base || ''}
+                      onChange={e => setEditingProject(p => ({ ...p, worker_api_base: e.target.value }))}
+                      placeholder={t('editProjectModal.apiBasePlaceholder')}
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Advanced params for Worker (collapsible) */}
               <div className="flex flex-col" style={{ marginTop: '4px' }}>
@@ -674,7 +720,7 @@ export default function EditProjectModal({
                   </div>
                 )}
               </div>
-            </>
+            </div>
           )}
 
           {editProjError && (

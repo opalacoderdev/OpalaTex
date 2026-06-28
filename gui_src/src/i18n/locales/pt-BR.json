@@ -7,8 +7,11 @@
   },
   "statusBar": {
     "workspace": "Workspace: {{name}}",
-    "noWorkspace": "Sem Workspace",
-    "agentRunning": "OpalaTex Ativo..."
+    "noWorkspace": "Nenhum Workspace",
+    "agentRunning": "OpalaTex Ativo...",
+    "balance": "Saldo: {{amount}}",
+    "buyCredits": "☁️ Comprar Créditos",
+    "buyCreditsTitle": "Comprar mais créditos de IA ou Assinatura"
   },
   "explorerSidebar": {
     "header": "EXPLORER: PROJETOS",
@@ -207,6 +210,10 @@
     "tabPreferences": "Preferências",
     "tabAbout": "Sobre",
     "language": "Idioma da Interface",
+    "aiProvider": "Provedor de Inteligência Artificial",
+    "aiProviderHint": "Escolha como a Inteligência Artificial será fornecida.",
+    "aiProviderLocal": "Chave Própria / Modelo Local",
+    "aiProviderCloud": "OpalaTex Cloud (Requer Créditos/Licença)",
     "languageSystem": "Sistema (automático)",
     "languagePtBR": "Português (Brasil)",
     "languageEn": "English",
@@ -318,5 +325,8 @@
     "apiKeyPlaceholder": "Cole sua chave aqui...",
     "skipKeyBtn": "Pular Chave (Informo depois)",
     "createPilotBtn": "Criar Projeto Piloto"
+  },
+  "common": {
+    "noCredits": "Sem saldo suficiente para usar a cloud. Por favor adicione créditos."
   }
 }

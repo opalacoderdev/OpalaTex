@@ -61,6 +61,16 @@ export default function EditorPanel({
     return () => window.removeEventListener('focus', checkTectonic);
   }, []);
 
+  // Clear PDF only when switching projects
+  const prevProjectRef = useRef(activeProject?.project_path);
+  useEffect(() => {
+    if (activeProject?.project_path !== prevProjectRef.current) {
+      setPdfBase64(null);
+      setPdfErrorLog('');
+      prevProjectRef.current = activeProject?.project_path;
+    }
+  }, [activeProject?.project_path]);
+
   // ── Restore or compile ──────────────────────────────────────────────────
   useEffect(() => {
     setIsDiffMode(false);
@@ -74,18 +84,15 @@ export default function EditorPanel({
           if (data.found && data.pdf_base64) {
             setPdfBase64(data.pdf_base64);
             setPdfErrorLog('');
-          } else {
-            setPdfBase64(null);
-            setPdfErrorLog('');
           }
+          // If not found, do NOT clear pdfBase64, so the main document's PDF remains visible
+          // when clicking into an included file (e.g., apendice.tex).
         })
-        .catch(() => {
-          setPdfBase64(null);
-        });
-    } else {
-      setPdfBase64(null);
+        .catch(() => {});
     }
-  }, [selectedFile]);
+    // We also do NOT clear pdfBase64 if not a .tex file, 
+    // so users can see the PDF while editing .bib or .cls files.
+  }, [selectedFile, activeProject?.project_path]);
 
   // Jump to line effect when switching files
   useEffect(() => {

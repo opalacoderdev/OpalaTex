@@ -17,6 +17,23 @@ def get_tectonic_path():
     # Fallback to PATH
     return shutil.which("tectonic")
 
+def guess_main_file(project_dir: str) -> str:
+    """Guess the main LaTeX file by looking for \\documentclass in all .tex files."""
+    if not project_dir or not os.path.isdir(project_dir):
+        return ""
+    try:
+        for f in os.listdir(project_dir):
+            if f.endswith(".tex"):
+                path = os.path.join(project_dir, f)
+                if os.path.isfile(path):
+                    with open(path, "r", encoding="utf-8", errors="ignore") as file:
+                        # read first 4096 bytes to find \documentclass
+                        if "\\documentclass" in file.read(4096):
+                            return f
+    except Exception:
+        pass
+    return ""
+
 def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", project_dir: str = "") -> dict:
     """
     Compiles LaTeX content using Tectonic.

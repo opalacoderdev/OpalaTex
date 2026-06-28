@@ -472,6 +472,9 @@ class AsyncHTTPServer:
                     if p.get("project_path") and os.path.abspath(os.path.expanduser(p["project_path"])) == os.path.abspath(os.path.expanduser(project_path)):
                         main_file = p.get("main_file", "")
                         break
+                if not main_file:
+                    from opalatex.latex_compiler import guess_main_file
+                    main_file = guess_main_file(project_path)
             
             # run compilation
             result = compile_latex(content, full_path, main_file, project_path)
@@ -507,7 +510,24 @@ class AsyncHTTPServer:
                 return
             
             try:
-                full_path = os.path.abspath(os.path.join(project_path, file_path))
+                # Find main_file
+                main_file = ""
+                from opalatex.project import ProjectStore
+                from opalatex.config import DEFAULT_DB_PATH
+                store = ProjectStore(db_path=DEFAULT_DB_PATH)
+                for p in store.list_projects():
+                    if p.get("project_path") and os.path.abspath(os.path.expanduser(p["project_path"])) == os.path.abspath(os.path.expanduser(project_path)):
+                        main_file = p.get("main_file", "")
+                        break
+                if not main_file:
+                    from opalatex.latex_compiler import guess_main_file
+                    main_file = guess_main_file(project_path)
+                
+                if main_file:
+                    full_path = os.path.abspath(os.path.join(project_path, main_file))
+                else:
+                    full_path = os.path.abspath(os.path.join(project_path, file_path))
+                    
                 target_pdf = os.path.splitext(full_path)[0] + ".pdf"
                 if os.path.exists(target_pdf):
                     with open(target_pdf, "rb") as pdf_file:
@@ -546,6 +566,9 @@ class AsyncHTTPServer:
                     if p.get("project_path") and os.path.abspath(os.path.expanduser(p["project_path"])) == os.path.abspath(os.path.expanduser(project_path)):
                         main_file = p.get("main_file", "")
                         break
+                if not main_file:
+                    from opalatex.latex_compiler import guess_main_file
+                    main_file = guess_main_file(project_path)
 
                 if main_file:
                     full_path = os.path.abspath(os.path.join(project_path, main_file))
@@ -1814,6 +1837,16 @@ class AsyncHTTPServer:
 
         # 6c. Slash Command
         elif path == '/api/opalatex/slash-command' and method == 'POST':
+            from opalatex.ui_settings import load_ui_settings
+            from opalatex.licensing import _load_license_data
+            
+            ui_cfg = load_ui_settings()
+            if ui_cfg.get("ai_provider") == "cloud":
+                license_data = _load_license_data()
+                if license_data.get("creditBalance", 0) <= 0:
+                    self.send_response(writer, 403, b'{"error":"Insufficient credits"}', "application/json")
+                    return
+                    
             from opalatex.agent_stdin import handle_slash_command
             try:
                 result = await handle_slash_command(data)
@@ -1846,6 +1879,15 @@ class AsyncHTTPServer:
 
         # 7b. Run Agent (Streaming)
         elif path == '/api/opalatex/run' and method == 'POST':
+            from opalatex.ui_settings import load_ui_settings
+            from opalatex.licensing import _load_license_data
+            
+            ui_cfg = load_ui_settings()
+            if ui_cfg.get("ai_provider") == "cloud":
+                license_data = _load_license_data()
+                if license_data.get("creditBalance", 0) <= 0:
+                    self.send_response(writer, 403, b'{"error":"Insufficient credits"}', "application/json")
+                    return
 
             headers = (
                 "HTTP/1.1 200 OK\r\n"
@@ -2460,7 +2502,7 @@ class AsyncHTTPServer:
             
             try:
                 # In production, point to https://www.opalacoder.com/api/get-balance
-                req = urllib.request.Request("http://localhost:3000/api/get-balance")
+                req = urllib.request.Request("https://opalacoder.com/api/get-balance")
                 req.add_header('Authorization', f'Bearer {license_key}')
                 with urllib.request.urlopen(req, timeout=3) as resp:
                     resp_data = json.loads(resp.read().decode('utf-8'))
