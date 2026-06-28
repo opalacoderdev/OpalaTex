@@ -3,7 +3,7 @@ import { Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Bottom status bar (VSCode-style footer).
-export default function StatusBar({ activeProject, isAgentRunning }) {
+export default function StatusBar({ activeProject, isAgentRunning, licenseData, onOpenLicense }) {
   const { t } = useTranslation();
 
   const [tokenBalance, setTokenBalance] = React.useState(null);
@@ -49,14 +49,40 @@ export default function StatusBar({ activeProject, isAgentRunning }) {
             <span style={{ fontWeight: 'bold' }}>{t('statusBar.agentRunning')}</span>
           </span>
         )}
+        
+        {/* Trial Badge */}
+        {licenseData?.status === 'TRIAL_ACTIVE' && (
+          <div 
+            onClick={onOpenLicense}
+            className="flex items-center cursor-pointer hover:bg-white/10 px-2 py-0.5 rounded transition-colors" 
+            style={{ gap: '4px', backgroundColor: 'rgba(255, 165, 0, 0.2)', border: '1px solid rgba(255,165,0,0.5)', color: '#ffb84d' }}
+            title="Ativar Licença Vitalícia"
+          >
+            <span style={{ fontWeight: 'bold', fontSize: '11px' }}>
+              VERSÃO TRIAL ({licenseData.days_left} dias restantes)
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center" style={{ gap: '12px' }}>
+        <a 
+          href="https://opalacoder.com/#products" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="flex items-center underline cursor-pointer"
+          style={{ gap: '4px', color: '#ffffff', fontSize: '12px', fontWeight: 'bold', padding: '2px 6px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px' }}
+          title="Comprar mais créditos de IA ou Assinatura"
+        >
+          ☁️ Comprar Créditos
+        </a>
+        
         {aiProvider === 'cloud' && (
           <span style={{ color: '#a3be8c', fontWeight: 'bold' }}>
-            ☁️ Créditos: {tokenBalance !== null ? tokenBalance.toLocaleString('pt-BR') : '...'}
+            Saldo: {tokenBalance !== null ? tokenBalance.toLocaleString('pt-BR') : '...'}
           </span>
         )}
+        
         <span>UTF-8</span>
         <span>LF</span>
         <span>JSON IPC Bridge</span>

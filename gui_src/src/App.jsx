@@ -219,6 +219,11 @@ export default function App() {
       });
   }, []);
 
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+    fetchProjects();
+  };
+
   const fetchGlobalModels = () => {
     fetch('/api/settings/models')
       .then(res => res.json())
@@ -2054,7 +2059,12 @@ export default function App() {
       </div>
 
       {/* Status Bar */}
-      <StatusBar activeProject={activeProject} isAgentRunning={isAgentRunning} />
+      <StatusBar 
+        activeProject={activeProject} 
+        isAgentRunning={isAgentRunning} 
+        licenseData={licenseData}
+        onOpenLicense={() => setShowLicenseModal(true)}
+      />
 
       {/* ── Overlays / Modals ── */}
 
