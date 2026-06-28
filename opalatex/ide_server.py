@@ -2435,6 +2435,39 @@ class AsyncHTTPServer:
             set_lang(backend_lang)
             self.send_response(writer, 200, b'{"success":true}', "application/json")
 
+        # 7o. AI Provider — GET
+        elif path == '/api/settings/ai-provider' and method == 'GET':
+            from opalatex.ui_settings import load_ui_settings
+            cfg = load_ui_settings()
+            self.send_response(writer, 200, json.dumps({"provider": cfg.get("ai_provider", "local")}).encode('utf-8'), "application/json")
+
+        # 7p. AI Provider — POST (set)
+        elif path == '/api/settings/ai-provider' and method == 'POST':
+            from opalatex.ui_settings import save_ui_settings
+            provider = data.get("provider", "local")
+            save_ui_settings({"ai_provider": provider})
+            self.send_response(writer, 200, b'{"success":true}', "application/json")
+
+        # 7q. Token Balance — GET
+        elif path == '/api/settings/token-balance' and method == 'GET':
+            from opalatex.licensing import _load_license_data
+            import urllib.request
+            license_data = _load_license_data()
+            license_key = license_data.get("license_key")
+            if not license_key:
+                self.send_response(writer, 200, json.dumps({"balance": 0, "error": "No license key"}).encode('utf-8'), "application/json")
+                return
+            
+            try:
+                # In production, point to https://www.opalacoder.com/api/get-balance
+                req = urllib.request.Request("http://localhost:3000/api/get-balance")
+                req.add_header('Authorization', f'Bearer {license_key}')
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    resp_data = json.loads(resp.read().decode('utf-8'))
+                    self.send_response(writer, 200, json.dumps(resp_data).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 200, json.dumps({"balance": 0, "error": str(e)}).encode('utf-8'), "application/json")
+
         # 7l. Web search MCP test
         elif path == '/api/settings/web-search/test' and method == 'POST':
             from opalatex.web_search_config import test_mcp

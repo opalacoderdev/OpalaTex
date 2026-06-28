@@ -31,6 +31,7 @@ export default function SettingsModal({
   const { t } = useTranslation();
   const [selectedLang, setSelectedLang] = React.useState('');
   const [opalatexHome, setOpalaTexHome] = React.useState('');
+  const [aiProvider, setAiProvider] = React.useState('local');
 
   React.useEffect(() => {
     fetch('/api/settings/language')
@@ -41,6 +42,11 @@ export default function SettingsModal({
     fetch('/api/settings/opalatexhome')
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.path) setOpalaTexHome(data.path); })
+      .catch(() => { });
+
+    fetch('/api/settings/ai-provider')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => { if (cfg?.provider !== undefined) setAiProvider(cfg.provider); })
       .catch(() => { });
   }, []);
 
@@ -107,6 +113,31 @@ export default function SettingsModal({
                   <option value="pt-BR">{t('settingsModal.languagePtBR')}</option>
                   <option value="en">{t('settingsModal.languageEn')}</option>
                 </select>
+              </div>
+
+              {/* AI Provider */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.aiProvider') || 'Provedor de IA'}</label>
+                <select
+                  value={aiProvider}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setAiProvider(val);
+                    fetch('/api/settings/ai-provider', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ provider: val }),
+                    }).catch(() => { });
+                  }}
+                  className="vscode-settings-input"
+                  style={{ width: '100%' }}
+                >
+                  <option value="local">Chave Própria / Modelo Local</option>
+                  <option value="cloud">OpalaTex Cloud (Requer Créditos/Licença)</option>
+                </select>
+                <span style={{ fontSize: '11px', color: '#888888' }}>
+                  Escolha como a Inteligência Artificial será fornecida.
+                </span>
               </div>
 
               {/* Theme */}

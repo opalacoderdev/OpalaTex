@@ -214,7 +214,16 @@ def get_agent_model(agent_name: str, default: str | None = None) -> str:
     
     cfg = _get_agents_config()
     dyn_default = cfg.get("default", DEFAULT_MODEL)
-    return default if default is not None else dyn_default
+    model = default if default is not None else dyn_default
+
+    # Apply Cloud Provider Override
+    from opalatex.ui_settings import load_ui_settings
+    ui_cfg = load_ui_settings()
+    if ui_cfg.get("ai_provider") == "cloud":
+        # The proxy ignores the requested model and forces gemini, but litellm needs to know to route via the custom openai base
+        return "openai/gemini-1.5-pro"
+        
+    return model
 
 
 def get_agent_llm_kwargs(agent_name: str) -> dict:
@@ -255,6 +264,19 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
                 merged["api_key"] = _PROJECT_SESSION.api_key
     except Exception:
         pass
+
+    # Apply Cloud Provider Override
+    from opalatex.ui_settings import load_ui_settings
+    from opalatex.licensing import _load_license_data
+    ui_cfg = load_ui_settings()
+    if ui_cfg.get("ai_provider") == "cloud":
+        license_data = _load_license_data()
+        license_key = license_data.get("license_key", "")
+        # Force OpenAI format to proxy through our custom server
+        merged["api_base"] = "http://localhost:3000/api/chat-proxy"
+        merged["api_key"] = license_key
+        # The proxy itself uses google/genai, but litellm expects openai format when using a generic proxy base
+        merged["custom_llm_provider"] = "openai"
 
     for field in _NON_LITELLM_FIELDS:
         merged.pop(field, None)
