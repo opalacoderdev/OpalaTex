@@ -81,6 +81,7 @@ export default function App() {
   const [activeSidebarTab, setActiveSidebarTab] = useState('explorer');
   const [contextMenu, setContextMenu] = useState(null);
   const [clipboardNode, setClipboardNode] = useState(null);
+  const [jumpToLine, setJumpToLine] = useState(null);
   const [showAdvancedParams, setShowAdvancedParams] = useState(false);
   const [modelConfigMsg, setModelConfigMsg] = useState('');
   const [dirPicker, setDirPicker] = useState(null);
@@ -248,6 +249,7 @@ export default function App() {
         project_name: activeProject.name,
         display_name: activeProject.project_name || activeProject.name,
         project_path: activeProject.project_path,
+        main_file: activeProject.main_file || '',
         model: activeProject.model,
         worker_model: activeProject.worker_model,
         mode: activeProject.mode,
@@ -738,13 +740,16 @@ export default function App() {
     }
   };
 
-  const handleFileSelect = async (filePath) => {
+  const handleFileSelect = async (filePath, jumpLine = null) => {
     if (!activeProject) return;
     setIsBottomMaximized(false);
     if (selectedFile) setFileContents(prev => ({ ...prev, [selectedFile]: fileContent }));
     setOpenFiles(prev => prev.includes(filePath) ? prev : [...prev, filePath]);
     setSelectedFile(filePath);
     setLayoutMode('ide'); // Force the IDE view so the text editor is visible
+    if (jumpLine !== null) {
+      setJumpToLine({ file: filePath, line: jumpLine });
+    }
 
     // Auto-switch to edit mode (IDE mode) when a file is opened
     if (activeProject.mode !== 'edit') {
@@ -898,6 +903,41 @@ export default function App() {
     } catch (err) { addLog('error', `Erro ao renomear: ${err.message}`); }
   };
 
+  const handleSetMainFile = async (node) => {
+    if (!activeProject || !node || node.isDirectory) return;
+    try {
+      // Calculate relative path from project root
+      let relPath = node.path;
+      if (activeProject.project_path && node.path.startsWith(activeProject.project_path)) {
+        relPath = node.path.substring(activeProject.project_path.length);
+        if (relPath.startsWith('/') || relPath.startsWith('\\')) {
+          relPath = relPath.substring(1);
+        }
+      }
+      
+      const payload = {
+        project_name: activeProject.name,
+        main_file: relPath,
+        chat_id: activeChatId
+      };
+      const res = await fetch('/api/opalatex/update-project', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setActiveProject(prev => ({ ...prev, ...updated }));
+        setProjects(prev => prev.map(p => (p.name === updated.name) ? { ...p, ...updated } : p));
+        addLog('info', `Main file definido como: ${relPath}`);
+      } else {
+        const err = await res.json();
+        addLog('error', `Falha ao definir main file: ${err.error}`);
+      }
+    } catch (err) {
+      addLog('error', `Erro ao definir main file: ${err.message}`);
+    }
+  };
+
   const handleDeleteNode = async (node) => {
     if (!activeProject || !node) return;
 
@@ -1010,7 +1050,7 @@ export default function App() {
     } catch (_) { }
     setModelConfigMsg('');
     setEditProjError('');
-    const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: fresh.api_key || '', api_base: fresh.api_base || '', worker_api_key: fresh.worker_api_key || '', worker_api_base: fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
+    const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', main_file: fresh.main_file || '', model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: fresh.api_key || '', api_base: fresh.api_base || '', worker_api_key: fresh.worker_api_key || '', worker_api_base: fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
     console.log("[DEBUG APP] Estado editingProject final que vai para a Modal:", newState);
     setEditingProject(newState);
   };
@@ -1023,7 +1063,7 @@ export default function App() {
     try {
       const res = await fetch('/api/opalatex/update-project', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name: editingProject.name, display_name: editingProject.project_name, project_path: editingProject.project_path, model: editingProject.model, worker_model: editingProject.worker_model, mode: editingProject.mode, description: editingProject.description, model_params: editingProject.model_params, worker_model_params: editingProject.worker_model_params, api_key: editingProject.api_key, api_base: editingProject.api_base, worker_api_key: editingProject.worker_api_key, worker_api_base: editingProject.worker_api_base, use_shared_memory: editingProject.use_shared_memory, chat_id: activeChatId }),
+        body: JSON.stringify({ project_name: editingProject.name, display_name: editingProject.project_name, project_path: editingProject.project_path, main_file: editingProject.main_file, model: editingProject.model, worker_model: editingProject.worker_model, mode: editingProject.mode, description: editingProject.description, model_params: editingProject.model_params, worker_model_params: editingProject.worker_model_params, api_key: editingProject.api_key, api_base: editingProject.api_base, worker_api_key: editingProject.worker_api_key, worker_api_base: editingProject.worker_api_base, use_shared_memory: editingProject.use_shared_memory, chat_id: activeChatId }),
       });
       if (res.ok) {
         const updated = await res.json();
@@ -1874,6 +1914,8 @@ export default function App() {
               saveFile={saveFile}
               handleEditorDidMount={handleEditorDidMount}
               setFileContent={setFileContent}
+              jumpToLine={jumpToLine}
+              setJumpToLine={setJumpToLine}
               isMaximized={isEditorMaximized}
               onToggleMaximize={() => setIsEditorMaximized(!isEditorMaximized)}
               inlinePrompt={inlinePrompt}
@@ -2155,6 +2197,7 @@ export default function App() {
         handleCopyNode={handleCopyNode}
         handlePasteNode={handlePasteNode}
         handleOpenInSystem={handleOpenInSystem}
+        handleSetMainFile={handleSetMainFile}
         clipboardNode={clipboardNode}
       />
 

@@ -181,6 +181,19 @@ export default function EditProjectModal({
                 </div>
               </div>
 
+              {/* Main File */}
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Main File (Optional)</label>
+                <input
+                  type="text"
+                  className="vscode-settings-input"
+                  value={editingProject.main_file || ''}
+                  onChange={e => setEditingProject(p => ({ ...p, main_file: e.target.value }))}
+                  placeholder="e.g. main.tex"
+                  style={{ flex: 1 }}
+                />
+              </div>
+
               {/* Mode */}
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.mode')}</label>

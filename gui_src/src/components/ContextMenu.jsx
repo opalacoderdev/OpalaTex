@@ -13,6 +13,7 @@ export default function ContextMenu({
   handleCopyNode,
   handlePasteNode,
   handleOpenInSystem,
+  handleSetMainFile,
   clipboardNode,
 }) {
   const { t } = useTranslation();
@@ -38,6 +39,8 @@ export default function ContextMenu({
       : rightClickedNode.path.replace(/\\/g, '/').split('/').slice(0, -1).join('/'))
     : '';
 
+  const isTexFile = rightClickedNode && !rightClickedNode.isDirectory && rightClickedNode.name.endsWith('.tex');
+
   return (
     <div
       ref={menuRef}
@@ -60,6 +63,15 @@ export default function ContextMenu({
       </div>
       {rightClickedNode && (
         <>
+          {isTexFile && handleSetMainFile && (
+            <div
+              className="vscode-context-menu-item"
+              onClick={() => handleSetMainFile(rightClickedNode)}
+            >
+              <ExternalLink size={13} style={{ color: '#007acc' }} />
+              <span>{t('contextMenu.setMainFile', 'Definir como Main File')}</span>
+            </div>
+          )}
           <div
             className="vscode-context-menu-item"
             onClick={() => handleOpenInSystem(rightClickedNode)}

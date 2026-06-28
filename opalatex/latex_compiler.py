@@ -17,7 +17,7 @@ def get_tectonic_path():
     # Fallback to PATH
     return shutil.which("tectonic")
 
-def compile_latex(tex_content: str, file_path: str = None) -> dict:
+def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", project_dir: str = "") -> dict:
     """
     Compiles LaTeX content using Tectonic.
     Returns a dictionary with:
@@ -25,20 +25,70 @@ def compile_latex(tex_content: str, file_path: str = None) -> dict:
     - pdf_base64 (str): Base64 encoded PDF string if success
     - log (str): Output log from the compiler
     """
-    # Create a temporary directory
+    tectonic_cmd = get_tectonic_path()
+    
+    if main_file and project_dir:
+        # Save the current file's content first to ensure the compiler sees the latest changes
+        if file_path and os.path.exists(file_path):
+            try:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(tex_content)
+            except Exception as e:
+                pass # Ignore write errors here, might be read-only or not needed
+                
+        abs_main_file = os.path.abspath(os.path.join(project_dir, main_file))
+        base_no_ext = os.path.splitext(os.path.basename(main_file))[0]
+        pdf_path = os.path.join(project_dir, f"{base_no_ext}.pdf")
+        
+        try:
+            result = subprocess.run(
+                [tectonic_cmd, "--synctex", abs_main_file],
+                cwd=project_dir,
+                capture_output=True,
+                text=True
+            )
+            success = result.returncode == 0
+            log = result.stdout + "\n" + result.stderr
+            pdf_base64 = None
+            if success and os.path.exists(pdf_path):
+                with open(pdf_path, "rb") as pdf_file:
+                    pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
+            else:
+                success = False
+                log += "\nError: PDF file was not generated despite 0 exit code."
+            
+            return {
+                "success": success,
+                "pdf_base64": pdf_base64,
+                "log": log
+            }
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "pdf_base64": None,
+                "log": "Error: 'tectonic' compiler is not installed or not found in PATH.\nPlease install it from https://tectonic-typesetting.github.io/"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "pdf_base64": None,
+                "log": f"An unexpected error occurred: {str(e)}"
+            }
+
+    # Fallback: single file compilation in temp directory
     temp_dir = tempfile.mkdtemp()
     
-    tex_file_path = os.path.join(temp_dir, "document.tex")
+    base_name = os.path.basename(file_path) if file_path else "document.tex"
+    base_no_ext = os.path.splitext(base_name)[0]
+    tex_file_path = os.path.join(temp_dir, base_name)
     
     try:
         with open(tex_file_path, "w", encoding="utf-8") as f:
             f.write(tex_content)
             
-        tectonic_cmd = get_tectonic_path()
         # Run tectonic
-        # We use --keep-logs to keep the log file if needed, but stdout/stderr is usually enough
         result = subprocess.run(
-            [tectonic_cmd, tex_file_path],
+            [tectonic_cmd, "--synctex", tex_file_path],
             cwd=temp_dir,
             capture_output=True,
             text=True
@@ -49,13 +99,19 @@ def compile_latex(tex_content: str, file_path: str = None) -> dict:
         log = result.stdout + "\n" + result.stderr
         
         if success:
-            pdf_path = os.path.join(temp_dir, "document.pdf")
+            pdf_path = os.path.join(temp_dir, f"{base_no_ext}.pdf")
             if os.path.exists(pdf_path):
                 # If a real file_path was provided, copy the PDF there
                 if file_path:
                     try:
                         target_pdf = os.path.splitext(file_path)[0] + ".pdf"
                         shutil.copy2(pdf_path, target_pdf)
+                        
+                        # Copy synctex file if it exists
+                        synctex_path = os.path.join(temp_dir, f"{base_no_ext}.synctex.gz")
+                        if os.path.exists(synctex_path):
+                            target_synctex = os.path.splitext(file_path)[0] + ".synctex.gz"
+                            shutil.copy2(synctex_path, target_synctex)
                     except Exception as copy_err:
                         log += f"\nWarning: could not save PDF to {file_path}'s directory: {copy_err}"
                         

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -8,9 +8,10 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
-export default function PdfPreview({ base64Pdf, isCompiling, errorLog }) {
+const PdfPreview = forwardRef(({ base64Pdf, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate }, ref) => {
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
+  const [highlight, setHighlight] = useState(null);
   const containerRef = useRef(null);
   const scrollPosRef = useRef(0);
 
@@ -34,6 +35,60 @@ export default function PdfPreview({ base64Pdf, isCompiling, errorLog }) {
       }
     }, 100);
   }
+  
+  // Expose scroll method to parent for Forward Search (Editor -> PDF)
+   useImperativeHandle(ref, () => ({
+    scrollTo: (page, x, y, w, h) => {
+      if (!containerRef.current) return;
+      const pageEl = containerRef.current.querySelector(`[data-page-number="${page}"]`);
+      if (pageEl) {
+        // scale is 1.2
+        const targetX = x * 1.2;
+        const targetY = y * 1.2;
+        const targetW = (w || 10) * 1.2; // fallback width if 0
+        const targetH = (h || 14) * 1.2; // fallback height if 0
+        
+        // y from the backend is already the TOP of the bounding box (min_y - 10).
+        // No need to subtract height.
+        const top = targetY;
+        
+        setHighlight({ page, y: top, h: targetH });
+        console.log('Highlight CSS:', { page, targetY, top, targetH });
+        
+        containerRef.current.scrollTo({
+          top: Math.max(0, pageEl.offsetTop + top - 150), // offset a bit to show context
+          behavior: 'smooth'
+        });
+        
+        // Remove highlight after 2.5 seconds
+        setTimeout(() => {
+          setHighlight(null);
+        }, 2500);
+      }
+    }
+  }));
+
+  const handlePageDoubleClick = async (e, pageIndex) => {
+    if (!activeProject?.project_path || !selectedFile) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
+    
+    // Convert to PDF points based on scale 1.2
+    const ptX = rawX / 1.2;
+    const ptY = rawY / 1.2;
+    
+    try {
+      const res = await fetch(`/api/latex/synctex?action=pdf2tex&page=${pageIndex}&x=${ptX}&y=${ptY}&filePath=${encodeURIComponent(selectedFile)}&projectPath=${encodeURIComponent(activeProject.project_path)}`);
+      const data = await res.json();
+      if (data.result && data.result.line && onSyncTexNavigate) {
+        onSyncTexNavigate(data.result.line, data.result.file);
+      }
+    } catch (err) {
+      console.error("SyncTeX inverse search failed:", err);
+    }
+  };
 
   if (errorLog && !base64Pdf) {
     return (
@@ -78,13 +133,37 @@ export default function PdfPreview({ base64Pdf, isCompiling, errorLog }) {
             error={<div className="text-red-300">Failed to load PDF viewer.</div>}
           >
             {Array.from(new Array(numPages || 0), (el, index) => (
-              <div key={`page_${index + 1}`} className="shadow-2xl mb-8 bg-white">
+              <div 
+                key={`page_${index + 1}`} 
+                data-page-number={index + 1}
+                className="shadow-2xl mb-8 bg-white cursor-text relative"
+                onDoubleClick={(e) => handlePageDoubleClick(e, index + 1)}
+              >
                 <Page
                   pageNumber={index + 1}
                   renderTextLayer={true}
                   renderAnnotationLayer={true}
                   scale={1.2}
                 />
+                
+                {/* Visual Highlight for Forward Search */}
+                {highlight && highlight.page === index + 1 && (
+                  <div 
+                    style={{
+                      position: 'absolute',
+                      zIndex: 99999,
+                      left: 0,
+                      top: `${highlight.y}px`, 
+                      width: '100%',
+                      height: `${Math.max(highlight.h, 18)}px`,
+                      backgroundColor: 'rgba(250, 204, 21, 0.25)',
+                      borderLeft: '6px solid #ef4444',
+                      pointerEvents: 'none',
+                      boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
+                      transition: 'opacity 0.3s ease-in'
+                    }}
+                  />
+                )}
               </div>
             ))}
           </Document>
@@ -92,4 +171,6 @@ export default function PdfPreview({ base64Pdf, isCompiling, errorLog }) {
       </div>
     </div>
   );
-}
+});
+
+export default PdfPreview;

@@ -45,7 +45,8 @@ def _init_schema(db_path: str) -> None:
                 results         TEXT NOT NULL DEFAULT '{}',
                 core_memory     TEXT NOT NULL DEFAULT '',
                 worker_model    TEXT NOT NULL DEFAULT '',
-                model_params    TEXT NOT NULL DEFAULT '{}'
+                model_params    TEXT NOT NULL DEFAULT '{}',
+                main_file       TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS project_history (
@@ -92,6 +93,12 @@ def _init_schema(db_path: str) -> None:
         except sqlite3.OperationalError:
             pass
 
+        # Migração: main_file
+        try:
+            conn.execute("ALTER TABLE projects ADD COLUMN main_file TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS project_chats (
                 id          TEXT PRIMARY KEY,
@@ -133,6 +140,7 @@ class ProjectData:
     api_base: str = ""
     worker_api_key: str = ""
     worker_api_base: str = ""
+    main_file: str = ""
     history: list = field(default_factory=list)   # [{role, content}]
 
     def clear_state(self) -> None:
@@ -167,7 +175,7 @@ class ProjectStore:
     def list_projects(self) -> list[dict]:
         with _conn(self.db_path) as conn:
             rows = conn.execute(
-                "SELECT name, project_name, project_path, created_at, updated_at, mode, model, worker_model, description, model_params, worker_model_params, use_shared_memory FROM projects ORDER BY updated_at DESC"
+                "SELECT name, project_name, project_path, created_at, updated_at, mode, model, worker_model, description, model_params, worker_model_params, use_shared_memory, main_file FROM projects ORDER BY updated_at DESC"
             ).fetchall()
             res = []
             for r in rows:
@@ -412,8 +420,8 @@ class ProjectStore:
 
         with _conn(self.db_path) as conn:
             conn.execute(
-                "INSERT INTO projects (name, created_at, updated_at, mode, model, worker_model, project_name, project_path, skills, description, core_memory, model_params, worker_model_params, use_shared_memory) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (name, now, now, mode, model, worker_model, project_name, abs_proj_path, json.dumps(_skills), description, "", json.dumps(_model_params), json.dumps(_worker_model_params), 0),
+                "INSERT INTO projects (name, created_at, updated_at, mode, model, worker_model, project_name, project_path, skills, description, core_memory, model_params, worker_model_params, use_shared_memory, main_file) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (name, now, now, mode, model, worker_model, project_name, abs_proj_path, json.dumps(_skills), description, "", json.dumps(_model_params), json.dumps(_worker_model_params), 0, ""),
             )
             # Create default main chat
             chat_id = f"main_{name}"
@@ -421,7 +429,7 @@ class ProjectStore:
                 "INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
                 (chat_id, name, "Main Chat", now, "")
             )
-        return ProjectData(name=name, use_shared_memory=False, chats=[{"id": chat_id, "name": "Main Chat"}], current_chat_id=chat_id, mode=mode, model=model, worker_model=worker_model, project_name=project_name, project_path=abs_proj_path, skills=_skills, description=description, core_memory="", model_params=_model_params, worker_model_params=_worker_model_params, api_key=api_key or "", api_base=api_base or "", worker_api_key=worker_api_key or "", worker_api_base=worker_api_base or "")
+        return ProjectData(name=name, use_shared_memory=False, chats=[{"id": chat_id, "name": "Main Chat"}], current_chat_id=chat_id, mode=mode, model=model, worker_model=worker_model, project_name=project_name, project_path=abs_proj_path, skills=_skills, description=description, core_memory="", model_params=_model_params, worker_model_params=_worker_model_params, api_key=api_key or "", api_base=api_base or "", worker_api_key=worker_api_key or "", worker_api_base=worker_api_base or "", main_file="")
 
     def overwrite(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, use_shared_memory: bool = False) -> ProjectData:
         self.delete(name)
@@ -523,6 +531,7 @@ class ProjectStore:
                 },
                 api_key=api_key,
                 api_base=api_base,
+                main_file=row["main_file"] if "main_file" in row.keys() else "",
                 history=[dict(r) for r in hist_rows],
             )
 
@@ -569,7 +578,7 @@ class ProjectStore:
         with _conn(self.db_path) as conn:
             conn.execute(
                 """UPDATE projects SET updated_at=?, mode=?, model=?, worker_model=?, project_name=?, project_path=?,
-                   skills=?, description=?, request=?, plan_text=?, subplans=?, results=?, core_memory=?, model_params=?, worker_model_params=?, use_shared_memory=? WHERE name=?""",
+                   skills=?, description=?, request=?, plan_text=?, subplans=?, results=?, core_memory=?, model_params=?, worker_model_params=?, use_shared_memory=?, main_file=? WHERE name=?""",
                 (
                     now,
                     project.mode,
@@ -586,7 +595,8 @@ class ProjectStore:
                     project.core_memory,
                     json.dumps(_model_params, ensure_ascii=False),
                     json.dumps(_worker_model_params, ensure_ascii=False),
-                    1 if getattr(project, "use_shared_memory", False) else 0,
+                    int(project.use_shared_memory),
+                    getattr(project, "main_file", ""),
                     project.name,
                 ),
             )

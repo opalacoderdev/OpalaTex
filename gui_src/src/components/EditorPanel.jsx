@@ -35,6 +35,8 @@ export default function EditorPanel({
   onInlineCancel,
   onToggleTerminal,
   activeProject,
+  jumpToLine,
+  setJumpToLine,
 }) {
   const { t } = useTranslation();
   const [isDiffMode, setIsDiffMode] = useState(false);
@@ -59,12 +61,14 @@ export default function EditorPanel({
     return () => window.removeEventListener('focus', checkTectonic);
   }, []);
 
+  // ── Restore or compile ──────────────────────────────────────────────────
   useEffect(() => {
+    setIsDiffMode(false);
     setIsPreviewMode(false);
     
     // Check if there is an existing PDF for this file
-    if (selectedFile && selectedFile.toLowerCase().endsWith('.tex')) {
-      fetch(`/api/latex/check-pdf?filePath=${encodeURIComponent(selectedFile)}`)
+    if (selectedFile && selectedFile.toLowerCase().endsWith('.tex') && activeProject?.project_path) {
+      fetch(`/api/latex/check-pdf?filePath=${encodeURIComponent(selectedFile)}&projectPath=${encodeURIComponent(activeProject.project_path)}`)
         .then(r => r.json())
         .then(data => {
           if (data.found && data.pdf_base64) {
@@ -83,6 +87,21 @@ export default function EditorPanel({
     }
   }, [selectedFile]);
 
+  // Jump to line effect when switching files
+  useEffect(() => {
+    if (jumpToLine && jumpToLine.file === selectedFile && localEditorRef.current) {
+      // Small delay to ensure editor is mounted and file is loaded
+      setTimeout(() => {
+        if (localEditorRef.current) {
+          localEditorRef.current.revealLineInCenter(jumpToLine.line);
+          localEditorRef.current.setPosition({ lineNumber: jumpToLine.line, column: 1 });
+          localEditorRef.current.focus();
+        }
+        setJumpToLine(null);
+      }, 100);
+    }
+  }, [selectedFile, jumpToLine, setJumpToLine]);
+
   const handleCompile = async () => {
     saveFile();
     setIsCompiling(true);
@@ -91,7 +110,7 @@ export default function EditorPanel({
       const res = await fetch('/api/latex/compile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: fileContent, filePath: selectedFile })
+        body: JSON.stringify({ content: fileContent, filePath: selectedFile, projectPath: activeProject?.project_path })
       });
       const data = await res.json();
       if (data.success) {
@@ -117,7 +136,24 @@ export default function EditorPanel({
   const onToggleTerminalRef = useRef(onToggleTerminal);
   onToggleTerminalRef.current = onToggleTerminal;
 
+  const activeProjectRef = useRef(activeProject);
+  activeProjectRef.current = activeProject;
+
+  const selectedFileRef = useRef(selectedFile);
+  selectedFileRef.current = selectedFile;
+
   const localEditorRef = useRef(null);
+  const pdfPreviewRef = useRef(null);
+  
+  const handleSyncTexNavigate = (line, file) => {
+    if (file && file !== selectedFile) {
+      handleFileSelect(file, line);
+    } else if (localEditorRef.current) {
+      localEditorRef.current.revealLineInCenter(line);
+      localEditorRef.current.setPosition({ lineNumber: line, column: 1 });
+      localEditorRef.current.focus();
+    }
+  };
 
   // Custom syntax definitions
   const handleBeforeMount = (monaco) => {
@@ -157,6 +193,32 @@ export default function EditorPanel({
         setFileContent(actualEditor.getValue());
       });
     }
+
+    // ── Forward Search (Ctrl+Click or Alt+Click on editor) ───────────────────────────────
+    actualEditor.onMouseUp(async (e) => {
+      // Check if Ctrl, Meta (Cmd on Mac), or Alt is pressed
+      if (e.event.ctrlKey || e.event.metaKey || e.event.altKey) {
+        const line = e.target.position?.lineNumber;
+        const currentProject = activeProjectRef.current;
+        const currentFile = selectedFileRef.current;
+        
+        if (line && currentProject?.project_path && currentFile) {
+          console.log('Forward Search: editor line =', line, ', file =', currentFile);
+          try {
+            const res = await fetch(`/api/latex/synctex?action=tex2pdf&line=${line}&filePath=${encodeURIComponent(currentFile)}&projectPath=${encodeURIComponent(currentProject.project_path)}`);
+            const data = await res.json();
+            if (res.ok && data.result && data.result.page && pdfPreviewRef.current) {
+              console.log('SyncTeX result:', JSON.stringify(data.result));
+              pdfPreviewRef.current.scrollTo(data.result.page, data.result.x, data.result.y, data.result.w, data.result.h);
+            } else {
+              setPdfErrorLog(`SyncTeX Forward Search failed: ${data.error || 'No result found'}`);
+            }
+          } catch (err) {
+            setPdfErrorLog("SyncTeX request failed: " + err.message);
+          }
+        }
+      }
+    });
 
     // ── Ctrl+J — toggle terminal ────────────────────────────────────────────
     actualEditor.addCommand(
@@ -455,7 +517,15 @@ export default function EditorPanel({
             )}
           </div>
           <div style={{ height: '100%', background: '#0A0D14', borderLeft: '1px solid #1E2330' }}>
-            <PdfPreview base64Pdf={pdfBase64} isCompiling={isCompiling} errorLog={pdfErrorLog} />
+            <PdfPreview 
+              ref={pdfPreviewRef}
+              base64Pdf={pdfBase64} 
+              isCompiling={isCompiling} 
+              errorLog={pdfErrorLog} 
+              activeProject={activeProject}
+              selectedFile={selectedFile}
+              onSyncTexNavigate={handleSyncTexNavigate}
+            />
           </div>
         </Split>
       </div>

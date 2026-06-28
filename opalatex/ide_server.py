@@ -428,12 +428,29 @@ class AsyncHTTPServer:
             from opalatex.latex_compiler import compile_latex
             content = data.get('content', '')
             file_path = data.get('filePath', '')
+            project_path = data.get('projectPath', '')
+            
             if not content:
                 self.send_response(writer, 400, b'{"error":"content is required"}', "application/json")
                 return
             
+            full_path = ""
+            if project_path and file_path:
+                full_path = os.path.abspath(os.path.join(project_path, file_path))
+                
+            main_file = ""
+            if project_path:
+                from opalatex.project import ProjectStore
+                from opalatex.config import DEFAULT_DB_PATH
+                store = ProjectStore(db_path=DEFAULT_DB_PATH)
+                # Find project by path
+                for p in store.list_projects():
+                    if p.get("project_path") and os.path.abspath(os.path.expanduser(p["project_path"])) == os.path.abspath(os.path.expanduser(project_path)):
+                        main_file = p.get("main_file", "")
+                        break
+            
             # run compilation
-            result = compile_latex(content, file_path)
+            result = compile_latex(content, full_path, main_file, project_path)
             
             # Save the pdf bytes in memory to bypass WebView blob restrictions
             if result.get("success") and result.get("pdf_base64"):
@@ -460,12 +477,14 @@ class AsyncHTTPServer:
         # 0.2 Check for existing PDF
         elif path == '/api/latex/check-pdf' and method == 'GET':
             file_path = query.get('filePath', [''])[0]
-            if not file_path:
-                self.send_response(writer, 400, b'{"error":"filePath is required"}', "application/json")
+            project_path = query.get('projectPath', [''])[0]
+            if not file_path or not project_path:
+                self.send_response(writer, 400, b'{"error":"filePath and projectPath are required"}', "application/json")
                 return
             
             try:
-                target_pdf = os.path.splitext(file_path)[0] + ".pdf"
+                full_path = os.path.abspath(os.path.join(project_path, file_path))
+                target_pdf = os.path.splitext(full_path)[0] + ".pdf"
                 if os.path.exists(target_pdf):
                     with open(target_pdf, "rb") as pdf_file:
                         pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
@@ -477,6 +496,61 @@ class AsyncHTTPServer:
                     }).encode('utf-8'), "application/json")
                 else:
                     self.send_response(writer, 200, json.dumps({"found": False}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            return
+
+        # 0.3 SyncTeX
+        elif path == '/api/latex/synctex' and method == 'GET':
+            from opalatex.synctex_parser import find_source_line, find_pdf_position
+            
+            action = query.get('action', [''])[0]
+            file_path = query.get('filePath', [''])[0]
+            project_path = query.get('projectPath', [''])[0]
+            
+            if not file_path or not project_path or not action:
+                self.send_response(writer, 400, b'{"error":"action, filePath and projectPath are required"}', "application/json")
+                return
+                
+            try:
+                # Resolve main_file from project settings if available
+                main_file = ""
+                from opalatex.project import ProjectStore
+                from opalatex.config import DEFAULT_DB_PATH
+                store = ProjectStore(db_path=DEFAULT_DB_PATH)
+                for p in store.list_projects():
+                    if p.get("project_path") and os.path.abspath(os.path.expanduser(p["project_path"])) == os.path.abspath(os.path.expanduser(project_path)):
+                        main_file = p.get("main_file", "")
+                        break
+
+                if main_file:
+                    full_path = os.path.abspath(os.path.join(project_path, main_file))
+                else:
+                    full_path = os.path.abspath(os.path.join(project_path, file_path))
+
+                synctex_path = os.path.splitext(full_path)[0] + ".synctex.gz"
+                
+                if not os.path.exists(synctex_path):
+                    self.send_response(writer, 404, b'{"error":"synctex file not found"}', "application/json")
+                    return
+                    
+                if action == 'pdf2tex':
+                    page = int(query.get('page', ['1'])[0])
+                    x = float(query.get('x', ['0'])[0])
+                    y = float(query.get('y', ['0'])[0])
+                    result = find_source_line(synctex_path, page, x, y)
+                    if result and 'file' in result:
+                        abs_file = result['file']
+                        if not os.path.isabs(abs_file):
+                            abs_file = os.path.abspath(os.path.join(project_path, abs_file))
+                        result['file'] = abs_file
+                    self.send_response(writer, 200, json.dumps({"result": result}).encode('utf-8'), "application/json")
+                elif action == 'tex2pdf':
+                    line = int(query.get('line', ['1'])[0])
+                    result = find_pdf_position(synctex_path, full_path, line)
+                    self.send_response(writer, 200, json.dumps({"result": result}).encode('utf-8'), "application/json")
+                else:
+                    self.send_response(writer, 400, b'{"error":"invalid action"}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             return
@@ -1635,6 +1709,9 @@ class AsyncHTTPServer:
                     return
                 project.project_path = os.path.abspath(new_path)
             
+            if "main_file" in data:
+                project.main_file = data["main_file"]
+
             if "use_shared_memory" in data:
                 project.use_shared_memory = bool(data["use_shared_memory"])
 
