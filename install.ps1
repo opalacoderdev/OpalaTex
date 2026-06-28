@@ -12,8 +12,8 @@ $ErrorActionPreference = "Stop"
 $installDir = "$env:LOCALAPPDATA\OpalaTex"
 $tempZip = "$env:TEMP\opalatex_release.zip"
 
-# Link para baixar a release mais recente do repositório oficial
-$downloadUrl = "https://github.com/opalacoderdev/OpalaTex/releases/latest/download/OpalaTex-windows-x64.zip"
+# Link para baixar a release mais recente do seu servidor proprietário
+$downloadUrl = "https://your-custom-domain.com/downloads/OpalaTex-windows-x64.zip"
 
 Write-Host "Iniciando a instalacao do OpalaTex..." -ForegroundColor Cyan
 

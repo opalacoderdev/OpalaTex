@@ -423,6 +423,30 @@ class AsyncHTTPServer:
             except:
                 pass
 
+        # License Endpoints
+        if path == '/api/license/status':
+            try:
+                from opalatex.licensing import check_license_status
+                status = check_license_status()
+                self.send_response(writer, 200, json.dumps(status).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            return
+            
+        elif path == '/api/license/activate' and method == 'POST':
+            try:
+                from opalatex.licensing import activate_license
+                key = data.get('key', '')
+                result = activate_license(key)
+                if result.get("success"):
+                    self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
+                else:
+                    self.send_response(writer, 400, json.dumps(result).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            return
+
+
         # 0. Compile LaTeX
         if path == '/api/latex/compile':
             from opalatex.latex_compiler import compile_latex

@@ -35,6 +35,7 @@ import DeleteProjectModal from './components/modals/DeleteProjectModal';
 
 import EditModelsModal from './components/modals/EditModelsModal';
 import AddProviderModal from './components/modals/AddProviderModal';
+import LicenseModal from './components/modals/LicenseModal';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // App
@@ -138,6 +139,10 @@ export default function App() {
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
+  // ── Licensing ─────────────────────────────────────────────────────────────
+  const [licenseData, setLicenseData] = useState(null);
+  const [showLicenseModal, setShowLicenseModal] = useState(false);
+
   // ── Global Models ─────────────────────────────────────────────────────────
   const [globalModels, setGlobalModels] = useState([]);
   const [showEditModelsModal, setShowEditModelsModal] = useState(false);
@@ -188,6 +193,17 @@ export default function App() {
 
   // ── Effects ───────────────────────────────────────────────────────────────
   useEffect(() => {
+    // Check license first
+    fetch('/api/license/status')
+      .then(res => res.json())
+      .then(licData => {
+        setLicenseData(licData);
+        if (licData.status === 'TRIAL_EXPIRED') {
+          setShowLicenseModal(true);
+        }
+      })
+      .catch(console.error);
+
     fetch('/api/onboarding/status')
       .then(res => res.json())
       .then(data => {
@@ -1772,7 +1788,8 @@ export default function App() {
     <div className="vscode-app">
       <div className="vscode-main">
 
-        {/* Activity Bar */}
+        {/* Layout */}
+      <div className={`flex flex-col h-full ${licenseData?.status === 'TRIAL_EXPIRED' ? 'pointer-events-none opacity-20' : ''}`}>
         <ActivityBar
           activeSidebarTab={activeSidebarTab}
           setActiveSidebarTab={(tab) => {
@@ -2156,15 +2173,19 @@ export default function App() {
         <HardwareModal onClose={() => setIsHardwareModalOpen(false)} />
       )}
 
-      {showOnboarding && (
-        <OnboardingModal
-          onClose={() => setShowOnboarding(false)}
-          onComplete={() => {
-            setShowOnboarding(false);
-            fetchProjects();
-          }}
-        />
-      )}
+      {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
+      <LicenseModal 
+        licenseData={licenseData} 
+        isOpen={showLicenseModal} 
+        onClose={() => {
+          setShowLicenseModal(false);
+          // Reload status to clear lock if activated
+          fetch('/api/license/status').then(r => r.json()).then(d => {
+            setLicenseData(d);
+            if(d.status === 'TRIAL_EXPIRED') setShowLicenseModal(true);
+          });
+        }} 
+      />
 
       {confirmRequest && confirmRequest.type === 'interactive_terminal' ? (
         <InteractiveTerminalModal request={confirmRequest} onConfirm={sendConfirmResponse} activeProject={activeProject} />

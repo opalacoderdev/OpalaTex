@@ -13,7 +13,7 @@ echo "=========================================="
 INSTALL_DIR="$HOME/.local/share/OpalaTex"
 BIN_DIR="$HOME/.local/bin"
 TEMP_FILE="/tmp/opalatex_release.tar.gz"
-DOWNLOAD_URL="https://github.com/opalacoderdev/OpalaTex/releases/latest/download/OpalaTex-linux-x64.tar.gz"
+DOWNLOAD_URL="https://your-custom-domain.com/downloads/OpalaTex-linux-x64.tar.gz"
 
 echo "Baixando a última versão do OpalaTex..."
 curl -fsSL "$DOWNLOAD_URL" -o "$TEMP_FILE"
