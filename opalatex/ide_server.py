@@ -2438,11 +2438,28 @@ class AsyncHTTPServer:
         else:
             self.send_response(writer, 404, b'{"error":"Not Found"}', "application/json")
 
+def find_available_port(host, start_port, max_port=3050):
+    import socket
+    for p in range(start_port, max_port + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind((host, p))
+                return p
+            except OSError:
+                continue
+    raise RuntimeError(f"No available ports found between {start_port} and {max_port}")
+
 def start_gui_server(host="127.0.0.1", port=3000):
     import os
     from opalatex.config import DEFAULT_LANG
     from opalatex.i18n import set_lang
     from opalatex.ui_settings import load_ui_settings
+    
+    try:
+        port = find_available_port(host, port)
+    except Exception as e:
+        print(f"Warning: could not find available port using fallback logic: {e}")
+
     saved_lang = load_ui_settings().get("lang", "")
     if saved_lang:
         backend_lang = "pt" if saved_lang.startswith("pt") else "en"
