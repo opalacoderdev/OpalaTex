@@ -4,6 +4,7 @@ import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import i18n from '../i18n';
+import Mermaid from '../components/Mermaid';
 
 // ── Custom component map ────────────────────────────────────────────────────
 // Maps HTML element names produced by react-markdown to custom React
@@ -48,6 +49,9 @@ const components = {
     }
     // Block code
     const lang = (className || '').replace('language-', '');
+    if (lang === 'mermaid') {
+      return <Mermaid chart={String(children)} />;
+    }
     if (lang === 'thought') {
       return (
         <details style={{ margin: '8px 0', border: '1px solid var(--vscode-widget-border, #3c3c3c)', borderRadius: '4px', background: 'var(--titlebar-bg, #252526)' }}>

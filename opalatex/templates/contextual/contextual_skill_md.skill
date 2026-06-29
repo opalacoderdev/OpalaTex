@@ -41,7 +41,7 @@ Use the `pmatrix` or `bmatrix` environments:
 *   **Image:** `![Alt text](path/to/image.png)`
 
 ### Markdown Diagrams and Drawings
-For simple visualizations in the markdown preview (which does not support TikZ):
+For simple visualizations in the markdown preview:
 *   **Flow/Commutative Diagrams (KaTeX):** Use `\begin{array}` and arrows (e.g., `\to`, `\xrightarrow{label}`, `\downarrow`).
     $$
     \begin{array}{ccc}
@@ -51,5 +51,11 @@ For simple visualizations in the markdown preview (which does not support TikZ):
     \end{array}
     $$
 *   **ASCII/Unicode Art:** Use code blocks with box-drawing characters (`┌`, `─`, `┐`, `│`).
+*   **Mermaid Diagrams:** Use code blocks with the `mermaid` language tag.
+    ```mermaid
+    flowchart LR
+        A[Start] --> B[Process]
+        B --> C[End]
+    ```
 *   **External/Local Images:** Reference compiled charts or exported TikZ SVGs/PNGs via `![Caption](path/to/image.svg)`.
 
