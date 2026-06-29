@@ -460,8 +460,14 @@ class AsyncHTTPServer:
                 return
             
             full_path = ""
-            if project_path and file_path:
-                full_path = os.path.abspath(os.path.join(project_path, file_path))
+            if file_path:
+                if os.path.isabs(file_path):
+                    full_path = os.path.abspath(file_path)
+                elif project_path:
+                    full_path = os.path.abspath(os.path.join(project_path, file_path))
+                    
+            if not project_path and full_path:
+                project_path = os.path.dirname(full_path)
                 
             main_file = ""
             if project_path:
@@ -470,7 +476,7 @@ class AsyncHTTPServer:
                 store = ProjectStore(db_path=DEFAULT_DB_PATH)
                 # Find project by path
                 for p in store.list_projects():
-                    if p.get("project_path") and os.path.abspath(os.path.expanduser(p["project_path"])) == os.path.abspath(os.path.expanduser(project_path)):
+                    if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == os.path.normcase(os.path.abspath(os.path.expanduser(project_path))):
                         main_file = p.get("main_file", "")
                         break
                 if not main_file:
@@ -506,6 +512,8 @@ class AsyncHTTPServer:
         elif path == '/api/latex/check-pdf' and method == 'GET':
             file_path = query.get('filePath', [''])[0]
             project_path = query.get('projectPath', [''])[0]
+            if file_path and os.path.isabs(file_path) and not project_path:
+                project_path = os.path.dirname(file_path)
             if not file_path or not project_path:
                 self.send_response(writer, 400, b'{"error":"filePath and projectPath are required"}', "application/json")
                 return
@@ -517,7 +525,7 @@ class AsyncHTTPServer:
                 from opalatex.config import DEFAULT_DB_PATH
                 store = ProjectStore(db_path=DEFAULT_DB_PATH)
                 for p in store.list_projects():
-                    if p.get("project_path") and os.path.abspath(os.path.expanduser(p["project_path"])) == os.path.abspath(os.path.expanduser(project_path)):
+                    if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == os.path.normcase(os.path.abspath(os.path.expanduser(project_path))):
                         main_file = p.get("main_file", "")
                         break
                 if not main_file:
@@ -553,6 +561,8 @@ class AsyncHTTPServer:
             file_path = query.get('filePath', [''])[0]
             project_path = query.get('projectPath', [''])[0]
             
+            if file_path and os.path.isabs(file_path) and not project_path:
+                project_path = os.path.dirname(file_path)
             if not file_path or not project_path or not action:
                 self.send_response(writer, 400, b'{"error":"action, filePath and projectPath are required"}', "application/json")
                 return
@@ -564,7 +574,7 @@ class AsyncHTTPServer:
                 from opalatex.config import DEFAULT_DB_PATH
                 store = ProjectStore(db_path=DEFAULT_DB_PATH)
                 for p in store.list_projects():
-                    if p.get("project_path") and os.path.abspath(os.path.expanduser(p["project_path"])) == os.path.abspath(os.path.expanduser(project_path)):
+                    if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == os.path.normcase(os.path.abspath(os.path.expanduser(project_path))):
                         main_file = p.get("main_file", "")
                         break
                 if not main_file:
@@ -1445,7 +1455,7 @@ class AsyncHTTPServer:
             existing_projects = store.list_projects()
             for ep in existing_projects:
                 ep_path = os.path.abspath(os.path.expanduser(ep.get("project_path", "")))
-                if ep_path == abs_path:
+                if os.path.normcase(ep_path) == os.path.normcase(abs_path):
                     self.send_response(writer, 400, json.dumps({
                         "error": f"This project is already registered as '{ep.get('project_name', ep.get('name', ''))}'."
                     }).encode('utf-8'), "application/json")

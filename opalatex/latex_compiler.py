@@ -44,6 +44,14 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
     """
     tectonic_cmd = get_tectonic_path()
     
+    # Auto-resolve project_dir and main_file when project_dir or main_file is empty but we have file_path
+    if not project_dir and file_path and os.path.isabs(file_path):
+        project_dir = os.path.dirname(file_path)
+        
+    if project_dir and not main_file and file_path:
+        guessed = guess_main_file(project_dir)
+        main_file = guessed if guessed else os.path.basename(file_path)
+            
     if main_file and project_dir:
         # Save the current file's content first to ensure the compiler sees the latest changes
         if file_path and os.path.exists(file_path):
@@ -62,7 +70,8 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
                 [tectonic_cmd, "--synctex", abs_main_file],
                 cwd=project_dir,
                 capture_output=True,
-                text=True
+                encoding="utf-8",
+                errors="replace"
             )
             success = result.returncode == 0
             log = result.stdout + "\n" + result.stderr
@@ -108,7 +117,8 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
             [tectonic_cmd, "--synctex", tex_file_path],
             cwd=temp_dir,
             capture_output=True,
-            text=True
+            encoding="utf-8",
+            errors="replace"
         )
         
         success = result.returncode == 0
