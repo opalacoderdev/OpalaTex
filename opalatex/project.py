@@ -172,6 +172,13 @@ class ProjectStore:
             ).fetchone()
             return row is not None
 
+    def find_by_path(self, path: str) -> str | None:
+        with _conn(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT name FROM projects WHERE project_path = ?", (os.path.abspath(path),)
+            ).fetchone()
+            return row["name"] if row else None
+
     def list_projects(self) -> list[dict]:
         with _conn(self.db_path) as conn:
             rows = conn.execute(
@@ -423,10 +430,10 @@ class ProjectStore:
                 "INSERT INTO projects (name, created_at, updated_at, mode, model, worker_model, project_name, project_path, skills, description, core_memory, model_params, worker_model_params, use_shared_memory, main_file) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (name, now, now, mode, model, worker_model, project_name, abs_proj_path, json.dumps(_skills), description, "", json.dumps(_model_params), json.dumps(_worker_model_params), 0, ""),
             )
-            # Create default main chat
+            # Create default main chat if it doesn't exist
             chat_id = f"main_{name}"
             conn.execute(
-                "INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
+                "INSERT OR IGNORE INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
                 (chat_id, name, "Main Chat", now, "")
             )
         return ProjectData(name=name, use_shared_memory=False, chats=[{"id": chat_id, "name": "Main Chat"}], current_chat_id=chat_id, mode=mode, model=model, worker_model=worker_model, project_name=project_name, project_path=abs_proj_path, skills=_skills, description=description, core_memory="", model_params=_model_params, worker_model_params=_worker_model_params, api_key=api_key or "", api_base=api_base or "", worker_api_key=worker_api_key or "", worker_api_base=worker_api_base or "", main_file="")

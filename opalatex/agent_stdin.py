@@ -4,6 +4,7 @@ import sys
 import json
 import asyncio
 import os
+import time
 import io
 
 # ── Force UTF-8 on all I/O streams (critical for PyInstaller --windowed) ─────
@@ -906,25 +907,34 @@ async def handle_create_project(data: dict):
     model_params = data.get("model_params")
     worker_model_params = data.get("worker_model_params")
     
-    db_key = project_name.replace(" ", "_").lower()
-    if store.exists(db_key):
-        db_key = db_key + "_1"
-        
-    project = store.create(
-        name=db_key,
-        mode=mode,
-        model=model,
-        project_name=project_name,
-        project_path=os.path.abspath(project_path),
-        skills=skills,
-        description=description,
-        api_key=api_key,
-        api_base=api_base,
-        worker_api_key=worker_api_key,
-        worker_api_base=worker_api_base,
-        model_params=model_params,
-        worker_model_params=worker_model_params,
-    )
+    abs_proj_path = os.path.abspath(project_path)
+    existing_name = store.find_by_path(abs_proj_path)
+    
+    if existing_name:
+        existing_proj = store.load(existing_name)
+        existing_project_name = existing_proj.project_name if existing_proj else existing_name
+        print_event("error", {"message": _("project_exists_in_folder", name=existing_project_name)})
+        return
+    else:
+        db_key = project_name.replace(" ", "_").lower()
+        if store.exists(db_key):
+            db_key = f"{db_key}_{int(time.time())}"
+            
+        project = store.create(
+            name=db_key,
+            mode=mode,
+            model=model,
+            project_name=project_name,
+            project_path=abs_proj_path,
+            skills=skills,
+            description=description,
+            api_key=api_key,
+            api_base=api_base,
+            worker_api_key=worker_api_key,
+            worker_api_base=worker_api_base,
+            model_params=model_params,
+            worker_model_params=worker_model_params,
+        )
     print_event("project_created", {
         "project_name": project.project_name,
         "project_path": project.project_path,

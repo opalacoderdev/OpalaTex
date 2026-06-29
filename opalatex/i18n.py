@@ -132,6 +132,7 @@ _STRINGS = {
         "workflow_edit_ambiguous": "edit_file: old_str matches {n} locations in {path} — be more specific",
         "empty_response_retry_info": "The model generated an empty response. Forcing an automatic correction attempt...",
         "empty_response_nudge": "Look, you have successfully completed the tasks/tools. Now, please tell the user what you did and summarize your changes.",
+        "project_exists_in_folder": "The folder is already being used by the project '{name}'. Only one project per folder is allowed."
     },
     "pt": {
         "active_session": "Sessão Ativa: {name}",
@@ -262,6 +263,7 @@ _STRINGS = {
         "workflow_edit_ambiguous": "edit_file: old_str encontrado em {n} locais em {path} — seja mais específico",
         "empty_response_retry_info": "O modelo gerou uma resposta vazia. Forçando uma tentativa de correção automática...",
         "empty_response_nudge": "Olha, você já concluiu a execução das ferramentas com sucesso. Agora, por favor, explique ao usuário o que você fez e resuma as alterações realizadas.",
+        "project_exists_in_folder": "Esta pasta já está sendo usada pelo projeto '{name}'. Só é permitido um projeto por pasta."
     }
 }
 

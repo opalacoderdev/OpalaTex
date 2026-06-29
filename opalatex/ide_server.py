@@ -2,6 +2,7 @@ import sys
 import os
 import io
 import base64
+from opalatex.i18n import _ as get_translation
 
 # ── Force UTF-8 on all I/O streams (critical for PyInstaller --windowed) ─────
 os.environ["PYTHONUTF8"] = "1"
@@ -1309,6 +1310,14 @@ class AsyncHTTPServer:
             worker_model_params_raw = data.get("worker_model_params")
             worker_model_params = sanitize_model_params(worker_model_params_raw) if isinstance(worker_model_params_raw, dict) else None
 
+            existing_name = store.find_by_path(abs_path)
+            if existing_name:
+                existing_proj = store.load(existing_name)
+                existing_project_name = existing_proj.project_name if existing_proj else existing_name
+                err_msg = get_translation("project_exists_in_folder", name=existing_project_name)
+                self.send_response(writer, 400, json.dumps({"error": err_msg}).encode('utf-8'), "application/json")
+                return
+
             db_key = project_name.replace(" ", "_").lower()
             original_db_key = db_key
             counter = 1
@@ -1471,6 +1480,14 @@ class AsyncHTTPServer:
                         skills = ["opalatex"] + skills
             except Exception:
                 pass
+
+            existing_name = store.find_by_path(abs_path)
+            if existing_name:
+                existing_proj = store.load(existing_name)
+                existing_project_name = existing_proj.project_name if existing_proj else existing_name
+                err_msg = get_translation("project_exists_in_folder", name=existing_project_name)
+                self.send_response(writer, 400, json.dumps({"error": err_msg}).encode('utf-8'), "application/json")
+                return
 
             db_key = project_name.replace(" ", "_").lower()
             original_db_key = db_key
