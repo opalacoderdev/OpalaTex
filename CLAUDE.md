@@ -1,5 +1,7 @@
 # General Rules
 
+0. **MANDATORY**: Before doing any task, responding to requests, or modifying files in this project, you MUST read the architecture documentation in [ARCH.md](file:///c:/Users/gilza/projetos/OpalaTex/ARCH.md) to understand the software architecture and client-server connectivity.
+
 1. Don't make baseless assumptions; before drawing any conclusions, conduct tests and analysis to gather as much information as possible.
 
 2. Dever apply direct patch ou modifications in external lib without user authorization.
