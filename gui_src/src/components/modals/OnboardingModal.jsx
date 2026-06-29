@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Monitor, Cloud, Terminal, CheckCircle, X } from 'lucide-react';
+import { Loader2, Monitor, Cloud, Terminal, CheckCircle, X, Settings2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export default function OnboardingModal({ onClose, onComplete }) {
@@ -25,8 +25,13 @@ export default function OnboardingModal({ onClose, onComplete }) {
       .catch(console.error);
   }, []);
 
-  const finishOnboarding = async (config) => {
+  const finishOnboarding = async (config, provider = 'local') => {
     try {
+      await fetch('/api/settings/ai-provider', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider })
+      });
       await fetch('/api/opalatex/create-project', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -67,12 +72,6 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
   const handleOpalaCloud = async () => {
     try {
-      await fetch('/api/settings/ai-provider', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: 'cloud' })
-      });
-      
       const config = {
         project_name: "Projeto Piloto (Opala Cloud)",
         project_path: "~/OpalaTexPilot",
@@ -87,7 +86,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
       };
       
       console.log("[DEBUG ONBOARDING] Botão 'Opala Cloud' clicado. Config gerada:", config);
-      finishOnboarding(config);
+      finishOnboarding(config, 'cloud');
     } catch (e) {
       console.error(e);
     }
@@ -102,7 +101,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
     };
     if (apiKey) config.api_key = apiKey;
     if (apiBase) config.api_base = apiBase;
-    finishOnboarding(config);
+    finishOnboarding(config, 'local');
   };
 
   const vram = hardware ? parseFloat(hardware.vram_gb) || 0 : 0;
@@ -332,7 +331,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 };
                 if (apiBase) config.api_base = apiBase;
                 console.log("[DEBUG ONBOARDING] Botão 'Pular Chave' clicado. Config gerada:", config);
-                finishOnboarding(config);
+                finishOnboarding(config, 'local');
               }}>
                 {t('onboarding.skipKeyBtn')}
               </button>
@@ -346,7 +345,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 if (apiKey) config.api_key = apiKey;
                 if (apiBase) config.api_base = apiBase;
                 console.log("[DEBUG ONBOARDING] Botão 'Criar Projeto' clicado. Config gerada:", config);
-                finishOnboarding(config);
+                finishOnboarding(config, 'local');
               }}>
                 {t('onboarding.createPilotBtn')}
               </button>

@@ -1,0 +1,6 @@
+﻿pos 117: U+00E1 context: 'ex - Build do Execut├ível       "\necho "='
+pos 215: U+00EA context: '4] Instalando depend├¬ncias e PyInstaller'
+pos 440: U+00F3 context: '[3/4] Limpando diret├│rios de build antig'
+pos 2768: U+00ED context: '"\necho "Build conclu├¡do com sucesso!"\nec'
+pos 2800: U+00E1 context: 'sso!"\necho "O execut├ível pode ser encont'
+scan done

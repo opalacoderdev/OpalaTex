@@ -2,10 +2,10 @@
 set -e
 
 echo "=========================================="
-echo "       OpalaTex - Build do Executável       "
+echo "       OpalaTex - Build do Executavel       "
 echo "=========================================="
 
-echo -e "\n[1/4] Instalando dependências e PyInstaller..."
+echo -e "\n[1/4] Instalando dependencias e PyInstaller..."
 pip install pyinstaller wheel setuptools
 
 echo -e "\n[2/4] Construindo o frontend (React/Vite)..."
@@ -14,7 +14,7 @@ npm install
 npm run build
 popd > /dev/null
 
-echo -e "\n[3/4] Limpando diretórios de build antigos..."
+echo -e "\n[3/4] Limpando diretorios de build antigos..."
 rm -rf build
 
 echo -e "\n[3.5/4] Baixando Tectonic para o empacotamento..."
@@ -74,6 +74,6 @@ pyinstaller --name "OpalaTex" \
             main.py
 
 echo -e "\n=========================================="
-echo "Build concluído com sucesso!"
-echo "O executável pode ser encontrado em: ./dist/OpalaTex/OpalaTex"
+echo "Build concluido com sucesso!"
+echo "O executavel pode ser encontrado em: ./dist/OpalaTex/OpalaTex"
 echo "=========================================="

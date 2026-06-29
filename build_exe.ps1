@@ -1,10 +1,10 @@
 $ErrorActionPreference = "Stop"
 
 Write-Host "=========================================="
-Write-Host "       OpalaTex - Build do Executável       "
+Write-Host "       OpalaTex - Build do Executavel       "
 Write-Host "=========================================="
 
-Write-Host "`n[1/4] Instalando PyInstaller e dependências..."
+Write-Host "`n[1/4] Instalando PyInstaller e dependencias..."
 pip install pyinstaller wheel setuptools
 
 Write-Host "`n[2/4] Construindo o frontend (React/Vite)..."
@@ -33,7 +33,7 @@ Write-Host "`n[4/4] Empacotando com PyInstaller..."
 # Find winpty-agent.exe dynamically to avoid hardcoding .venv path
 $winptyAgentPath = python -c "import winpty, os; print(os.path.join(os.path.dirname(winpty.__file__), 'winpty-agent.exe'))"
 
-# A sintaxe de --add-data no Windows usa ponto-e-vírgula (;)
+# A sintaxe de --add-data no Windows usa ponto-e-virgula (;)
 pyinstaller --name "OpalaTex" `
             --windowed `
             --icon="icon.png" `
@@ -70,6 +70,6 @@ pyinstaller --name "OpalaTex" `
             main.py
 
 Write-Host "`n=========================================="
-Write-Host "Build concluído com sucesso!"
-Write-Host "O executável pode ser encontrado em: .\dist\OpalaTex\OpalaTex.exe"
+Write-Host "Build concluido com sucesso!"
+Write-Host "O executavel pode ser encontrado em: .\dist\OpalaTex\OpalaTex.exe"
 Write-Host "=========================================="
