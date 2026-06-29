@@ -122,69 +122,57 @@ def set_project_context(session, store=None) -> None:
         # Also explicitly propagate api_key and api_base from session if present
         model_name = getattr(session, "model", None)
         alt_model_name = getattr(session, "worker_model", None)
-        env_vars = set()
+        
         from .api_keys import get_env_var_for_model
-        if model_name:
-            v = get_env_var_for_model(model_name)
-            if v:
-                env_vars.add(v)
-        if alt_model_name:
-            v = get_env_var_for_model(alt_model_name)
-            if v:
-                env_vars.add(v)
+        orch_env_var = get_env_var_for_model(model_name) if model_name else None
+        worker_env_var = get_env_var_for_model(alt_model_name) if alt_model_name else None
 
-        if getattr(session, "api_key", None):
-            os.environ["OPENAI_API_KEY"] = session.api_key
-            for v in env_vars:
-                os.environ[v] = session.api_key
-        else:
-            # Only pop if they were not loaded from the current project's .env file
-            # (which has already been processed by load_dotenv above)
-            env_file_has_key = False
+        def env_file_has_var(var_name):
             if os.path.isfile(env_path):
                 try:
                     with open(env_path, "r", encoding="utf-8") as f:
-                        content = f.read()
-                        if "OPENAI_API_KEY=" in content:
-                            env_file_has_key = True
+                        for line in f:
+                            if line.strip().startswith(f"{var_name}="):
+                                return True
                 except Exception:
                     pass
-            if not env_file_has_key:
-                os.environ.pop("OPENAI_API_KEY", None)
+            return False
 
-            for v in env_vars:
-                env_file_has_v = False
-                if os.path.isfile(env_path):
-                    try:
-                        with open(env_path, "r", encoding="utf-8") as f:
-                            content = f.read()
-                            if f"{v}=" in content:
-                                env_file_has_v = True
-                    except Exception:
-                        pass
-                if not env_file_has_v:
-                    os.environ.pop(v, None)
+        # 1. Orchestrator credentials
+        if getattr(session, "api_key", None):
+            os.environ["OPENAI_API_KEY"] = session.api_key
+            if orch_env_var:
+                os.environ[orch_env_var] = session.api_key
+        else:
+            if not env_file_has_var("OPENAI_API_KEY"):
+                os.environ.pop("OPENAI_API_KEY", None)
+            if orch_env_var and not env_file_has_var(orch_env_var):
+                if not (orch_env_var == worker_env_var and getattr(session, "worker_api_key", None)):
+                    os.environ.pop(orch_env_var, None)
 
         if getattr(session, "api_base", None):
             os.environ["OPENAI_API_BASE"] = session.api_base
-        
+        else:
+            if not env_file_has_var("OPENAI_API_BASE"):
+                os.environ.pop("OPENAI_API_BASE", None)
+
+        # 2. Worker credentials
         if getattr(session, "worker_api_key", None):
             os.environ["WORKER_API_KEY"] = session.worker_api_key
-            
+            if worker_env_var:
+                os.environ[worker_env_var] = session.worker_api_key
+        else:
+            if not env_file_has_var("WORKER_API_KEY"):
+                os.environ.pop("WORKER_API_KEY", None)
+            if worker_env_var:
+                if not (worker_env_var == orch_env_var and getattr(session, "api_key", None)) and not env_file_has_var(worker_env_var):
+                    os.environ.pop(worker_env_var, None)
+
         if getattr(session, "worker_api_base", None):
             os.environ["WORKER_API_BASE"] = session.worker_api_base
         else:
-            env_file_has_base = False
-            if os.path.isfile(env_path):
-                try:
-                    with open(env_path, "r", encoding="utf-8") as f:
-                        content = f.read()
-                        if "OPENAI_API_BASE=" in content:
-                            env_file_has_base = True
-                except Exception:
-                    pass
-            if not env_file_has_base:
-                os.environ.pop("OPENAI_API_BASE", None)
+            if not env_file_has_var("WORKER_API_BASE"):
+                os.environ.pop("WORKER_API_BASE", None)
 
         # Dynamically inject/register the configured context window (num_ctx) in LiteLLM's model mapping
         # so it doesn't fail with a BadRequestError (request exceeds available context window).

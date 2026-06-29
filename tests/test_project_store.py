@@ -214,7 +214,7 @@ def test_set_project_context_loads_env_and_propagates_keys(tmp_path):
     proj_dir = tmp_path / "my_env_project"
     proj_dir.mkdir()
     env_file = proj_dir / ".env"
-    env_file.write_text("CUSTOM_VAR=my_value\nOPENAI_API_KEY=file_key\nOPENAI_API_BASE=file_base\n")
+    env_file.write_text("CUSTOM_VAR=my_value\nOPENAI_API_KEY=file_key\nOPENAI_API_BASE=file_base\nWORKER_API_KEY=file_w_key\nWORKER_API_BASE=file_w_base\n")
     
     # 1. Test loading from file
     p = ProjectData(name="test", project_path=str(proj_dir))
@@ -223,6 +223,8 @@ def test_set_project_context_loads_env_and_propagates_keys(tmp_path):
     assert os.environ.get("CUSTOM_VAR") == "my_value"
     assert os.environ.get("OPENAI_API_KEY") == "file_key"
     assert os.environ.get("OPENAI_API_BASE") == "file_base"
+    assert os.environ.get("WORKER_API_KEY") == "file_w_key"
+    assert os.environ.get("WORKER_API_BASE") == "file_w_base"
     
     # Clean up custom var
     os.environ.pop("CUSTOM_VAR", None)
@@ -232,10 +234,45 @@ def test_set_project_context_loads_env_and_propagates_keys(tmp_path):
         name="test",
         project_path=str(proj_dir),
         api_key="session_key",
-        api_base="session_base"
+        api_base="session_base",
+        worker_api_key="session_w_key",
+        worker_api_base="session_w_base"
     )
     set_project_context(p_with_keys)
     assert os.environ.get("OPENAI_API_KEY") == "session_key"
     assert os.environ.get("OPENAI_API_BASE") == "session_base"
+    assert os.environ.get("WORKER_API_KEY") == "session_w_key"
+    assert os.environ.get("WORKER_API_BASE") == "session_w_base"
+
+
+def test_store_load_saves_and_loads_api_credentials(store, tmp_path):
+    proj_dir = tmp_path / "creds_project"
+    proj_dir.mkdir(exist_ok=True)
+    p = store.create(
+        name="creds_proj",
+        mode="plan",
+        model="fake/model",
+        project_name="Creds Project",
+        project_path=str(proj_dir),
+        api_key="my_orch_key",
+        api_base="my_orch_base",
+        worker_api_key="my_worker_key",
+        worker_api_base="my_worker_base"
+    )
+    
+    loaded = store.load("creds_proj")
+    assert loaded.api_key == "my_orch_key"
+    assert loaded.api_base == "my_orch_base"
+    assert loaded.worker_api_key == "my_worker_key"
+    assert loaded.worker_api_base == "my_worker_base"
+
+    # Now modify and save
+    loaded.api_key = "new_orch_key"
+    loaded.worker_api_key = "new_worker_key"
+    store.save(loaded)
+
+    reloaded = store.load("creds_proj")
+    assert reloaded.api_key == "new_orch_key"
+    assert reloaded.worker_api_key == "new_worker_key"
 
 

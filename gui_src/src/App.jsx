@@ -164,7 +164,7 @@ export default function App() {
     fetch('/api/settings/ai-provider')
       .then(r => r.ok ? r.json() : null)
       .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const [isPending, startTransition] = useTransition();
@@ -234,7 +234,7 @@ export default function App() {
     fetch('/api/settings/ai-provider')
       .then(r => r.ok ? r.json() : null)
       .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
-      .catch(() => {});
+      .catch(() => { });
   };
 
   const fetchGlobalModels = () => {
@@ -948,7 +948,7 @@ export default function App() {
           relPath = relPath.substring(1);
         }
       }
-      
+
       const payload = {
         project_name: activeProject.name,
         main_file: relPath,
@@ -1469,7 +1469,7 @@ export default function App() {
 
   const handleSendMessage = async (e, retryMsg = null) => {
     if (e && e.preventDefault) e.preventDefault();
-    
+
     try {
       const r = await fetch('/api/settings/ai-provider');
       if (r.ok) {
@@ -1485,8 +1485,8 @@ export default function App() {
           }
         }
       }
-    } catch (_) {}
-    
+    } catch (_) { }
+
     let userText = '';
     let attachmentsSnapshot = [];
 
@@ -1507,7 +1507,7 @@ export default function App() {
       if (retryMsg) {
         const idx = prev.indexOf(retryMsg);
         if (idx !== -1) {
-           return [...prev.slice(0, idx), userMsg];
+          return [...prev.slice(0, idx), userMsg];
         }
       }
       return [...prev, userMsg];
@@ -1810,7 +1810,7 @@ export default function App() {
           }
         }
       }
-    } catch (_) {}
+    } catch (_) { }
     if (!userText.trim() || !activeProject || isAgentRunning) return;
     setChatInput('');
     setChatMessages(prev => [...prev, { role: 'user', content: userText, timestamp: new Date().toISOString() }]);
@@ -2127,9 +2127,9 @@ export default function App() {
       </div>
 
       {/* Status Bar */}
-      <StatusBar 
-        activeProject={activeProject} 
-        isAgentRunning={isAgentRunning} 
+      <StatusBar
+        activeProject={activeProject}
+        isAgentRunning={isAgentRunning}
         licenseData={licenseData}
         onOpenLicense={() => setShowLicenseModal(true)}
       />
@@ -2254,17 +2254,17 @@ export default function App() {
       )}
 
       {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
-      <LicenseModal 
-        licenseData={licenseData} 
-        isOpen={showLicenseModal} 
+      <LicenseModal
+        licenseData={licenseData}
+        isOpen={showLicenseModal}
         onClose={() => {
           setShowLicenseModal(false);
           // Reload status to clear lock if activated
           fetch('/api/license/status').then(r => r.json()).then(d => {
             setLicenseData(d);
-            if(d.status === 'TRIAL_EXPIRED') setShowLicenseModal(true);
+            if (d.status === 'TRIAL_EXPIRED') setShowLicenseModal(true);
           });
-        }} 
+        }}
       />
 
       {confirmRequest && confirmRequest.type === 'interactive_terminal' ? (

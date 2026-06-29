@@ -204,9 +204,16 @@ class ProjectStore:
                         d["worker_model_params"] = {}
                 else:
                     d["worker_model_params"] = {}
+
+                # Fallback worker_model_params to model_params if empty
+                if not d["worker_model_params"]:
+                    d["worker_model_params"] = dict(d["model_params"])
+
                 # Apply defaults for params added after project creation
                 d["model_params"].setdefault("think", False)
                 d["model_params"].setdefault("stream", False)
+                d["worker_model_params"].setdefault("think", False)
+                d["worker_model_params"].setdefault("stream", False)
                 
                 # Load api_key and api_base from local .env if it exists
                 d["api_key"] = ""
@@ -496,6 +503,8 @@ class ProjectStore:
             # Read api_key and api_base from local .env if it exists
             api_key = ""
             api_base = ""
+            worker_api_key = ""
+            worker_api_base = ""
             proj_path = row["project_path"]
             if proj_path and os.path.isdir(proj_path):
                 env_path = os.path.join(proj_path, ".env")
@@ -508,6 +517,10 @@ class ProjectStore:
                                     api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
                                 elif line.startswith("OPENAI_API_BASE="):
                                     api_base = line.split("=", 1)[1].strip().strip('"').strip("'")
+                                elif line.startswith("WORKER_API_KEY="):
+                                    worker_api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                                elif line.startswith("WORKER_API_BASE="):
+                                    worker_api_base = line.split("=", 1)[1].strip().strip('"').strip("'")
                     except Exception:
                         pass
 
@@ -538,6 +551,8 @@ class ProjectStore:
                 },
                 api_key=api_key,
                 api_base=api_base,
+                worker_api_key=worker_api_key,
+                worker_api_base=worker_api_base,
                 main_file=row["main_file"] if "main_file" in row.keys() else "",
                 history=[dict(r) for r in hist_rows],
             )

@@ -647,7 +647,7 @@ async def handle_run(data: dict):
         _is_cloud = load_ui_settings().get("ai_provider") == "cloud"
         if agent_kwargs.get("tool_role_workaround") is None:
             agent_kwargs["tool_role_workaround"] = "user" if _model.startswith("ollama") else None
-        #print(system_prompt)
+        print(system_prompt)
         agent = LLMAgentBlock(
             name=agent_type or "custom_agent",
             system_prompt=system_prompt,
