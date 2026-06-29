@@ -42,6 +42,14 @@ export default function EditorPanel({
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   
+  const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
+  const isTexRelatedFile = (filename) => {
+    if (!filename) return false;
+    const ext = filename.split('.').pop().toLowerCase();
+    return ['tex', 'cls', 'sty', 'bib'].includes(ext);
+  };
+  const isTexFile = isTexRelatedFile(selectedFile);
+
   // PDF state
   const [pdfBase64, setPdfBase64] = useState(null);
   const [isCompiling, setIsCompiling] = useState(false);
@@ -398,16 +406,18 @@ export default function EditorPanel({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            onClick={handleCompile}
-            disabled={isCompiling || isSaving || !isTectonicAvailable}
-            className="vscode-button"
-            style={{ backgroundColor: isTectonicAvailable ? '#217b3b' : '#3c3c3c', color: isTectonicAvailable ? 'white' : '#888', cursor: isTectonicAvailable ? 'pointer' : 'not-allowed' }}
-            title={!isTectonicAvailable ? 'Falta compilador! Instale em Settings.' : ''}
-          >
-            {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <Printer size={12} />}
-            <span>{isCompiling ? 'Compiling...' : (isSaving ? t('editorPanel.saving') : 'Compile LaTeX')}</span>
-          </button>
+          {isTexFile && (
+            <button
+              onClick={handleCompile}
+              disabled={isCompiling || isSaving || !isTectonicAvailable}
+              className="vscode-button"
+              style={{ backgroundColor: isTectonicAvailable ? '#217b3b' : '#3c3c3c', color: isTectonicAvailable ? 'white' : '#888', cursor: isTectonicAvailable ? 'pointer' : 'not-allowed' }}
+              title={!isTectonicAvailable ? 'Falta compilador! Instale em Settings.' : ''}
+            >
+              {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <Printer size={12} />}
+              <span>{isCompiling ? 'Compiling...' : (isSaving ? t('editorPanel.saving') : 'Compile LaTeX')}</span>
+            </button>
+          )}
           <button
             onClick={saveFile}
             disabled={isSaving}
@@ -462,7 +472,21 @@ export default function EditorPanel({
 
       {/* Monaco editor and PDF Preview Split */}
       <div style={{ flex: 1, minHeight: 0, height: 'calc(100% - 35px)' }}>
-        <Split
+        {isPdfFile ? (
+          <div style={{ height: '100%', background: '#0A0D14' }}>
+            <PdfPreview 
+              ref={pdfPreviewRef}
+              directUrl={`/api/file/raw?projectPath=${encodeURIComponent(activeProject?.project_path)}&filePath=${encodeURIComponent(selectedFile)}`}
+              base64Pdf={null}
+              isCompiling={false}
+              errorLog={''}
+              activeProject={activeProject}
+              selectedFile={selectedFile}
+              onSyncTexNavigate={handleSyncTexNavigate}
+            />
+          </div>
+        ) : isTexFile ? (
+          <Split
             sizes={[50, 50]}
             minSize={200}
             expandToMin={false}
@@ -534,7 +558,58 @@ export default function EditorPanel({
               onSyncTexNavigate={handleSyncTexNavigate}
             />
           </div>
-        </Split>
+          </Split>
+        ) : (
+          <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
+            {isPreviewMode ? (
+              <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
+                {formatMessageContent(fileContent, activeProject?.project_path)}
+              </div>
+            ) : isDiffMode ? (
+              <DiffEditor
+                height="100%"
+                language={getLanguage(selectedFile)}
+                theme={theme === 'light' ? 'light' : 'vs-dark'}
+                original={originalFileContents ? (originalFileContents[selectedFile] || '') : ''}
+                modified={fileContent}
+                originalModelPath={`original-${selectedFile}`}
+                modifiedModelPath={`modified-${selectedFile}`}
+                beforeMount={handleBeforeMount}
+                onMount={handleMount}
+                options={{
+                  minimap: { enabled: true },
+                  fontSize: editorFontSize,
+                  lineNumbers: 'on',
+                  tabSize: editorTabSize,
+                  wordWrap: editorWordWrap,
+                  automaticLayout: true,
+                  renderSideBySide: true,
+                  readOnly: false,
+                  originalEditable: false,
+                }}
+              />
+            ) : (
+              <Editor
+                height="100%"
+                path={selectedFile}
+                language={getLanguage(selectedFile)}
+                theme={theme === 'light' ? 'light' : 'vs-dark'}
+                value={fileContent}
+                beforeMount={handleBeforeMount}
+                onChange={(val) => setFileContent(val)}
+                onMount={handleMount}
+                options={{
+                  minimap: { enabled: true },
+                  fontSize: editorFontSize,
+                  lineNumbers: 'on',
+                  tabSize: editorTabSize,
+                  wordWrap: editorWordWrap,
+                  automaticLayout: true,
+                }}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Inline prompt overlay (rendered inside the panel for correct stacking) */}

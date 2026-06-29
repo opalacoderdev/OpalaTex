@@ -8,7 +8,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
-const PdfPreview = forwardRef(({ base64Pdf, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate }, ref) => {
+const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate }, ref) => {
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
   const [highlight, setHighlight] = useState(null);
@@ -22,10 +22,14 @@ const PdfPreview = forwardRef(({ base64Pdf, isCompiling, errorLog, activeProject
   };
 
   useEffect(() => {
-    if (base64Pdf) {
+    if (directUrl) {
+      setPdfUrl(directUrl);
+    } else if (base64Pdf) {
       setPdfUrl(`/api/latex/pdf?ts=${Date.now()}`);
+    } else {
+      setPdfUrl('');
     }
-  }, [base64Pdf]);
+  }, [base64Pdf, directUrl]);
 
   function onDocumentLoadSuccess({ numPages }) {
     setNumPages(numPages);
@@ -90,7 +94,7 @@ const PdfPreview = forwardRef(({ base64Pdf, isCompiling, errorLog, activeProject
     }
   };
 
-  if (errorLog && !base64Pdf) {
+  if (errorLog && !base64Pdf && !directUrl) {
     return (
       <div className="h-full w-full bg-slate-950 p-6 overflow-y-auto">
         <div className="text-red-400 font-mono text-sm whitespace-pre-wrap">
@@ -101,7 +105,7 @@ const PdfPreview = forwardRef(({ base64Pdf, isCompiling, errorLog, activeProject
     );
   }
 
-  if (!base64Pdf) {
+  if (!base64Pdf && !directUrl) {
     return (
       <div className="flex items-center justify-center h-full w-full bg-slate-900 text-slate-500">
         <p>No document compiled yet. Write some LaTeX and compile!</p>

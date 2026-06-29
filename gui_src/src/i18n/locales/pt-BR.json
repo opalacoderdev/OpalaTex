@@ -61,7 +61,7 @@
     "maximizeEditor": "Maximizar Editor",
     "refineSelection": "Refinar Seleção (OpalaTex)",
     "fixSelection": "Corrigir Seleção (OpalaTex)",
-    "generateCode": "Gerar Código (OpalaTex)",
+    "generateCode": "Gerar Conteúdo (OpalaTex)",
     "inlinePromptTitle": "Edição Inline",
     "inlinePromptPlaceholder": "Pergunte ao OpalaTex...",
     "inlinePromptSend": "Enviar",

@@ -625,7 +625,7 @@ async def handle_run(data: dict):
             model_kwargs=model_kwargs,
             **agent_kwargs
         )
-        print("WORKER SPROMPT ", system_prompt)
+        #print("WORKER SPROMPT ", system_prompt)
     
     # Setup message history if provided (for custom/standard LLMAgentBlock)
     if messages_history and hasattr(agent, "internal_history"):
@@ -845,13 +845,13 @@ async def handle_run(data: dict):
             
             if thought_chunks:
                 full_thought = "".join(thought_chunks).strip()
-                print(f"[DIAG-PY] thought_chunks len={len(thought_chunks)}, full_thought len={len(full_thought)}", flush=True)
+                #print(f"[DIAG-PY] thought_chunks len={len(thought_chunks)}, full_thought len={len(full_thought)}", flush=True)
                 if full_thought and not response.startswith("```thought"):
                     response = f"```thought\n{full_thought}\n```\n\n{response}".strip()
-            else:
-                print(f"[DIAG-PY] thought_chunks EMPTY - thinking not detected in stream", flush=True)
+            #else:
+                #print(f"[DIAG-PY] thought_chunks EMPTY - thinking not detected in stream", flush=True)
 
-            print(f"[DIAG-PY] response[:200] = {repr(response[:200])}", flush=True)
+            #print(f"[DIAG-PY] response[:200] = {repr(response[:200])}", flush=True)
 
             # Save assistant response and achievements
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
