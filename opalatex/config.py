@@ -209,12 +209,17 @@ def get_agent_response_mode(agent_name: str, default: str = "last") -> str:
 def get_agent_model(agent_name: str, default: str | None = None) -> str:
     """Return the model configured for *agent_name* in agents.yaml, or *default*."""
     override = _get_agent_overrides().get(agent_name, {}).get("model")
+    if override == "OpalaTexCloud":
+        override = "openai/gemini-3.1-flash-lite"
     if override:
         return override
     
     cfg = _get_agents_config()
     dyn_default = cfg.get("default", DEFAULT_MODEL)
     model = default if default is not None else dyn_default
+
+    if model == "OpalaTexCloud":
+        model = "openai/gemini-3.1-flash-lite"
 
     # Apply Cloud Provider Override
     from opalatex.ui_settings import load_ui_settings
@@ -268,7 +273,19 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     from opalatex.ui_settings import load_ui_settings
     from opalatex.licensing import _load_license_data
     ui_cfg = load_ui_settings()
-    if ui_cfg.get("ai_provider") == "cloud":
+    session_model = None
+    try:
+        from .tools import _PROJECT_SESSION
+        if _PROJECT_SESSION:
+            if agent_name == "worker" and hasattr(_PROJECT_SESSION, "worker_model") and _PROJECT_SESSION.worker_model:
+                session_model = _PROJECT_SESSION.worker_model
+            elif hasattr(_PROJECT_SESSION, "model") and _PROJECT_SESSION.model:
+                session_model = _PROJECT_SESSION.model
+    except Exception:
+        pass
+
+    resolved_model = get_agent_model(agent_name, default=session_model)
+    if ui_cfg.get("ai_provider") == "cloud" or resolved_model == "openai/gemini-3.1-flash-lite":
         license_data = _load_license_data()
         license_key = license_data.get("license_key", "")
         # Force OpenAI format to proxy through our custom server

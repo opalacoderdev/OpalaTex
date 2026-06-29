@@ -8,6 +8,9 @@ from .config import get_opalatex_home
 _MODELS_STORE_PATH = Path(get_opalatex_home()) / "models.json"
 
 _DEFAULT_MODELS = [
+    # OpalaTex Cloud Model
+    { "id": "OpalaTexCloud", "provider": "OpalaTex", "name": "OpalaTex Cloud", "api_key": "", "api_base": "" },
+
     # OpenAI Models
     { "id": "openai/gpt-5.5", "provider": "openai", "name": "gpt-5.5", "api_key": "", "api_base": "" },
     { "id": "openai/gpt-5.5-pro", "provider": "openai", "name": "gpt-5.5-pro", "api_key": "", "api_base": "" },
@@ -48,18 +51,30 @@ _DEFAULT_MODELS = [
 
 def load_models() -> List[Dict[str, Any]]:
     """Load models from the global store, populating defaults if missing or empty."""
+    loaded_defaults = False
+    models = []
     try:
         if _MODELS_STORE_PATH.exists():
             with open(_MODELS_STORE_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list) and len(data) > 0:
-                    return data
+                models = json.load(f)
     except Exception:
         pass
-    
-    # Save and return defaults
-    save_models(_DEFAULT_MODELS)
-    return list(_DEFAULT_MODELS)
+        
+    if not isinstance(models, list) or len(models) == 0:
+        models = list(_DEFAULT_MODELS)
+        loaded_defaults = True
+        
+    # Ensure OpalaTexCloud is in the list
+    has_opala_cloud = any(m.get("id") == "OpalaTexCloud" for m in models)
+    if not has_opala_cloud:
+        opala_cloud_model = { "id": "OpalaTexCloud", "provider": "OpalaTex", "name": "OpalaTex Cloud", "api_key": "", "api_base": "" }
+        models.insert(0, opala_cloud_model)
+        loaded_defaults = True
+        
+    if loaded_defaults:
+        save_models(models)
+        
+    return models
 
 def save_models(models: List[Dict[str, Any]]) -> None:
     """Save models list to the global store."""

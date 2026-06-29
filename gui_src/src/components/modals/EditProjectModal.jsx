@@ -23,6 +23,7 @@ function ParamNumber({ label, value, onChange, step, min, max, placeholder }) {
 
 // Project settings edit modal (model params, paths, credentials, etc.).
 export default function EditProjectModal({
+  globalAiProvider,
   editingProject,
   setEditingProject,
   onClose,
@@ -39,16 +40,6 @@ export default function EditProjectModal({
   const { hardware: workerHardware, modelStatus: workerModelStatus } = useModelValidation(editingProject?.worker_model);
 
   const [activeTab, setActiveTab] = useState('geral');
-  const [globalAiProvider, setGlobalAiProvider] = useState('local');
-
-  React.useEffect(() => {
-    if (editingProject) {
-      fetch('/api/settings/ai-provider')
-        .then(r => r.ok ? r.json() : null)
-        .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
-        .catch(() => {});
-    }
-  }, [editingProject]);
 
   const getBorderColor = (status) => {
     if (status === 'green') return '#4ade80';
@@ -377,6 +368,7 @@ export default function EditProjectModal({
                       style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
                     <datalist id="edit-models">
+                      <option value="OpalaTexCloud" />
                       <option value="gemini/gemini-flash-lite-latest" />
                       <option value="anthropic/claude-3-5-sonnet-latest" />
                       <option value="openai/gpt-4o" />

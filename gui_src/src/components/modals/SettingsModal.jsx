@@ -27,6 +27,7 @@ export default function SettingsModal({
   setEphemeralParams,
   panelMaxLines,
   setPanelMaxLines,
+  onAiProviderChange,
 }) {
   const { t } = useTranslation();
   const [selectedLang, setSelectedLang] = React.useState('');
@@ -123,6 +124,7 @@ export default function SettingsModal({
                   onChange={(e) => {
                     const val = e.target.value;
                     setAiProvider(val);
+                    onAiProviderChange?.(val);
                     fetch('/api/settings/ai-provider', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },

@@ -158,6 +158,14 @@ export default function App() {
   const [editorFontSize, setEditorFontSize] = useState(() => Number(safeGetLocalStorage('editorFontSize', 13)));
   const [editorTabSize, setEditorTabSize] = useState(() => Number(safeGetLocalStorage('editorTabSize', 4)));
   const [editorWordWrap, setEditorWordWrap] = useState(() => safeGetLocalStorage('editorWordWrap', 'on'));
+  const [globalAiProvider, setGlobalAiProvider] = useState('local');
+
+  useEffect(() => {
+    fetch('/api/settings/ai-provider')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
+      .catch(() => {});
+  }, []);
 
   const [isPending, startTransition] = useTransition();
   const [isLoadingChat, setIsLoadingChat] = useState(false);
@@ -223,6 +231,10 @@ export default function App() {
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
     fetchProjects();
+    fetch('/api/settings/ai-provider')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
+      .catch(() => {});
   };
 
   const fetchGlobalModels = () => {
@@ -2089,6 +2101,7 @@ export default function App() {
               onRefreshModels={fetchGlobalModels}
               onEditModels={() => setShowEditModelsModal(true)}
               onModelChange={handleProjectModelChange}
+              globalAiProvider={globalAiProvider}
             />
 
             {(isLoadingChat || isPending) && (
@@ -2132,6 +2145,7 @@ export default function App() {
 
       {showNewProjectModal && (
         <NewProjectModal
+          globalAiProvider={globalAiProvider}
           onClose={() => setShowNewProjectModal(false)}
           onSubmit={handleCreateProject}
           newProjName={newProjName} setNewProjName={setNewProjName}
@@ -2178,6 +2192,7 @@ export default function App() {
 
       {editingProject && (
         <EditProjectModal
+          globalAiProvider={globalAiProvider}
           editingProject={editingProject}
           setEditingProject={setEditingProject}
           onClose={() => setEditingProject(null)}
@@ -2208,6 +2223,7 @@ export default function App() {
 
       {isSettingsOpen && (
         <SettingsModal
+          onAiProviderChange={(val) => setGlobalAiProvider(val)}
           onClose={() => setIsSettingsOpen(false)}
           settingsTab={settingsTab}
           setSettingsTab={setSettingsTab}

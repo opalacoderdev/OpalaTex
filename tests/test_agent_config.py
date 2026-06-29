@@ -60,3 +60,29 @@ def test_orchestrator_has_no_restrictive_max_tokens():
     kwargs = get_agent_llm_kwargs("orchestrator")
     max_tok = kwargs.get("max_tokens", None)
     assert max_tok is None or max_tok >= 1024
+
+
+def test_opalatex_cloud_model_mapping_and_overrides():
+    """Ensure that the OpalaTexCloud model string resolves to the custom proxy config."""
+    from opalatex.config import get_agent_model, get_agent_llm_kwargs
+    from unittest.mock import patch
+
+    # 1. Test model name mapping in get_agent_model
+    assert get_agent_model("memgpt", default="OpalaTexCloud") == "openai/gemini-3.1-flash-lite"
+    assert get_agent_model("worker", default="OpalaTexCloud") == "openai/gemini-3.1-flash-lite"
+
+    # 2. Test get_agent_llm_kwargs overrides for OpalaTexCloud model
+    class FakeSession:
+        model = "OpalaTexCloud"
+        model_params = {}
+        project_path = "/fake/path"
+
+    with patch("opalatex.licensing._load_license_data", return_value={"license_key": "OPALA-TEST-KEY"}):
+        with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+            # Even if ai_provider is local, selecting OpalaTexCloud should override kwargs
+            with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+                kwargs = get_agent_llm_kwargs("memgpt")
+                assert kwargs["api_base"] == "https://opalacoder.com/api/chat-proxy"
+                assert kwargs["api_key"] == "OPALA-TEST-KEY"
+                assert kwargs["custom_llm_provider"] == "openai"
+

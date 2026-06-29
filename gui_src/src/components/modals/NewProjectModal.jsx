@@ -5,6 +5,7 @@ import { useModelValidation } from './useModelValidation';
 
 // Modal for registering a new project.
 export default function NewProjectModal({
+  globalAiProvider,
   onClose,
   onSubmit,
   newProjName, setNewProjName,
@@ -29,14 +30,6 @@ export default function NewProjectModal({
   const { hardware: workerHardware, modelStatus: workerModelStatus } = useModelValidation(newProjWorkerModel);
 
   const [activeTab, setActiveTab] = useState('geral');
-  const [globalAiProvider, setGlobalAiProvider] = useState('local');
-
-  React.useEffect(() => {
-    fetch('/api/settings/ai-provider')
-      .then(r => r.ok ? r.json() : null)
-      .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
-      .catch(() => {});
-  }, []);
 
   const isWindows = navigator.userAgent.toLowerCase().includes('windows');
   const dynamicPathHint = isWindows ? 'Ex: C:\\Projetos' : 'Ex: /home/user/projetos';
@@ -232,6 +225,7 @@ export default function NewProjectModal({
                       style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
                     <datalist id="default-models">
+                      <option value="OpalaTexCloud" />
                       <option value="gemini/gemini-flash-lite-latest" />
                       <option value="anthropic/claude-3-5-sonnet-latest" />
                       <option value="openai/gpt-4o" />

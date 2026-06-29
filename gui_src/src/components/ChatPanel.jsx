@@ -36,7 +36,8 @@ export default function ChatPanel({
   globalModels = [],
   onRefreshModels,
   onEditModels,
-  onModelChange
+  onModelChange,
+  globalAiProvider
 }) {
   const { t } = useTranslation();
   const historyRef = useRef(null);
@@ -113,14 +114,7 @@ export default function ChatPanel({
   // Custom confirm state for deleting chat
   const [chatToDelete, setChatToDelete] = useState(null);
 
-  const [globalAiProvider, setGlobalAiProvider] = useState('local');
-
-  useEffect(() => {
-    fetch('/api/settings/ai-provider')
-      .then(r => r.ok ? r.json() : null)
-      .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
-      .catch(() => {});
-  }, []);
+  // globalAiProvider is received as a prop from App.jsx
 
   if (!isChatVisible) return null;
 
