@@ -1749,6 +1749,11 @@ export default function App() {
           }
         }
 
+        // Strip thought/reasoning blocks that may have leaked from a thinking model
+        // (safety net for Fix A in agent_stdin.py — prevents thinking text from being
+        // inserted into the editor instead of the actual refined/fixed code).
+        rawResponse = rawResponse.replace(/^```(?:thought|reasoning)[\s\S]*?```\s*/m, '').trim();
+
         // Extract code block
         const regex = /```(?:\w+)?\n([\s\S]*?)```/;
         const match = regex.exec(rawResponse);

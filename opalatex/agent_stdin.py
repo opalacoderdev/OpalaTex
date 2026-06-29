@@ -877,7 +877,10 @@ async def handle_run(data: dict):
             if thought_chunks:
                 full_thought = "".join(thought_chunks).strip()
                 #print(f"[DIAG-PY] thought_chunks len={len(thought_chunks)}, full_thought len={len(full_thought)}", flush=True)
-                if full_thought and not response.startswith("```thought"):
+                # Only prepend thinking blocks for chat agents — not for inline_editor or
+                # other worker agents where the response is expected to be a raw code block.
+                # Prepending would cause App.jsx to extract the thinking text instead of the code.
+                if full_thought and not response.startswith("```thought") and agent_type in ("chat_orchestrator", "orchestrator"):
                     response = f"```thought\n{full_thought}\n```\n\n{response}".strip()
             #else:
                 #print(f"[DIAG-PY] thought_chunks EMPTY - thinking not detected in stream", flush=True)
