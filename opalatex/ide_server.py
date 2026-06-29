@@ -884,11 +884,24 @@ class AsyncHTTPServer:
 
         # 3.7. List subdirectories of a filesystem path
         elif path == '/api/fs/dirs':
-            req_path = data.get('path', os.path.expanduser('~'))
-            req_path = os.path.abspath(os.path.expanduser(req_path or os.path.expanduser('~')))
+            req_path = data.get('path')
+            if not req_path or req_path == '~':
+                try:
+                    from opalatex.config import get_opalatex_home
+                    req_path = os.path.dirname(get_opalatex_home())
+                except ImportError:
+                    req_path = os.path.expanduser('~')
+            
+            req_path = os.path.abspath(os.path.expanduser(req_path))
             
             if not os.path.exists(req_path) or not os.path.isdir(req_path):
-                req_path = os.path.expanduser('~')
+                try:
+                    from opalatex.config import get_opalatex_home
+                    req_path = os.path.dirname(get_opalatex_home())
+                except ImportError:
+                    req_path = os.path.expanduser('~')
+                if not os.path.exists(req_path) or not os.path.isdir(req_path):
+                    req_path = os.path.expanduser('~')
 
             try:
                 entries = []
