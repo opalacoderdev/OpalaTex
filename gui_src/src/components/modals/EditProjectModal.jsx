@@ -332,41 +332,55 @@ export default function EditProjectModal({
 
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.mainModel')}</label>
-                <input
-                  type="text"
-                  list="edit-models"
-                  value={editingProject.model}
-                  onChange={e => setEditingProject(p => ({ ...p, model: e.target.value }))}
-                  onBlur={() => onLoadModelConfig(true)}
-                  placeholder="gemini/gemini-2.5-flash"
-                  style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
-                />
-                <datalist id="edit-models">
-                  <option value="gemini/gemini-flash-lite-latest" />
-                  <option value="anthropic/claude-3-5-sonnet-latest" />
-                  <option value="openai/gpt-4o" />
-                  <option value="ollama/gemma4:12b" />
-                  <option value="ollama/gemma4:31b-cloud" />
-                </datalist>
-                {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>✓ Modelo adequado.</span>}
-                {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>⚠ Poderá ficar lento.</span>}
-                {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>❌ Pode exceder VRAM.</span>}
+                {globalAiProvider === 'cloud' ? (
+                  <div style={{ padding: '8px', background: 'rgba(0, 122, 204, 0.1)', border: '1px solid #007acc', borderRadius: '4px', fontSize: '12px', color: '#007acc', marginTop: '4px' }}>
+                    <strong>Opala Cloud Ativado</strong><br />
+                    O modelo, URL base e chaves de API do Orquestrador já estão configurados automaticamente para usar a nuvem Opala.<br />
+                    <em>As configurações avançadas abaixo (Temperature, Tokens, etc) continuam disponíveis e serão aplicadas na Cloud.</em>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      list="edit-models"
+                      value={editingProject.model}
+                      onChange={e => setEditingProject(p => ({ ...p, model: e.target.value }))}
+                      onBlur={() => onLoadModelConfig(true)}
+                      placeholder="gemini/gemini-2.5-flash"
+                      style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
+                    />
+                    <datalist id="edit-models">
+                      <option value="gemini/gemini-flash-lite-latest" />
+                      <option value="anthropic/claude-3-5-sonnet-latest" />
+                      <option value="openai/gpt-4o" />
+                      <option value="ollama/gemma4:12b" />
+                      <option value="ollama/gemma4:31b-cloud" />
+                    </datalist>
+                    {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>✓ Modelo adequado.</span>}
+                    {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>⚠ Poderá ficar lento.</span>}
+                    {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>❌ Pode exceder VRAM.</span>}
+                  </>
+                )}
               </div>
 
               {/* API credentials (main model) */}
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.apiKey')}</label>
-                  <input type="password" value={editingProject.api_key} onChange={e => setEditingProject(p => ({ ...p, api_key: e.target.value }))} placeholder={t('editProjectModal.apiKeyPlaceholder')} />
-                </div>
-                <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.apiBase')}</label>
-                  <input type="text" value={editingProject.api_base} onChange={e => setEditingProject(p => ({ ...p, api_base: e.target.value }))} placeholder={t('editProjectModal.apiBasePlaceholder')} />
-                </div>
-              </div>
-              <div style={{ fontSize: '11px', color: '#808080', marginTop: '-6px', lineHeight: '1.4' }}>
-                <Trans i18nKey="newProjectModal.ollamaTip" components={[<span />, <strong />]} />
-              </div>
+              {globalAiProvider !== 'cloud' && (
+                <>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
+                      <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.apiKey')}</label>
+                      <input type="password" value={editingProject.api_key} onChange={e => setEditingProject(p => ({ ...p, api_key: e.target.value }))} placeholder={t('editProjectModal.apiKeyPlaceholder')} />
+                    </div>
+                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
+                      <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.apiBase')}</label>
+                      <input type="text" value={editingProject.api_base} onChange={e => setEditingProject(p => ({ ...p, api_base: e.target.value }))} placeholder={t('editProjectModal.apiBasePlaceholder')} />
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#808080', marginTop: '-6px', lineHeight: '1.4' }}>
+                    <Trans i18nKey="newProjectModal.ollamaTip" components={[<span />, <strong />]} />
+                  </div>
+                </>
+              )}
 
               {/* Advanced params (collapsible) */}
               <div className="flex flex-col" style={{ marginTop: '4px' }}>
@@ -528,17 +542,10 @@ export default function EditProjectModal({
                   <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerModel')}</label>
                 </div>
                 {globalAiProvider === 'cloud' ? (
-                  <select
-                    className="vscode-settings-input"
-                    value={editingProject.worker_model || 'OpalaTexCloud'}
-                    onChange={e => setEditingProject(p => ({ ...p, worker_model: e.target.value }))}
-                  >
-                    <option value="OpalaTexCloud">OpalaTex Cloud (Padrão)</option>
-                    <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash</option>
-                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
-                    <option value="openai/gpt-4o">GPT-4o</option>
-                    <option value="anthropic/claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
-                  </select>
+                  <div style={{ padding: '8px', background: 'rgba(0, 122, 204, 0.1)', border: '1px solid #007acc', borderRadius: '4px', fontSize: '12px', color: '#007acc', marginTop: '4px' }}>
+                    <strong>Opala Cloud Ativado</strong><br />
+                    O modelo do Worker já está configurado automaticamente para usar a nuvem Opala. As configurações avançadas abaixo continuarão ativas.
+                  </div>
                 ) : (
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <input

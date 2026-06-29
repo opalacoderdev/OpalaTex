@@ -67,7 +67,7 @@ const components = {
             {lang}
           </div>
         )}
-        <pre style={{ margin: 0, padding: '10px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', overflowX: 'auto', fontSize: '12px', lineHeight: '1.5', fontFamily: 'monospace' }}>
+        <pre style={{ margin: 0, padding: '10px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', overflowX: 'auto', fontSize: '12px', lineHeight: '1.5', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           <code>{children}</code>
         </pre>
       </div>
@@ -191,6 +191,15 @@ const REHYPE_PLUGINS = [[rehypeKatex, { strict: "ignore" }]];
 export function formatMessageContent(content, activeProjectPath = null) {
   if (!content) return null;
 
+  // Convert <think>...</think> tags to markdown ```thought blocks for rendering
+  let processed = content.replace(/<think>([\s\S]*?)<\/think>/gi, (_, inner) => {
+    return '\n```thought\n' + inner.trim() + '\n```\n';
+  });
+  // Handle unclosed <think> (streaming partial)
+  processed = processed.replace(/<think>([\s\S]*)$/i, (_, inner) => {
+    return '\n```thought\n' + inner.trim() + '\n```\n';
+  });
+
   const localComponents = {
     ...components,
     img: ({ src, alt, ...props }) => {
@@ -215,7 +224,7 @@ export function formatMessageContent(content, activeProjectPath = null) {
       rehypePlugins={REHYPE_PLUGINS}
       components={localComponents}
     >
-      {content}
+      {processed}
     </ReactMarkdown>
   );
 }

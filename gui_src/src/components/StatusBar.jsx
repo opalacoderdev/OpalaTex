@@ -30,6 +30,42 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
     return () => clearInterval(interval);
   }, []);
 
+  const handleRechargeClick = async (e) => {
+    e.preventDefault();
+    if (!licenseData?.key) {
+      alert("Nenhuma chave de licença encontrada no app.");
+      window.open('https://opalacoder.com/#products', '_blank');
+      return;
+    }
+    
+    try {
+      const res = await fetch('https://opalacoder.com/api/create-recharge-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licenseKey: licenseData.key })
+      });
+      const text = await res.text();
+      let data;
+      try {
+          data = JSON.parse(text);
+      } catch (e) {
+          alert(`Erro no parse da resposta: ${text.substring(0, 50)}`);
+          window.open('https://opalacoder.com/#products', '_blank');
+          return;
+      }
+
+      if (data.token) {
+        window.open(`https://opalacoder.com/?rechargeToken=${data.token}`, '_blank');
+      } else {
+        alert(`Falha ao gerar sessão de recarga. Status: ${res.status}. Resposta: ${JSON.stringify(data)}`);
+        window.open('https://opalacoder.com/#products', '_blank');
+      }
+    } catch (err) {
+      alert(`Erro de rede ao contactar a API: ${err.message}`);
+      window.open('https://opalacoder.com/#products', '_blank');
+    }
+  };
+
   return (
     <footer className="vscode-statusbar">
       <div className="flex items-center" style={{ gap: '16px' }}>
@@ -64,19 +100,17 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
       </div>
 
       <div className="flex items-center" style={{ gap: '12px' }}>
-        <a 
-          href={licenseData?.key ? `https://opalacoder.com/?license=${licenseData.key}&autoCheckout=true` : "https://opalacoder.com/#products"} 
-          target="_blank" 
-          rel="noopener noreferrer"
+        <button 
+          onClick={handleRechargeClick}
           className="flex items-center underline cursor-pointer"
-          style={{ gap: '4px', color: '#ffffff', fontSize: '12px', fontWeight: 'bold', padding: '2px 6px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px' }}
+          style={{ gap: '4px', color: '#ffffff', fontSize: '12px', fontWeight: 'bold', padding: '2px 6px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', border: 'none' }}
           title={t('statusBar.buyCreditsTitle', 'Comprar mais créditos de IA ou Assinatura')}
         >
           {t('statusBar.buyCredits', '☁️ Comprar Créditos')}
-        </a>
+        </button>
         
         <span style={{ color: '#a3be8c', fontWeight: 'bold' }}>
-          {t('statusBar.balance', { amount: tokenBalance !== null ? tokenBalance.toLocaleString() : '...' })}
+          {t('statusBar.balance', { amount: tokenBalance !== null ? (tokenBalance >= 1000000 ? (tokenBalance/1000000).toFixed(1).replace('.0','') + 'M' : tokenBalance >= 1000 ? (tokenBalance/1000).toFixed(1).replace('.0','') + 'K' : tokenBalance.toLocaleString()) : '...' })}
         </span>
         
         <span>UTF-8</span>

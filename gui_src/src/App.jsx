@@ -59,6 +59,7 @@ export default function App() {
   // ── Chat / agent ──────────────────────────────────────────────────────────
   const [chatMessages, setChatMessages] = useState([]);
   const [chatThoughtStream, setChatThoughtStream] = useState('');
+  const chatThoughtStreamRef = useRef('');
   const [chatInput, setChatInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
@@ -1307,7 +1308,11 @@ export default function App() {
       case 'agent_started': addLog('info', `Agente ${data.agent} iniciado.`, data.agent); break;
       case 'thought':
         addLog('thought', data.content, data.agent);
-        setChatThoughtStream(prev => prev + (data.content || ''));
+        setChatThoughtStream(prev => {
+          const next = prev + (data.content || '');
+          chatThoughtStreamRef.current = next;
+          return next;
+        });
         break;
       case 'reflection':
         addLog('reflection', data.content, data.agent);
@@ -1390,10 +1395,19 @@ export default function App() {
           ? data.response
           : "⚠️ *O agente concluiu o processamento, mas não emitiu nenhuma resposta textual ou chamada de ferramenta. Isso geralmente acontece quando o modelo de IA sofre uma falha de geração (ex: esqueceu de usar o formato correto após pensar).*";
 
+        // Snapshot thought BEFORE any state calls — React 18 batches updaters async
+        const thoughtSnapshot = chatThoughtStreamRef.current;
+        chatThoughtStreamRef.current = '';
+        setChatThoughtStream('');
+
         setChatMessages(prev => {
           const last = prev[prev.length - 1];
-          if (last?.role === 'assistant' && last.content === responseText) return prev;
-          return [...prev, { role: 'assistant', content: responseText, timestamp: new Date().toISOString() }];
+          let finalContent = responseText;
+          if (thoughtSnapshot && thoughtSnapshot.trim()) {
+            finalContent = `<think>\n${thoughtSnapshot.trim()}\n</think>\n\n${responseText}`;
+          }
+          if (last?.role === 'assistant' && last.content === finalContent) return prev;
+          return [...prev, { role: 'assistant', content: finalContent, timestamp: new Date().toISOString() }];
         });
 
         // ── Auto-replace: if there is a pending inline selection range, extract
@@ -1448,9 +1462,15 @@ export default function App() {
       const r = await fetch('/api/settings/ai-provider');
       if (r.ok) {
         const cfg = await r.json();
-        if (cfg.provider === 'cloud' && (!licenseData || !licenseData.creditBalance || licenseData.creditBalance <= 0)) {
-          alert(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
-          return;
+        if (cfg.provider === 'cloud') {
+          const balRes = await fetch('/api/settings/token-balance');
+          if (balRes.ok) {
+            const balData = await balRes.json();
+            if (!balData || balData.balance === undefined || balData.balance <= 0) {
+              alert(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
+              return;
+            }
+          }
         }
       }
     } catch (_) {}
@@ -1471,7 +1491,15 @@ export default function App() {
     }
     // Show attachment previews alongside the user message in the chat history
     const userMsg = { role: 'user', content: userText || '📎 Attachment', _attachments: attachmentsSnapshot, timestamp: new Date().toISOString() };
-    setChatMessages(prev => [...prev, userMsg]);
+    setChatMessages(prev => {
+      if (retryMsg) {
+        const idx = prev.indexOf(retryMsg);
+        if (idx !== -1) {
+           return [...prev.slice(0, idx), userMsg];
+        }
+      }
+      return [...prev, userMsg];
+    });
     setIsAgentRunning(true);
     setProblems([]);
     setAchievementsMemory('');
@@ -1759,9 +1787,15 @@ export default function App() {
       const r = await fetch('/api/settings/ai-provider');
       if (r.ok) {
         const cfg = await r.json();
-        if (cfg.provider === 'cloud' && (!licenseData || !licenseData.creditBalance || licenseData.creditBalance <= 0)) {
-          alert(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
-          return;
+        if (cfg.provider === 'cloud') {
+          const balRes = await fetch('/api/settings/token-balance');
+          if (balRes.ok) {
+            const balData = await balRes.json();
+            if (!balData || balData.balance === undefined || balData.balance <= 0) {
+              alert(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
+              return;
+            }
+          }
         }
       }
     } catch (_) {}

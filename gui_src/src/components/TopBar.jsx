@@ -11,6 +11,15 @@ export default function TopBar({
 }) {
   const { t } = useTranslation();
 
+  const [globalAiProvider, setGlobalAiProvider] = useState('local');
+
+  useEffect(() => {
+    fetch('/api/settings/ai-provider')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
+      .catch(() => {});
+  }, []);
+
   // Handle Orchestrator Model change
   const handleOrchestratorChange = (e) => {
     const val = e.target.value;
@@ -91,32 +100,52 @@ export default function TopBar({
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Settings2 size={14} style={{ color: 'var(--vscode-descriptionForeground, #888888)' }} title="Orchestrator Model" />
           <span style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground, #888888)' }}>Orchestrator:</span>
-          <select
-            className="vscode-settings-input"
-            style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px' }}
-            value={projectModel}
-            onChange={handleOrchestratorChange}
-            disabled={!activeProject}
-          >
-            {!projectModel && <option value="">Select a Model...</option>}
-            {renderOptions()}
-          </select>
+          {globalAiProvider === 'cloud' ? (
+            <select
+              className="vscode-settings-input"
+              style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px', opacity: 0.8 }}
+              disabled
+            >
+              <option>Opala Cloud</option>
+            </select>
+          ) : (
+            <select
+              className="vscode-settings-input"
+              style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px' }}
+              value={projectModel}
+              onChange={handleOrchestratorChange}
+              disabled={!activeProject}
+            >
+              {!projectModel && <option value="">Select a Model...</option>}
+              {renderOptions()}
+            </select>
+          )}
         </div>
 
         {/* Worker Model Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Cpu size={14} style={{ color: 'var(--vscode-descriptionForeground, #888888)' }} title="Worker Model" />
           <span style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground, #888888)' }}>Worker:</span>
-          <select
-            className="vscode-settings-input"
-            style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px' }}
-            value={projectWorkerModel}
-            onChange={handleWorkerChange}
-            disabled={!activeProject}
-          >
-            {!projectWorkerModel && <option value="">Select a Worker...</option>}
-            {renderOptions()}
-          </select>
+          {globalAiProvider === 'cloud' ? (
+            <select
+              className="vscode-settings-input"
+              style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px', opacity: 0.8 }}
+              disabled
+            >
+              <option>Opala Cloud</option>
+            </select>
+          ) : (
+            <select
+              className="vscode-settings-input"
+              style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px' }}
+              value={projectWorkerModel}
+              onChange={handleWorkerChange}
+              disabled={!activeProject}
+            >
+              {!projectWorkerModel && <option value="">Select a Worker...</option>}
+              {renderOptions()}
+            </select>
+          )}
         </div>
       </div>
       

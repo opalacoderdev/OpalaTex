@@ -98,6 +98,22 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
     if "context" in low and ("length" in low or "window" in low or "exceed" in low):
         return _("err_context_exceeded").format(model=model)
 
+    if "ratelimit" in low or "rate limit" in low or "429" in low or "quota exceeded" in low or "resource_exhausted" in low:
+        import re
+        from opalatex.ui_settings import load_ui_settings
+        ui_cfg = load_ui_settings()
+        is_cloud = ui_cfg.get("ai_provider") == "cloud"
+        
+        delay_match = re.search(r"please retry in ([\d\.]+)s", low)
+        delay_str = f" Aguarde cerca de {round(float(delay_match.group(1)))} segundos e tente novamente." if delay_match else " Aguarde alguns instantes e tente novamente."
+        
+        if is_cloud:
+            return (
+                f"Você atingiu o limite da API para o modelo {model} (Cota de tokens por minuto estourada)."
+                f"{delay_str} Dica: Isso costuma acontecer ao pedir para a IA ler arquivos gigantes de uma só vez."
+            )
+        return f"Você atingiu o limite de requisições (Rate Limit) do provedor para o modelo {model}.{delay_str}"
+
     return msg
 
 
@@ -121,7 +137,12 @@ def print_event(event: str, data: dict):
             # Emit auxiliary thoughts to keep the Thinking tab active and alive
             thought_content = None
             if event == "agent_started":
-                thought_content = f"Starting execution of agent '{data.get('agent', '')}' using model '{data.get('model', '')}'..."
+                from opalatex.ui_settings import load_ui_settings
+                ui_cfg = load_ui_settings()
+                if ui_cfg.get("ai_provider") == "cloud":
+                    thought_content = f"Starting execution of agent '{data.get('agent', '')}' using Opala Cloud..."
+                else:
+                    thought_content = f"Starting execution of agent '{data.get('agent', '')}' using model '{data.get('model', '')}'..."
             elif event == "tool_call":
                 thought_content = f"Decided to execute tool '{data.get('tool', '')}' with parameters: {json.dumps(data.get('arguments', {}))}"
             elif event == "tool_result":
@@ -211,6 +232,7 @@ def wrap_tool(original_tool):
             
         dump_kwargs = input_data.model_dump()
         print_event("tool_call", {"tool": name, "arguments": dump_kwargs})
+        print(f"\n[TOOL-CALL] >>> {name} args={json.dumps(dump_kwargs, ensure_ascii=False)[:300]}", flush=True)
         
         global _recent_tool_calls
         if '_recent_tool_calls' not in globals():
@@ -254,6 +276,7 @@ def wrap_tool(original_tool):
             raise
         finally:
             print_event("tool_result", {"tool": name, "result": str(res_val), "is_error": is_error})
+            print(f"[TOOL-RESULT] <<< {name} is_error={is_error} result={str(res_val)[:300]}\n", flush=True)
         return result
         
     object.__setattr__(original_tool, "run", wrapped_run)
@@ -583,6 +606,15 @@ async def handle_run(data: dict):
         _model = model or DEFAULT_MODEL
         from opalatex.config import resolve_model_for_thinking
         _model = resolve_model_for_thinking(_model, model_kwargs)
+        
+        from opalatex.ui_settings import load_ui_settings
+        _is_cloud = load_ui_settings().get("ai_provider") == "cloud"
+        if agent_kwargs.get("tool_role_workaround") is None:
+            agent_kwargs["tool_role_workaround"] = "user" if _model.startswith("ollama") else None
+
+        _model = model or DEFAULT_MODEL
+        from opalatex.config import resolve_model_for_thinking
+        _model = resolve_model_for_thinking(_model, model_kwargs)
 
         agent = LLMAgentBlock(
             name=agent_type or "custom_agent",
@@ -604,12 +636,55 @@ async def handle_run(data: dict):
             })
             
     thought_chunks = []
+    in_think_block = [False]
+    think_buffer = [""]
+
     def _on_thinking(chunk: str) -> None:
         thought_chunks.append(chunk)
         print_event("thought", {"content": chunk, "agent": agent_type})
 
     def _on_chunk(chunk: str) -> None:
-        print_event("stream_chunk", {"content": chunk, "agent": agent_type})
+        think_buffer[0] += chunk
+        
+        while True:
+            if not in_think_block[0]:
+                if "<think>" in think_buffer[0]:
+                    before, rest = think_buffer[0].split("<think>", 1)
+                    if before:
+                        print_event("stream_chunk", {"content": before, "agent": agent_type})
+                    in_think_block[0] = True
+                    think_buffer[0] = rest
+                else:
+                    idx = think_buffer[0].rfind("<")
+                    if idx != -1 and "<think>".startswith(think_buffer[0][idx:]):
+                        before = think_buffer[0][:idx]
+                        if before:
+                            print_event("stream_chunk", {"content": before, "agent": agent_type})
+                        think_buffer[0] = think_buffer[0][idx:]
+                    else:
+                        if think_buffer[0]:
+                            print_event("stream_chunk", {"content": think_buffer[0], "agent": agent_type})
+                            think_buffer[0] = ""
+                    break
+            else:
+                if "</think>" in think_buffer[0]:
+                    inside, rest = think_buffer[0].split("</think>", 1)
+                    if inside:
+                        _on_thinking(inside)
+                    in_think_block[0] = False
+                    think_buffer[0] = rest
+                else:
+                    idx = think_buffer[0].rfind("<")
+                    if idx != -1 and "</think>".startswith(think_buffer[0][idx:]):
+                        before = think_buffer[0][:idx]
+                        if before:
+                            _on_thinking(before)
+                        think_buffer[0] = think_buffer[0][idx:]
+                    else:
+                        if think_buffer[0]:
+                            _on_thinking(think_buffer[0])
+                            think_buffer[0] = ""
+                    break
 
     def _on_iteration(_step: int, messages: list) -> None:
         last = messages[-1] if messages else {}
@@ -769,8 +844,13 @@ async def handle_run(data: dict):
             
             if thought_chunks:
                 full_thought = "".join(thought_chunks).strip()
+                print(f"[DIAG-PY] thought_chunks len={len(thought_chunks)}, full_thought len={len(full_thought)}", flush=True)
                 if full_thought and not response.startswith("```thought"):
                     response = f"```thought\n{full_thought}\n```\n\n{response}".strip()
+            else:
+                print(f"[DIAG-PY] thought_chunks EMPTY - thinking not detected in stream", flush=True)
+
+            print(f"[DIAG-PY] response[:200] = {repr(response[:200])}", flush=True)
 
             # Save assistant response and achievements
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:

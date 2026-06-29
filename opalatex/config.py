@@ -220,18 +220,7 @@ def get_agent_model(agent_name: str, default: str | None = None) -> str:
     from opalatex.ui_settings import load_ui_settings
     ui_cfg = load_ui_settings()
     if ui_cfg.get("ai_provider") == "cloud":
-        if model == "OpalaTexCloud" or not model:
-            return "openai/gemini-2.5-flash"
-        
-        # Any model chosen in cloud mode must be forced to go through the proxy using litellm's openai/ prefix
-        if model.startswith("gemini/"):
-            return "openai/" + model.split("/", 1)[1]
-        if model.startswith("anthropic/"):
-            return "openai/" + model.split("/", 1)[1]
-        if not model.startswith("openai/"):
-            return "openai/" + model
-            
-        return model
+        return "openai/gemini-3.1-flash-lite"
         
     return model
 

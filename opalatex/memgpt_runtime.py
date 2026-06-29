@@ -185,6 +185,9 @@ def build_run_skill_tool(
     call (so /load mid-session can't leak writes into the previous project).
     """
 
+    from opalatex.ui_settings import load_ui_settings
+    __is_cloud = load_ui_settings().get("ai_provider") == "cloud"
+
     @as_tool(
         name="run_skill",
         description=(
@@ -384,13 +387,58 @@ def build_run_skill_tool(
         from opalatex.agent_stdin import print_event
         
         if worker_kwargs.get("stream", False):
-            if worker_kwargs.get("think", False):
-                def _worker_on_thinking(chunk: str) -> None:
-                    print_event("thought", {"content": chunk, "agent": f"worker:{skill_name}"})
-                sub_agent.on_thinking = _worker_on_thinking
-                
+            thought_chunks = []
+            in_think_block = [False]
+            think_buffer = [""]
+            
+            def _worker_on_thinking(chunk: str) -> None:
+                thought_chunks.append(chunk)
+                print_event("thought", {"content": chunk, "agent": f"worker:{skill_name}"})
+
             def _worker_on_chunk(chunk: str) -> None:
-                print_event("stream_chunk", {"content": chunk, "agent": f"worker:{skill_name}"})
+                think_buffer[0] += chunk
+                while True:
+                    if not in_think_block[0]:
+                        if "<think>" in think_buffer[0]:
+                            before, rest = think_buffer[0].split("<think>", 1)
+                            if before:
+                                print_event("stream_chunk", {"content": before, "agent": f"worker:{skill_name}"})
+                            in_think_block[0] = True
+                            think_buffer[0] = rest
+                        else:
+                            idx = think_buffer[0].rfind("<")
+                            if idx != -1 and "<think>".startswith(think_buffer[0][idx:]):
+                                before = think_buffer[0][:idx]
+                                if before:
+                                    print_event("stream_chunk", {"content": before, "agent": f"worker:{skill_name}"})
+                                think_buffer[0] = think_buffer[0][idx:]
+                            else:
+                                if think_buffer[0]:
+                                    print_event("stream_chunk", {"content": think_buffer[0], "agent": f"worker:{skill_name}"})
+                                    think_buffer[0] = ""
+                            break
+                    else:
+                        if "</think>" in think_buffer[0]:
+                            inside, rest = think_buffer[0].split("</think>", 1)
+                            if inside:
+                                _worker_on_thinking(inside)
+                            in_think_block[0] = False
+                            think_buffer[0] = rest
+                        else:
+                            idx = think_buffer[0].rfind("<")
+                            if idx != -1 and "</think>".startswith(think_buffer[0][idx:]):
+                                before = think_buffer[0][:idx]
+                                if before:
+                                    _worker_on_thinking(before)
+                                think_buffer[0] = think_buffer[0][idx:]
+                            else:
+                                if think_buffer[0]:
+                                    _worker_on_thinking(think_buffer[0])
+                                    think_buffer[0] = ""
+                            break
+                            
+            if worker_kwargs.get("think", False):
+                sub_agent.on_thinking = _worker_on_thinking
             sub_agent.on_chunk = _worker_on_chunk
 
         # We always want on_iteration to run for reflection and format fixing
@@ -535,6 +583,8 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     active skills. Tools = run_skill + the memory tools. Uses the framework
     MemGPTAgentBlock (classic memory) per docs/specs/04 §1.
     """
+    from opalatex.ui_settings import load_ui_settings
+    __is_cloud = load_ui_settings().get("ai_provider") == "cloud"
     from .tools import (
         read_core_memory, append_core_memory, search_conversation_history,
         set_project_context,

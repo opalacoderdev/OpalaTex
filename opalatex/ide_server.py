@@ -1839,15 +1839,7 @@ class AsyncHTTPServer:
 
         # 6c. Slash Command
         elif path == '/api/opalatex/slash-command' and method == 'POST':
-            from opalatex.ui_settings import load_ui_settings
-            from opalatex.licensing import _load_license_data
-            
-            ui_cfg = load_ui_settings()
-            if ui_cfg.get("ai_provider") == "cloud":
-                license_data = _load_license_data()
-                if license_data.get("creditBalance", 0) <= 0:
-                    self.send_response(writer, 403, b'{"error":"Insufficient credits"}', "application/json")
-                    return
+
                     
             from opalatex.agent_stdin import handle_slash_command
             try:
@@ -1885,11 +1877,7 @@ class AsyncHTTPServer:
             from opalatex.licensing import _load_license_data
             
             ui_cfg = load_ui_settings()
-            if ui_cfg.get("ai_provider") == "cloud":
-                license_data = _load_license_data()
-                if license_data.get("creditBalance", 0) <= 0:
-                    self.send_response(writer, 403, b'{"error":"Insufficient credits"}', "application/json")
-                    return
+
 
             headers = (
                 "HTTP/1.1 200 OK\r\n"
@@ -2503,6 +2491,7 @@ class AsyncHTTPServer:
                 return
             
             try:
+                # Local proxy testing
                 # In production, point to https://www.opalacoder.com/api/get-balance
                 req = urllib.request.Request("https://opalacoder.com/api/get-balance")
                 req.add_header('Authorization', f'Bearer {license_key}')

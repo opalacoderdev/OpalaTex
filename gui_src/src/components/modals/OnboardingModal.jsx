@@ -48,23 +48,48 @@ export default function OnboardingModal({ onClose, onComplete }) {
   };
 
   const handleInstallOllama = async () => {
-    if (navigator.userAgent.indexOf("Win") !== -1) {
-      setIsInstalling(true);
-      try {
-        await fetch('/api/ollama/install', { method: 'POST' });
-        // Assume user completes it in powershell
-        finishOnboarding({
-          project_name: "Projeto Piloto (Ollama)",
-          project_path: "~/OpalaTexPilot",
-          model: ollamaModel,
-          mode: "plan",
-          api_base: "http://localhost:11434/v1"
-        });
-      } catch (e) {
-        setIsInstalling(false);
+    setIsInstalling(true);
+    setStep(3); // Mostra o progresso de instalação
+
+    try {
+      const r = await fetch('/api/settings/install-ollama', { method: 'POST' });
+      const data = await r.json();
+      if (!data.success) {
+        console.error("Falha ao iniciar instalação do Ollama:", data.error);
+        setStep(4); // Exibe fallback para instalação manual
       }
-    } else {
-      setStep(4); // Show linux/mac manual instructions
+    } catch (e) {
+      console.error("Erro ao chamar install-ollama:", e);
+      setStep(4);
+    }
+    setIsInstalling(false);
+  };
+
+  const handleOpalaCloud = async () => {
+    try {
+      await fetch('/api/settings/ai-provider', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'cloud' })
+      });
+      
+      const config = {
+        project_name: "Projeto Piloto (Opala Cloud)",
+        project_path: "~/OpalaTexPilot",
+        model: "OpalaTexCloud",
+        mode: "plan",
+        model_params: {
+          num_ctx: 128000
+        },
+        worker_model_params: {
+          num_ctx: 128000
+        }
+      };
+      
+      console.log("[DEBUG ONBOARDING] Botão 'Opala Cloud' clicado. Config gerada:", config);
+      finishOnboarding(config);
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -152,7 +177,16 @@ export default function OnboardingModal({ onClose, onComplete }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <button 
                 className="vscode-button" 
-                style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: isHighEnd ? '#007acc' : '#3c3c3c' }}
+                style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#007acc' }}
+                onClick={handleOpalaCloud}
+              >
+                <Cloud size={18} />
+                Usar Opala Cloud (Recomendado)
+              </button>
+
+              <button 
+                className="vscode-button" 
+                style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#3c3c3c' }}
                 onClick={() => setStep(3)} // step 3 = Ollama
                 disabled={isInstalling}
               >
@@ -162,11 +196,11 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
               <button 
                 className="vscode-button" 
-                style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: isHighEnd ? '#3c3c3c' : '#007acc' }}
+                style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#3c3c3c' }}
                 onClick={() => setStep(5)} // step 5 = API
               >
-                <Cloud size={18} />
-                {t('onboarding.configCloudBtn')}
+                <Settings2 size={18} />
+                Configurar Chave de API de Terceiros
               </button>
             </div>
           </div>

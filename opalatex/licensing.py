@@ -98,7 +98,8 @@ def check_license_status() -> dict:
         return {
             "status": "LICENSED",
             "days_left": 0,
-            "machine_id": machine_id
+            "machine_id": machine_id,
+            "key": data.get("license_key")
         }
     
     now = time.time()
