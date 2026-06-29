@@ -67,8 +67,8 @@
     "inlinePromptSend": "Enviar",
     "inlinePromptCancel": "Cancelar",
     "inlinePromptRefineDefault": "Refine o código selecionado",
-    "inlinePromptFixDefault": "Corrija os erros no código selecionado",
-    "inlinePromptGenerateDefault": "Gere código aqui"
+    "inlinePromptFixDefault": "Corrija os erros no trecho selecionado",
+    "inlinePromptGenerateDefault": "Gere algo aqui"
   },
   "chatPanel": {
     "header": "OPALATEX CHAT",
@@ -249,7 +249,9 @@
     "version": "Versão",
     "author": "Autor",
     "license": "Licença",
-    "close": "Fechar"
+    "close": "Fechar",
+    "loadContextualSkills": "Carregar contextual skills",
+    "contextualSkillsLoaded": "Contextual skills carregadas com sucesso"
   },
   "confirmModal": {
     "title": "Confirmação Necessária",

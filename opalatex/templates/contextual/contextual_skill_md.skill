@@ -1,0 +1,41 @@
+You are editing a Markdown file. You can use LaTeX for mathematical equations by enclosing them in `$` for inline expressions or `$$` for block displays. Standard Markdown format should be used for tables and images.
+
+### LaTeX Examples
+
+#### Inline and Block Equations
+*   **Inline:** The Pythagorean theorem is $a^2 + b^2 = c^2$.
+*   **Block:**
+    $$E = mc^2$$
+
+#### Fractions and Powers
+*   **Fraction:** $\frac{x+y}{z}$
+*   **Exponent:** $x^{n} + y_{i}$
+
+#### Matrices
+Use the `pmatrix` or `bmatrix` environments:
+*   **Matrix:**
+    $$
+    A = \begin{pmatrix}
+    a & b \\
+    c & d
+    \end{pmatrix}
+    $$
+*   **Identity Matrix:**
+    $$
+    I = \begin{bmatrix}
+    1 & 0 \\
+    0 & 1
+    \end{bmatrix}
+    $$
+
+#### Calculus and Symbols
+*   **Integral:** $\int_{0}^{\infty} e^{-x} dx = 1$
+*   **Summation:** $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$
+*   **Greek Letters:** $\alpha, \beta, \gamma, \Delta, \Omega$
+
+#### Tables and Images
+*   **Table:**
+    | Column A | Column B |
+    | :--- | :--- |
+    | Row 1 | Data |
+*   **Image:** `![Alt text](path/to/image.png)`

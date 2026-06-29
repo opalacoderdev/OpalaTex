@@ -263,6 +263,33 @@ export default function EditProjectModal({
                 </label>
               </div>
 
+              {/* Contextual Skills Loader */}
+              <div style={{ marginTop: '8px' }}>
+                <button
+                  type="button"
+                  className="vscode-button"
+                  style={{ width: '100%', padding: '8px', background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)' }}
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/api/opalatex/load-contextual-skills', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ project_path: editingProject.project_path })
+                      });
+                      if (res.ok) {
+                        alert(t('settingsModal.contextualSkillsLoaded'));
+                      } else {
+                        alert('Error loading contextual skills');
+                      }
+                    } catch (e) {
+                      alert(String(e));
+                    }
+                  }}
+                >
+                  {t('settingsModal.loadContextualSkills')}
+                </button>
+              </div>
+
               {/* Internal Monologue / Tool Role Workaround */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
                 <input

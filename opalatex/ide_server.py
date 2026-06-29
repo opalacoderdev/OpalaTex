@@ -1397,12 +1397,25 @@ class AsyncHTTPServer:
                     project.skills.append("tutorial_opalatex")
                     store.save(project)
 
+            from opalatex.project import create_contextual_skills_defaults
+            create_contextual_skills_defaults(abs_path)
+
             res_data = {
                 "project_name": project.project_name,
                 "project_path": project.project_path,
                 "skills": project.skills
             }
             self.send_response(writer, 200, json.dumps(res_data).encode('utf-8'), "application/json")
+
+        elif path == '/api/opalatex/load-contextual-skills' and method == 'POST':
+            project_path = data.get("project_path")
+            if not project_path:
+                self.send_response(writer, 400, b'{"error":"project_path is required"}', "application/json")
+                return
+            
+            from opalatex.project import create_contextual_skills_defaults
+            create_contextual_skills_defaults(project_path)
+            self.send_response(writer, 200, b'{"status":"ok"}', "application/json")
 
         # 5b. Import existing project
         elif path == '/api/opalatex/import-project' and method == 'POST':

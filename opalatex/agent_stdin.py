@@ -570,6 +570,32 @@ async def handle_run(data: dict):
         if not system_prompt:
             print_event("error", {"message": "system_prompt is required for custom agent"})
             return
+            
+        # >> LOAD CONTEXTUAL SKILL START <<
+        if current_project and current_project.project_path:
+            current_file = data.get("current_file", "")
+            ext = ""
+            if current_file:
+                _, ext = os.path.splitext(current_file)
+                ext = ext.lstrip('.').lower()
+            
+            contextual_dir = os.path.join(current_project.project_path, ".opalatex", "contextual")
+            
+            target_skill = os.path.join(contextual_dir, f"contextual_skill_{ext}.skill")
+            generic_skill = os.path.join(contextual_dir, "contextual_skill_.skill")
+            
+            if not os.path.exists(target_skill) or not ext:
+                target_skill = generic_skill
+                
+            try:
+                if os.path.exists(target_skill):
+                    with open(target_skill, "r", encoding="utf-8") as f:
+                        skill_content = f.read().strip()
+                    if skill_content:
+                        system_prompt += "\n\n# Contextual Instructions:\n" + skill_content
+            except Exception as e:
+                print(f"Warning: Failed to load contextual skill: {e}", file=sys.stderr)
+        # >> LOAD CONTEXTUAL SKILL END <<
         
         # Resolve tools
         tools_list = []
@@ -621,7 +647,7 @@ async def handle_run(data: dict):
         _is_cloud = load_ui_settings().get("ai_provider") == "cloud"
         if agent_kwargs.get("tool_role_workaround") is None:
             agent_kwargs["tool_role_workaround"] = "user" if _model.startswith("ollama") else None
-
+        print(system_prompt)
         agent = LLMAgentBlock(
             name=agent_type or "custom_agent",
             system_prompt=system_prompt,

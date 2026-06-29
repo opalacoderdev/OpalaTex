@@ -66,9 +66,9 @@
     "inlinePromptPlaceholder": "Ask OpalaTex...",
     "inlinePromptSend": "Send",
     "inlinePromptCancel": "Cancel",
-    "inlinePromptRefineDefault": "Refine the selected code",
+    "inlinePromptRefineDefault": "Refine the selected content",
     "inlinePromptFixDefault": "Fix errors in the selected code",
-    "inlinePromptGenerateDefault": "Generate code here"
+    "inlinePromptGenerateDefault": "Generate content here"
   },
   "chatPanel": {
     "header": "OPALATEX CHAT",
@@ -246,7 +246,9 @@
     "version": "Version",
     "author": "Author",
     "license": "License",
-    "close": "Close"
+    "close": "Close",
+    "loadContextualSkills": "Load contextual skills",
+    "contextualSkillsLoaded": "Contextual skills loaded successfully"
   },
   "confirmModal": {
     "title": "Confirmation Required",

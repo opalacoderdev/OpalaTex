@@ -708,3 +708,23 @@ class ProjectStore:
 
 # Backward-compat alias
 SessionStore = ProjectStore
+
+def create_contextual_skills_defaults(project_path: str) -> None:
+    if not project_path:
+        return
+    contextual_dir = os.path.join(project_path, ".opalatex", "contextual")
+    os.makedirs(contextual_dir, exist_ok=True)
+    
+    import shutil
+    template_dir = os.path.join(os.path.dirname(__file__), "templates", "contextual")
+    
+    if os.path.isdir(template_dir):
+        for fname in ["contextual_skill_.skill", "contextual_skill_tex.skill", "contextual_skill_md.skill"]:
+            src = os.path.join(template_dir, fname)
+            dst = os.path.join(contextual_dir, fname)
+            if os.path.exists(src) and not os.path.exists(dst):
+                try:
+                    shutil.copy2(src, dst)
+                except Exception as e:
+                    import sys
+                    print(f"Warning: Failed to copy {fname} template: {e}", file=sys.stderr)

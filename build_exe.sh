@@ -45,6 +45,7 @@ pyinstaller --name "OpalaTex" \
             --icon="icon.png" \
             --add-data="opalatex/gui:opalatex/gui" \
             --add-data="opalatex/assetstore:opalatex/assetstore" \
+            --add-data="opalatex/templates:opalatex/templates" \
             --add-data="config.yaml:." \
             --add-data="skills:skills" \
             --add-data="version_info.txt:." \
