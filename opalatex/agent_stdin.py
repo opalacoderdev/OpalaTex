@@ -604,18 +604,23 @@ async def handle_run(data: dict):
         if model_params.get("max_tool_calls") is not None:
             agent_kwargs["max_tool_calls"] = int(model_params["max_tool_calls"])
 
+        from opalatex.config import resolve_model_for_thinking, get_agent_model, get_agent_llm_kwargs
+        
         _model = model or DEFAULT_MODEL
-        from opalatex.config import resolve_model_for_thinking
         _model = resolve_model_for_thinking(_model, model_kwargs)
         
+        _agent_name = agent_type or "custom_agent"
+        _model = get_agent_model(_agent_name, _model)
+        
+        # Merge global kwargs so we get the cloud API base and keys
+        _global_kwargs = get_agent_llm_kwargs(_agent_name)
+        _global_kwargs.update(model_kwargs)
+        model_kwargs = _global_kwargs
+
         from opalatex.ui_settings import load_ui_settings
         _is_cloud = load_ui_settings().get("ai_provider") == "cloud"
         if agent_kwargs.get("tool_role_workaround") is None:
             agent_kwargs["tool_role_workaround"] = "user" if _model.startswith("ollama") else None
-
-        _model = model or DEFAULT_MODEL
-        from opalatex.config import resolve_model_for_thinking
-        _model = resolve_model_for_thinking(_model, model_kwargs)
 
         agent = LLMAgentBlock(
             name=agent_type or "custom_agent",

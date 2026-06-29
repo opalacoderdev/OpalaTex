@@ -356,6 +356,8 @@ def build_run_skill_tool(
         from .config import resolve_model_for_thinking
         model = resolve_model_for_thinking(model, worker_kwargs)
         
+        model = get_agent_model("worker", model)
+        
         # Strip /v1 from the end because Ollama native providers expect the root URL
         if worker_kwargs.get("api_base"):
             if model.startswith("ollama/") or model.startswith("ollama_chat/"):
