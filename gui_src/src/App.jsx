@@ -88,6 +88,7 @@ export default function App() {
   const [modelConfigMsg, setModelConfigMsg] = useState('');
   const [dirPicker, setDirPicker] = useState(null);
 
+
   useEffect(() => {
     if (layoutMode === 'chat') {
       setIsChatVisible(true);

@@ -1,9 +1,10 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
 import InlinePromptOverlay from './InlinePromptOverlay';
+import EditorContextMenuOverlay from './EditorContextMenuOverlay';
 import { formatMessageContent } from '../utils/formatMessage';
 import Split from 'react-split';
 import PdfPreview from './PdfPreview';
@@ -41,6 +42,7 @@ export default function EditorPanel({
   const { t } = useTranslation();
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [editorContextMenu, setEditorContextMenu] = useState(null);
   
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
   const isTexRelatedFile = (filename) => {
@@ -158,6 +160,8 @@ export default function EditorPanel({
   selectedFileRef.current = selectedFile;
 
   const localEditorRef = useRef(null);
+  const monacoRef = useRef(null);
+  const editorContainerRef = useRef(null);
   const pdfPreviewRef = useRef(null);
   
   const handleSyncTexNavigate = (line, file) => {
@@ -196,6 +200,7 @@ export default function EditorPanel({
     const actualEditor = isDiff ? editor.getModifiedEditor() : editor;
 
     localEditorRef.current = actualEditor;
+    monacoRef.current = monaco;
 
     if (isDiff) {
       const originalDispose = editor.dispose;
@@ -271,14 +276,11 @@ export default function EditorPanel({
       }
     );
 
-    // ── Paste via backend (navigator.clipboard.readText fails while context
-    //    menu is open because hasTextFocus() is false; run() receives the
-    //    editor directly so it works regardless of focus state).
+    // ── Paste via Ctrl+V keybinding (navigator.clipboard.readText may fail
+    //    while context menu is open; using backend clipboard read instead).
     actualEditor.addAction({
       id: 'opalatex.paste',
       label: 'Paste',
-      contextMenuGroupId: '9_cutcopypaste',
-      contextMenuOrder: 3,
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV],
       run: async (ed) => {
         let text = '';
@@ -291,99 +293,53 @@ export default function EditorPanel({
       },
     });
 
-    // ── Monaco context menu — Refine Selection ───────────────────────────────
-    actualEditor.addAction({
-      id: 'opalatex.refineSelection',
-      label: t('editorPanel.refineSelection'),
-      contextMenuGroupId: 'opalatex',
-      contextMenuOrder: 1,
-      // Only show when there is a non-empty selection
-      precondition: 'editorHasSelection',
-      run: (ed) => {
-        const model = ed.getModel();
-        const sel = ed.getSelection();
-        if (!model || !sel) return;
-        const selectedText = model.getValueInRange(sel);
-        const pos = ed.getPosition();
-        const coords = ed.getScrolledVisiblePosition(pos);
-        const domNode = ed.getDomNode();
-        const rect = domNode?.getBoundingClientRect() ?? { left: 200, top: 100 };
-        setInlinePrompt({
-          x: rect.left + (coords?.left ?? 60) + 20,
-          y: rect.top + (coords?.top ?? 40) + 24,
-          startLine: sel.startLineNumber,
-          endLine: sel.endLineNumber,
-          cursorCol: pos?.column ?? 1,
-          selectedText,
-          mode: 'refine',
-        });
-      },
-    });
-
-    // ── Monaco context menu — Create Illustration ────────────────────────────
-    actualEditor.addAction({
-      id: 'opalatex.createIllustration',
-      label: t('editorPanel.createIllustration'),
-      contextMenuGroupId: 'opalatex',
-      contextMenuOrder: 1.5,
-      // Only show when there is a non-empty selection
-      precondition: 'editorHasSelection',
-      run: (ed) => {
-        const model = ed.getModel();
-        const sel = ed.getSelection();
-        if (!model || !sel) return;
-        const selectedText = model.getValueInRange(sel);
-        const pos = ed.getPosition();
-        const coords = ed.getScrolledVisiblePosition(pos);
-        const domNode = ed.getDomNode();
-        const rect = domNode?.getBoundingClientRect() ?? { left: 200, top: 100 };
-        setInlinePrompt({
-          x: rect.left + (coords?.left ?? 60) + 20,
-          y: rect.top + (coords?.top ?? 40) + 24,
-          startLine: sel.startLineNumber,
-          endLine: sel.endLineNumber,
-          cursorCol: pos?.column ?? 1,
-          selectedText,
-          mode: 'createIllustration',
-        });
-      },
-    });
-
-    // ── Monaco context menu — Generate Code ──────────────────────────────────
-    actualEditor.addAction({
-      id: 'opalatex.generateCode',
-      label: t('editorPanel.generateCode'),
-      contextMenuGroupId: 'opalatex',
-      contextMenuOrder: 2,
-      run: (ed) => {
-        const model = ed.getModel();
-        const pos = ed.getPosition();
-        if (!model || !pos) return;
-        
-        const sel = ed.getSelection();
-        const selectedText = (sel && !sel.isEmpty()) ? model.getValueInRange(sel) : '';
-
-        const coords = ed.getScrolledVisiblePosition(pos);
-        const domNode = ed.getDomNode();
-        const rect = domNode?.getBoundingClientRect() ?? { left: 200, top: 100 };
-        setInlinePrompt({
-          x: rect.left + (coords?.left ?? 60) + 20,
-          y: rect.top + (coords?.top ?? 40) + 24,
-          startLine: pos.lineNumber,
-          endLine: pos.lineNumber,
-          cursorCol: pos.column,
-          selectedText,
-          mode: 'generate',
-        });
-      },
-    });
-
     // Delegate to the parent-level mount handler (font-size, Ctrl+S, etc.)
     if (handleEditorDidMount) handleEditorDidMount(actualEditor, monaco);
     
     // Focus the editor when it is first mounted
     setTimeout(() => actualEditor.focus(), 50);
   };
+
+  // ── Custom context menu listener on the editor container ────────────────
+  // Attached to the stable container div via ref, reads the current editor
+  // from localEditorRef so it survives file switches and editor remounts.
+  useEffect(() => {
+    const container = editorContainerRef.current;
+    if (!container) return;
+
+    const handleContextMenu = (e) => {
+      const ed = localEditorRef.current;
+      const monaco = monacoRef.current;
+      if (!ed || !monaco) return;
+
+      // Only intercept right-clicks inside the editor area
+      const editorDom = ed.getDomNode();
+      if (!editorDom || !editorDom.contains(e.target)) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const model = ed.getModel();
+      const sel = ed.getSelection();
+      const pos = ed.getPosition();
+      const hasSelection = sel && !sel.isEmpty();
+      const selectedText = hasSelection ? model?.getValueInRange(sel) : '';
+
+      setEditorContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        editor: ed,
+        monaco,
+        hasSelection,
+        selectedText,
+        pos,
+        sel,
+      });
+    };
+
+    container.addEventListener('contextmenu', handleContextMenu, true);
+    return () => container.removeEventListener('contextmenu', handleContextMenu, true);
+  }, [selectedFile]);
 
   useEffect(() => {
     if (localEditorRef.current && selectedFile) {
@@ -404,7 +360,7 @@ export default function EditorPanel({
   }
 
   return (
-    <div className="vscode-editor-panel" style={{ position: 'relative' }}>
+    <div ref={editorContainerRef} className="vscode-editor-panel" style={{ position: 'relative' }}>
       {/* Tab bar */}
       <div className="vscode-tabs">
         <div className="flex h-full overflow-x-auto" style={{ gap: '2px' }}>
@@ -544,6 +500,7 @@ export default function EditorPanel({
                 beforeMount={handleBeforeMount}
                 onMount={handleMount}
                 options={{
+                  contextmenu: false,
                   minimap: { enabled: true },
                   fontSize: editorFontSize,
                   lineNumbers: 'on',
@@ -567,6 +524,7 @@ export default function EditorPanel({
                 onChange={(val) => setFileContent(val)}
                 onMount={handleMount}
                 options={{
+                  contextmenu: false,
                   minimap: { enabled: true },
                   fontSize: editorFontSize,
                   lineNumbers: 'on',
@@ -608,7 +566,7 @@ export default function EditorPanel({
                 beforeMount={handleBeforeMount}
                 onMount={handleMount}
                 options={{
-                  minimap: { enabled: true },
+                  contextmenu: false,
                   fontSize: editorFontSize,
                   lineNumbers: 'on',
                   tabSize: editorTabSize,
@@ -631,7 +589,7 @@ export default function EditorPanel({
                 onChange={(val) => setFileContent(val)}
                 onMount={handleMount}
                 options={{
-                  minimap: { enabled: true },
+                  contextmenu: false,
                   fontSize: editorFontSize,
                   lineNumbers: 'on',
                   tabSize: editorTabSize,
@@ -653,6 +611,16 @@ export default function EditorPanel({
           onClose={() => setInlinePrompt(null)}
           onCancel={onInlineCancel}
           isRunning={isInlineRunning}
+        />
+      )}
+
+      {/* Custom editor context menu (replaces Monaco's Shadow DOM menu) */}
+      {editorContextMenu && (
+        <EditorContextMenuOverlay
+          menu={editorContextMenu}
+          onClose={() => setEditorContextMenu(null)}
+          setInlinePrompt={setInlinePrompt}
+          t={t}
         />
       )}
     </div>

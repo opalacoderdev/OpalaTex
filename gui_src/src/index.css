@@ -1043,21 +1043,91 @@ select {
 .gutter.gutter-horizontal { cursor: col-resize; }
 .gutter.gutter-horizontal:hover { background-color: var(--vscode-button-bg, #0e639c); }
 
-/* ── Monaco Editor CSS Isolation ──────────────────────────────────────────────
-   The global  * { box-sizing: border-box; margin: 0; padding: 0 }  reset
-   conflicts with Monaco Editor's internal layout calculations, which assume
-   content-box sizing and browser-default spacing. This causes the context
-   menu hover highlight to be offset from the mouse position.
-   We restore content-box for all Monaco-owned and popup elements.            */
+/* ─── Custom Editor Context Menu ─────────────────────────────────────────
+   Replaces Monaco's built-in Shadow DOM menu which has a hover highlight
+   offset bug. Styled to match VS Code's native dark theme menu.         */
 
-.monaco-editor,
-.monaco-editor *,
-.context-view,
-.context-view *,
-.monaco-menu-container,
-.monaco-menu-container *,
-.monaco-editor-hover,
-.monaco-editor-hover * {
-  box-sizing: content-box !important;
+.editor-ctx-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 200px;
+  background: #252526;
+  border: 1px solid #454545;
+  border-radius: 5px;
+  padding: 4px 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  color: #cccccc;
 }
 
+.editor-ctx-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 4px 24px;
+  border: none;
+  background: transparent;
+  color: #cccccc;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+.editor-ctx-item:hover {
+  background: #04395e;
+  color: #ffffff;
+}
+
+.editor-ctx-label {
+  flex: 1;
+}
+
+.editor-ctx-key {
+  margin-left: 32px;
+  color: #888888;
+  font-size: 12px;
+}
+
+.editor-ctx-item:hover .editor-ctx-key {
+  color: #bbbbbb;
+}
+
+.editor-ctx-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: #454545;
+}
+
+/* Light theme overrides */
+[data-theme="light"] .editor-ctx-menu,
+.light .editor-ctx-menu {
+  background: #f3f3f3;
+  border-color: #c8c8c8;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  color: #1e1e1e;
+}
+
+[data-theme="light"] .editor-ctx-item,
+.light .editor-ctx-item {
+  color: #1e1e1e;
+}
+
+[data-theme="light"] .editor-ctx-item:hover,
+.light .editor-ctx-item:hover {
+  background: #0060c0;
+  color: #ffffff;
+}
+
+[data-theme="light"] .editor-ctx-key,
+.light .editor-ctx-key {
+  color: #777777;
+}
+
+[data-theme="light"] .editor-ctx-separator,
+.light .editor-ctx-separator {
+  background: #c8c8c8;
+}
