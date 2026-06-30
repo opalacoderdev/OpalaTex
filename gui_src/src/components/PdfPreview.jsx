@@ -95,11 +95,79 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
   };
 
   if (errorLog && !base64Pdf && !directUrl) {
+    const parseErrors = (log) => {
+      if (!log) return [];
+      const lines = log.split('\n');
+      const errors = [];
+      for (const line of lines) {
+        const lowerLine = line.toLowerCase();
+        if (lowerLine.includes('error') || lowerLine.startsWith('!')) {
+          if (
+            lowerLine.includes('fontconfig error') || 
+            lowerLine.includes('halted on potentially-recoverable error') ||
+            lowerLine.includes('pdf file was not generated')
+          ) {
+            continue;
+          }
+          errors.push(line.trim());
+        }
+      }
+      
+      // Remove duplicates
+      const uniqueErrors = [...new Set(errors)];
+      
+      if (uniqueErrors.length === 0 && log.trim().length > 0) {
+        uniqueErrors.push("An error occurred during compilation. Please check the full log below.");
+      }
+      return uniqueErrors;
+    };
+
+    const displayErrors = parseErrors(errorLog);
+
     return (
-      <div className="h-full w-full bg-slate-950 p-6 overflow-y-auto">
-        <div className="text-red-400 font-mono text-sm whitespace-pre-wrap">
-          <h2 className="text-xl font-bold mb-4 text-red-500">Compilation Error</h2>
-          {errorLog}
+      <div className="h-full w-full bg-slate-900 p-8 flex flex-col items-center justify-center overflow-y-auto">
+        <div className="max-w-3xl w-full bg-slate-800 rounded-xl shadow-2xl overflow-hidden border border-red-500/30">
+          <div className="bg-red-500/10 border-b border-red-500/20 p-6 flex items-center gap-4">
+            <div className="bg-red-500/20 p-3 rounded-full shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-400">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold text-red-400">Oops! We couldn't compile your document</h2>
+              <p className="text-slate-400 text-sm mt-1">We found some issues in your LaTeX code that need to be fixed.</p>
+            </div>
+          </div>
+          
+          <div className="p-6">
+            <h3 className="text-xs font-semibold text-slate-400 mb-4 uppercase tracking-wider">Main Issues</h3>
+            <ul className="space-y-3 mb-6">
+              {displayErrors.map((err, i) => (
+                <li key={i} className="flex items-start gap-3 bg-red-500/5 p-4 rounded-lg border border-red-500/10">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-400 mt-0.5 shrink-0">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                  </svg>
+                  <span className="text-red-200 text-sm font-mono break-words leading-relaxed">{err}</span>
+                </li>
+              ))}
+            </ul>
+            
+            <details className="group">
+              <summary className="cursor-pointer text-sm text-slate-400 hover:text-slate-300 transition-colors flex items-center gap-2 select-none font-medium w-fit">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="transition-transform group-open:rotate-90">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+                View Technical Details (Full Log)
+              </summary>
+              <div className="mt-4 bg-[#0a0f1c] p-4 rounded-lg overflow-x-auto border border-slate-700 shadow-inner max-h-64 overflow-y-auto">
+                <pre className="text-[13px] text-slate-400 font-mono whitespace-pre-wrap">{errorLog}</pre>
+              </div>
+            </details>
+          </div>
         </div>
       </div>
     );

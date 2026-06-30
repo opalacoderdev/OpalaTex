@@ -1104,7 +1104,7 @@ select {
 
 /* Light theme overrides */
 [data-theme="light"] .editor-ctx-menu,
-.light .editor-ctx-menu {
+.light-theme .editor-ctx-menu {
   background: #f3f3f3;
   border-color: #c8c8c8;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
@@ -1112,22 +1112,22 @@ select {
 }
 
 [data-theme="light"] .editor-ctx-item,
-.light .editor-ctx-item {
+.light-theme .editor-ctx-item {
   color: #1e1e1e;
 }
 
 [data-theme="light"] .editor-ctx-item:hover,
-.light .editor-ctx-item:hover {
+.light-theme .editor-ctx-item:hover {
   background: #0060c0;
   color: #ffffff;
 }
 
 [data-theme="light"] .editor-ctx-key,
-.light .editor-ctx-key {
+.light-theme .editor-ctx-key {
   color: #777777;
 }
 
 [data-theme="light"] .editor-ctx-separator,
-.light .editor-ctx-separator {
+.light-theme .editor-ctx-separator {
   background: #c8c8c8;
 }

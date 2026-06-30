@@ -530,9 +530,9 @@ class AsyncHTTPServer:
                     if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == os.path.normcase(os.path.abspath(os.path.expanduser(project_path))):
                         main_file = p.get("main_file", "")
                         break
-                if not main_file:
-                    from opalatex.latex_compiler import guess_main_file
-                    main_file = guess_main_file(project_path)
+                
+                from opalatex.latex_compiler import determine_main_file_for_compilation
+                main_file = determine_main_file_for_compilation(full_path, content, project_path, main_file)
             
             # run compilation
             result = compile_latex(content, full_path, main_file, project_path)
@@ -579,9 +579,17 @@ class AsyncHTTPServer:
                     if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == os.path.normcase(os.path.abspath(os.path.expanduser(project_path))):
                         main_file = p.get("main_file", "")
                         break
-                if not main_file:
-                    from opalatex.latex_compiler import guess_main_file
-                    main_file = guess_main_file(project_path)
+
+                full_path = os.path.abspath(os.path.join(project_path, file_path))
+                file_content = ""
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                        file_content = f.read()
+                except Exception:
+                    pass
+
+                from opalatex.latex_compiler import determine_main_file_for_compilation
+                main_file = determine_main_file_for_compilation(full_path, file_content, project_path, main_file)
                 
                 if main_file:
                     full_path = os.path.abspath(os.path.join(project_path, main_file))
@@ -628,9 +636,17 @@ class AsyncHTTPServer:
                     if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == os.path.normcase(os.path.abspath(os.path.expanduser(project_path))):
                         main_file = p.get("main_file", "")
                         break
-                if not main_file:
-                    from opalatex.latex_compiler import guess_main_file
-                    main_file = guess_main_file(project_path)
+
+                target_full_path = os.path.abspath(os.path.join(project_path, file_path))
+                file_content = ""
+                try:
+                    with open(target_full_path, "r", encoding="utf-8", errors="ignore") as f:
+                        file_content = f.read()
+                except Exception:
+                    pass
+
+                from opalatex.latex_compiler import determine_main_file_for_compilation
+                main_file = determine_main_file_for_compilation(target_full_path, file_content, project_path, main_file)
 
                 if main_file:
                     main_full_path = os.path.abspath(os.path.join(project_path, main_file))
