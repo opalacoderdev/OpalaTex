@@ -159,6 +159,7 @@ export default function App() {
   const [editorFontSize, setEditorFontSize] = useState(() => Number(safeGetLocalStorage('editorFontSize', 13)));
   const [editorTabSize, setEditorTabSize] = useState(() => Number(safeGetLocalStorage('editorTabSize', 4)));
   const [editorWordWrap, setEditorWordWrap] = useState(() => safeGetLocalStorage('editorWordWrap', 'on'));
+  const [compileOnSave, setCompileOnSave] = useState(() => safeGetLocalStorage('compileOnSave', 'true') === 'true');
   const [globalAiProvider, setGlobalAiProvider] = useState('local');
 
   useEffect(() => {
@@ -180,6 +181,8 @@ export default function App() {
   const [ephemeralParams, setEphemeralParams] = useState(() => {
     try { return JSON.parse(localStorage.getItem('ephemeralParams')) || {}; } catch { return {}; }
   });
+
+  const [triggerCompileId, setTriggerCompileId] = useState(0);
 
   // ── Inline prompt (editor Ctrl+L / context-menu actions) ────────────────
   const [inlinePrompt, setInlinePrompt] = useState(null);
@@ -872,6 +875,9 @@ export default function App() {
           });
         fetchGitStatus();
         fetchProblems();
+        if (compileOnSave && selectedFile && selectedFile.toLowerCase().match(/\.(tex|cls|sty|bib)$/)) {
+          setTriggerCompileId(Date.now());
+        }
       }
       else addLog('error', `Erro ao salvar arquivo: ${selectedFile}`);
     } catch (err) { addLog('error', `Erro de escrita: ${err.message}`); }
@@ -1864,6 +1870,13 @@ export default function App() {
           const timestamp = Math.floor(Date.now() / 1000);
           const filename = `illustrations/illustration_${timestamp}.svg`;
 
+          // Compute relative path from the active file's directory to the project root
+          // so the reference in the .tex file correctly points to illustrations/ at root level
+          const activeDir = (selectedFile || '').replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+          const depth = activeDir ? activeDir.split('/').filter(Boolean).length : 0;
+          const relPrefix = depth > 0 ? '../'.repeat(depth) : '';
+          const relIllustrationPath = `${relPrefix}illustrations/illustration_${timestamp}`;
+
           addLog('info', `Salvando ilustração SVG em ${filename}...`);
           const writeRes = await fetch('/api/file/write', {
             method: 'POST',
@@ -1903,13 +1916,13 @@ export default function App() {
                 adjustedEndLine += 2;
               }
             }
-            refText = `\\begin{figure}[htbp]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{illustrations/illustration_${timestamp}.pdf}\n\\end{figure}`;
+            refText = `\\begin{figure}[htbp]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{${relIllustrationPath}.pdf}\n\\end{figure}`;
           } else if (ext === 'md' || ext === 'markdown') {
-            refText = `![Ilustração](illustrations/illustration_${timestamp}.svg)`;
+            refText = `![Ilustração](${relIllustrationPath}.svg)`;
           } else if (ext === 'html' || ext === 'htm') {
-            refText = `<img src="illustrations/illustration_${timestamp}.svg" alt="Ilustração" />`;
+            refText = `<img src="${relIllustrationPath}.svg" alt="Ilustração" />`;
           } else {
-            refText = `illustrations/illustration_${timestamp}.svg`;
+            refText = `${relIllustrationPath}.svg`;
           }
 
           // Re-read range after potential preamble insertion shift
@@ -2232,6 +2245,7 @@ export default function App() {
                 }
               }}
               activeProject={activeProject}
+              triggerCompileId={triggerCompileId}
             />
           )}
 
@@ -2431,6 +2445,7 @@ export default function App() {
           editorFontSize={editorFontSize} setEditorFontSize={setEditorFontSize}
           editorTabSize={editorTabSize} setEditorTabSize={setEditorTabSize}
           editorWordWrap={editorWordWrap} setEditorWordWrap={setEditorWordWrap}
+          compileOnSave={compileOnSave} setCompileOnSave={setCompileOnSave}
           isInstallingDeps={isInstallingDeps}
           installDepsStatus={installDepsStatus}
           installDepsLog={installDepsLog}

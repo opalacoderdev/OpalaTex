@@ -223,6 +223,7 @@
     "editorFontSize": "Tamanho da Fonte do Editor",
     "tabSize": "Tamanho do Tab (Espaços)",
     "wordWrap": "Quebra Automática de Linha (Word Wrap)",
+    "compileOnSave": "Compilar ao Salvar",
     "panelMaxLines": "Máximo de Linhas nos Painéis (Output / Problemas / Thinking)",
     "panelMaxLinesHint": "Número máximo de linhas mantidas nos painéis Output, Problemas e Thinking (100–10000). Linhas mais antigas são descartadas ao atingir o limite.",
     "ephemeralAgentTitle": "Agente Efêmero (Inline/Editor)",

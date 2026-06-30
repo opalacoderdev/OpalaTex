@@ -201,23 +201,25 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
             ref={inputRef}
             type="text"
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => { if (mode !== 'createIllustration') setValue(e.target.value); }}
             onKeyDown={handleKeyDown}
             placeholder={t('editorPanel.inlinePromptPlaceholder')}
+            readOnly={mode === 'createIllustration'}
             disabled={isRunning}
             style={{
               flex: 1,
               fontSize: '12px',
               padding: '5px 8px',
-              background: isRunning ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.07)',
+              background: isRunning ? 'rgba(255,255,255,0.03)' : mode === 'createIllustration' ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.07)',
               border: '1px solid rgba(255,255,255,0.15)',
               borderRadius: '5px',
-              color: isRunning ? '#888' : '#e0e0e0',
+              color: isRunning ? '#888' : mode === 'createIllustration' ? '#999' : '#e0e0e0',
               outline: 'none',
               fontFamily: 'inherit',
               transition: 'border-color 0.15s',
+              cursor: mode === 'createIllustration' ? 'default' : 'text',
             }}
-            onFocus={(e) => { if (!isRunning) { e.currentTarget.style.borderColor = '#007acc'; e.currentTarget.select(); } }}
+            onFocus={(e) => { if (!isRunning) { e.currentTarget.style.borderColor = '#007acc'; if (mode !== 'createIllustration') e.currentTarget.select(); } }}
             onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)'; }}
           />
           <button

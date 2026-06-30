@@ -18,6 +18,8 @@ export default function SettingsModal({
   setEditorTabSize,
   editorWordWrap,
   setEditorWordWrap,
+  compileOnSave,
+  setCompileOnSave,
   isInstallingDeps,
   installDepsStatus,
   installDepsLog,
@@ -176,6 +178,19 @@ export default function SettingsModal({
               <div className="flex flex-col" style={{ gap: '6px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.wordWrap')}</label>
                 <select value={editorWordWrap} onChange={(e) => { setEditorWordWrap(e.target.value); safeSetLocalStorage('editorWordWrap', e.target.value); }} className="vscode-settings-input" style={{ width: '100%' }}>
+                  <option value="on">{t('settingsModal.wordWrapOn')}</option>
+                  <option value="off">{t('settingsModal.wordWrapOff')}</option>
+                </select>
+              </div>
+
+              {/* Compile on save */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.compileOnSave')}</label>
+                <select value={compileOnSave ? "on" : "off"} onChange={(e) => { 
+                  const val = e.target.value === "on"; 
+                  setCompileOnSave(val); 
+                  safeSetLocalStorage('compileOnSave', val.toString()); 
+                }} className="vscode-settings-input" style={{ width: '100%' }}>
                   <option value="on">{t('settingsModal.wordWrapOn')}</option>
                   <option value="off">{t('settingsModal.wordWrapOff')}</option>
                 </select>

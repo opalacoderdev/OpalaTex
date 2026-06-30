@@ -38,6 +38,7 @@ export default function EditorPanel({
   activeProject,
   jumpToLine,
   setJumpToLine,
+  triggerCompileId,
 }) {
   const { t } = useTranslation();
   const [isDiffMode, setIsDiffMode] = useState(false);
@@ -119,8 +120,8 @@ export default function EditorPanel({
     }
   }, [selectedFile, jumpToLine, setJumpToLine]);
 
-  const handleCompile = async () => {
-    saveFile();
+  const handleCompile = async (skipSave = false) => {
+    if (!skipSave) saveFile();
     setIsCompiling(true);
     setPdfErrorLog('');
     try {
@@ -142,6 +143,12 @@ export default function EditorPanel({
       setIsCompiling(false);
     }
   };
+
+  useEffect(() => {
+    if (triggerCompileId && triggerCompileId > 0) {
+      handleCompile(true);
+    }
+  }, [triggerCompileId]);
 
   const handlePrintPDF = () => {
     document.body.classList.add('printing-editor');
