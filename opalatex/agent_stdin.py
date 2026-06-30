@@ -233,7 +233,7 @@ def wrap_tool(original_tool):
             
         dump_kwargs = input_data.model_dump()
         print_event("tool_call", {"tool": name, "arguments": dump_kwargs})
-        print(f"\n[TOOL-CALL] >>> {name} args={json.dumps(dump_kwargs, ensure_ascii=False)[:300]}", flush=True)
+        #print(f"\n[TOOL-CALL] >>> {name} args={json.dumps(dump_kwargs, ensure_ascii=False)[:300]}", flush=True)
         
         global _recent_tool_calls
         if '_recent_tool_calls' not in globals():
@@ -277,7 +277,7 @@ def wrap_tool(original_tool):
             raise
         finally:
             print_event("tool_result", {"tool": name, "result": str(res_val), "is_error": is_error})
-            print(f"[TOOL-RESULT] <<< {name} is_error={is_error} result={str(res_val)[:300]}\n", flush=True)
+            #print(f"[TOOL-RESULT] <<< {name} is_error={is_error} result={str(res_val)[:300]}\n", flush=True)
         return result
         
     object.__setattr__(original_tool, "run", wrapped_run)
@@ -647,7 +647,7 @@ async def handle_run(data: dict):
         _is_cloud = load_ui_settings().get("ai_provider") == "cloud"
         if agent_kwargs.get("tool_role_workaround") is None:
             agent_kwargs["tool_role_workaround"] = "user" if _model.startswith("ollama") else None
-        print(system_prompt)
+        #print(system_prompt)
         agent = LLMAgentBlock(
             name=agent_type or "custom_agent",
             system_prompt=system_prompt,

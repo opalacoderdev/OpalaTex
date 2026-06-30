@@ -1655,11 +1655,21 @@ export default function App() {
     setIsInlineRunning(true);
     addLog('info', `Iniciando edição inline: "${instruction}"`);
 
-    const systemPrompt = "You are an expert developer performing an inline code edit. " +
-      "CRITICAL: Do NOT use tools to write files or insert code. Return ONLY the raw modified code snippet inside a single markdown code block (``` language ... ```). " +
-      "Do NOT include greetings, conversational filler, explanations, or any other text before or after the code block. " +
-      "Be as objective and direct as possible. If you need context, use your read-only memory tools. " +
-      "Your entire output must be just the markdown code block containing the final replacement code.";
+    // NOTE: We instruct the model to use FOUR backticks (````content) as the outer fence.
+    // This is a CommonMark-compliant trick: an inner ``` (3 backticks) cannot close an
+    // outer ```` (4 backtick) fence, so nested mermaid/latex/code blocks are safe.
+    const systemPrompt = "You are a precise inline content editor for any selected content: text, Markdown, LaTeX, code, config files, JSON, YAML, tables, or structured data. " +
+      "CRITICAL: Do NOT create, modify, or save files. " +
+      "Return ONLY the final replacement snippet wrapped in a FOUR-BACKTICK fenced block: ````content\\n...\\n````. " +
+      "You MUST use exactly four backticks (````), never three (```). This is required so that inner code blocks (e.g. mermaid, latex) do not break the outer fence. " +
+      "Do NOT include greetings, explanations, comments, summaries, or any text before or after the fenced block. " +
+      "Preserve the original language, format, structure, and intent unless the requested edit requires changes. " +
+      "Be objective, concise, and direct. Use only read-only context sources if additional context is needed. " +
+      "Examples of the REQUIRED four-backtick format:\n" +
+      "Original: 'O sistema é bom.' → ````content\\nO sistema é funcional.\\n```` " +
+      "Original: 'flowchart LR\\n  A --> B' → ````content\\nflowchart LR\\n  A[Start] --> B[End]\\n```` " +
+      "Original: '$$ E = m c ^ 2 $$' → ````content\\n$$\\nE = mc^2\\n$$\\n```` " +
+      "Your entire output must be ONLY the four-backtick fenced block containing the replacement content.";
 
     try {
       const res = await fetch('/api/opalatex/run', {
@@ -1749,15 +1759,95 @@ export default function App() {
           }
         }
 
-        // Strip thought/reasoning blocks that may have leaked from a thinking model
-        // (safety net for Fix A in agent_stdin.py — prevents thinking text from being
-        // inserted into the editor instead of the actual refined/fixed code).
-        rawResponse = rawResponse.replace(/^```(?:thought|reasoning)[\s\S]*?```\s*/m, '').trim();
+        // ── Strip thought/reasoning blocks ────────────────────────────────────
+        // Handles both 4-backtick (new) and 3-backtick (legacy) thought fences.
+        // No `m` flag: ^ anchors to the START of the full string, not any line.
+        // Uses greedy [\s\S]* to consume the entire block even if it contains
+        // nested ``` inside — avoids the non-greedy stop-at-first-``` bug.
+        rawResponse = rawResponse
+          .replace(/^````(?:thought|reasoning)[\s\S]*?````\s*/, '')
+          .replace(/^```(?:thought|reasoning)[\s\S]*?```\s*/, '')
+          .trim();
 
-        // Extract code block
-        const regex = /```(?:\w+)?\n([\s\S]*?)```/;
-        const match = regex.exec(rawResponse);
-        const codeToInsert = match ? match[1].replace(/\n$/, '') : rawResponse;
+        // ── Depth-aware code block extractor ─────────────────────────────────
+        // Correctly handles content that contains nested ``` fences (mermaid,
+        // latex, code examples, etc.) by tracking fence depth instead of using
+        // a simple non-greedy regex that stops at the first ``` found.
+        function extractOutermostCodeBlock(text) {
+          const lines = text.split('\n');
+          let outerFence = null;   // e.g. '````' or '```'
+          let depth = 0;
+          const bodyLines = [];
+          let insideOuter = false;
+
+          for (const line of lines) {
+            // A fence line starts with optional spaces (≤3) then 3+ backticks/tildes
+            const fm = line.match(/^( {0,3})(```+|~~~+)(\w*)/);
+
+            if (!insideOuter) {
+              if (fm) {
+                outerFence = fm[2];  // the opening fence chars, e.g. '````'
+                depth = 1;
+                insideOuter = true;
+                // Do NOT push this line — it's the opening fence delimiter
+              }
+              continue;
+            }
+
+            // Inside the outer block: track nested fences
+            if (fm) {
+              const thisFence = fm[2];
+              const hasLabel = fm[3].length > 0;
+
+              if (!hasLabel && thisFence.startsWith(outerFence)) {
+                // Potential closing fence (same or more backticks, no language label)
+                depth--;
+                if (depth === 0) break; // real closing fence — stop
+              } else if (hasLabel) {
+                // Opening of a nested block (has a language label)
+                depth++;
+              }
+              // A closing fence for a nested block (no label, fewer backticks):
+              // depth-- only when it matches outerFence length, so inner ``` inside
+              // a ```` outer are just regular lines.
+            }
+
+            bodyLines.push(line);
+          }
+
+          if (!insideOuter || depth !== 0) return null; // no valid block found
+          // Strip trailing blank lines that were before the closing fence
+          while (bodyLines.length > 0 && bodyLines[bodyLines.length - 1].trim() === '') {
+            bodyLines.pop();
+          }
+          return bodyLines.join('\n');
+        }
+
+        // ── Extraction pipeline ───────────────────────────────────────────────
+        let codeToInsert;
+
+        // 1) PRIMARY: 4-backtick outer fence (simple regex is safe because inner
+        //    ``` cannot close a ```` fence — CommonMark spec §4.5).
+        const match4 = /^````(\w*)\n([\s\S]*?)\n````\s*$/m.exec(rawResponse);
+        if (match4) {
+          codeToInsert = match4[2];
+
+          // 2) FALLBACK: depth-aware parser handles any 3-backtick fence whose body
+          //    may contain nested ``` blocks (model ignored the 4-backtick instruction).
+        } else {
+          const extracted = extractOutermostCodeBlock(rawResponse);
+          if (extracted !== null) {
+            codeToInsert = extracted;
+
+            // 3) LAST RESORT: strip leading/trailing fence markers manually so at
+            //    least the raw fence delimiters don't end up in the editor.
+          } else {
+            codeToInsert = rawResponse
+              .replace(/^````?\w*\n?/, '')  // strip opening fence line
+              .replace(/\n?````?\s*$/, '')  // strip closing fence line
+              .trim();
+          }
+        }
 
         if (mode === 'generate') {
           const range = new monacoRef.current.Range(startLine, inlinePrompt.cursorCol, startLine, inlinePrompt.cursorCol);

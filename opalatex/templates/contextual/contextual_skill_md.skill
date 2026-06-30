@@ -1,61 +1,34 @@
-You are editing a Markdown file. You can use LaTeX for mathematical equations by enclosing them in `$` for inline expressions or `$$` for block displays. Standard Markdown format should be used for tables and images.
+## You are editing a Markdown file.
 
-### LaTeX Examples
+![Alt text](images/image.svg)
 
-#### Inline and Block Equations
-*   **Inline:** The Pythagorean theorem is $a^2 + b^2 = c^2$.
-*   **Block:**
-    $$E = mc^2$$
+### Use standard Markdown for structure, tables, images, and code blocks. Use LaTeX only for mathematical notation:
 
-#### Fractions and Powers
-*   **Fraction:** $\frac{x+y}{z}$
-*   **Exponent:** $x^{n} + y_{i}$
+* Inline equation: `$a^2 + b^2 = c^2$`
+* Block equation:
 
-#### Matrices
-Use the `pmatrix` or `bmatrix` environments:
-*   **Matrix:**
-    $$
-    A = \begin{pmatrix}
-    a & b \\
-    c & d
-    \end{pmatrix}
-    $$
-*   **Identity Matrix:**
-    $$
-    I = \begin{bmatrix}
-    1 & 0 \\
-    0 & 1
-    \end{bmatrix}
-    $$
+$$
+E = mc^2
+$$
 
-#### Calculus and Symbols
-*   **Integral:** $\int_{0}^{\infty} e^{-x} dx = 1$
-*   **Summation:** $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$
-*   **Greek Letters:** $\alpha, \beta, \gamma, \Delta, \Omega$
+### Common LaTeX examples:
 
-#### Tables and Images
-*   **Table:**
-    | Column A | Column B |
-    | :--- | :--- |
-    | Row 1 | Data |
-*   **Image:** `![Alt text](path/to/image.png)`
+* Fraction: `$\frac{x+y}{z}$`
+* Exponent/subscript: `$x^n + y_i$`
+* Sum/integral: `$\sum_{i=1}^{n} i$`, `$\int_0^\infty e^{-x} dx$`
+* Matrix:
 
-### Markdown Diagrams and Drawings
-For simple visualizations in the markdown preview:
-*   **Flow/Commutative Diagrams (KaTeX):** Use `\begin{array}` and arrows (e.g., `\to`, `\xrightarrow{label}`, `\downarrow`).
-    $$
-    \begin{array}{ccc}
-    A & \xrightarrow{f} & B \\
-    \downarrow & & \downarrow \\
-    C & \to & D
-    \end{array}
-    $$
-*   **ASCII/Unicode Art:** Use code blocks with box-drawing characters (`┌`, `─`, `┐`, `│`).
-*   **Mermaid Diagrams:** Use code blocks with the `mermaid` language tag.
-    ```mermaid
-    flowchart LR
-        A[Start] --> B[Process]
-        B --> C[End]
-    ```
-*   **External/Local Images:** Reference compiled charts or exported TikZ SVGs/PNGs via `![Caption](path/to/image.svg)`.
+$$
+A=\begin{bmatrix}
+1 & 0 \
+0 & 1
+\end{bmatrix}
+$$
 
+### For visual content, prefer:
+
+* Tables: standard Markdown table syntax.
+* Images: `![Alt text](path/to/image.png)`.
+* Simple diagrams: Mermaid code blocks.
+* Mathematical diagrams: LaTeX `array` with arrows.
+* ASCII/Unicode drawings: fenced code blocks.
