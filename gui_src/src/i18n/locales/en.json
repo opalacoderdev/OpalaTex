@@ -62,13 +62,15 @@
     "refineSelection": "Refine Selection (OpalaTex)",
     "fixSelection": "Fix Selection (OpalaTex)",
     "generateCode": "Generate Content (OpalaTex)",
+    "createIllustration": "Create Illustration (OpalaTex)",
     "inlinePromptTitle": "Inline Edit",
     "inlinePromptPlaceholder": "Ask OpalaTex...",
     "inlinePromptSend": "Send",
     "inlinePromptCancel": "Cancel",
     "inlinePromptRefineDefault": "Refine the selected content",
     "inlinePromptFixDefault": "Fix errors in the selected code",
-    "inlinePromptGenerateDefault": "Generate content here"
+    "inlinePromptGenerateDefault": "Generate content here",
+    "inlinePromptCreateIllustrationDefault": "Create an SVG illustration for this text"
   },
   "chatPanel": {
     "header": "OPALATEX CHAT",

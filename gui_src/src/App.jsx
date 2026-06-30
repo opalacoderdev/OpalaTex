@@ -1638,38 +1638,50 @@ export default function App() {
 
     const hasSelection = selectedText && selectedText.trim().length > 0;
 
-    let verb;
-    if (mode === 'refine') verb = instruction;
-    else if (mode === 'fix') verb = instruction;
-    else verb = instruction;
+    let systemPrompt, fullPrompt;
+    if (mode === 'createIllustration') {
+      systemPrompt = "You are a professional designer and SVG illustrator. " +
+        "Your task is to generate a beautiful, clean, modern, and valid SVG illustration that visually represents the text selected by the user. " +
+        "CRITICAL:\n" +
+        "1. Return ONLY the raw SVG content.\n" +
+        "2. The SVG MUST be valid, self-contained, and have appropriate viewBox, width, and height attributes so it renders beautifully.\n" +
+        "3. Do NOT wrap the SVG in markdown code blocks like ```xml or ```svg. Return the raw SVG directly starting with <svg> and ending with </svg>.\n" +
+        "4. Use a modern, appealing color scheme (like a dark theme or clean blue/purple/grey professional gradients).\n" +
+        "5. Do not include any explanations, greetings, or text other than the SVG itself.\n" +
+        "6. Do NOT write comments before or after the SVG.";
 
-    const ext = (selectedFile || '').split('.').pop() || '';
-    const fence = ext ? `\`\`\`${ext}` : '\`\`\`';
+      fullPrompt = `Selected Text to Illustrate:\n"""\n${selectedText}\n"""\n\nUser Instruction:\n${instruction}`;
+    } else {
+      let verb;
+      if (mode === 'refine') verb = instruction;
+      else if (mode === 'fix') verb = instruction;
+      else verb = instruction;
 
-    const fullPrompt = (hasSelection && mode !== 'generate')
-      ? `Task: ${verb}\n\nFile Context:\n${fence}\n${fileContent}\n\`\`\`\n\nTarget Selection to Replace:\n${fence}\n${selectedText}\n\`\`\``
-      : `Task: ${instruction}\n\nFile Context:\n${fence}\n${fileContent}\n\`\`\`\n\nTarget Position for Insertion: Line ${startLine}, Column ${inlinePrompt.cursorCol}. Please return ONLY the code to be inserted here.`;
+      const ext = (selectedFile || '').split('.').pop() || '';
+      const fence = ext ? `\`\`\`${ext}` : '\`\`\`';
+
+      fullPrompt = (hasSelection && mode !== 'generate')
+        ? `Task: ${verb}\n\nFile Context:\n${fence}\n${fileContent}\n\`\`\`\n\nTarget Selection to Replace:\n${fence}\n${selectedText}\n\`\`\``
+        : `Task: ${instruction}\n\nFile Context:\n${fence}\n${fileContent}\n\`\`\`\n\nTarget Position for Insertion: Line ${startLine}, Column ${inlinePrompt.cursorCol}. Please return ONLY the code to be inserted here.`;
+
+      systemPrompt = "You are a precise inline content editor for any selected content: text, Markdown, LaTeX, code, config files, JSON, YAML, tables, or structured data. " +
+        "CRITICAL: Do NOT create, modify, or save files. " +
+        "Return ONLY the final replacement snippet wrapped in a FOUR-BACKTICK fenced block: ````content\\n...\\n````. " +
+        "You MUST use exactly four backticks (````), never three (```). This is required so that inner code blocks (e.g. mermaid, latex) do not break the outer fence. " +
+        "Do NOT include greetings, explanations, comments, summaries, or any text before or after the fenced block. " +
+        "Preserve the original language, format, structure, and intent unless the requested edit requires changes. " +
+        "Be objective, concise, and direct. Use only read-only context sources if additional context is needed. " +
+        "Examples of the REQUIRED four-backtick format:\n" +
+        "Original: 'O sistema é bom.' → ````content\\nO sistema é funcional.\\n```` " +
+        "Original: 'flowchart LR\\n  A --> B' → ````content\\nflowchart LR\\n  A[Start] --> B[End]\\n```` " +
+        "Original: '$$ E = m c ^ 2 $$' → ````content\\n$$\\nE = mc^2\\n$$\\n```` " +
+        "Your entire output must be ONLY the four-backtick fenced block containing the replacement content.";
+    }
 
     setChatInput('');
     setIsInlineRunning(true);
     setIsInlineRunning(true);
     addLog('info', `Iniciando edição inline: "${instruction}"`);
-
-    // NOTE: We instruct the model to use FOUR backticks (````content) as the outer fence.
-    // This is a CommonMark-compliant trick: an inner ``` (3 backticks) cannot close an
-    // outer ```` (4 backtick) fence, so nested mermaid/latex/code blocks are safe.
-    const systemPrompt = "You are a precise inline content editor for any selected content: text, Markdown, LaTeX, code, config files, JSON, YAML, tables, or structured data. " +
-      "CRITICAL: Do NOT create, modify, or save files. " +
-      "Return ONLY the final replacement snippet wrapped in a FOUR-BACKTICK fenced block: ````content\\n...\\n````. " +
-      "You MUST use exactly four backticks (````), never three (```). This is required so that inner code blocks (e.g. mermaid, latex) do not break the outer fence. " +
-      "Do NOT include greetings, explanations, comments, summaries, or any text before or after the fenced block. " +
-      "Preserve the original language, format, structure, and intent unless the requested edit requires changes. " +
-      "Be objective, concise, and direct. Use only read-only context sources if additional context is needed. " +
-      "Examples of the REQUIRED four-backtick format:\n" +
-      "Original: 'O sistema é bom.' → ````content\\nO sistema é funcional.\\n```` " +
-      "Original: 'flowchart LR\\n  A --> B' → ````content\\nflowchart LR\\n  A[Start] --> B[End]\\n```` " +
-      "Original: '$$ E = m c ^ 2 $$' → ````content\\n$$\\nE = mc^2\\n$$\\n```` " +
-      "Your entire output must be ONLY the four-backtick fenced block containing the replacement content.";
 
     try {
       const res = await fetch('/api/opalatex/run', {
@@ -1823,52 +1835,123 @@ export default function App() {
           return bodyLines.join('\n');
         }
 
-        // ── Extraction pipeline ───────────────────────────────────────────────
-        let codeToInsert;
+        if (mode === 'createIllustration') {
+          let svgCode = rawResponse;
 
-        // 1) PRIMARY: 4-backtick outer fence (simple regex is safe because inner
-        //    ``` cannot close a ```` fence — CommonMark spec §4.5).
-        const match4 = /^````(\w*)\n([\s\S]*?)\n````\s*$/m.exec(rawResponse);
-        if (match4) {
-          codeToInsert = match4[2];
-
-          // 2) FALLBACK: depth-aware parser handles any 3-backtick fence whose body
-          //    may contain nested ``` blocks (model ignored the 4-backtick instruction).
-        } else {
-          const extracted = extractOutermostCodeBlock(rawResponse);
-          if (extracted !== null) {
-            codeToInsert = extracted;
-
-            // 3) LAST RESORT: strip leading/trailing fence markers manually so at
-            //    least the raw fence delimiters don't end up in the editor.
+          // Try to extract content inside code blocks if present
+          const svgMatch = /```(?:xml|svg)?\s*([\s\S]*?)```/i.exec(svgCode) || /````(?:xml|svg)?\s*([\s\S]*?)````/i.exec(svgCode);
+          if (svgMatch) {
+            svgCode = svgMatch[1].trim();
           } else {
-            codeToInsert = rawResponse
-              .replace(/^````?\w*\n?/, '')  // strip opening fence line
-              .replace(/\n?````?\s*$/, '')  // strip closing fence line
-              .trim();
+            const tagMatch = /<svg[\s\S]*<\/svg>/i.exec(svgCode);
+            if (tagMatch) {
+              svgCode = tagMatch[0].trim();
+            }
           }
-        }
 
-        if (mode === 'generate') {
-          const range = new monacoRef.current.Range(startLine, inlinePrompt.cursorCol, startLine, inlinePrompt.cursorCol);
-          editorRef.current.executeEdits('opalatex_inline', [{
-            range: range,
-            text: codeToInsert,
-            forceMoveMarkers: true,
-          }]);
-          addLog('info', 'Geração inline aplicada com sucesso.');
-        } else if (hasSelection) {
-          // Calculate end column dynamically
+          if (!svgCode.startsWith('<svg')) {
+            const svgStart = svgCode.indexOf('<svg');
+            if (svgStart !== -1) {
+              svgCode = svgCode.substring(svgStart);
+            }
+          }
+
+          if (!svgCode.includes('<svg') || !svgCode.includes('</svg>')) {
+            throw new Error("O modelo não retornou um SVG válido.");
+          }
+
+          const timestamp = Math.floor(Date.now() / 1000);
+          const filename = `illustrations/illustration_${timestamp}.svg`;
+
+          addLog('info', `Salvando ilustração SVG em ${filename}...`);
+          const writeRes = await fetch('/api/file/write', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectPath: activeProject.project_path,
+              filePath: filename,
+              content: svgCode,
+            }),
+          });
+          if (!writeRes.ok) {
+            const errData = await writeRes.json().catch(() => ({}));
+            throw new Error(`Falha ao salvar arquivo SVG: ${errData.error || writeRes.statusText}`);
+          }
+
           const model = editorRef.current.getModel();
           const endCol = model ? model.getLineMaxColumn(endLine) : 1;
-
           const range = new monacoRef.current.Range(startLine, 1, endLine, endCol);
+          const fullLinesText = model.getValueInRange(range);
+
+          const ext = (selectedFile || '').split('.').pop().toLowerCase();
+          let refText = '';
+          if (ext === 'tex') {
+            refText = `\\includesvg{illustrations/illustration_${timestamp}}`;
+          } else if (ext === 'md' || ext === 'markdown') {
+            refText = `![Ilustração](illustrations/illustration_${timestamp}.svg)`;
+          } else if (ext === 'html' || ext === 'htm') {
+            refText = `<img src="illustrations/illustration_${timestamp}.svg" alt="Ilustração" />`;
+          } else {
+            refText = `illustrations/illustration_${timestamp}.svg`;
+          }
+
+          const separator = fullLinesText.endsWith('\n') ? '' : '\n';
+          const codeToInsert = fullLinesText + separator + '\n' + refText + '\n';
+
           editorRef.current.executeEdits('opalatex_inline', [{
             range: range,
             text: codeToInsert,
             forceMoveMarkers: true,
           }]);
-          addLog('info', 'Edição inline aplicada com sucesso.');
+          addLog('info', 'Ilustração criada e referência inserida com sucesso.');
+        } else {
+          // ── Extraction pipeline ───────────────────────────────────────────────
+          let codeToInsert;
+
+          // 1) PRIMARY: 4-backtick outer fence (simple regex is safe because inner
+          //    ``` cannot close a ```` fence — CommonMark spec §4.5).
+          const match4 = /^````(\w*)\n([\s\S]*?)\n````\s*$/m.exec(rawResponse);
+          if (match4) {
+            codeToInsert = match4[2];
+
+            // 2) FALLBACK: depth-aware parser handles any 3-backtick fence whose body
+            //    may contain nested ``` blocks (model ignored the 4-backtick instruction).
+          } else {
+            const extracted = extractOutermostCodeBlock(rawResponse);
+            if (extracted !== null) {
+              codeToInsert = extracted;
+
+              // 3) LAST RESORT: strip leading/trailing fence markers manually so at
+              //    least the raw fence delimiters don't end up in the editor.
+            } else {
+              codeToInsert = rawResponse
+                .replace(/^````?\w*\n?/, '')  // strip opening fence line
+                .replace(/\n?````?\s*$/, '')  // strip closing fence line
+                .trim();
+            }
+          }
+
+          if (mode === 'generate') {
+            const range = new monacoRef.current.Range(startLine, inlinePrompt.cursorCol, startLine, inlinePrompt.cursorCol);
+            editorRef.current.executeEdits('opalatex_inline', [{
+              range: range,
+              text: codeToInsert,
+              forceMoveMarkers: true,
+            }]);
+            addLog('info', 'Geração inline aplicada com sucesso.');
+          } else if (hasSelection) {
+            // Calculate end column dynamically
+            const model = editorRef.current.getModel();
+            const endCol = model ? model.getLineMaxColumn(endLine) : 1;
+
+            const range = new monacoRef.current.Range(startLine, 1, endLine, endCol);
+            editorRef.current.executeEdits('opalatex_inline', [{
+              range: range,
+              text: codeToInsert,
+              forceMoveMarkers: true,
+            }]);
+            addLog('info', 'Edição inline aplicada com sucesso.');
+          }
         }
       }
 

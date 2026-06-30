@@ -320,6 +320,35 @@ export default function EditorPanel({
       },
     });
 
+    // ── Monaco context menu — Create Illustration ────────────────────────────
+    actualEditor.addAction({
+      id: 'opalatex.createIllustration',
+      label: t('editorPanel.createIllustration'),
+      contextMenuGroupId: 'opalatex',
+      contextMenuOrder: 1.5,
+      // Only show when there is a non-empty selection
+      precondition: 'editorHasSelection',
+      run: (ed) => {
+        const model = ed.getModel();
+        const sel = ed.getSelection();
+        if (!model || !sel) return;
+        const selectedText = model.getValueInRange(sel);
+        const pos = ed.getPosition();
+        const coords = ed.getScrolledVisiblePosition(pos);
+        const domNode = ed.getDomNode();
+        const rect = domNode?.getBoundingClientRect() ?? { left: 200, top: 100 };
+        setInlinePrompt({
+          x: rect.left + (coords?.left ?? 60) + 20,
+          y: rect.top + (coords?.top ?? 40) + 24,
+          startLine: sel.startLineNumber,
+          endLine: sel.endLineNumber,
+          cursorCol: pos?.column ?? 1,
+          selectedText,
+          mode: 'createIllustration',
+        });
+      },
+    });
+
     // ── Monaco context menu — Generate Code ──────────────────────────────────
     actualEditor.addAction({
       id: 'opalatex.generateCode',

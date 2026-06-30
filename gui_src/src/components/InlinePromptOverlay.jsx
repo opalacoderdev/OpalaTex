@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Send, X, Wand2, MessageSquarePlus } from 'lucide-react';
+import { Send, X, Wand2, MessageSquarePlus, Palette } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
  * A floating panel that appears anchored near the Monaco cursor/selection.
  * Props:
  *   inlinePrompt  — { x, y, startLine, endLine, cursorCol, selectedText, mode }
- *                   mode: 'free' | 'refine' | 'fix'
+ *                   mode: 'free' | 'refine' | 'fix' | 'createIllustration'
  *   onSubmit(instruction: string) — called when user confirms
  *   onClose()                     — called when user dismisses
  *   isRunning                     — true if the backend task is currently processing
@@ -33,6 +33,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
     const defaults = {
       refine: t('editorPanel.inlinePromptRefineDefault'),
       generate: t('editorPanel.inlinePromptGenerateDefault', 'Generate code here...'),
+      createIllustration: t('editorPanel.inlinePromptCreateIllustrationDefault', 'Create an SVG illustration for this text'),
       free: '',
     };
     setValue(defaults[inlinePrompt.mode] ?? '');
@@ -47,12 +48,14 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
   const modeIcon = {
     refine: <Wand2 size={13} style={{ color: '#4ec9b0' }} />,
     generate: <MessageSquarePlus size={13} style={{ color: '#f48771' }} />,
+    createIllustration: <Palette size={13} style={{ color: '#c586c0' }} />,
     free: <MessageSquarePlus size={13} style={{ color: '#75beff' }} />,
   }[mode] ?? null;
 
   const modeLabel = {
     refine: t('editorPanel.refineSelection'),
     generate: t('editorPanel.generateCode', 'Generate Code'),
+    createIllustration: t('editorPanel.createIllustration', 'Create Illustration'),
     free: t('editorPanel.inlinePromptTitle'),
   }[mode] ?? '';
 
