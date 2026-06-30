@@ -70,7 +70,11 @@
     "inlinePromptRefineDefault": "Refine the selected content",
     "inlinePromptFixDefault": "Fix errors in the selected code",
     "inlinePromptGenerateDefault": "Generate content here",
-    "inlinePromptCreateIllustrationDefault": "Create an SVG illustration for this text"
+    "inlinePromptCreateIllustrationDefault": "Create an SVG illustration for this text",
+    "installTectonic": "Install LaTeX Support",
+    "installingTectonic": "Installing...",
+    "installTectonicError": "Installation error: ",
+    "installTectonicTooltip": "Download and install the Tectonic LaTeX compiler"
   },
   "chatPanel": {
     "header": "OPALATEX CHAT",

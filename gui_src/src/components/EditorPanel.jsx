@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer } from 'lucide-react';
+import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
 import InlinePromptOverlay from './InlinePromptOverlay';
@@ -58,6 +58,24 @@ export default function EditorPanel({
   const [isCompiling, setIsCompiling] = useState(false);
   const [pdfErrorLog, setPdfErrorLog] = useState('');
   const [isTectonicAvailable, setIsTectonicAvailable] = useState(true);
+  const [isInstallingTectonic, setIsInstallingTectonic] = useState(false);
+
+  const handleInstallTectonic = async () => {
+    setIsInstallingTectonic(true);
+    try {
+      const res = await fetch('/api/settings/install-tectonic', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setIsTectonicAvailable(true);
+      } else {
+        alert(t('editorPanel.installTectonicError') + (data.error || ''));
+      }
+    } catch (err) {
+      alert(t('editorPanel.installTectonicError') + err);
+    } finally {
+      setIsInstallingTectonic(false);
+    }
+  };
 
   const checkTectonic = () => {
     fetch('/api/latex/check-tectonic')
@@ -398,16 +416,27 @@ export default function EditorPanel({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {isTexFile && (
+          {isTexFile && isTectonicAvailable && (
             <button
               onClick={handleCompile}
-              disabled={isCompiling || isSaving || !isTectonicAvailable}
+              disabled={isCompiling || isSaving}
               className="vscode-button"
-              style={{ backgroundColor: isTectonicAvailable ? '#217b3b' : '#3c3c3c', color: isTectonicAvailable ? 'white' : '#888', cursor: isTectonicAvailable ? 'pointer' : 'not-allowed' }}
-              title={!isTectonicAvailable ? 'Falta compilador! Instale em Settings.' : ''}
+              style={{ backgroundColor: '#217b3b', color: 'white' }}
             >
               {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <Printer size={12} />}
               <span>{isCompiling ? 'Compiling...' : (isSaving ? t('editorPanel.saving') : 'Compile LaTeX')}</span>
+            </button>
+          )}
+          {isTexFile && !isTectonicAvailable && (
+            <button
+              onClick={handleInstallTectonic}
+              disabled={isInstallingTectonic}
+              className="vscode-button"
+              style={{ backgroundColor: '#0e639c', color: 'white' }}
+              title={t('editorPanel.installTectonicTooltip')}
+            >
+              {isInstallingTectonic ? <RefreshCw size={12} className="animate-spin" /> : <Download size={12} />}
+              <span>{isInstallingTectonic ? t('editorPanel.installingTectonic') : t('editorPanel.installTectonic')}</span>
             </button>
           )}
           <button
