@@ -1918,7 +1918,9 @@ export default function App() {
             }
             refText = `\\begin{figure}[htbp]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{${relIllustrationPath}.pdf}\n\\end{figure}`;
           } else if (ext === 'md' || ext === 'markdown') {
-            refText = `![Ilustração](${relIllustrationPath}.svg)`;
+            // Markdown preview in OpalaTex resolves paths from the project root,
+            // so always use root-relative path regardless of file depth
+            refText = `![Ilustração](illustrations/illustration_${timestamp}.svg)`;
           } else if (ext === 'html' || ext === 'htm') {
             refText = `<img src="${relIllustrationPath}.svg" alt="Ilustração" />`;
           } else {

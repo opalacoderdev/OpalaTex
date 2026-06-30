@@ -33,7 +33,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
     const defaults = {
       refine: t('editorPanel.inlinePromptRefineDefault'),
       generate: t('editorPanel.inlinePromptGenerateDefault', 'Generate code here...'),
-      createIllustration: t('editorPanel.inlinePromptCreateIllustrationDefault', 'Create an SVG illustration for this text'),
+      createIllustration: '',
       free: '',
     };
     setValue(defaults[inlinePrompt.mode] ?? '');
@@ -75,6 +75,13 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
   };
 
   const handleSubmit = () => {
+    if (mode === 'createIllustration') {
+      const baseInstruction = t('editorPanel.inlinePromptCreateIllustrationDefault', 'Create an SVG illustration for this text');
+      const extra = value.trim();
+      const instruction = extra ? `${baseInstruction}. ${extra}` : baseInstruction;
+      onSubmit(instruction);
+      return;
+    }
     const instruction = value.trim();
     if (!instruction) return;
     onSubmit(instruction);
@@ -201,36 +208,34 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
             ref={inputRef}
             type="text"
             value={value}
-            onChange={(e) => { if (mode !== 'createIllustration') setValue(e.target.value); }}
+            onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={t('editorPanel.inlinePromptPlaceholder')}
-            readOnly={mode === 'createIllustration'}
+            placeholder={mode === 'createIllustration' ? t('editorPanel.illustrationExtraPlaceholder', 'Add extra details about the illustration (optional)...') : t('editorPanel.inlinePromptPlaceholder')}
             disabled={isRunning}
             style={{
               flex: 1,
               fontSize: '12px',
               padding: '5px 8px',
-              background: isRunning ? 'rgba(255,255,255,0.03)' : mode === 'createIllustration' ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.07)',
+              background: isRunning ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.07)',
               border: '1px solid rgba(255,255,255,0.15)',
               borderRadius: '5px',
-              color: isRunning ? '#888' : mode === 'createIllustration' ? '#999' : '#e0e0e0',
+              color: isRunning ? '#888' : '#e0e0e0',
               outline: 'none',
               fontFamily: 'inherit',
               transition: 'border-color 0.15s',
-              cursor: mode === 'createIllustration' ? 'default' : 'text',
             }}
-            onFocus={(e) => { if (!isRunning) { e.currentTarget.style.borderColor = '#007acc'; if (mode !== 'createIllustration') e.currentTarget.select(); } }}
+            onFocus={(e) => { if (!isRunning) { e.currentTarget.style.borderColor = '#007acc'; e.currentTarget.select(); } }}
             onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)'; }}
           />
           <button
             onClick={handleSubmit}
-            disabled={!value.trim() || isRunning}
+            disabled={(!value.trim() && mode !== 'createIllustration') || isRunning}
             style={{
-              background: value.trim() && !isRunning ? '#007acc' : '#2a2a2a',
+              background: (value.trim() || mode === 'createIllustration') && !isRunning ? '#007acc' : '#2a2a2a',
               border: 'none',
               borderRadius: '5px',
-              color: value.trim() && !isRunning ? '#fff' : '#555',
-              cursor: value.trim() && !isRunning ? 'pointer' : 'not-allowed',
+              color: (value.trim() || mode === 'createIllustration') && !isRunning ? '#fff' : '#555',
+              cursor: (value.trim() || mode === 'createIllustration') && !isRunning ? 'pointer' : 'not-allowed',
               padding: '5px 9px',
               display: 'flex',
               alignItems: 'center',

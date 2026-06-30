@@ -71,6 +71,7 @@
     "inlinePromptFixDefault": "Fix errors in the selected code",
     "inlinePromptGenerateDefault": "Generate content here",
     "inlinePromptCreateIllustrationDefault": "Create an SVG illustration for this text",
+    "illustrationExtraPlaceholder": "Add extra details about the illustration (optional)...",
     "installTectonic": "Install LaTeX Support",
     "installingTectonic": "Installing...",
     "installTectonicError": "Installation error: ",
