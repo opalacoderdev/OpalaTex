@@ -1042,3 +1042,22 @@ select {
 .gutter { background-color: var(--vscode-border, #1E2330); background-repeat: no-repeat; background-position: 50%; transition: background-color 0.2s; z-index: 100; }
 .gutter.gutter-horizontal { cursor: col-resize; }
 .gutter.gutter-horizontal:hover { background-color: var(--vscode-button-bg, #0e639c); }
+
+/* ── Monaco Editor CSS Isolation ──────────────────────────────────────────────
+   The global  * { box-sizing: border-box; margin: 0; padding: 0 }  reset
+   conflicts with Monaco Editor's internal layout calculations, which assume
+   content-box sizing and browser-default spacing. This causes the context
+   menu hover highlight to be offset from the mouse position.
+   We restore content-box for all Monaco-owned and popup elements.            */
+
+.monaco-editor,
+.monaco-editor *,
+.context-view,
+.context-view *,
+.monaco-menu-container,
+.monaco-menu-container *,
+.monaco-editor-hover,
+.monaco-editor-hover * {
+  box-sizing: content-box !important;
+}
+

@@ -1,38 +1,48 @@
-# Walkthrough: Landing Page & Stripe Integration
+# Walkthrough: Trial License Registration & Omnime Removal
 
-A Landing Page da **OpalaCoder** foi atualizada para apresentar claramente os dois principais produtos da suíte (OmniMe e OpalaTex) e agora conta com uma infraestrutura robusta para pagamentos e downloads usando o Stripe.
+The **OpalaCoder** suite has been streamlined by removing the `omnime` agent from the public website, and a new registered trial licensing feature has been introduced to allow users to generate test licenses during onboarding.
 
-## 1. O que foi construído
+---
 
-### A. Novo Backend Express (`server.js`)
-Criamos um pequeno servidor Node.js em `apps/web/server.js` que resolve três problemas de uma vez:
-1. **API do Stripe:** Gerencia a criação da sessão de Checkout (`/api/create-checkout-session`) para comprar o OpalaTex por R$ 30,00 e ouve Webhooks de confirmação de pagamento de forma segura.
+## 1. What was built
 
-### B. Novo "Products Section"
-No arquivo `HomePage.jsx` (e seu contexto de traduções `LanguageContext.jsx`), removemos as antigas seções genéricas "Problema" e "Solução" e inserimos uma bela seção **"Nossos Produtos"** contendo:
-- O card do **OmniMe** detalhando o aspecto Open Source, privacidade total e com botão para o GitHub.
-- O card do **OpalaTex** com uma hierarquia visual de produto Premium, destacando o preço (R$ 30,00). 
-- Botões integrados na interface do OpalaTex para acionar o Checkout do Stripe via API, e links prontos para o download dos binários de 14-dias (Windows e Linux).
+### A. Omnime Removal
+- **Landing Page (`HomePage.jsx`)**: Removed the OmniMe footer link and description at the bottom of the page.
+- **Language Context (`LanguageContext.jsx`)**: Removed the OmniMe product entry, pricing, and GitHub links from the translations object, and updated headings/FAQs/steps to remove references comparing the tools.
 
-### C. Página de Sucesso (`SuccessPage.jsx`)
-Construímos a página para onde o usuário é redirecionado após pagar.
-- Essa página intercepta o `session_id` na URL.
-- Faz uma chamada silenciosa ao nosso backend Node.js (`/api/get-license?session_id=...`).
-- Uma vez validado, exibe a chave da licença em tamanho generoso na tela com um botão moderno de "Copiar para Área de Transferência".
-- Também mostra o link direto de download para facilitar o onboarding.
+### B. Registered Trial Licensing (Remote Server - `OpalaWebPage`)
+- **SQLite Schema Migration**: Added `expires_at` (DATETIME) and `status` (TEXT DEFAULT 'active') columns to the `licenses` table. Existing licenses default to `'active'` status and no expiration (lifetime).
+- **New API Route (`POST /api/license/generate-trial`)**: Generates a trial license key prefixed with `OPALA-TRIAL-` that expires in 14 days, with a starting token balance of `0`.
+- **Completions Proxy & Balance Check Validation**:
+  - In `POST /api/chat-proxy/chat/completions`, checks if a license is expired (`status === 'expired'` or current time is past `expires_at`). If so, sets status to `'expired'` and rejects the request.
+  - In `GET /api/get-balance`, verifies and updates the license status if expired and returns `status` and `expires_at` in the JSON response.
+- **Checkout Recharge Safeguard**: In `/api/create-checkout-session`, blocks credit recharges on licenses that are already expired.
 
-## 2. Como Testar e Usar
+### C. Licensing Client Integration (OpalaTex Desktop)
+- **Local Expiration Logic (`licensing.py`)**: Modified `check_license_status()` to inspect if the saved license is marked with `is_trial: True` and verify if the local machine time has passed the trial's Unix timestamp `expires_at`.
+- **Local API Endpoint (`ide_server.py`)**: Added `POST /api/license/generate-trial`. It reaches out to the remote server to create the trial license and persists it locally to the encrypted `license.dat` file with `is_trial = True` and `expires_at = timestamp`.
+- **Onboarding UI (`OnboardingModal.jsx`)**: Added a card inside the second step of the onboarding wizard. If no license key is present in the IDE, a "Gerar Licença Trial" button appears. Clicking it requests the license, activates it locally, and displays the active key in a monospace info box.
+- **Internationalization**: Added Portuguese and English keys in locales JSON files.
 
-1. **Inicie o Servidor Backend (API + Frontend):**
-   Rode `node apps/web/server.js` a partir da raiz (lembre-se de configurar a variável `STRIPE_SECRET_KEY` na sua máquina local ou servidor via `.env` se for testar pra valer).
+---
 
-2. **Inicie a interface de Dev (Se não for rodar a build):**
-   `npm run dev` na pasta `apps/web`.
+## 2. Verification & Test Results
 
-3. **Fluxo Visual:**
-   - Acesse a Home. Verifique se os cards OmniMe e OpalaTex estão aparecendo belamente!
-   - Clique em "Comprar Licença". Você será levado ao mock do Checkout (ou Stripe real se colocar as chaves).
-   - Ao finalizar, o redirecionamento irá para `/success`, mostrando uma bela notificação com a licença oficial!
+### A. Automated Tests
+We created `tests/test_licensing.py` specifically to cover the new local client licensing checks:
+- Verifies that `TRIAL_ACTIVE` is returned when the trial is within the valid duration.
+- Verifies that `TRIAL_EXPIRED` is returned when the current time is past the stored `expires_at`.
+- Verifies that a normal lifetime license returns `LICENSED` without expiration logic.
 
-> [!CAUTION]
-> Ao subir os binários gerados pelo seu PyInstaller, certifique-se de colocá-los na pasta `C:\Users\gilza\projetos\OpalaWebPage\apps\web\public\downloads\` com os nomes `OpalaTex-windows-x64.zip` e `OpalaTex-linux-x64.tar.gz`. Caso contrário, os links na UI retornarão 404 (Not Found).
+**Test run output:**
+```bash
+.venv\Scripts\python.exe -m pytest tests/test_licensing.py
+...
+tests\test_licensing.py .                                                [100%]
+============================== 1 passed in 0.33s ==============================
+```
+
+### B. Manual Verification
+- We verified the Express server startup, confirming that the database migration executes without issues and adds columns `expires_at` and `status` seamlessly to the existing schema.
+- We tested hitting the trial generation endpoint on the server, which successfully inserted a row in `licenses` and returned the key:
+  `{"success":true,"licenseKey":"OPALA-TRIAL-F3C5-863F-779A","expiresAtTs":1783997131}`

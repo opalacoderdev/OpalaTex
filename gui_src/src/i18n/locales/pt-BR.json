@@ -328,7 +328,12 @@
     "apiKeyLabel": "Chave da API (API Key)",
     "apiKeyPlaceholder": "Cole sua chave aqui...",
     "skipKeyBtn": "Pular Chave (Informo depois)",
-    "createPilotBtn": "Criar Projeto Piloto"
+    "createPilotBtn": "Criar Projeto Piloto",
+    "generateTrialBtn": "Gerar Licença Trial",
+    "trialTitle": "Licença Trial Registrada (Opcional)",
+    "trialDesc": "Gere uma licença de teste de 14 dias no servidor para poder receber ou comprar créditos promocionais de IA na nuvem.",
+    "generating": "Gerando...",
+    "activeLicense": "Licença Ativa"
   },
   "common": {
     "noCredits": "Sem saldo suficiente para usar a cloud. Por favor adicione créditos."

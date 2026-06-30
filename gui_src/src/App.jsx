@@ -1885,8 +1885,24 @@ export default function App() {
 
           const ext = (selectedFile || '').split('.').pop().toLowerCase();
           let refText = '';
+          let adjustedEndLine = endLine;
           if (ext === 'tex') {
-            refText = `\\includesvg{illustrations/illustration_${timestamp}}`;
+            // Ensure \usepackage{graphicx} is in the preamble
+            const fullContent = model.getValue();
+            if (!fullContent.includes('usepackage{graphicx}')) {
+              const docIdx = fullContent.indexOf('\\begin{document}');
+              if (docIdx !== -1) {
+                const insertPos = model.getPositionAt(docIdx);
+                editorRef.current.executeEdits('opalatex_graphicx', [{
+                  range: new monacoRef.current.Range(insertPos.lineNumber, 1, insertPos.lineNumber, 1),
+                  text: '\\usepackage{graphicx}\n\n',
+                  forceMoveMarkers: true,
+                }]);
+                // Shift endLine after preamble insertion
+                adjustedEndLine += 2;
+              }
+            }
+            refText = `\\begin{figure}[htbp]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{illustrations/illustration_${timestamp}.pdf}\n\\end{figure}`;
           } else if (ext === 'md' || ext === 'markdown') {
             refText = `![Ilustração](illustrations/illustration_${timestamp}.svg)`;
           } else if (ext === 'html' || ext === 'htm') {
@@ -1895,11 +1911,16 @@ export default function App() {
             refText = `illustrations/illustration_${timestamp}.svg`;
           }
 
-          const separator = fullLinesText.endsWith('\n') ? '' : '\n';
-          const codeToInsert = fullLinesText + separator + '\n' + refText + '\n';
+          // Re-read range after potential preamble insertion shift
+          const updatedEndCol = model.getLineMaxColumn(adjustedEndLine);
+          const updatedRange = new monacoRef.current.Range(startLine, 1, adjustedEndLine, updatedEndCol);
+          const updatedText = model.getValueInRange(updatedRange);
+
+          const separator = updatedText.endsWith('\n') ? '' : '\n';
+          const codeToInsert = updatedText + separator + '\n' + refText + '\n';
 
           editorRef.current.executeEdits('opalatex_inline', [{
-            range: range,
+            range: updatedRange,
             text: codeToInsert,
             forceMoveMarkers: true,
           }]);

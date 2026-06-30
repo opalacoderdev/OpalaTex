@@ -325,7 +325,12 @@
     "apiKeyLabel": "API Key",
     "apiKeyPlaceholder": "Paste your key here...",
     "skipKeyBtn": "Skip Key (I'll provide it later)",
-    "createPilotBtn": "Create Pilot Project"
+    "createPilotBtn": "Create Pilot Project",
+    "generateTrialBtn": "Generate Trial License",
+    "trialTitle": "Registered Trial License (Optional)",
+    "trialDesc": "Generate a 14-day test license on the server to receive or purchase promotional cloud AI credits.",
+    "generating": "Generating...",
+    "activeLicense": "License Active"
   },
   "common": {
     "noCredits": "Insufficient balance to use the cloud. Please add credits."

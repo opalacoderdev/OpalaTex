@@ -455,6 +455,49 @@ class AsyncHTTPServer:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             return
 
+        elif path == '/api/license/generate-trial' and method == 'POST':
+            try:
+                import urllib.request
+                import urllib.error
+                req = urllib.request.Request(
+                    "https://opalacoder.com/api/license/generate-trial",
+                    data=b"{}",
+                    headers={"Content-Type": "application/json"}
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        resp_data = json.loads(resp.read().decode('utf-8'))
+                        if resp_data.get("success"):
+                            from opalatex.licensing import _load_license_data, _save_license_data, get_machine_id
+                            import time
+                            
+                            license_key = resp_data["licenseKey"]
+                            expires_at = resp_data["expiresAtTs"]
+                            
+                            lic_data = _load_license_data()
+                            lic_data["license_key"] = license_key
+                            lic_data["is_trial"] = True
+                            lic_data["expires_at"] = expires_at
+                            lic_data["activation_date"] = time.time()
+                            lic_data["machine_id"] = get_machine_id()
+                            _save_license_data(lic_data)
+                            
+                            self.send_response(writer, 200, json.dumps({"success": True, "licenseKey": license_key}).encode('utf-8'), "application/json")
+                        else:
+                            self.send_response(writer, 400, json.dumps({"success": False, "error": "Server failed to generate license"}).encode('utf-8'), "application/json")
+                except urllib.error.HTTPError as he:
+                    err_msg = he.read().decode('utf-8')
+                    try:
+                        err_json = json.loads(err_msg)
+                        self.send_response(writer, he.code, json.dumps({"success": False, "error": err_json.get("error", err_msg)}).encode('utf-8'), "application/json")
+                    except:
+                        self.send_response(writer, he.code, json.dumps({"success": False, "error": err_msg}).encode('utf-8'), "application/json")
+                except Exception as ex:
+                    self.send_response(writer, 500, json.dumps({"success": False, "error": str(ex)}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            return
+
 
         # 0. Compile LaTeX
         if path == '/api/latex/compile':
@@ -747,6 +790,21 @@ class AsyncHTTPServer:
                 os.makedirs(dir_path, exist_ok=True)
                 with open(full_path, 'w', encoding='utf-8') as f:
                     f.write(content)
+                
+                # If writing an SVG file, automatically generate a PDF copy alongside it using PyMuPDF
+                if file_path.endswith('.svg'):
+                    try:
+                        import fitz
+                        pdf_path = os.path.splitext(full_path)[0] + '.pdf'
+                        doc = fitz.open("svg", content.encode('utf-8'))
+                        pdf_bytes = doc.convert_to_pdf()
+                        pdf_doc = fitz.open("pdf", pdf_bytes)
+                        pdf_doc.save(pdf_path)
+                        pdf_doc.close()
+                        doc.close()
+                    except Exception as ex:
+                        print(f"Error converting SVG to PDF: {ex}")
+                
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")

@@ -553,6 +553,7 @@ export default function EditorPanel({
                   renderSideBySide: true,
                   readOnly: false,
                   originalEditable: false,
+                  fixedOverflowWidgets: true,
                 }}
               />
             ) : (
@@ -572,6 +573,7 @@ export default function EditorPanel({
                   tabSize: editorTabSize,
                   wordWrap: editorWordWrap,
                   automaticLayout: true,
+                  fixedOverflowWidgets: true,
                 }}
               />
             )}
@@ -615,6 +617,7 @@ export default function EditorPanel({
                   renderSideBySide: true,
                   readOnly: false,
                   originalEditable: false,
+                  fixedOverflowWidgets: true,
                 }}
               />
             ) : (
@@ -634,6 +637,7 @@ export default function EditorPanel({
                   tabSize: editorTabSize,
                   wordWrap: editorWordWrap,
                   automaticLayout: true,
+                  fixedOverflowWidgets: true,
                 }}
               />
             )}

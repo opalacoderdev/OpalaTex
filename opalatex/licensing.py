@@ -95,6 +95,24 @@ def check_license_status() -> dict:
     
     # If a license key exists
     if data.get("license_key"):
+        if data.get("is_trial"):
+            expires_at = data.get("expires_at", 0)
+            now = time.time()
+            if now >= expires_at:
+                return {
+                    "status": "TRIAL_EXPIRED",
+                    "days_left": 0,
+                    "machine_id": machine_id,
+                    "key": data.get("license_key")
+                }
+            else:
+                days_left = max(0, int((expires_at - now) / (60 * 60 * 24)))
+                return {
+                    "status": "TRIAL_ACTIVE",
+                    "days_left": days_left,
+                    "machine_id": machine_id,
+                    "key": data.get("license_key")
+                }
         return {
             "status": "LICENSED",
             "days_left": 0,
