@@ -10,7 +10,7 @@ DIST_DIR="dist/OpalaTex"
 ZIP_NAME="dist/OpalaTex-linux-x64.tar.gz"
 VPS_IP="REDACTED_RELEASE_HOST"
 VPS_USER="REDACTED_RELEASE_USER"
-VPS_DEST_DIR="/root/opala-api/apps/web/public/downloads"
+VPS_DEST_DIR="REDACTED_RELEASE_DIR"
 
 echo ""
 echo "[1/3] Verificando se a pasta do executavel foi gerada..."

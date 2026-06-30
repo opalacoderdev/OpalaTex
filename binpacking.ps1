@@ -8,7 +8,7 @@ $DistDir = ".\dist\OpalaTex"
 $ZipName = ".\dist\OpalaTex-windows-x64.zip"
 $VPS_IP = "REDACTED_RELEASE_HOST"
 $VPS_USER = "REDACTED_RELEASE_USER"
-$VPS_DEST_DIR = "/root/opala-api/apps/web/public/downloads"
+$VPS_DEST_DIR = "REDACTED_RELEASE_DIR"
 
 Write-Host "`n[1/3] Verificando se a pasta do executavel foi gerada..."
 if (!(Test-Path $DistDir)) {
