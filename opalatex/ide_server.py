@@ -360,6 +360,10 @@ class AsyncHTTPServer:
 
     def send_response(self, writer, status_code, body, content_type="text/plain"):
         status_msg = "OK" if status_code == 200 else ("Not Found" if status_code == 404 else "Error")
+        if (content_type.startswith("text/") or 
+            content_type in ("application/javascript", "application/json", "image/svg+xml")):
+            if "charset=" not in content_type:
+                content_type += "; charset=utf-8"
         headers = (
             f"HTTP/1.1 {status_code} {status_msg}\r\n"
             f"Content-Type: {content_type}\r\n"
@@ -406,6 +410,10 @@ class AsyncHTTPServer:
                 content = f.read()
             mime_type, _ = mimetypes.guess_type(full_path)
             mime_type = mime_type or 'application/octet-stream'
+            if (mime_type.startswith("text/") or 
+                mime_type in ("application/javascript", "application/json", "image/svg+xml")):
+                if "charset=" not in mime_type:
+                    mime_type += "; charset=utf-8"
             
             headers = f"HTTP/1.1 200 OK\r\nContent-Type: {mime_type}\r\nContent-Length: {len(content)}\r\nConnection: close\r\n\r\n"
             writer.write(headers.encode('utf-8'))
