@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } f
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import { useTranslation } from 'react-i18next';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -9,9 +10,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 ).toString();
 
 const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate }, ref) => {
+  const { t } = useTranslation();
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
   const [highlight, setHighlight] = useState(null);
+  const [scale, setScale] = useState(1.2);
   const containerRef = useRef(null);
   const scrollPosRef = useRef(0);
 
@@ -19,6 +22,18 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
     if (containerRef.current) {
       scrollPosRef.current = containerRef.current.scrollTop;
     }
+  };
+
+  const handleZoomIn = () => {
+    setScale(prev => Math.min(prev + 0.2, 3.0));
+  };
+
+  const handleZoomOut = () => {
+    setScale(prev => Math.max(prev - 0.2, 0.6));
+  };
+
+  const handleResetZoom = () => {
+    setScale(1.2);
   };
 
   useEffect(() => {
@@ -184,27 +199,112 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
   }
 
   return (
-    <div className="w-full h-full relative overflow-hidden bg-gray-500">
+    <div className="w-full h-full relative overflow-hidden" style={{ background: 'var(--vscode-editor-bg)' }}>
       {isCompiling && (
-        <div className="absolute inset-0 z-10 bg-slate-900/60 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4 bg-slate-800 p-6 rounded-lg shadow-xl text-white">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        <div className="absolute inset-0 z-10 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+          <div className="flex flex-col items-center gap-4 p-6 rounded-lg shadow-xl" style={{ background: 'var(--vscode-sidebar-bg)', color: 'var(--vscode-text-fg)' }}>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--vscode-active-border)' }}></div>
             <p>Compiling...</p>
           </div>
         </div>
       )}
       
+      {/* Zoom Controls */}
+      <div 
+        className="absolute top-4 right-4 z-50 flex items-center gap-1.5 rounded-lg shadow-lg p-1.5"
+        style={{
+          background: 'var(--vscode-sidebar-bg)',
+          border: '1px solid var(--vscode-border)',
+        }}
+      >
+        <button
+          onClick={handleZoomOut}
+          className="flex items-center justify-center rounded-md transition-colors"
+          style={{
+            width: '32px',
+            height: '32px',
+            background: 'var(--vscode-input-bg)',
+            border: '1px solid var(--vscode-border)',
+            color: 'var(--vscode-text-fg)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+          title={t('editorPanel.zoomOut')}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="8" y1="11" x2="14" y2="11"></line>
+          </svg>
+        </button>
+        <span 
+          className="text-xs font-semibold text-center rounded-md"
+          style={{
+            minWidth: '52px',
+            padding: '6px 8px',
+            background: 'var(--vscode-input-bg)',
+            color: 'var(--vscode-text-fg)',
+            border: '1px solid var(--vscode-border)',
+          }}
+        >
+          {Math.round(scale * 100)}%
+        </span>
+        <button
+          onClick={handleZoomIn}
+          className="flex items-center justify-center rounded-md transition-colors"
+          style={{
+            width: '32px',
+            height: '32px',
+            background: 'var(--vscode-input-bg)',
+            border: '1px solid var(--vscode-border)',
+            color: 'var(--vscode-text-fg)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+          title={t('editorPanel.zoomIn')}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="11" y1="8" x2="11" y2="14"></line>
+            <line x1="8" y1="11" x2="14" y2="11"></line>
+          </svg>
+        </button>
+        {scale !== 1.2 && (
+          <button
+            onClick={handleResetZoom}
+            className="flex items-center justify-center rounded-md transition-colors"
+            style={{
+              width: '32px',
+              height: '32px',
+              background: 'var(--vscode-input-bg)',
+              border: '1px solid var(--vscode-border)',
+              color: 'var(--vscode-text-fg)',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+            title={t('editorPanel.resetZoom')}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+              <path d="M3 3v5h5"></path>
+            </svg>
+          </button>
+        )}
+      </div>
+      
       <div 
         className="w-full h-full overflow-y-auto flex flex-col items-center py-8"
         ref={containerRef}
         onScroll={handleScroll}
+        style={{ background: 'var(--vscode-editor-bg)' }}
       >
         {pdfUrl && (
           <Document
             file={pdfUrl}
             onLoadSuccess={onDocumentLoadSuccess}
-            loading={<div className="text-white">Loading PDF...</div>}
-            error={<div className="text-red-300">Failed to load PDF viewer.</div>}
+            loading={<div style={{ color: 'var(--vscode-text-fg)' }}>Loading PDF...</div>}
+            error={<div style={{ color: '#f87171' }}>Failed to load PDF viewer.</div>}
           >
             {Array.from(new Array(numPages || 0), (el, index) => (
               <div 
@@ -217,7 +317,7 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
                   pageNumber={index + 1}
                   renderTextLayer={true}
                   renderAnnotationLayer={true}
-                  scale={1.2}
+                  scale={scale}
                 />
                 
                 {/* Visual Highlight for Forward Search */}
@@ -227,9 +327,9 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
                       position: 'absolute',
                       zIndex: 99999,
                       left: 0,
-                      top: `${highlight.y}px`, 
+                      top: `${highlight.y * (scale / 1.2)}px`, 
                       width: '100%',
-                      height: `${Math.max(highlight.h, 18)}px`,
+                      height: `${Math.max(highlight.h * (scale / 1.2), 18)}px`,
                       backgroundColor: 'rgba(250, 204, 21, 0.25)',
                       borderLeft: '6px solid #ef4444',
                       pointerEvents: 'none',
