@@ -87,7 +87,9 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
       const res = await fetch(`/api/latex/synctex?action=pdf2tex&page=${pageIndex}&x=${ptX}&y=${ptY}&filePath=${encodeURIComponent(selectedFile)}&projectPath=${encodeURIComponent(activeProject.project_path)}`);
       const data = await res.json();
       if (data.result && data.result.line && onSyncTexNavigate) {
-        onSyncTexNavigate(data.result.line, data.result.file);
+        // Use relFile (relative to project) for navigation; fall back to absolute file
+        const navFile = data.result.relFile || data.result.file;
+        onSyncTexNavigate(data.result.line, navFile);
       }
     } catch (err) {
       console.error("SyncTeX inverse search failed:", err);

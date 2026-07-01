@@ -1870,12 +1870,35 @@ export default function App() {
           const timestamp = Math.floor(Date.now() / 1000);
           const filename = `illustrations/illustration_${timestamp}.svg`;
 
-          // Compute relative path from the active file's directory to the project root
-          // so the reference in the .tex file correctly points to illustrations/ at root level
-          const activeDir = (selectedFile || '').replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-          const depth = activeDir ? activeDir.split('/').filter(Boolean).length : 0;
+          // ── Robust project-relative path normalizer ─────────────────────────
+          // Handles all formats of selectedFile: relative ("d1/A.tex"),
+          // backslash ("d1\\A.tex"), or absolute Windows ("C:\\Users\\...\\d1\\A.tex").
+          // Returns a clean forward-slash relative path like "d1/A.tex".
+          function toProjectRelativePath(filePath, projectPath) {
+            if (!filePath) return '';
+            let norm = filePath.replace(/\\/g, '/');
+
+            // Strip project root prefix if selectedFile is absolute
+            if (projectPath) {
+              const projNorm = projectPath.replace(/\\/g, '/').replace(/\/+$/, '') + '/';
+              // Case-insensitive comparison needed on Windows
+              if (norm.toLowerCase().startsWith(projNorm.toLowerCase())) {
+                norm = norm.substring(projNorm.length);
+              }
+            }
+
+            // Remove any remaining drive letter (e.g., "C:/") or leading slashes
+            norm = norm.replace(/^[A-Za-z]:\//, '').replace(/^\/+/, '');
+            return norm;
+          }
+
+          const relSelectedFile = toProjectRelativePath(selectedFile, activeProject?.project_path);
+          const dirSegments = relSelectedFile.split('/').filter(Boolean).slice(0, -1); // directory parts only
+          const depth = dirSegments.length;
           const relPrefix = depth > 0 ? '../'.repeat(depth) : '';
           const relIllustrationPath = `${relPrefix}illustrations/illustration_${timestamp}`;
+
+          console.log(`[illustration] selectedFile="${selectedFile}" → relSelectedFile="${relSelectedFile}" depth=${depth} ref="${relIllustrationPath}"`);
 
           addLog('info', `Salvando ilustração SVG em ${filename}...`);
           const writeRes = await fetch('/api/file/write', {

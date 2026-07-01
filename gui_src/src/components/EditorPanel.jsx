@@ -190,7 +190,11 @@ export default function EditorPanel({
   const pdfPreviewRef = useRef(null);
   
   const handleSyncTexNavigate = (line, file) => {
-    if (file && file !== selectedFile) {
+    // file is a project-relative path returned from the SyncTeX backend
+    const normalizeSlash = (p) => (p || '').replace(/\\/g, '/');
+    const normalizedFile = normalizeSlash(file);
+    const normalizedSelected = normalizeSlash(selectedFile);
+    if (file && normalizedFile !== normalizedSelected) {
       handleFileSelect(file, line);
     } else if (localEditorRef.current) {
       localEditorRef.current.revealLineInCenter(line);
@@ -307,6 +311,7 @@ export default function EditorPanel({
       id: 'opalatex.paste',
       label: 'Paste',
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV],
+      precondition: 'editorTextFocus',
       run: async (ed) => {
         let text = '';
         try {

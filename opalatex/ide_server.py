@@ -671,6 +671,13 @@ class AsyncHTTPServer:
                         if not os.path.isabs(abs_file):
                             abs_file = os.path.abspath(os.path.join(project_path, abs_file))
                         result['file'] = abs_file
+                        # Also return a project-relative path so the frontend can compare
+                        # against selectedFile (which is always relative to project_path)
+                        try:
+                            rel_file = os.path.relpath(abs_file, project_path).replace('\\', '/')
+                        except ValueError:
+                            rel_file = abs_file
+                        result['relFile'] = rel_file
                     self.send_response(writer, 200, json.dumps({"result": result}).encode('utf-8'), "application/json")
                 elif action == 'tex2pdf':
                     line = int(query.get('line', ['1'])[0])
