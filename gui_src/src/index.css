@@ -964,6 +964,13 @@ select {
   color: var(--vscode-text-light) !important;
 }
 
+/* ── Markdown Preview Performance ─────────────────────────────────────────
+   Hardware acceleration for CSS transform-based zoom */
+.markdown-preview-container > div[style*="transform"] {
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
 @media print {
   html, body, #root, .vscode-app, .vscode-main, .vscode-editor-panel, .vscode-editor-container, .vscode-chat, .vscode-chat-history, .markdown-preview-container {
     height: auto !important;

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download } from 'lucide-react';
+import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
 import InlinePromptOverlay from './InlinePromptOverlay';
@@ -44,6 +44,7 @@ export default function EditorPanel({
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [editorContextMenu, setEditorContextMenu] = useState(null);
+  const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
   
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
   const isTexRelatedFile = (filename) => {
@@ -154,6 +155,7 @@ export default function EditorPanel({
       } else {
         setPdfErrorLog(data.log);
         if (data.pdf_base64) setPdfBase64(data.pdf_base64);
+        else setPdfBase64(null);
       }
     } catch (err) {
       setPdfErrorLog('Failed to connect to backend: ' + err.message);
@@ -302,6 +304,32 @@ export default function EditorPanel({
           selectedText,
           mode: 'free',
         });
+      }
+    );
+
+    // ── Ctrl++ / Ctrl+- — Markdown preview zoom ───────────────────────────
+    actualEditor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.Equal,
+      () => {
+        if (isPreviewMode) {
+          setMarkdownZoomLevel(prev => Math.min(2.0, prev + 0.1));
+        }
+      }
+    );
+    actualEditor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.Minus,
+      () => {
+        if (isPreviewMode) {
+          setMarkdownZoomLevel(prev => Math.max(0.5, prev - 0.1));
+        }
+      }
+    );
+    actualEditor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyNumpad0,
+      () => {
+        if (isPreviewMode) {
+          setMarkdownZoomLevel(1.0);
+        }
       }
     );
 
@@ -465,14 +493,37 @@ export default function EditorPanel({
           {selectedFile && selectedFile.toLowerCase().endsWith('.md') && (
             <>
               {isPreviewMode && (
-                <button
-                  onClick={handlePrintPDF}
-                  className="vscode-bottom-panel-clear-btn"
-                  style={{ padding: '6px' }}
-                  title="Imprimir / Exportar PDF"
-                >
-                  <Printer size={12} />
-                </button>
+                <>
+                  <button
+                    onClick={handlePrintPDF}
+                    className="vscode-bottom-panel-clear-btn"
+                    style={{ padding: '6px' }}
+                    title="Imprimir / Exportar PDF"
+                  >
+                    <Printer size={12} />
+                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '4px' }}>
+                    <button
+                      onClick={() => setMarkdownZoomLevel(prev => Math.max(0.5, prev - 0.1))}
+                      className="vscode-bottom-panel-clear-btn"
+                      style={{ padding: '6px' }}
+                      title="Diminuir zoom"
+                    >
+                      <ZoomOut size={12} />
+                    </button>
+                    <span style={{ fontSize: '11px', minWidth: '35px', textAlign: 'center', color: 'var(--vscode-text-fg)' }}>
+                      {Math.round(markdownZoomLevel * 100)}%
+                    </span>
+                    <button
+                      onClick={() => setMarkdownZoomLevel(prev => Math.min(2.0, prev + 0.1))}
+                      className="vscode-bottom-panel-clear-btn"
+                      style={{ padding: '6px' }}
+                      title="Aumentar zoom"
+                    >
+                      <ZoomIn size={12} />
+                    </button>
+                  </div>
+                </>
               )}
               <button
                 onClick={() => setIsPreviewMode(!isPreviewMode)}
@@ -527,7 +578,7 @@ export default function EditorPanel({
           <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
             {isPreviewMode ? (
               <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
-                {formatMessageContent(fileContent, activeProject?.project_path)}
+                {formatMessageContent(fileContent, activeProject?.project_path, markdownZoomLevel)}
               </div>
             ) : isDiffMode ? (
               <DiffEditor
@@ -593,7 +644,7 @@ export default function EditorPanel({
           <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
             {isPreviewMode ? (
               <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
-                {formatMessageContent(fileContent, activeProject?.project_path)}
+                {formatMessageContent(fileContent, activeProject?.project_path, markdownZoomLevel)}
               </div>
             ) : isDiffMode ? (
               <DiffEditor

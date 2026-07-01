@@ -9,8 +9,9 @@ import Mermaid from '../components/Mermaid';
 // ── Custom component map ────────────────────────────────────────────────────
 // Maps HTML element names produced by react-markdown to custom React
 // components, so that the IDE theme and existing CSS classes are preserved.
+// Zoom is applied via CSS transform on the container for better performance.
 
-const components = {
+const BASE_COMPONENTS = {
   // Headings
   h1: ({ children }) => (
     <h1 style={{ margin: '14px 0 6px 0', fontWeight: 'bold', color: 'var(--vscode-text-light, #ffffff)', fontSize: '16px' }}>
@@ -192,7 +193,7 @@ const REHYPE_PLUGINS = [[rehypeKatex, { strict: "ignore" }]];
 // ── Public API ──────────────────────────────────────────────────────────────
 // Drop-in replacement for the old formatMessageContent(content) function.
 // Returns a React element that renders Markdown + LaTeX (KaTeX).
-export function formatMessageContent(content, activeProjectPath = null) {
+export function formatMessageContent(content, activeProjectPath = null, zoomLevel = 1.0) {
   if (!content) return null;
 
   // Convert <think>...</think> tags to markdown ```thought blocks for rendering
@@ -205,7 +206,7 @@ export function formatMessageContent(content, activeProjectPath = null) {
   });
 
   const localComponents = {
-    ...components,
+    ...BASE_COMPONENTS,
     img: ({ src, alt, ...props }) => {
       let finalSrc = src;
       if (activeProjectPath && src && !src.startsWith('http') && !src.startsWith('data:')) {
@@ -223,12 +224,19 @@ export function formatMessageContent(content, activeProjectPath = null) {
   };
 
   return (
-    <ReactMarkdown
-      remarkPlugins={REMARK_PLUGINS}
-      rehypePlugins={REHYPE_PLUGINS}
-      components={localComponents}
-    >
-      {processed}
-    </ReactMarkdown>
+    <div style={{ 
+      transform: `scale(${zoomLevel})`, 
+      transformOrigin: 'top left', 
+      width: `${100 / zoomLevel}%`,
+      minHeight: `${100 / zoomLevel}%`
+    }}>
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
+        components={localComponents}
+      >
+        {processed}
+      </ReactMarkdown>
+    </div>
   );
 }

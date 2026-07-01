@@ -175,6 +175,14 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
         base_no_ext = os.path.splitext(os.path.basename(main_file))[0]
         # Tectonic writes the PDF next to the input file, not necessarily at project root
         pdf_path = os.path.join(os.path.dirname(abs_main_file), f"{base_no_ext}.pdf")
+        synctex_path = os.path.join(os.path.dirname(abs_main_file), f"{base_no_ext}.synctex.gz")
+        
+        for p in [pdf_path, synctex_path]:
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
         
         try:
             result = subprocess.run(
@@ -218,6 +226,16 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
     base_name = os.path.basename(file_path) if file_path else "document.tex"
     base_no_ext = os.path.splitext(base_name)[0]
     tex_file_path = os.path.join(temp_dir, base_name)
+    
+    if file_path:
+        target_pdf = os.path.splitext(file_path)[0] + ".pdf"
+        target_synctex = os.path.splitext(file_path)[0] + ".synctex.gz"
+        for p in [target_pdf, target_synctex]:
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
     
     try:
         with open(tex_file_path, "w", encoding="utf-8") as f:

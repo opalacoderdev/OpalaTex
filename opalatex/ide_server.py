@@ -540,6 +540,8 @@ class AsyncHTTPServer:
             # Save the pdf bytes in memory to bypass WebView blob restrictions
             if result.get("success") and result.get("pdf_base64"):
                 self.last_pdf_bytes = base64.b64decode(result["pdf_base64"])
+            else:
+                self.last_pdf_bytes = None
                 
             self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
             return
