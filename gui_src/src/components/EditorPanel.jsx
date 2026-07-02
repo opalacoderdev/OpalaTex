@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare } from 'lucide-react';
+import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
 import InlinePromptOverlay from './InlinePromptOverlay';
@@ -10,6 +10,7 @@ import Split from 'react-split';
 import PdfPreview from './PdfPreview';
 import LatexPreview from './LatexPreview';
 import LatexSnippetsPanel from './LatexSnippetsPanel';
+import RichTextEditor from './RichTextEditor';
 
 // Center panel: file tabs + Monaco editor (or empty state when no file is open).
 export default function EditorPanel({
@@ -46,6 +47,7 @@ export default function EditorPanel({
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isLatexPreviewMode, setIsLatexPreviewMode] = useState(false);
+  const [isRichTextMode, setIsRichTextMode] = useState(false);
   const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
   const [editorContextMenu, setEditorContextMenu] = useState(null);
   const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
@@ -110,6 +112,7 @@ export default function EditorPanel({
     setIsDiffMode(false);
     setIsPreviewMode(false);
     setIsLatexPreviewMode(false);
+    setIsRichTextMode(false);
     setShowSnippetsPanel(false);
     
     // Check if there is an existing PDF for this file
@@ -213,8 +216,19 @@ export default function EditorPanel({
 
   // ── Insert LaTeX snippet at the current cursor position ──────────────────
   const handleInsertSnippet = (snippetBody) => {
+    // In Rich Text mode, Monaco is not mounted — append to fileContent
+    if (isRichTextMode) {
+      setFileContent(fileContent + '\n' + snippetBody + '\n');
+      setShowSnippetsPanel(false);
+      return;
+    }
     const ed = localEditorRef.current;
-    if (!ed) return;
+    if (!ed) {
+      // Fallback: append to content
+      setFileContent(fileContent + '\n' + snippetBody + '\n');
+      setShowSnippetsPanel(false);
+      return;
+    }
     const position = ed.getPosition();
     const model = ed.getModel();
     if (!model || !position) return;
@@ -237,6 +251,21 @@ export default function EditorPanel({
     }]);
     ed.focus();
     setShowSnippetsPanel(false);
+  };
+
+  // ── Jump from Rich Text block to source line in Monaco ──────────────────
+  const handleRichTextJumpToSource = (line, _charOffset) => {
+    // Exit rich text mode and show the Monaco editor at the target line
+    setIsRichTextMode(false);
+    if (localEditorRef.current && line) {
+      setTimeout(() => {
+        if (localEditorRef.current) {
+          localEditorRef.current.revealLineInCenter(line);
+          localEditorRef.current.setPosition({ lineNumber: line, column: 1 });
+          localEditorRef.current.focus();
+        }
+      }, 100);
+    }
   };
 
   // Custom syntax definitions
@@ -527,10 +556,23 @@ export default function EditorPanel({
           {isTexFile && (
             <>
               <button
-                onClick={() => { setIsLatexPreviewMode(!isLatexPreviewMode); setIsPreviewMode(false); }}
+                onClick={() => {
+                  setIsRichTextMode(!isRichTextMode);
+                  setIsLatexPreviewMode(false);
+                  setIsPreviewMode(false);
+                  setIsDiffMode(false);
+                }}
                 className="vscode-bottom-panel-clear-btn"
                 style={{ padding: '6px' }}
-                title={isLatexPreviewMode ? 'Hide live LaTeX preview' : 'Show live LaTeX preview (subset)'}
+                title={isRichTextMode ? 'Exit Rich Text mode' : 'Rich Text mode (Overleaf-style: edit prose, complex blocks read-only)'}
+              >
+                <Type size={12} style={{ color: isRichTextMode ? '#4daafc' : 'inherit' }} />
+              </button>
+              <button
+                onClick={() => { setIsLatexPreviewMode(!isLatexPreviewMode); setIsPreviewMode(false); setIsRichTextMode(false); }}
+                className="vscode-bottom-panel-clear-btn"
+                style={{ padding: '6px' }}
+                title={isLatexPreviewMode ? 'Hide live LaTeX preview' : 'Show live LaTeX preview (subset, read-only)'}
               >
                 <Eye size={12} style={{ color: isLatexPreviewMode ? '#4daafc' : 'inherit' }} />
               </button>
@@ -631,7 +673,15 @@ export default function EditorPanel({
             style={{ display: 'flex', height: '100%', width: '100%' }}
         >
           <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
-            {isLatexPreviewMode ? (
+            {isRichTextMode ? (
+              <RichTextEditor
+                source={fileContent}
+                activeProjectPath={activeProject?.project_path}
+                zoomLevel={markdownZoomLevel}
+                onChange={setFileContent}
+                onJumpToSource={handleRichTextJumpToSource}
+              />
+            ) : isLatexPreviewMode ? (
               <LatexPreview
                 source={fileContent}
                 activeProjectPath={activeProject?.project_path}
