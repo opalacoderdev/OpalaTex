@@ -663,14 +663,14 @@ input:focus, select:focus, textarea:focus {
 }
 
 .vscode-chat-msg-header {
-  font-size: 10px;
+  font-size: calc(10px * var(--chat-font-scale, 1));
   font-weight: bold;
   text-transform: uppercase;
   margin-bottom: 4px;
 }
 
 .vscode-chat-msg-content {
-  font-size: 13px;
+  font-size: calc(13px * var(--chat-font-scale, 1));
   line-height: 1.6;
   color: var(--vscode-text-fg);
   padding-left: 8px;

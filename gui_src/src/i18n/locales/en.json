@@ -82,6 +82,9 @@
   },
   "chatPanel": {
     "header": "OPALATEX CHAT",
+    "zoomIn": "Zoom In",
+    "zoomOut": "Zoom Out",
+    "zoomReset": "Reset Zoom",
     "clearChat": "Clear chat",
     "branchMessage": "Branch from here",
     "branchPrompt": "Name for the new chat (branch):",

@@ -103,8 +103,25 @@ export default function ChatPanel({
   const [mcpToolDraft, setMcpToolDraft] = useState('web_search');
   const [mcpApiKeyDraft, setMcpApiKeyDraft] = useState('');
   const [useMcpDraft, setUseMcpDraft] = useState(false);
-  const [chatZoom, setChatZoom] = useState(1);
+  const [chatZoom, setChatZoom] = useState(() => {
+    const saved = localStorage.getItem('chatZoom');
+    const parsed = saved !== null ? Number(saved) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  });
   const [mcpTestStatus, setMcpTestStatus] = useState(''); // '', 'testing', 'ok', 'error:<msg>'
+
+  // Font magnifier helpers
+  const MIN_ZOOM = 0.5;
+  const MAX_ZOOM = 2.5;
+  const ZOOM_STEP = 0.1;
+  const applyChatZoom = useCallback((next) => {
+    const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(next * 10) / 10));
+    setChatZoom(clamped);
+    localStorage.setItem('chatZoom', String(clamped));
+  }, []);
+  const zoomIn = useCallback(() => applyChatZoom(chatZoom + ZOOM_STEP), [applyChatZoom, chatZoom]);
+  const zoomOut = useCallback(() => applyChatZoom(chatZoom - ZOOM_STEP), [applyChatZoom, chatZoom]);
+  const zoomReset = useCallback(() => applyChatZoom(1), [applyChatZoom]);
 
   // Custom prompt state for new chat
   const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
@@ -202,6 +219,24 @@ export default function ChatPanel({
   };
 
   const handleKeyDown = (e) => {
+    // Font zoom shortcuts: Ctrl+= / Ctrl+Plus, Ctrl+-, Ctrl+0
+    if (e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        zoomIn();
+        return;
+      }
+      if (e.key === '-') {
+        e.preventDefault();
+        zoomOut();
+        return;
+      }
+      if (e.key === '0') {
+        e.preventDefault();
+        zoomReset();
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleFormSubmit(null);
@@ -538,15 +573,28 @@ export default function ChatPanel({
             </label>
           </div>
           <button
-            onClick={() => setChatZoom(z => Math.max(0.5, z - 0.1))}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)' }}
+            onClick={zoomOut}
+            disabled={chatZoom <= MIN_ZOOM + 1e-9}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)', opacity: chatZoom <= MIN_ZOOM + 1e-9 ? 0.4 : 1 }}
             title={t('chatPanel.zoomOut', 'Diminuir Zoom')}
           >
             <ZoomOut size={14} />
           </button>
           <button
-            onClick={() => setChatZoom(z => Math.min(2.5, z + 0.1))}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)' }}
+            onClick={zoomReset}
+            style={{
+              background: 'transparent', border: '1px solid var(--vscode-border, #3c3c3c)',
+              borderRadius: '3px', cursor: 'pointer', color: 'var(--vscode-text-fg)',
+              fontSize: '10px', lineHeight: 1, padding: '2px 5px', minWidth: '34px',
+            }}
+            title={t('chatPanel.zoomReset', 'Restaurar Zoom')}
+          >
+            {Math.round(chatZoom * 100)}%
+          </button>
+          <button
+            onClick={zoomIn}
+            disabled={chatZoom >= MAX_ZOOM - 1e-9}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)', opacity: chatZoom >= MAX_ZOOM - 1e-9 ? 0.4 : 1 }}
             title={t('chatPanel.zoomIn', 'Aumentar Zoom')}
           >
             <ZoomIn size={14} />
@@ -943,7 +991,7 @@ export default function ChatPanel({
       )}
 
       {/* Message history */}
-      <div className="vscode-chat-history" ref={historyRef} onContextMenu={onContextMenu} style={{ zoom: chatZoom }}>
+      <div className="vscode-chat-history" ref={historyRef} onContextMenu={onContextMenu} style={{ zoom: chatZoom, ['--chat-font-scale']: chatZoom }}>
         {chatMessages.map((msg, i) => {
           const isUser = msg.role === 'user';
           const atts = msg._attachments || [];
