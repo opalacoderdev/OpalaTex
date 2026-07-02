@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut } from 'lucide-react';
+import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
 import InlinePromptOverlay from './InlinePromptOverlay';
@@ -8,6 +8,8 @@ import EditorContextMenuOverlay from './EditorContextMenuOverlay';
 import { formatMessageContent } from '../utils/formatMessage';
 import Split from 'react-split';
 import PdfPreview from './PdfPreview';
+import LatexPreview from './LatexPreview';
+import LatexSnippetsPanel from './LatexSnippetsPanel';
 
 // Center panel: file tabs + Monaco editor (or empty state when no file is open).
 export default function EditorPanel({
@@ -43,6 +45,8 @@ export default function EditorPanel({
   const { t } = useTranslation();
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [isLatexPreviewMode, setIsLatexPreviewMode] = useState(false);
+  const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
   const [editorContextMenu, setEditorContextMenu] = useState(null);
   const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
   
@@ -105,6 +109,8 @@ export default function EditorPanel({
   useEffect(() => {
     setIsDiffMode(false);
     setIsPreviewMode(false);
+    setIsLatexPreviewMode(false);
+    setShowSnippetsPanel(false);
     
     // Check if there is an existing PDF for this file
     if (selectedFile && selectedFile.toLowerCase().endsWith('.tex') && activeProject?.project_path) {
@@ -203,6 +209,34 @@ export default function EditorPanel({
       localEditorRef.current.setPosition({ lineNumber: line, column: 1 });
       localEditorRef.current.focus();
     }
+  };
+
+  // ── Insert LaTeX snippet at the current cursor position ──────────────────
+  const handleInsertSnippet = (snippetBody) => {
+    const ed = localEditorRef.current;
+    if (!ed) return;
+    const position = ed.getPosition();
+    const model = ed.getModel();
+    if (!model || !position) return;
+    // Insert with surrounding newlines for block snippets
+    const lineContent = model.getLineContent(position.lineNumber);
+    const isBlock = snippetBody.includes('\n');
+    let text = snippetBody;
+    if (isBlock && lineContent.trim() !== '') {
+      text = '\n' + text;
+    }
+    ed.executeEdits('opalatex-snippet', [{
+      range: {
+        startLineNumber: position.lineNumber,
+        startColumn: position.column,
+        endLineNumber: position.lineNumber,
+        endColumn: position.column,
+      },
+      text,
+      forceMoveMarkers: true,
+    }]);
+    ed.focus();
+    setShowSnippetsPanel(false);
   };
 
   // Custom syntax definitions
@@ -490,6 +524,27 @@ export default function EditorPanel({
             <GitCompare size={12} style={{ color: isDiffMode ? '#4daafc' : 'inherit' }} />
           </button>
 
+          {isTexFile && (
+            <>
+              <button
+                onClick={() => { setIsLatexPreviewMode(!isLatexPreviewMode); setIsPreviewMode(false); }}
+                className="vscode-bottom-panel-clear-btn"
+                style={{ padding: '6px' }}
+                title={isLatexPreviewMode ? 'Hide live LaTeX preview' : 'Show live LaTeX preview (subset)'}
+              >
+                <Eye size={12} style={{ color: isLatexPreviewMode ? '#4daafc' : 'inherit' }} />
+              </button>
+              <button
+                onClick={() => setShowSnippetsPanel(!showSnippetsPanel)}
+                className="vscode-bottom-panel-clear-btn"
+                style={{ padding: '6px' }}
+                title="Insert LaTeX snippet"
+              >
+                <PlusSquare size={12} style={{ color: showSnippetsPanel ? '#4daafc' : 'inherit' }} />
+              </button>
+            </>
+          )}
+
           {selectedFile && selectedFile.toLowerCase().endsWith('.md') && (
             <>
               {isPreviewMode && (
@@ -576,7 +631,13 @@ export default function EditorPanel({
             style={{ display: 'flex', height: '100%', width: '100%' }}
         >
           <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
-            {isPreviewMode ? (
+            {isLatexPreviewMode ? (
+              <LatexPreview
+                source={fileContent}
+                activeProjectPath={activeProject?.project_path}
+                zoomLevel={markdownZoomLevel}
+              />
+            ) : isPreviewMode ? (
               <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
                 {formatMessageContent(fileContent, activeProject?.project_path, markdownZoomLevel)}
               </div>
@@ -625,6 +686,12 @@ export default function EditorPanel({
                   automaticLayout: true,
                   fixedOverflowWidgets: true,
                 }}
+              />
+            )}
+            {showSnippetsPanel && (
+              <LatexSnippetsPanel
+                onInsert={handleInsertSnippet}
+                onClose={() => setShowSnippetsPanel(false)}
               />
             )}
           </div>
