@@ -332,7 +332,7 @@ function EditableLatexText({ as: Tag = 'div', text, onCommit, style, editingStyl
       }}
       style={{ ...style, cursor: 'text' }}
     >
-      {renderInlineLatex(safeText)}
+      {renderStyledLatexText(safeText)}
     </Tag>
   );
 }
@@ -732,19 +732,328 @@ function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
 }
 
 function TableBlock({ block, onJumpToSource }) {
-  // Render the raw table source as a latex code block (simplified preview)
+  const table = useMemo(() => parseTablePreview(block), [block]);
+
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
       {block.caption && (
-        <div style={{ fontSize: '11px', color: 'var(--chat-muted, #8a8a8a)', marginBottom: '6px' }}>
-          *Table: {block.caption}*
+        <div style={{ fontSize: '11px', color: 'var(--chat-muted, #8a8a8a)', marginBottom: '8px', textAlign: 'center' }}>
+          Table: {renderCellContent(block.caption)}
         </div>
       )}
-      <pre style={{ margin: 0, padding: '8px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', fontSize: '11px', overflowX: 'auto', borderRadius: '3px' }}>
-        {block.raw || block.source}
-      </pre>
+      {table && table.rows.length ? (
+        <div style={{ overflowX: 'auto', padding: '2px 0' }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              tableLayout: 'auto',
+              fontSize: '12px',
+              lineHeight: '1.45',
+              color: 'var(--chat-text, #cccccc)',
+              background: 'var(--editor-bg, #1e1e1e)',
+            }}
+          >
+            {table.header && (
+              <thead>
+                <LatexTableRow row={table.header} alignments={table.alignments} isHeader />
+              </thead>
+            )}
+            <tbody>
+              {table.bodyRows.map((row, rowIndex) => (
+                <LatexTableRow
+                  key={rowIndex}
+                  row={row}
+                  alignments={table.alignments}
+                  isHeader={false}
+                />
+              ))}
+            </tbody>
+          </table>
+          {block.label && (
+            <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginTop: '6px', textAlign: 'right' }}>
+              [label:{block.label}]
+            </div>
+          )}
+        </div>
+      ) : (
+        <pre style={{ margin: 0, padding: '8px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', fontSize: '11px', overflowX: 'auto', borderRadius: '3px', whiteSpace: 'pre-wrap' }}>
+          {block.raw || block.source}
+        </pre>
+      )}
     </NonEditableWrapper>
   );
+}
+
+function LatexTableRow({ row, alignments, isHeader }) {
+  const Cell = isHeader ? 'th' : 'td';
+  const borderColor = 'var(--vscode-widget-border, #2a2a2a)';
+  const topRule = row.rulesBefore.includes('toprule') || row.rulesBefore.includes('hline');
+  const midRule = row.rulesBefore.includes('midrule');
+  const bottomRule = row.rulesBefore.includes('bottomrule');
+
+  return (
+    <tr>
+      {row.cells.map((cell, cellIndex) => (
+        <Cell
+          key={cellIndex}
+          colSpan={cell.colSpan || 1}
+          style={{
+            padding: '6px 8px',
+            textAlign: alignments[cellIndex] || 'left',
+            fontWeight: isHeader ? 600 : 400,
+            borderTop: topRule || midRule ? `1px solid ${borderColor}` : undefined,
+            borderBottom: bottomRule || isHeader ? `1px solid ${borderColor}` : undefined,
+            verticalAlign: 'top',
+            whiteSpace: 'normal',
+            wordBreak: 'break-word',
+          }}
+        >
+          {renderCellContent(cell.text)}
+        </Cell>
+      ))}
+    </tr>
+  );
+}
+
+function parseTablePreview(block) {
+  const tabular = block.tabular || extractTabularFromSource(block.source || block.raw || '');
+  if (!tabular || !tabular.body) return null;
+
+  const rows = splitLatexTableRows(tabular.body)
+    .map(parseLatexTableRow)
+    .filter(row => row.cells.length > 0);
+
+  if (!rows.length) return null;
+
+  const alignments = parseColumnAlignments(tabular.columnSpec || '');
+  const hasHeaderRule = rows.length > 1 && rows[1].rulesBefore.some(rule => rule === 'hline' || rule === 'midrule');
+  const hasTopRule = rows[0].rulesBefore.includes('toprule');
+  const header = hasHeaderRule || hasTopRule ? rows[0] : null;
+  const bodyRows = header ? rows.slice(1) : rows;
+
+  return { alignments, header, bodyRows, rows };
+}
+
+function extractTabularFromSource(source) {
+  const match = source.match(/\\begin\{tabular\*?\}/);
+  if (!match) return null;
+  const start = match.index;
+  const endMatch = source.slice(start).match(/\\end\{tabular\*?\}/);
+  if (!endMatch) return null;
+  const raw = source.slice(start, start + endMatch.index + endMatch[0].length);
+  const begin = raw.match(/^\\begin\{tabular\*?\}/);
+  let cursor = begin ? begin[0].length : 0;
+  const args = [];
+  while (raw[cursor] === '{') {
+    const close = findMatchingBraceInText(raw, cursor);
+    if (close === -1) break;
+    args.push(raw.slice(cursor + 1, close));
+    cursor = close + 1;
+    if (args.length >= 2) break;
+  }
+  const bodyEnd = raw.search(/\\end\{tabular\*?\}/);
+  return {
+    columnSpec: args[args.length - 1] || '',
+    body: raw.slice(cursor, bodyEnd === -1 ? raw.length : bodyEnd),
+  };
+}
+
+function splitLatexTableRows(body) {
+  const rows = [];
+  let depth = 0;
+  let cursor = 0;
+  let rowStart = 0;
+
+  while (cursor < body.length) {
+    const char = body[cursor];
+    if (char === '{' && !isEscaped(body, cursor)) depth++;
+    else if (char === '}' && !isEscaped(body, cursor) && depth > 0) depth--;
+    else if (char === '\\' && body[cursor + 1] === '\\' && depth === 0) {
+      rows.push(body.slice(rowStart, cursor));
+      cursor += 2;
+      if (body[cursor] === '[') {
+        const optEnd = body.indexOf(']', cursor + 1);
+        if (optEnd !== -1) cursor = optEnd + 1;
+      }
+      rowStart = cursor;
+      continue;
+    }
+    cursor++;
+  }
+
+  rows.push(body.slice(rowStart));
+  return rows;
+}
+
+function parseLatexTableRow(rowSource) {
+  const rulesBefore = [];
+  let cleaned = rowSource.trim();
+
+  cleaned = cleaned.replace(/\\(toprule|midrule|bottomrule|hline)\b/g, (_, rule) => {
+    rulesBefore.push(rule);
+    return ' ';
+  });
+  cleaned = cleaned.replace(/\\cline\{[^}]*\}/g, () => {
+    rulesBefore.push('hline');
+    return ' ';
+  });
+
+  const cells = splitLatexCells(cleaned)
+    .map(parseLatexCell)
+    .filter(cell => cell.text.trim() || cell.colSpan > 1);
+
+  return { rulesBefore, cells };
+}
+
+function splitLatexCells(rowSource) {
+  const cells = [];
+  let depth = 0;
+  let cursor = 0;
+  let cellStart = 0;
+
+  while (cursor < rowSource.length) {
+    const char = rowSource[cursor];
+    if (char === '{' && !isEscaped(rowSource, cursor)) depth++;
+    else if (char === '}' && !isEscaped(rowSource, cursor) && depth > 0) depth--;
+    else if (char === '&' && !isEscaped(rowSource, cursor) && depth === 0) {
+      cells.push(rowSource.slice(cellStart, cursor));
+      cellStart = cursor + 1;
+    }
+    cursor++;
+  }
+
+  cells.push(rowSource.slice(cellStart));
+  return cells;
+}
+
+function parseLatexCell(cellSource) {
+  const trimmed = cellSource.trim();
+  const multi = trimmed.match(/^\\multicolumn\{(\d+)\}\{[^}]*\}\{([\s\S]*)\}$/);
+  if (multi) {
+    return { text: normalizeLatexCellText(multi[2]), colSpan: Number(multi[1]) || 1 };
+  }
+  return { text: normalizeLatexCellText(trimmed), colSpan: 1 };
+}
+
+function normalizeLatexCellText(text) {
+  return text
+    .replace(/\\(centering|raggedright|raggedleft|arraybackslash)\b/g, '')
+    .replace(/~+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseColumnAlignments(spec) {
+  const alignments = [];
+  let cursor = 0;
+
+  while (cursor < spec.length) {
+    const char = spec[cursor];
+    if (char === 'l') alignments.push('left');
+    else if (char === 'c') alignments.push('center');
+    else if (char === 'r') alignments.push('right');
+    else if ('pmbX'.includes(char) && spec[cursor + 1] === '{') {
+      alignments.push('left');
+      const close = findMatchingBraceInText(spec, cursor + 1);
+      cursor = close === -1 ? cursor : close;
+    } else if (char === '@' && spec[cursor + 1] === '{') {
+      const close = findMatchingBraceInText(spec, cursor + 1);
+      cursor = close === -1 ? cursor : close;
+    }
+    cursor++;
+  }
+
+  return alignments;
+}
+
+function renderCellContent(text) {
+  return renderStyledLatexText(text || '');
+}
+
+function renderStyledLatexText(text) {
+  const commandMatch = findFirstStyleCommand(text);
+  if (!commandMatch) return renderInlineLatexWithTextCleanup(text);
+
+  const before = text.slice(0, commandMatch.start);
+  const inner = text.slice(commandMatch.contentStart, commandMatch.contentEnd);
+  const after = text.slice(commandMatch.end);
+  const style = {
+    textbf: { fontWeight: 600 },
+    textit: { fontStyle: 'italic' },
+    emph: { fontStyle: 'italic' },
+    texttt: { fontFamily: 'monospace' },
+    textsc: { fontVariant: 'small-caps' },
+    underline: { textDecoration: 'underline' },
+  }[commandMatch.command] || {};
+
+  return (
+    <>
+      {renderStyledLatexText(before)}
+      <span style={style}>{renderStyledLatexText(inner)}</span>
+      {renderStyledLatexText(after)}
+    </>
+  );
+}
+
+function renderInlineLatexWithTextCleanup(text) {
+  return tokenizeInlineMath(text).map((token, index) => {
+    if (token.type === 'text') {
+      return <React.Fragment key={index}>{stripSimpleLatexCommands(token.value)}</React.Fragment>;
+    }
+    const html = renderKatexInline(token.value);
+    if (!html) {
+      return <React.Fragment key={index}>{token.raw}</React.Fragment>;
+    }
+    return (
+      <span
+        key={index}
+        className="rich-text-inline-math"
+        data-latex={token.raw}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  });
+}
+
+function findFirstStyleCommand(text) {
+  const re = /\\(textbf|textit|emph|texttt|textsc|underline)\{/g;
+  const match = re.exec(text);
+  if (!match) return null;
+  const openBrace = match.index + match[0].length - 1;
+  const closeBrace = findMatchingBraceInText(text, openBrace);
+  if (closeBrace === -1) return null;
+  return {
+    command: match[1],
+    start: match.index,
+    contentStart: openBrace + 1,
+    contentEnd: closeBrace,
+    end: closeBrace + 1,
+  };
+}
+
+function stripSimpleLatexCommands(text) {
+  return text
+    .replace(/\\(?:label|ref|cite|eqref)\{([^}]*)\}/g, '$1')
+    .replace(/\\%/g, '%')
+    .replace(/\\&/g, '&')
+    .replace(/\\_/g, '_')
+    .replace(/\\#/g, '#')
+    .replace(/~/g, '\u00a0')
+    .replace(/\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^}]*)\}/g, '$1')
+    .replace(/\\([{}])/g, '$1');
+}
+
+function findMatchingBraceInText(text, openPos) {
+  let depth = 0;
+  for (let i = openPos; i < text.length; i++) {
+    if (text[i] === '{' && !isEscaped(text, i)) depth++;
+    else if (text[i] === '}' && !isEscaped(text, i)) {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
 }
 
 function CodeBlock({ block, onJumpToSource }) {

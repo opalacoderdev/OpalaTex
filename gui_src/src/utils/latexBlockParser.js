@@ -270,23 +270,27 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
 
   // ── Table (wrapping tabular) ─────────────────────────────────────────────
   if (envName === 'table' || envName === 'table*') {
+    const tableInfo = extractTableInfo(envBody);
     return {
       ...base,
       type: 'table',
       editable: false,
       raw: envBody,
-      caption: (envBody.match(/\\caption\{([^}]*)\}/) || [])[1] || '',
-      label: (envBody.match(/\\label\{([^}]*)\}/) || [])[1] || '',
+      caption: tableInfo.caption,
+      label: tableInfo.label,
+      tabular: tableInfo.tabular,
     };
   }
 
   // ── Bare tabular ─────────────────────────────────────────────────────────
   if (envName === 'tabular' || envName === 'tabular*') {
+    const tabular = parseTabularSource(envSource);
     return {
       ...base,
       type: 'table',
       editable: false,
       raw: envBody,
+      tabular,
     };
   }
 
@@ -520,4 +524,48 @@ function splitItems(body) {
   }
   if (buf.trim()) items.push(buf);
   return items;
+}
+
+function extractTableInfo(body) {
+  const caption = (body.match(/\\caption\{([^}]*)\}/) || [])[1] || '';
+  const label = (body.match(/\\label\{([^}]*)\}/) || [])[1] || '';
+  const tabularSource = extractEnvironmentSource(body, 'tabular');
+  return {
+    caption,
+    label,
+    tabular: tabularSource ? parseTabularSource(tabularSource) : null,
+  };
+}
+
+function extractEnvironmentSource(source, envName) {
+  const beginRe = new RegExp(`\\\\begin\\{${envName}\\*?\\}`);
+  const match = beginRe.exec(source);
+  if (!match) return '';
+  const nameMatch = match[0].match(/\\begin\{([^}]*)\}/);
+  const actualName = nameMatch ? nameMatch[1] : envName;
+  const end = findEnvEnd(source, match.index, actualName);
+  if (end === -1) return '';
+  return source.slice(match.index, end);
+}
+
+function parseTabularSource(source) {
+  const beginMatch = source.match(/^\\begin\{tabular\*?\}/);
+  if (!beginMatch) return null;
+
+  let cursor = beginMatch[0].length;
+  const args = [];
+  while (source[cursor] === '{') {
+    const close = findMatchingBrace(source, cursor);
+    if (close === -1) break;
+    args.push(source.slice(cursor + 1, close));
+    cursor = close + 1;
+    if (args.length >= 2) break;
+  }
+
+  const endMatch = source.match(/\\end\{tabular\*?\}\s*$/);
+  const bodyEnd = endMatch ? source.length - endMatch[0].length : source.length;
+  return {
+    columnSpec: args[args.length - 1] || '',
+    body: source.slice(cursor, bodyEnd),
+  };
 }
