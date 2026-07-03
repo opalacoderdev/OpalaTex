@@ -709,25 +709,41 @@ export default function App() {
   };
 
   const handleStageFile = async (filePath) => {
-    if (!activeProject) return;
+    if (!activeProject) return false;
     try {
-      await fetch('/api/git/stage', {
+      const res = await fetch('/api/git/stage', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gitRequestPayload({ filePath, action: 'stage' })),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || t('app.unknownError'));
+      }
       fetchGitStatus();
-    } catch (err) { addLog('error', t('app.stageError', { error: err.message })); }
+      return true;
+    } catch (err) {
+      addLog('error', t('app.stageError', { error: err.message }));
+      return false;
+    }
   };
 
   const handleUnstageFile = async (filePath) => {
-    if (!activeProject) return;
+    if (!activeProject) return false;
     try {
-      await fetch('/api/git/stage', {
+      const res = await fetch('/api/git/stage', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gitRequestPayload({ filePath, action: 'unstage' })),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || t('app.unknownError'));
+      }
       fetchGitStatus();
-    } catch (err) { addLog('error', t('app.unstageError', { error: err.message })); }
+      return true;
+    } catch (err) {
+      addLog('error', t('app.unstageError', { error: err.message }));
+      return false;
+    }
   };
 
   const handleDiscardFile = async (filePath) => {

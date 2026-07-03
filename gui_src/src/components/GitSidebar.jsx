@@ -196,15 +196,18 @@ export default function GitSidebar({
 
   const handleStageAll = async () => {
     if (!projectPath) return;
+    let hadFailure = false;
     for (const f of gitChanges) {
       if (!f.staged) {
-        await fetch('/api/git/stage', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(gitBody({ filePath: f.path, action: 'stage' })) });
+        const ok = await onStageFile(f.path);
+        if (!ok) hadFailure = true;
       }
     }
     setDiffs({});
-    fetchGitStatus();
+    if (!hadFailure) fetchGitStatus();
   };
+
+  const hasUnstagedChanges = gitChanges.some(f => !f.staged);
 
   const tabStyle = (tab) => ({
     flex: 1, background: 'none', border: 'none', cursor: 'pointer', padding: '6px 0',
@@ -313,7 +316,7 @@ export default function GitSidebar({
                 onClick={handleStageAll}
                 title={t('gitSidebar.stageAll')}
                 style={{ flex: '0 0 auto', fontSize: '11px', padding: '4px 8px' }}
-                disabled={gitChanges.length === 0}
+                disabled={!hasUnstagedChanges}
               >
                 +All
               </button>
