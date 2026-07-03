@@ -900,6 +900,11 @@ export default function App() {
     finally { setIsSaving(false); }
   };
 
+  const handleCompileOnSaveChange = (enabled) => {
+    setCompileOnSave(enabled);
+    safeSetLocalStorage('compileOnSave', enabled.toString());
+  };
+
   useEffect(() => { saveFileRef.current = saveFile; }, [saveFile]);
 
   const handleCloseTab = (filePath, e) => {
@@ -2322,6 +2327,8 @@ export default function App() {
               }}
               activeProject={activeProject}
               triggerCompileId={triggerCompileId}
+              compileOnSave={compileOnSave}
+              onCompileOnSaveChange={handleCompileOnSaveChange}
             />
           )}
 

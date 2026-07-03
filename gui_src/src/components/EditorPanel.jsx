@@ -42,6 +42,8 @@ export default function EditorPanel({
   jumpToLine,
   setJumpToLine,
   triggerCompileId,
+  compileOnSave,
+  onCompileOnSaveChange,
 }) {
   const { t } = useTranslation();
   const [isDiffMode, setIsDiffMode] = useState(false);
@@ -600,6 +602,29 @@ export default function EditorPanel({
               {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <Printer size={12} />}
               <span>{isCompiling ? 'Compiling...' : (isSaving ? t('editorPanel.saving') : 'Compile LaTeX')}</span>
             </button>
+          )}
+          {isTexFile && (
+            <label
+              title={t('settingsModal.compileOnSave')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: 'var(--vscode-text-fg)',
+                fontSize: '12px',
+                userSelect: 'none',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={compileOnSave}
+                onChange={(e) => onCompileOnSaveChange(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              <span>{t('settingsModal.compileOnSave')}</span>
+            </label>
           )}
           {isTexFile && !isTectonicAvailable && (
             <button

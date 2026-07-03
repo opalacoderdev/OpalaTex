@@ -185,15 +185,29 @@ export default function SettingsModal({
 
               {/* Compile on save */}
               <div className="flex flex-col" style={{ gap: '6px' }}>
-                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.compileOnSave')}</label>
-                <select value={compileOnSave ? "on" : "off"} onChange={(e) => { 
-                  const val = e.target.value === "on"; 
-                  setCompileOnSave(val); 
-                  safeSetLocalStorage('compileOnSave', val.toString()); 
-                }} className="vscode-settings-input" style={{ width: '100%' }}>
-                  <option value="on">{t('settingsModal.wordWrapOn')}</option>
-                  <option value="off">{t('settingsModal.wordWrapOff')}</option>
-                </select>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: 'var(--vscode-text-fg)',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={compileOnSave}
+                    onChange={(e) => {
+                      const val = e.target.checked;
+                      setCompileOnSave(val);
+                      safeSetLocalStorage('compileOnSave', val.toString());
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span>{t('settingsModal.compileOnSave')}</span>
+                </label>
               </div>
 
               {/* Panel max lines */}
