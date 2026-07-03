@@ -2305,6 +2305,7 @@ export default function App() {
               isSaving={isSaving}
               theme={theme}
               editorFontSize={editorFontSize}
+              setEditorFontSize={setEditorFontSize}
               editorTabSize={editorTabSize}
               editorWordWrap={editorWordWrap}
               handleFileSelect={handleFileSelect}

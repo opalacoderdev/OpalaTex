@@ -49,9 +49,12 @@ export default function RichTextEditor({
   zoomLevel = 1.0,
   onChange,
   onJumpToSource,
+  onActiveSourceLineChange,
 }) {
   const { t } = useTranslation();
   const blocks = useMemo(() => parseLatexBlocks(source), [source]);
+  const containerRef = useRef(null);
+  const activeLineRef = useRef(1);
 
   // ── Handle edit in a contentEditable block ───────────────────────────────
   const handleBlockEdit = useCallback((blockId, newText) => {
@@ -82,14 +85,30 @@ export default function RichTextEditor({
   const handleJumpToSource = useCallback((block) => {
     if (!onJumpToSource) return;
     // Convert char offset to line number
-    const lines = source.slice(0, block.start).split('\n');
-    const line = lines.length;
+    const line = sourceLineFromOffset(source, block.start);
     onJumpToSource(line, block.start);
   }, [source, onJumpToSource]);
 
+  const setActiveSourceLine = useCallback((line) => {
+    if (!line || activeLineRef.current === line) return;
+    activeLineRef.current = line;
+    if (onActiveSourceLineChange) onActiveSourceLineChange(line);
+  }, [onActiveSourceLineChange]);
+
+  const handleScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const items = Array.from(container.querySelectorAll('[data-source-line]'));
+    const current = items.find((item) => item.offsetTop + item.offsetHeight >= container.scrollTop + 24) || items[0];
+    const line = Number(current?.getAttribute('data-source-line'));
+    if (line) setActiveSourceLine(line);
+  }, [setActiveSourceLine]);
+
   return (
     <div
+      ref={containerRef}
       className="rich-text-editor-container"
+      onScroll={handleScroll}
       style={{
         padding: '20px',
         overflowY: 'auto',
@@ -102,17 +121,26 @@ export default function RichTextEditor({
         minHeight: `${100 / zoomLevel}%`,
       }}
     >
-      {blocks.map((block) => (
-        <BlockRenderer
-          key={block.id}
-          block={block}
-          activeProjectPath={activeProjectPath}
-          sourceTex={sourceTex}
-          onBlockEdit={handleBlockEdit}
-          onListItemEdit={handleListItemEdit}
-          onJumpToSource={handleJumpToSource}
-        />
-      ))}
+      {blocks.map((block) => {
+        const sourceLine = sourceLineFromOffset(source, block.start);
+        return (
+          <div
+            key={block.id}
+            data-source-line={sourceLine}
+            onMouseDown={() => setActiveSourceLine(sourceLine)}
+            onFocusCapture={() => setActiveSourceLine(sourceLine)}
+          >
+            <BlockRenderer
+              block={block}
+              activeProjectPath={activeProjectPath}
+              sourceTex={sourceTex}
+              onBlockEdit={handleBlockEdit}
+              onListItemEdit={handleListItemEdit}
+              onJumpToSource={handleJumpToSource}
+            />
+          </div>
+        );
+      })}
       {blocks.length === 0 && (
         <div style={{ color: 'var(--vscode-descriptionForeground, #888)', fontSize: '13px', padding: '20px' }}>
           {t('editorPanel.emptyRichText', 'No editable content. Open a .tex file with a document body.')}
@@ -183,6 +211,10 @@ function HeadingBlock({ block, onEdit }) {
       editingStyle={{ borderBottom: '1px solid var(--vscode-accent, #007acc)' }}
     />
   );
+}
+
+function sourceLineFromOffset(source, offset) {
+  return source.slice(0, Math.max(0, offset || 0)).split('\n').length;
 }
 
 function ParagraphBlock({ block, onEdit }) {

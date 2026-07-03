@@ -3,6 +3,7 @@ import Editor, { DiffEditor } from '@monaco-editor/react';
 import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
+import { safeSetLocalStorage } from '../utils/storage';
 import InlinePromptOverlay from './InlinePromptOverlay';
 import EditorContextMenuOverlay from './EditorContextMenuOverlay';
 import { formatMessageContent } from '../utils/formatMessage';
@@ -22,6 +23,7 @@ export default function EditorPanel({
   isSaving,
   theme,
   editorFontSize,
+  setEditorFontSize,
   editorTabSize,
   editorWordWrap,
   handleFileSelect,
@@ -54,6 +56,8 @@ export default function EditorPanel({
   const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
   const [editorContextMenu, setEditorContextMenu] = useState(null);
   const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
+  const pendingEditorLineRef = useRef(null);
+  const richTextSourceLineRef = useRef(1);
   
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
   const isTexRelatedFile = (filename) => {
@@ -62,6 +66,16 @@ export default function EditorPanel({
     return ['tex', 'cls', 'sty', 'bib'].includes(ext);
   };
   const isTexFile = isTexRelatedFile(selectedFile);
+  const isNormalLatexEditor = isTexFile && !isRichTextMode && !isLatexPreviewMode && !isPreviewMode;
+
+  const updateEditorFontSize = useCallback((updater) => {
+    if (!setEditorFontSize) return;
+    setEditorFontSize(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      safeSetLocalStorage('editorFontSize', next);
+      return next;
+    });
+  }, [setEditorFontSize]);
 
   // PDF state
   const [pdfBase64, setPdfBase64] = useState(null);
@@ -202,6 +216,19 @@ export default function EditorPanel({
   const monacoRef = useRef(null);
   const editorContainerRef = useRef(null);
   const pdfPreviewRef = useRef(null);
+
+  const revealEditorLine = useCallback((line) => {
+    if (!line || !localEditorRef.current) return false;
+    localEditorRef.current.revealLineInCenter(line);
+    localEditorRef.current.setPosition({ lineNumber: line, column: 1 });
+    localEditorRef.current.focus();
+    return true;
+  }, []);
+
+  const exitRichTextMode = useCallback((line = richTextSourceLineRef.current) => {
+    if (line) pendingEditorLineRef.current = line;
+    setIsRichTextMode(false);
+  }, []);
   
   const handleSyncTexNavigate = (line, file) => {
     // file is a project-relative path returned from the SyncTeX backend
@@ -259,16 +286,7 @@ export default function EditorPanel({
   // ── Jump from Rich Text block to source line in Monaco ──────────────────
   const handleRichTextJumpToSource = (line, _charOffset) => {
     // Exit rich text mode and show the Monaco editor at the target line
-    setIsRichTextMode(false);
-    if (localEditorRef.current && line) {
-      setTimeout(() => {
-        if (localEditorRef.current) {
-          localEditorRef.current.revealLineInCenter(line);
-          localEditorRef.current.setPosition({ lineNumber: line, column: 1 });
-          localEditorRef.current.focus();
-        }
-      }, 100);
-    }
+    exitRichTextMode(line);
   };
 
   // Custom syntax definitions
@@ -421,7 +439,14 @@ export default function EditorPanel({
     if (handleEditorDidMount) handleEditorDidMount(actualEditor, monaco);
     
     // Focus the editor when it is first mounted
-    setTimeout(() => actualEditor.focus(), 50);
+    setTimeout(() => {
+      const pendingLine = pendingEditorLineRef.current;
+      if (pendingLine && revealEditorLine(pendingLine)) {
+        pendingEditorLineRef.current = null;
+      } else {
+        actualEditor.focus();
+      }
+    }, 50);
   };
 
   // ── Custom context menu listener on the editor container ────────────────
@@ -493,6 +518,9 @@ export default function EditorPanel({
           zoomLevel={markdownZoomLevel}
           onChange={setFileContent}
           onJumpToSource={handleRichTextJumpToSource}
+          onActiveSourceLineChange={(line) => {
+            if (line) richTextSourceLineRef.current = line;
+          }}
         />
       ) : isLatexPreviewMode ? (
         <LatexPreview
@@ -668,9 +696,43 @@ export default function EditorPanel({
                   <PanelRightOpen size={12} />
                 </button>
               )}
+              {isNormalLatexEditor && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '4px' }}>
+                  <button
+                    onClick={() => updateEditorFontSize(prev => Math.max(10, prev - 1))}
+                    className="vscode-bottom-panel-clear-btn"
+                    style={{ padding: '6px' }}
+                    title={t('editorPanel.zoomOut')}
+                  >
+                    <ZoomOut size={12} />
+                  </button>
+                  <button
+                    onClick={() => updateEditorFontSize(13)}
+                    className="vscode-bottom-panel-clear-btn"
+                    style={{ padding: '4px 6px', minWidth: '38px', fontSize: '11px', color: 'var(--vscode-text-fg)' }}
+                    title={t('editorPanel.resetZoom')}
+                  >
+                    {editorFontSize}px
+                  </button>
+                  <button
+                    onClick={() => updateEditorFontSize(prev => Math.min(30, prev + 1))}
+                    className="vscode-bottom-panel-clear-btn"
+                    style={{ padding: '6px' }}
+                    title={t('editorPanel.zoomIn')}
+                  >
+                    <ZoomIn size={12} />
+                  </button>
+                </div>
+              )}
               <button
                 onClick={() => {
-                  setIsRichTextMode(!isRichTextMode);
+                  if (isRichTextMode) {
+                    exitRichTextMode();
+                  } else {
+                    const currentLine = localEditorRef.current?.getPosition?.()?.lineNumber;
+                    if (currentLine) richTextSourceLineRef.current = currentLine;
+                    setIsRichTextMode(true);
+                  }
                   setIsLatexPreviewMode(false);
                   setIsPreviewMode(false);
                   setIsDiffMode(false);
