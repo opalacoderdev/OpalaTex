@@ -600,6 +600,7 @@ class AsyncHTTPServer:
             project_path = data.get('projectPath', '')
             preamble = data.get('preamble', '')
             cache_key = data.get('cacheKey', '')
+            source_tex = data.get('sourceTex', '')
             # Engine hint ("tikz", "picture", "chemfig", "pstricks", "forest").
             # The default ("tikz") keeps the original behaviour.
             graphic_engine = data.get('graphicEngine', '')
@@ -618,6 +619,7 @@ class AsyncHTTPServer:
                     preamble=preamble or "",
                     cache_key=cache_key or "",
                     graphic_engine=graphic_engine or "",
+                    source_tex=source_tex or "",
                 )
                 self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
             except Exception as e:

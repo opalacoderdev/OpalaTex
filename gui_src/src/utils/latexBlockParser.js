@@ -255,6 +255,7 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
   // ── Figure ───────────────────────────────────────────────────────────────
   if (envName === 'figure' || envName === 'figure*') {
     const imgMatch = envBody.match(/\\includegraphics(?:\[[^\]]*\])?\{([^}]*)\}/);
+    const inputMatch = envBody.match(/\\input\s*\{([^}]*)\}/);
     const capMatch = envBody.match(/\\caption\{([^}]*)\}/);
     const labMatch = envBody.match(/\\label\{([^}]*)\}/);
     return {
@@ -262,6 +263,9 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
       type: 'figure',
       editable: false,
       src: imgMatch ? imgMatch[1] : '',
+      inputSrc: !imgMatch && inputMatch ? inputMatch[1] : '',
+      graphicSource: !imgMatch && inputMatch ? inputMatch[0] : '',
+      graphicEngine: !imgMatch && inputMatch ? 'tikz' : '',
       alt: capMatch ? capMatch[1] : '',
       caption: capMatch ? capMatch[1] : '',
       label: labMatch ? labMatch[1] : '',

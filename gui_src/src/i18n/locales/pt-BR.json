@@ -78,7 +78,10 @@
     "installTectonicTooltip": "Baixar e instalar o compilador Tectonic para LaTeX",
     "zoomIn": "Aumentar Zoom",
     "zoomOut": "Diminuir Zoom",
-    "resetZoom": "Resetar Zoom"
+    "resetZoom": "Resetar Zoom",
+    "savePdf": "Salvar PDF",
+    "collapsePdfPreview": "Recolher preview PDF",
+    "showPdfPreview": "Mostrar preview PDF"
   },
   "chatPanel": {
     "header": "OPALATEX CHAT",

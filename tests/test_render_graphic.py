@@ -178,3 +178,151 @@ def test_render_graphic_does_not_override_existing_documentclass(monkeypatch):
     # The user-supplied documentclass should be preserved (only one occurrence).
     assert body.count("\\documentclass") == 1
     assert "[border=2pt]{standalone}" in body
+
+
+def test_render_graphic_expands_input_relative_to_source_tex(monkeypatch, tmp_path):
+    """A figure-level \\input{fig1} should render the target file contents."""
+    project = tmp_path / "project"
+    section = project / "chapters"
+    section.mkdir(parents=True)
+    (project / "main.tex").write_text(
+        "\\documentclass{article}\n"
+        "\\usepackage{tikz}\n"
+        "\\begin{document}\n"
+        "\\input{chapters/body}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    (section / "body.tex").write_text(
+        "\\begin{figure}\\input{fig1}\\end{figure}",
+        encoding="utf-8",
+    )
+    (section / "fig1.tex").write_text(
+        "\\begin{tikzpicture}\\draw (0,0)--(1,1);\\end{tikzpicture}",
+        encoding="utf-8",
+    )
+
+    captured = {}
+
+    class _FakeResult:
+        returncode = 1
+        stdout = ""
+        stderr = "stop here"
+
+    def _fake_run(cmd, cwd, capture_output, encoding, errors):
+        tex_path = cmd[-1]
+        with open(tex_path, "r", encoding="utf-8") as f:
+            captured["body"] = f.read()
+        return _FakeResult()
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    lc = _reload_module_with(monkeypatch, tectonic_path="/bin/true")
+
+    lc.render_graphic_to_svg(
+        graphic_source="\\input{fig1}",
+        project_path=str(project),
+        source_tex="chapters/body.tex",
+        cache_key="",
+    )
+
+    body = captured.get("body", "")
+    assert "\\input{fig1}" not in body
+    assert "\\begin{tikzpicture}" in body
+    assert "\\draw (0,0)--(1,1);" in body
+
+
+def test_render_graphic_collects_project_color_definitions(monkeypatch, tmp_path):
+    """External TikZ files can rely on colors defined elsewhere in the project."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "main.tex").write_text(
+        "\\documentclass{article}\n"
+        "\\usepackage{tikz}\n"
+        "\\begin{document}\n"
+        "\\definecolor{headerNonAgent}{HTML}{8B1E1E}\n"
+        "\\begin{figure}\\input{fig1}\\end{figure}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    (project / "fig1.tex").write_text(
+        "\\begin{tikzpicture}\\node[fill=headerNonAgent] {A};\\end{tikzpicture}",
+        encoding="utf-8",
+    )
+
+    captured = {}
+
+    class _FakeResult:
+        returncode = 1
+        stdout = ""
+        stderr = "stop here"
+
+    def _fake_run(cmd, cwd, capture_output, encoding, errors):
+        tex_path = cmd[-1]
+        with open(tex_path, "r", encoding="utf-8") as f:
+            captured["body"] = f.read()
+        return _FakeResult()
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    lc = _reload_module_with(monkeypatch, tectonic_path="/bin/true")
+
+    lc.render_graphic_to_svg(
+        graphic_source="\\input{fig1}",
+        project_path=str(project),
+        source_tex="main.tex",
+        cache_key="",
+    )
+
+    body = captured.get("body", "")
+    color_pos = body.find("\\definecolor{headerNonAgent}{HTML}{8B1E1E}")
+    tikz_pos = body.find("\\node[fill=headerNonAgent]")
+    assert color_pos != -1
+    assert tikz_pos != -1
+    assert color_pos < tikz_pos
+
+
+def test_render_graphic_adds_common_tikz_libraries_with_project_preamble(monkeypatch, tmp_path):
+    """The project preamble path must still support common diagram keys."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "main.tex").write_text(
+        "\\documentclass{article}\n"
+        "\\usepackage{tikz}\n"
+        "\\begin{document}\n"
+        "\\begin{figure}\\input{fig1}\\end{figure}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    (project / "fig1.tex").write_text(
+        "\\begin{tikzpicture}\\node[drop shadow] {A};\\end{tikzpicture}",
+        encoding="utf-8",
+    )
+
+    captured = {}
+
+    class _FakeResult:
+        returncode = 1
+        stdout = ""
+        stderr = "stop here"
+
+    def _fake_run(cmd, cwd, capture_output, encoding, errors):
+        tex_path = cmd[-1]
+        with open(tex_path, "r", encoding="utf-8") as f:
+            captured["body"] = f.read()
+        return _FakeResult()
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    lc = _reload_module_with(monkeypatch, tectonic_path="/bin/true")
+
+    lc.render_graphic_to_svg(
+        graphic_source="\\input{fig1}",
+        project_path=str(project),
+        source_tex="main.tex",
+        cache_key="",
+    )
+
+    body = captured.get("body", "")
+    assert "\\usetikzlibrary{arrows.meta,backgrounds,calc,fit,positioning,shadows}" in body
+    assert "\\node[drop shadow]" in body

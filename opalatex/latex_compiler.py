@@ -303,8 +303,120 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
             pass
 
 
+def _resolve_project_tex_input(project_path: str, input_path: str, source_tex: str = "") -> str:
+    """Resolve a LaTeX input file inside the project tree."""
+    if not project_path or not input_path:
+        return ""
+    project_abs = os.path.abspath(project_path)
+    anchor_dir = project_abs
+    if source_tex:
+        candidate = os.path.abspath(os.path.join(project_abs, source_tex))
+        anchor_dir = candidate if os.path.isdir(candidate) else os.path.dirname(candidate)
+
+    candidates = []
+    base = os.path.abspath(os.path.join(anchor_dir, input_path))
+    candidates.append(base)
+    if not os.path.splitext(base)[1]:
+        candidates.append(base + ".tex")
+
+    for candidate in candidates:
+        if (
+            (candidate == project_abs or candidate.startswith(project_abs + os.sep))
+            and os.path.isfile(candidate)
+        ):
+            return candidate
+    return ""
+
+
+def _expand_graphic_inputs(graphic_source: str, project_path: str, source_tex: str = "",
+                           visited=None, depth: int = 0) -> str:
+    """Inline simple \\input{...} files for standalone graphic previews."""
+    if not graphic_source or not project_path or depth > 8:
+        return graphic_source
+    if visited is None:
+        visited = set()
+
+    def replace(match):
+        input_name = match.group(1).strip()
+        resolved = _resolve_project_tex_input(project_path, input_name, source_tex)
+        if not resolved:
+            return match.group(0)
+        resolved_key = os.path.normcase(os.path.abspath(resolved))
+        if resolved_key in visited:
+            return ""
+        visited.add(resolved_key)
+        try:
+            with open(resolved, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+        except OSError:
+            return match.group(0)
+        rel_source = os.path.relpath(resolved, os.path.abspath(project_path)).replace("\\", "/")
+        return _expand_graphic_inputs(content, project_path, rel_source, visited, depth + 1)
+
+    return re.sub(r'\\input\s*\{([^}]+)\}', replace, graphic_source)
+
+
+def _strip_latex_comments(source: str) -> str:
+    """Remove unescaped LaTeX comments while preserving line boundaries."""
+    lines = []
+    for line in (source or "").splitlines():
+        i = 0
+        while i < len(line):
+            if line[i] == "%" and not _is_escaped_latex_char(line, i):
+                line = line[:i]
+                break
+            i += 1
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _is_escaped_latex_char(text: str, index: int) -> bool:
+    slash_count = 0
+    i = index - 1
+    while i >= 0 and text[i] == "\\":
+        slash_count += 1
+        i -= 1
+    return slash_count % 2 == 1
+
+
+def _collect_graphic_preview_setup(project_path: str) -> str:
+    """Collect global setup that external TikZ files may use."""
+    if not project_path or not os.path.isdir(project_path):
+        return ""
+
+    patterns = [
+        re.compile(r'\\usetikzlibrary\s*\{[^{}]+\}'),
+        re.compile(r'\\definecolor\s*\{[^{}]+\}\s*\{[^{}]+\}\s*\{[^{}]+\}'),
+        re.compile(r'\\colorlet\s*\{[^{}]+\}\s*\{[^{}]+\}'),
+    ]
+    collected = []
+    seen = set()
+    project_abs = os.path.abspath(project_path)
+
+    for root, dirs, files in os.walk(project_abs):
+        dirs[:] = [d for d in dirs if d not in {".git", ".opalatex", "node_modules", "__pycache__"}]
+        for name in sorted(files):
+            if not name.lower().endswith(".tex"):
+                continue
+            path = os.path.join(root, name)
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    source = _strip_latex_comments(f.read())
+            except OSError:
+                continue
+            for pattern in patterns:
+                for match in pattern.finditer(source):
+                    command = match.group(0).strip()
+                    if command and command not in seen:
+                        seen.add(command)
+                        collected.append(command)
+
+    return "\n".join(collected)
+
+
 def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble: str = "",
-                          cache_key: str = "", graphic_engine: str = "") -> dict:
+                          cache_key: str = "", graphic_engine: str = "",
+                          source_tex: str = "") -> dict:
     """
     Render a single LaTeX graphic (tikzpicture / pgfplots / picture / chemfig
     / pstricks / forest) to inline SVG by compiling a minimal standalone
@@ -327,6 +439,9 @@ def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble:
             ("tikz", "picture", "chemfig", "pstricks", "forest"). Only used
             to pick the auto-generated preamble when the caller did not pass
             one.
+        source_tex: Optional project-relative .tex path that contains the
+            graphic. Used to resolve \\input{...} paths the same way the
+            current source file does.
 
     Returns:
         dict with:
@@ -360,14 +475,19 @@ def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble:
     body = (graphic_source or "").strip()
     if not body:
         return {"success": False, "svg": "", "log": "Empty graphic source.", "cached": False}
+    body = _expand_graphic_inputs(body, project_path, source_tex).strip()
 
     # Pick a default preamble per engine. Only used when the caller did not
     # supply one (either explicitly or via auto-detect from the project).
     engine = (graphic_engine or "tikz").lower()
+    default_tikz_libraries = (
+        "\\usetikzlibrary{arrows.meta,backgrounds,calc,fit,positioning,shadows}\n"
+    )
     engine_preambles = {
         "tikz": (
             "\\documentclass[tikz,border=4pt]{standalone}\n"
             "\\usepackage{tikz}\n"
+            + default_tikz_libraries +
             "\\usepackage{pgfplots}\n"
             "\\pgfplotsset{compat=1.18}\n"
         ),
@@ -377,6 +497,7 @@ def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble:
         "chemfig": (
             "\\documentclass[border=4pt]{standalone}\n"
             "\\usepackage{tikz}\n"
+            + default_tikz_libraries +
             "\\usepackage{chemfig}\n"
         ),
         "pstricks": (
@@ -387,6 +508,7 @@ def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble:
         "forest": (
             "\\documentclass[border=4pt]{standalone}\n"
             "\\usepackage{tikz}\n"
+            + default_tikz_libraries +
             "\\usepackage{forest}\n"
         ),
     }
@@ -418,6 +540,12 @@ def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble:
         # Wrap the user preamble with a standalone class that fits the
         # graphic tight to its bounding box.
         preamble = default_preamble + preamble
+
+    project_setup = _collect_graphic_preview_setup(project_path)
+    if engine in {"tikz", "chemfig", "forest"} and default_tikz_libraries.strip() not in preamble:
+        project_setup = default_tikz_libraries + project_setup
+    if project_setup:
+        preamble = preamble.rstrip() + "\n" + project_setup + "\n"
 
     full_doc = (
         preamble

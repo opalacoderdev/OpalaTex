@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type } from 'lucide-react';
+import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
 import InlinePromptOverlay from './InlinePromptOverlay';
@@ -48,6 +48,7 @@ export default function EditorPanel({
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isLatexPreviewMode, setIsLatexPreviewMode] = useState(false);
   const [isRichTextMode, setIsRichTextMode] = useState(false);
+  const [isPdfPreviewCollapsed, setIsPdfPreviewCollapsed] = useState(false);
   const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
   const [editorContextMenu, setEditorContextMenu] = useState(null);
   const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
@@ -480,6 +481,83 @@ export default function EditorPanel({
     );
   }
 
+  const renderTexEditorSurface = () => (
+    <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
+      {isRichTextMode ? (
+        <RichTextEditor
+          source={fileContent}
+          activeProjectPath={activeProject?.project_path}
+          sourceTex={selectedFile}
+          zoomLevel={markdownZoomLevel}
+          onChange={setFileContent}
+          onJumpToSource={handleRichTextJumpToSource}
+        />
+      ) : isLatexPreviewMode ? (
+        <LatexPreview
+          source={fileContent}
+          activeProjectPath={activeProject?.project_path}
+          zoomLevel={markdownZoomLevel}
+        />
+      ) : isPreviewMode ? (
+        <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
+          {formatMessageContent(fileContent, activeProject?.project_path, markdownZoomLevel)}
+        </div>
+      ) : isDiffMode ? (
+        <DiffEditor
+          height="100%"
+          language={getLanguage(selectedFile)}
+          theme={theme === 'light' ? 'light' : 'vs-dark'}
+          original={originalFileContents ? (originalFileContents[selectedFile] || '') : ''}
+          modified={fileContent}
+          originalModelPath={`original-${selectedFile}`}
+          modifiedModelPath={`modified-${selectedFile}`}
+          beforeMount={handleBeforeMount}
+          onMount={handleMount}
+          options={{
+            contextmenu: false,
+            minimap: { enabled: true },
+            fontSize: editorFontSize,
+            lineNumbers: 'on',
+            tabSize: editorTabSize,
+            wordWrap: editorWordWrap,
+            automaticLayout: true,
+            renderSideBySide: true,
+            readOnly: false,
+            originalEditable: false,
+            fixedOverflowWidgets: true,
+          }}
+        />
+      ) : (
+        <Editor
+          height="100%"
+          path={selectedFile}
+          language={getLanguage(selectedFile)}
+          theme={theme === 'light' ? 'light' : 'vs-dark'}
+          value={fileContent}
+          beforeMount={handleBeforeMount}
+          onChange={(val) => setFileContent(val)}
+          onMount={handleMount}
+          options={{
+            contextmenu: false,
+            minimap: { enabled: true },
+            fontSize: editorFontSize,
+            lineNumbers: 'on',
+            tabSize: editorTabSize,
+            wordWrap: editorWordWrap,
+            automaticLayout: true,
+            fixedOverflowWidgets: true,
+          }}
+        />
+      )}
+      {showSnippetsPanel && (
+        <LatexSnippetsPanel
+          onInsert={handleInsertSnippet}
+          onClose={() => setShowSnippetsPanel(false)}
+        />
+      )}
+    </div>
+  );
+
   return (
     <div ref={editorContainerRef} className="vscode-editor-panel" style={{ position: 'relative' }}>
       {/* Tab bar */}
@@ -555,6 +633,16 @@ export default function EditorPanel({
 
           {isTexFile && (
             <>
+              {isPdfPreviewCollapsed && (
+                <button
+                  onClick={() => setIsPdfPreviewCollapsed(false)}
+                  className="vscode-bottom-panel-clear-btn"
+                  style={{ padding: '6px' }}
+                  title={t('editorPanel.showPdfPreview')}
+                >
+                  <PanelRightOpen size={12} />
+                </button>
+              )}
               <button
                 onClick={() => {
                   setIsRichTextMode(!isRichTextMode);
@@ -659,6 +747,8 @@ export default function EditorPanel({
               onSyncTexNavigate={handleSyncTexNavigate}
             />
           </div>
+        ) : isTexFile && isPdfPreviewCollapsed ? (
+          renderTexEditorSurface()
         ) : isTexFile ? (
           <Split
             sizes={[50, 50]}
@@ -672,80 +762,7 @@ export default function EditorPanel({
             cursor="col-resize"
             style={{ display: 'flex', height: '100%', width: '100%' }}
         >
-          <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
-            {isRichTextMode ? (
-              <RichTextEditor
-                source={fileContent}
-                activeProjectPath={activeProject?.project_path}
-                sourceTex={selectedFile}
-                zoomLevel={markdownZoomLevel}
-                onChange={setFileContent}
-                onJumpToSource={handleRichTextJumpToSource}
-              />
-            ) : isLatexPreviewMode ? (
-              <LatexPreview
-                source={fileContent}
-                activeProjectPath={activeProject?.project_path}
-                zoomLevel={markdownZoomLevel}
-              />
-            ) : isPreviewMode ? (
-              <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
-                {formatMessageContent(fileContent, activeProject?.project_path, markdownZoomLevel)}
-              </div>
-            ) : isDiffMode ? (
-              <DiffEditor
-                height="100%"
-                language={getLanguage(selectedFile)}
-                theme={theme === 'light' ? 'light' : 'vs-dark'}
-                original={originalFileContents ? (originalFileContents[selectedFile] || '') : ''}
-                modified={fileContent}
-                originalModelPath={`original-${selectedFile}`}
-                modifiedModelPath={`modified-${selectedFile}`}
-                beforeMount={handleBeforeMount}
-                onMount={handleMount}
-                options={{
-                  contextmenu: false,
-                  minimap: { enabled: true },
-                  fontSize: editorFontSize,
-                  lineNumbers: 'on',
-                  tabSize: editorTabSize,
-                  wordWrap: editorWordWrap,
-                  automaticLayout: true,
-                  renderSideBySide: true,
-                  readOnly: false,
-                  originalEditable: false,
-                  fixedOverflowWidgets: true,
-                }}
-              />
-            ) : (
-              <Editor
-                height="100%"
-                path={selectedFile}
-                language={getLanguage(selectedFile)}
-                theme={theme === 'light' ? 'light' : 'vs-dark'}
-                value={fileContent}
-                beforeMount={handleBeforeMount}
-                onChange={(val) => setFileContent(val)}
-                onMount={handleMount}
-                options={{
-                  contextmenu: false,
-                  minimap: { enabled: true },
-                  fontSize: editorFontSize,
-                  lineNumbers: 'on',
-                  tabSize: editorTabSize,
-                  wordWrap: editorWordWrap,
-                  automaticLayout: true,
-                  fixedOverflowWidgets: true,
-                }}
-              />
-            )}
-            {showSnippetsPanel && (
-              <LatexSnippetsPanel
-                onInsert={handleInsertSnippet}
-                onClose={() => setShowSnippetsPanel(false)}
-              />
-            )}
-          </div>
+          {renderTexEditorSurface()}
           <div style={{ height: '100%', background: '#0A0D14', borderLeft: '1px solid #1E2330' }}>
             <PdfPreview 
               ref={pdfPreviewRef}
@@ -755,6 +772,7 @@ export default function EditorPanel({
               activeProject={activeProject}
               selectedFile={selectedFile}
               onSyncTexNavigate={handleSyncTexNavigate}
+              onCollapse={() => setIsPdfPreviewCollapsed(true)}
             />
           </div>
           </Split>

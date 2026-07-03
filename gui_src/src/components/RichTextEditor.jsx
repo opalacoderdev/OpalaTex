@@ -494,6 +494,7 @@ function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
             graphic: raw,
             projectPath: activeProjectPath || '',
             cacheKey,
+            graphicEngine: block.graphicEngine || '',
           }),
         });
         const data = await res.json();
@@ -523,7 +524,7 @@ function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
         debounceRef.current = null;
       }
     };
-  }, [cacheKey, block.raw, block.source, activeProjectPath]);
+  }, [cacheKey, block.raw, block.source, block.graphicEngine, activeProjectPath]);
 
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
@@ -641,15 +642,49 @@ function MathBlock({ block, onJumpToSource }) {
 // the whole document, including the \includegraphics{../illustrations/x.pdf}
 // case that previously 403'd on the /api/file/raw endpoint.
 function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
-  const [state, setState] = useState({ status: 'idle', src: '', mime: '', log: '' });
+  const [state, setState] = useState({ status: 'idle', src: '', mime: '', svg: '', log: '' });
   const tokenRef = useRef(0);
-  const raw = block.src || '';
+  const raw = block.src || block.graphicSource || '';
+  const isGraphicInput = !block.src && !!block.graphicSource;
 
   useEffect(() => {
     if (!raw.trim()) {
-      setState({ status: 'idle', src: '', mime: '', log: '' });
+      setState({ status: 'idle', src: '', mime: '', svg: '', log: '' });
       return;
     }
+
+    if (isGraphicInput) {
+      tokenRef.current += 1;
+      const myToken = tokenRef.current;
+
+      setState({ status: 'loading', src: '', mime: '', svg: '', log: '' });
+      fetch('/api/latex/render-graphic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graphic: block.graphicSource || '',
+          projectPath: activeProjectPath || '',
+          sourceTex: sourceTex || '',
+          cacheKey: '',
+          graphicEngine: block.graphicEngine || 'tikz',
+        }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (myToken !== tokenRef.current) return;
+          if (data && data.success && data.svg) {
+            setState({ status: 'ok', src: '', mime: '', svg: data.svg, log: '' });
+          } else {
+            setState({ status: 'err', src: '', mime: '', svg: '', log: (data && data.log) || 'preview failed' });
+          }
+        })
+        .catch((err) => {
+          if (myToken !== tokenRef.current) return;
+          setState({ status: 'err', src: '', mime: '', svg: '', log: String(err) });
+        });
+      return;
+    }
+
     // URL-encode the path components for the query string.
     const params = new URLSearchParams({
       projectPath: activeProjectPath || '',
@@ -661,7 +696,7 @@ function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
     tokenRef.current += 1;
     const myToken = tokenRef.current;
 
-    setState((s) => ({ ...s, status: 'loading' }));
+    setState({ status: 'loading', src: '', mime: '', svg: '', log: '' });
     fetch(url)
       .then((r) => r.json())
       .then((data) => {
@@ -671,6 +706,7 @@ function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
             status: 'ok',
             src: `data:${data.mime};base64,${data.data_base64}`,
             mime: data.mime,
+            svg: '',
             log: '',
           });
         } else {
@@ -678,15 +714,16 @@ function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
             status: 'err',
             src: '',
             mime: '',
+            svg: '',
             log: (data && (data.error || data.log)) || 'preview failed',
           });
         }
       })
       .catch((err) => {
         if (myToken !== tokenRef.current) return;
-        setState({ status: 'err', src: '', mime: '', log: String(err) });
+        setState({ status: 'err', src: '', mime: '', svg: '', log: String(err) });
       });
-  }, [raw, activeProjectPath, sourceTex]);
+  }, [raw, activeProjectPath, sourceTex, isGraphicInput, block.graphicSource, block.graphicEngine]);
 
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
@@ -696,7 +733,13 @@ function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
             Loading image preview…
           </div>
         )}
-        {state.status === 'ok' && (
+        {state.status === 'ok' && state.svg && (
+          <div
+            dangerouslySetInnerHTML={{ __html: state.svg }}
+            style={{ maxWidth: '100%' }}
+          />
+        )}
+        {state.status === 'ok' && state.src && (
           <img
             src={state.src}
             alt={block.alt || ''}

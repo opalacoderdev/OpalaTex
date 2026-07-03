@@ -3,13 +3,14 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { useTranslation } from 'react-i18next';
+import { Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url,
 ).toString();
 
-const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate }, ref) => {
+const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse }, ref) => {
   const { t } = useTranslation();
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
@@ -34,6 +35,22 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
 
   const handleResetZoom = () => {
     setScale(1.2);
+  };
+
+  const handleSavePdf = () => {
+    if (!pdfUrl) return;
+
+    const selectedName = selectedFile?.replace(/\\/g, '/').split('/').pop() || 'document.pdf';
+    const downloadName = selectedName.toLowerCase().endsWith('.pdf')
+      ? selectedName
+      : selectedName.replace(/\.[^.]*$/, '') + '.pdf';
+
+    const link = document.createElement('a');
+    link.href = pdfUrl;
+    link.download = downloadName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   useEffect(() => {
@@ -209,7 +226,7 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
         </div>
       )}
       
-      {/* Zoom Controls */}
+      {/* PDF Controls */}
       <div 
         className="absolute top-4 right-4 z-50 flex items-center gap-1.5 rounded-lg shadow-lg p-1.5"
         style={{
@@ -217,6 +234,40 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
           border: '1px solid var(--vscode-border)',
         }}
       >
+        <button
+          onClick={handleSavePdf}
+          className="flex items-center justify-center rounded-md transition-colors"
+          style={{
+            width: '32px',
+            height: '32px',
+            background: 'var(--vscode-input-bg)',
+            border: '1px solid var(--vscode-border)',
+            color: 'var(--vscode-text-fg)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+          title={t('editorPanel.savePdf')}
+        >
+          <Download size={18} />
+        </button>
+        {onCollapse && (
+          <button
+            onClick={onCollapse}
+            className="flex items-center justify-center rounded-md transition-colors"
+            style={{
+              width: '32px',
+              height: '32px',
+              background: 'var(--vscode-input-bg)',
+              border: '1px solid var(--vscode-border)',
+              color: 'var(--vscode-text-fg)',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+            title={t('editorPanel.collapsePdfPreview')}
+          >
+            <PanelRightClose size={18} />
+          </button>
+        )}
         <button
           onClick={handleZoomOut}
           className="flex items-center justify-center rounded-md transition-colors"
@@ -231,11 +282,7 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
           title={t('editorPanel.zoomOut')}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            <line x1="8" y1="11" x2="14" y2="11"></line>
-          </svg>
+          <ZoomOut size={18} />
         </button>
         <span 
           className="text-xs font-semibold text-center rounded-md"
@@ -263,12 +310,7 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
           onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
           title={t('editorPanel.zoomIn')}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            <line x1="11" y1="8" x2="11" y2="14"></line>
-            <line x1="8" y1="11" x2="14" y2="11"></line>
-          </svg>
+          <ZoomIn size={18} />
         </button>
         {scale !== 1.2 && (
           <button
@@ -285,10 +327,7 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
             onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
             title={t('editorPanel.resetZoom')}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-              <path d="M3 3v5h5"></path>
-            </svg>
+            <RotateCcw size={18} />
           </button>
         )}
       </div>
