@@ -366,6 +366,12 @@ function EditableLatexText({ as: Tag = 'div', text, onCommit, style, editingStyl
         suppressContentEditableWarning
         onBlur={(e) => commit(e.currentTarget.textContent || '')}
         onKeyDown={(e) => {
+          const isMod = e.ctrlKey || e.metaKey;
+          if (isMod && e.key.toLowerCase() === 'b') {
+            e.preventDefault();
+            insertLatexWrapper(e.currentTarget, 'textbf');
+            return;
+          }
           if (e.key === 'Escape') {
             e.preventDefault();
             setIsEditing(false);
@@ -401,6 +407,81 @@ function moveCaretToEnd(el) {
   const range = document.createRange();
   range.selectNodeContents(el);
   range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function insertLatexWrapper(el, command) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+
+  const range = selection.getRangeAt(0);
+  if (!el.contains(range.commonAncestorContainer)) return;
+
+  const start = getTextOffset(el, range.startContainer, range.startOffset);
+  const end = getTextOffset(el, range.endContainer, range.endOffset);
+  if (start === -1 || end === -1) return;
+
+  const selectionStart = Math.min(start, end);
+  const selectionEnd = Math.max(start, end);
+  const currentText = el.textContent || '';
+  const selectedText = currentText.slice(selectionStart, selectionEnd);
+  const prefix = `\\${command}{`;
+  const suffix = '}';
+  const nextText = `${currentText.slice(0, selectionStart)}${prefix}${selectedText}${suffix}${currentText.slice(selectionEnd)}`;
+
+  el.textContent = nextText;
+
+  const caretOffset = selectedText
+    ? selectionStart + prefix.length + selectedText.length + suffix.length
+    : selectionStart + prefix.length;
+  setCaretOffset(el, caretOffset);
+}
+
+function getTextOffset(root, node, offset) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let textOffset = 0;
+
+  while (walker.nextNode()) {
+    const current = walker.currentNode;
+    if (current === node) return textOffset + offset;
+    textOffset += current.textContent.length;
+  }
+
+  if (node === root) {
+    let childOffset = 0;
+    for (let i = 0; i < Math.min(offset, root.childNodes.length); i++) {
+      childOffset += root.childNodes[i].textContent.length;
+    }
+    return childOffset;
+  }
+
+  return -1;
+}
+
+function setCaretOffset(root, offset) {
+  const selection = window.getSelection();
+  if (!selection) return;
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = Math.max(0, offset);
+  let target = root;
+  let targetOffset = root.childNodes.length;
+
+  while (walker.nextNode()) {
+    const current = walker.currentNode;
+    const length = current.textContent.length;
+    if (remaining <= length) {
+      target = current;
+      targetOffset = remaining;
+      break;
+    }
+    remaining -= length;
+  }
+
+  const range = document.createRange();
+  range.setStart(target, targetOffset);
+  range.collapse(true);
   selection.removeAllRanges();
   selection.addRange(range);
 }
