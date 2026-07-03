@@ -1015,8 +1015,28 @@ function renderCellContent(text) {
 }
 
 function renderStyledLatexText(text) {
+  return tokenizeInlineMath(text).map((token, index) => {
+    if (token.type === 'text') {
+      return <React.Fragment key={index}>{renderStyledTextOnly(token.value)}</React.Fragment>;
+    }
+    const html = renderKatexInline(token.value);
+    if (!html) {
+      return <React.Fragment key={index}>{token.raw}</React.Fragment>;
+    }
+    return (
+      <span
+        key={index}
+        className="rich-text-inline-math"
+        data-latex={token.raw}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  });
+}
+
+function renderStyledTextOnly(text) {
   const commandMatch = findFirstStyleCommand(text);
-  if (!commandMatch) return renderInlineLatexWithTextCleanup(text);
+  if (!commandMatch) return stripSimpleLatexCommands(text);
 
   const before = text.slice(0, commandMatch.start);
   const inner = text.slice(commandMatch.contentStart, commandMatch.contentEnd);
@@ -1032,31 +1052,11 @@ function renderStyledLatexText(text) {
 
   return (
     <>
-      {renderStyledLatexText(before)}
-      <span style={style}>{renderStyledLatexText(inner)}</span>
-      {renderStyledLatexText(after)}
+      {renderStyledTextOnly(before)}
+      <span style={style}>{renderStyledTextOnly(inner)}</span>
+      {renderStyledTextOnly(after)}
     </>
   );
-}
-
-function renderInlineLatexWithTextCleanup(text) {
-  return tokenizeInlineMath(text).map((token, index) => {
-    if (token.type === 'text') {
-      return <React.Fragment key={index}>{stripSimpleLatexCommands(token.value)}</React.Fragment>;
-    }
-    const html = renderKatexInline(token.value);
-    if (!html) {
-      return <React.Fragment key={index}>{token.raw}</React.Fragment>;
-    }
-    return (
-      <span
-        key={index}
-        className="rich-text-inline-math"
-        data-latex={token.raw}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
-  });
 }
 
 function findFirstStyleCommand(text) {
