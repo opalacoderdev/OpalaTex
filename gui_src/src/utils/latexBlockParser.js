@@ -309,6 +309,78 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
     };
   }
 
+  // ── Graphics: tikzpicture (covers plain TikZ + PGFPlots) ─────────────────
+  // PGFPlots uses \begin{tikzpicture} (or \begin{axis}) as its outer
+  // environment, so detecting `tikzpicture` is enough to cover both.
+  // The RichTextEditor renders this block as an inline SVG preview by
+  // calling the /api/latex/render-graphic backend endpoint.
+  if (envName === 'tikzpicture' || envName === 'tikzpicture*') {
+    return {
+      ...base,
+      type: 'graphic',
+      editable: false,
+      graphicEngine: 'tikz',
+      raw: envSource,
+    };
+  }
+
+  // ── Graphics: classic LaTeX picture environment ──────────────────────────
+  // The old-school vector graphics env. Standalone class + tectonic can
+  // compile it without extra packages, so it gets the same preview path
+  // as TikZ.
+  if (envName === 'picture') {
+    return {
+      ...base,
+      type: 'graphic',
+      editable: false,
+      graphicEngine: 'picture',
+      raw: envSource,
+    };
+  }
+
+  // ── Graphics: chemfig (chemistry diagrams built on top of TikZ) ─────────
+  // chemfig is normally loaded with \usepackage{chemfig}. We can't know
+  // whether the user has it, but the worst case is a compile error in the
+  // preview — falling back to the environment block view. We always treat
+  // it as a graphic so the preview pipeline is exercised.
+  if (envName === 'chemfig') {
+    return {
+      ...base,
+      type: 'graphic',
+      editable: false,
+      graphicEngine: 'chemfig',
+      raw: envSource,
+    };
+  }
+
+  // ── Graphics: PSTricks environments ─────────────────────────────────────
+  // pspicture / psgraph. These rely on PSTricks, which tectonic does NOT
+  // support by default. We still classify them as graphics so the UI shows
+  // a single consistent card, and the backend will surface a clear error
+  // log in the preview if the packages are missing.
+  if (envName === 'pspicture' || envName === 'psgraph') {
+    return {
+      ...base,
+      type: 'graphic',
+      editable: false,
+      graphicEngine: 'pstricks',
+      raw: envSource,
+    };
+  }
+
+  // ── Graphics: flowchart / tree-drawing macros (forest, tikz-cd) ─────────
+  // These wrap tikzpicture internally; treating them as graphics lets the
+  // backend compile them and surface any missing-package errors cleanly.
+  if (envName === 'forest' || envName === 'tikzmatrix' || envName === 'tikz-cd') {
+    return {
+      ...base,
+      type: 'graphic',
+      editable: false,
+      graphicEngine: 'tikz',
+      raw: envSource,
+    };
+  }
+
   // ── Fallback: unrecognized environment ───────────────────────────────────
   return {
     ...base,

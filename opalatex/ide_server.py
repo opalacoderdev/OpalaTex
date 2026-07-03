@@ -545,6 +545,87 @@ class AsyncHTTPServer:
                 
             self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
             return
+
+        # 0.0.c Render a single includegraphics file (PDF/PNG/JPG) to inline
+        #      PNG/SVG so the Rich Text editor can show a preview of figures
+        #      that simply embed a raster/vector image. PDF inputs are rasterized
+        #      to a single-page PNG via PyMuPDF; PNG/JPG/GIF are passed through
+        #      (or also rasterized if a page number is requested).
+        if path == '/api/latex/render-include' and method == 'GET':
+            project_path = query.get('projectPath', [''])[0]
+            file_path = query.get('filePath', [''])[0]
+            source_tex = query.get('sourceTex', [''])[0]
+            # When set, "auto" picks a sensible default per MIME type: PDF -> PNG
+            # of page 1, PNG/JPG/GIF -> the file as-is.
+            output = (query.get('output', ['auto'])[0] or 'auto').lower()
+
+            if not project_path or not file_path:
+                self.send_response(writer, 400, json.dumps({
+                    "success": False, "error": "projectPath and filePath are required"
+                }).encode('utf-8'), "application/json")
+                return
+
+            try:
+                from opalatex.latex_compiler import render_include_to_png
+                result = render_include_to_png(
+                    project_path=project_path,
+                    file_path=file_path,
+                    source_tex=source_tex or "",
+                    output=output,
+                )
+                if not result.get("success"):
+                    self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
+                    return
+                # base64 is imported at the top of the module — no need to
+                # re-import it here (and re-importing inside a try/except was
+                # the source of "cannot access local variable 'base64'" when
+                # the failure path short-circuited before the import ran).
+                payload = json.dumps({
+                    "success": True,
+                    "mime": result["mime"],
+                    "data_base64": base64.b64encode(result["data"]).decode("utf-8"),
+                }).encode("utf-8")
+                self.send_response(writer, 200, payload, "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({
+                    "success": False, "error": f"Render include failed: {e}"
+                }).encode('utf-8'), "application/json")
+            return
+
+        # 0.0.b Render a single LaTeX graphic (tikzpicture / pgfplots) to SVG
+        #      Used by the Rich Text editor and the LaTeX live preview to show
+        #      inline graphical previews without compiling the whole document.
+        if path == '/api/latex/render-graphic' and method == 'POST':
+            graphic = data.get('graphic', '')
+            project_path = data.get('projectPath', '')
+            preamble = data.get('preamble', '')
+            cache_key = data.get('cacheKey', '')
+            # Engine hint ("tikz", "picture", "chemfig", "pstricks", "forest").
+            # The default ("tikz") keeps the original behaviour.
+            graphic_engine = data.get('graphicEngine', '')
+
+            if not graphic:
+                self.send_response(writer, 400, json.dumps({
+                    "success": False, "svg": "", "log": "graphic source is required"
+                }).encode('utf-8'), "application/json")
+                return
+
+            try:
+                from opalatex.latex_compiler import render_graphic_to_svg
+                result = render_graphic_to_svg(
+                    graphic_source=graphic,
+                    project_path=project_path or "",
+                    preamble=preamble or "",
+                    cache_key=cache_key or "",
+                    graphic_engine=graphic_engine or "",
+                )
+                self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({
+                    "success": False, "svg": "", "log": f"Render failed: {e}"
+                }).encode('utf-8'), "application/json")
+            return
+
         # 0.0 Check Tectonic
         elif path == '/api/latex/check-tectonic' and method == 'GET':
             from opalatex.latex_compiler import get_tectonic_path
@@ -731,11 +812,31 @@ class AsyncHTTPServer:
         elif path == '/api/file/raw':
             project_path = query.get('projectPath', [None])[0]
             file_path = query.get('filePath', [None])[0]
+            # The .tex file that contains the \includegraphics{} reference.
+            # When provided, `..` segments in `file_path` are resolved
+            # relative to this file's directory (LaTeX semantics) instead of
+            # the project root, which is what users expect when they write
+            # \includegraphics{../illustrations/foo.pdf}.
+            source_tex = query.get('sourceTex', [None])[0]
             if not project_path or not file_path:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath are required"}', "application/json")
                 return
-            full_path = os.path.abspath(os.path.join(project_path, file_path))
-            if not full_path.startswith(os.path.abspath(project_path)):
+            project_abs = os.path.abspath(project_path)
+            # Anchor directory: prefer the .tex file's directory so that
+            # `..` is resolved locally; fall back to the project root when
+            # the source file is not known.
+            anchor_dir = project_abs
+            if source_tex:
+                candidate = os.path.abspath(os.path.join(project_abs, source_tex))
+                if os.path.isdir(candidate):
+                    anchor_dir = candidate
+                else:
+                    anchor_dir = os.path.dirname(candidate)
+            full_path = os.path.abspath(os.path.join(anchor_dir, file_path))
+            # Final safety: the resolved path must still be inside the
+            # project directory tree. This keeps path-traversal hardening
+            # intact (e.g. `../../etc/passwd` is still rejected).
+            if not full_path.startswith(project_abs + os.sep) and full_path != project_abs:
                 self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
                 return
             if not os.path.exists(full_path) or os.path.isdir(full_path):
@@ -2161,7 +2262,10 @@ class AsyncHTTPServer:
             active_term.queues.append(term_queue)
 
             def send_data(data_bytes: bytes):
-                import base64
+                # base64 is imported at the top of the module — no need to
+                # re-import it here. Re-importing inside a function would
+                # shadow the module-level name and cause
+                # "cannot access local variable 'base64'" errors elsewhere.
                 payload = f"data: {base64.b64encode(data_bytes).decode('utf-8')}\n\n"
                 writer.write(payload.encode('utf-8'))
 

@@ -39,6 +39,7 @@ export function serializeBlock(block) {
       return serializeList(block);
     case 'quote':
       return serializeQuote(block);
+    // 'graphic' (tikzpicture/PGFPlots) is non-editable; preserve source as-is.
     default:
       return block.source;
   }

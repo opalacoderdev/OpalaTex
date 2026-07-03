@@ -301,3 +301,318 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
             shutil.rmtree(temp_dir)
         except Exception:
             pass
+
+
+def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble: str = "",
+                          cache_key: str = "", graphic_engine: str = "") -> dict:
+    """
+    Render a single LaTeX graphic (tikzpicture / pgfplots / picture / chemfig
+    / pstricks / forest) to inline SVG by compiling a minimal standalone
+    document with Tectonic and converting the first page to SVG via PyMuPDF.
+
+    This is used by the Rich Text editor (and the LaTeX preview) to display a
+    live preview of figures inline, without needing to compile the full
+    document.
+
+    Args:
+        graphic_source: The raw LaTeX body of the graphic environment, e.g.
+            "\\begin{tikzpicture}\\draw ... \\end{tikzpicture}".
+        project_path: Optional project directory used to discover a main file
+            preamble (\\usepackage{tikz}, \\begin{document}, etc.).
+        preamble: Optional explicit LaTeX preamble to inject before the
+            graphic. Overrides auto-detection from the project main file.
+        cache_key: Optional content-based cache key. When provided, identical
+            cache_keys return the previously rendered SVG without re-compiling.
+        graphic_engine: Optional hint for which engine the graphic uses
+            ("tikz", "picture", "chemfig", "pstricks", "forest"). Only used
+            to pick the auto-generated preamble when the caller did not pass
+            one.
+
+    Returns:
+        dict with:
+          - success (bool)
+          - svg (str): SVG markup (XML) when success=True
+          - log (str): compiler log on failure
+          - cached (bool): True if result was served from cache
+    """
+    # ── In-process cache ────────────────────────────────────────────────────
+    if not hasattr(render_graphic_to_svg, "_cache"):
+        render_graphic_to_svg._cache = {}  # key -> {"svg": str, "ts": float}
+    cache = render_graphic_to_svg._cache
+
+    if cache_key and cache_key in cache:
+        entry = cache[cache_key]
+        return {"success": True, "svg": entry["svg"], "log": "", "cached": True}
+
+    tectonic_cmd = get_tectonic_path()
+    if not tectonic_cmd:
+        return {
+            "success": False,
+            "svg": "",
+            "log": "Error: 'tectonic' compiler is not installed or not found in PATH.",
+            "cached": False,
+        }
+
+    # ── Build the standalone document ───────────────────────────────────────
+    # Minimal article + standalone document class is the safest container
+    # for arbitrary graphic snippets. `standalone` ensures the PDF bounding
+    # box tightly fits the graphic, which gives a clean SVG.
+    body = (graphic_source or "").strip()
+    if not body:
+        return {"success": False, "svg": "", "log": "Empty graphic source.", "cached": False}
+
+    # Pick a default preamble per engine. Only used when the caller did not
+    # supply one (either explicitly or via auto-detect from the project).
+    engine = (graphic_engine or "tikz").lower()
+    engine_preambles = {
+        "tikz": (
+            "\\documentclass[tikz,border=4pt]{standalone}\n"
+            "\\usepackage{tikz}\n"
+            "\\usepackage{pgfplots}\n"
+            "\\pgfplotsset{compat=1.18}\n"
+        ),
+        "picture": (
+            "\\documentclass[border=4pt]{standalone}\n"
+        ),
+        "chemfig": (
+            "\\documentclass[border=4pt]{standalone}\n"
+            "\\usepackage{tikz}\n"
+            "\\usepackage{chemfig}\n"
+        ),
+        "pstricks": (
+            "\\documentclass[border=4pt]{standalone}\n"
+            "\\usepackage{pstricks}\n"
+            "\\usepackage{pst-plot}\n"
+        ),
+        "forest": (
+            "\\documentclass[border=4pt]{standalone}\n"
+            "\\usepackage{tikz}\n"
+            "\\usepackage{forest}\n"
+        ),
+    }
+    default_preamble = engine_preambles.get(engine, engine_preambles["tikz"])
+
+    # Auto-derive preamble from the project main file when the caller did not
+    # supply one. This lets the user keep \\usepackage{tikz}, color libraries,
+    # custom styles, etc. in their project's preamble and have them respected
+    # by the inline preview.
+    if not preamble and project_path and os.path.isdir(project_path):
+        try:
+            from opalatex.latex_compiler import guess_main_file
+            main_rel = guess_main_file(project_path)
+            if main_rel:
+                main_full = os.path.abspath(os.path.join(project_path, main_rel))
+                with open(main_full, "r", encoding="utf-8", errors="ignore") as f:
+                    src = f.read()
+                # Slice from the start to \\begin{document}: that holds the
+                # \\documentclass line and all \\usepackage declarations.
+                doc_idx = src.find("\\begin{document}")
+                if doc_idx > 0:
+                    preamble = src[:doc_idx]
+        except Exception:
+            preamble = preamble or ""
+
+    if not preamble:
+        preamble = default_preamble
+    elif "\\documentclass" not in preamble:
+        # Wrap the user preamble with a standalone class that fits the
+        # graphic tight to its bounding box.
+        preamble = default_preamble + preamble
+
+    full_doc = (
+        preamble
+        + "\n\\begin{document}\n"
+        + body
+        + "\n\\end{document}\n"
+    )
+
+    # ── Compile in a fresh temp directory ───────────────────────────────────
+    temp_dir = tempfile.mkdtemp(prefix="opalatex_graphic_")
+    tex_path = os.path.join(temp_dir, "graphic.tex")
+    pdf_path = os.path.join(temp_dir, "graphic.pdf")
+
+    try:
+        with open(tex_path, "w", encoding="utf-8") as f:
+            f.write(full_doc)
+
+        result = subprocess.run(
+            [tectonic_cmd, tex_path],
+            cwd=temp_dir,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode != 0 or not os.path.exists(pdf_path):
+            return {
+                "success": False,
+                "svg": "",
+                "log": (result.stdout or "") + "\n" + (result.stderr or ""),
+                "cached": False,
+            }
+
+        # ── Convert first page to SVG via PyMuPDF ───────────────────────────
+        try:
+            import fitz  # PyMuPDF
+        except ImportError:
+            return {
+                "success": False,
+                "svg": "",
+                "log": "Error: PyMuPDF (fitz) is not installed; required for SVG conversion.",
+                "cached": False,
+            }
+
+        doc = fitz.open(pdf_path)
+        if not doc or len(doc) == 0:
+            return {
+                "success": False,
+                "svg": "",
+                "log": "Error: PDF produced by tectonic has no pages.",
+                "cached": False,
+            }
+        page = doc[0]
+        # `get_svg_image(text_as_path=True)` embeds glyphs as <path> for
+        # portable rendering in any browser.
+        svg = page.get_svg_image(text_as_path=True)
+        doc.close()
+
+        if cache_key:
+            import time as _t
+            cache[cache_key] = {"svg": svg, "ts": _t.time()}
+            # Cap cache size to avoid unbounded growth
+            if len(cache) > 256:
+                oldest = min(cache.items(), key=lambda kv: kv[1]["ts"])
+                cache.pop(oldest[0], None)
+
+        return {"success": True, "svg": svg, "log": "", "cached": False}
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "svg": "",
+            "log": "Error: 'tectonic' compiler is not installed or not found in PATH.",
+            "cached": False,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "svg": "",
+            "log": f"Unexpected error rendering graphic: {e}",
+            "cached": False,
+        }
+    finally:
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+def _resolve_include_path(project_path: str, file_path: str, source_tex: str) -> str:
+    """Resolve a \\includegraphics file path against the project, honouring
+    `..` relative to the .tex file that references it (LaTeX semantics).
+
+    Returns the absolute path on disk if it exists, or an empty string when
+    the file cannot be found / the project path escapes the project tree.
+    """
+    if not project_path or not file_path:
+        return ""
+    project_abs = os.path.abspath(project_path)
+    anchor_dir = project_abs
+    if source_tex:
+        candidate = os.path.abspath(os.path.join(project_abs, source_tex))
+        if os.path.isdir(candidate):
+            anchor_dir = candidate
+        else:
+            anchor_dir = os.path.dirname(candidate)
+    full_path = os.path.abspath(os.path.join(anchor_dir, file_path))
+    # Safety: the resolved path must remain inside the project tree.
+    if not full_path.startswith(project_abs + os.sep) and full_path != project_abs:
+        return ""
+    if not os.path.exists(full_path) or os.path.isdir(full_path):
+        return ""
+    return full_path
+
+
+def render_include_to_png(project_path: str, file_path: str, source_tex: str = "",
+                          output: str = "auto", page: int = 0, dpi: int = 144) -> dict:
+    """
+    Render an \\includegraphics target (PDF / PNG / JPG / GIF) to a
+    browser-displayable payload so the Rich Text editor can show a preview of
+    figures that simply embed a raster/vector image.
+
+    For PDF inputs (and any vector format PyMuPDF can open) the requested
+    page (default 0 = first) is rasterized at the given DPI to a PNG
+    payload. For raster inputs (PNG / JPG / GIF / WEBP) the file is returned
+    as-is when ``output == 'auto'`` so the browser can display it without a
+    conversion round-trip.
+
+    Args:
+        project_path: project root (used as the security boundary).
+        file_path: path of the asset, possibly with `..` segments relative
+            to the source .tex file.
+        source_tex: project-relative path of the .tex that contains the
+            \\includegraphics (used as the anchor for `..`).
+        output: "auto" (default) chooses per MIME type; "png" forces
+            rasterization (returns a PNG even for raster inputs).
+        page: 0-indexed page number for multi-page PDFs.
+        dpi: rasterization resolution (default 144).
+
+    Returns:
+        dict with:
+          - success (bool)
+          - mime (str): MIME type of the returned payload
+          - data (bytes): the payload bytes (PNG or original image)
+          - error (str): error message on failure
+    """
+    full_path = _resolve_include_path(project_path, file_path, source_tex)
+    if not full_path:
+        return {
+            "success": False,
+            "mime": "",
+            "data": b"",
+            "error": f"File not found: {file_path}",
+        }
+
+    ext = os.path.splitext(full_path)[1].lower()
+    raster_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+    # ── Raster inputs: pass through when "auto", force PNG otherwise ───────
+    if ext in raster_exts and output == "auto":
+        try:
+            with open(full_path, "rb") as f:
+                content = f.read()
+            import mimetypes
+            mime = mimetypes.guess_type(full_path)[0] or "application/octet-stream"
+            return {"success": True, "mime": mime, "data": content, "error": ""}
+        except Exception as e:
+            return {"success": False, "mime": "", "data": b"", "error": str(e)}
+
+    # ── Vector / multi-page inputs: rasterize with PyMuPDF ────────────────
+    try:
+        import fitz
+    except ImportError:
+        return {
+            "success": False,
+            "mime": "",
+            "data": b"",
+            "error": "PyMuPDF (fitz) is not installed; required for image preview.",
+        }
+
+    try:
+        doc = fitz.open(full_path)
+        if not doc or len(doc) == 0:
+            return {
+                "success": False,
+                "mime": "",
+                "data": b"",
+                "error": f"Empty document: {file_path}",
+            }
+        idx = max(0, min(page, len(doc) - 1))
+        page_obj = doc[idx]
+        # Default zoom = dpi/72 (PDF points per inch).
+        zoom = max(0.5, dpi / 72.0)
+        matrix = fitz.Matrix(zoom, zoom)
+        pix = page_obj.get_pixmap(matrix=matrix, alpha=False)
+        png_bytes = pix.tobytes("png")
+        doc.close()
+        return {"success": True, "mime": "image/png", "data": png_bytes, "error": ""}
+    except Exception as e:
+        return {"success": False, "mime": "", "data": b"", "error": f"Render failed: {e}"}

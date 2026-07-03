@@ -1,9 +1,28 @@
-import React, { useMemo, useRef, useCallback } from 'react';
+import React, { useMemo, useRef, useCallback, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Lock } from 'lucide-react';
 import { parseLatexBlocks } from '../utils/latexBlockParser';
 import { serializeDocument } from '../utils/latexBlockSerializer';
 import { formatMessageContent } from '../utils/formatMessage';
+
+// ── Module-level cache: keyed by (projectPath, graphic-source-hash) ────────
+// This avoids re-compiling identical TikZ snippets on every keystroke. The
+// backend also caches by the same content-hash so we hit an O(1) dict lookup
+// after the first render. Both caches are bounded in size to avoid memory
+// growth on long editing sessions.
+const graphicSvgCache = new Map();
+const GRAPHIC_CACHE_MAX = 64;
+
+// Lightweight 32-bit FNV-1a hash of a string, fast and good-enough for an
+// in-memory cache key. We avoid shipping crypto-js for this small concern.
+function hashSource(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RichTextEditor
@@ -25,6 +44,7 @@ import { formatMessageContent } from '../utils/formatMessage';
 export default function RichTextEditor({
   source,
   activeProjectPath,
+  sourceTex,
   zoomLevel = 1.0,
   onChange,
   onJumpToSource,
@@ -87,6 +107,7 @@ export default function RichTextEditor({
           key={block.id}
           block={block}
           activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
           onBlockEdit={handleBlockEdit}
           onListItemEdit={handleListItemEdit}
           onJumpToSource={handleJumpToSource}
@@ -105,7 +126,7 @@ export default function RichTextEditor({
 // BlockRenderer — renders a single block based on its type
 // ─────────────────────────────────────────────────────────────────────────────
 
-function BlockRenderer({ block, activeProjectPath, onBlockEdit, onListItemEdit, onJumpToSource }) {
+function BlockRenderer({ block, activeProjectPath, sourceTex, onBlockEdit, onListItemEdit, onJumpToSource }) {
   switch (block.type) {
     case 'preamble':
       return <PreambleBlock block={block} onJumpToSource={onJumpToSource} />;
@@ -120,7 +141,9 @@ function BlockRenderer({ block, activeProjectPath, onBlockEdit, onListItemEdit, 
     case 'math':
       return <MathBlock block={block} onJumpToSource={onJumpToSource} />;
     case 'figure':
-      return <FigureBlock block={block} activeProjectPath={activeProjectPath} onJumpToSource={onJumpToSource} />;
+      return <FigureBlock block={block} activeProjectPath={activeProjectPath} sourceTex={sourceTex} onJumpToSource={onJumpToSource} />;
+    case 'graphic':
+      return <GraphicBlock block={block} activeProjectPath={activeProjectPath} onJumpToSource={onJumpToSource} />;
     case 'table':
       return <TableBlock block={block} onJumpToSource={onJumpToSource} />;
     case 'code':
@@ -275,6 +298,156 @@ function QuoteBlock({ block, onEdit }) {
 // Non-editable blocks (rendered preview + jump to source)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── GraphicBlock ────────────────────────────────────────────────────────────
+//
+// Renders a tikzpicture / PGFPlots block as a live SVG preview by asking the
+// backend to compile the snippet through tectonic + PyMuPDF. The block is
+// read-only: clicking anywhere outside the source-label jumps the user to
+// the matching source line in Monaco.
+//
+// Status transitions:
+//   idle -> loading -> ok  (svg set)
+//   idle -> loading -> err (log set)
+// Debounced re-render so the user can type freely without spawning a compile
+// per keystroke.
+function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
+  const [state, setState] = useState({ status: 'idle', svg: '', log: '' });
+  const debounceRef = useRef(null);
+  const tokenRef = useRef(0);
+
+  const cacheKey = useMemo(() => {
+    const raw = block.raw || block.source || '';
+    return `${activeProjectPath || ''}::${hashSource(raw)}`;
+  }, [block.raw, block.source, activeProjectPath]);
+
+  useEffect(() => {
+    // Reset in-flight token and clear pending debounce on source change.
+    tokenRef.current += 1;
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+
+    const raw = block.raw || block.source || '';
+    if (!raw.trim()) {
+      setState({ status: 'idle', svg: '', log: '' });
+      return;
+    }
+
+    // Front-end cache hit: avoid a round-trip entirely.
+    const cached = graphicSvgCache.get(cacheKey);
+    if (cached) {
+      setState({ status: 'ok', svg: cached, log: '' });
+      return;
+    }
+
+    setState({ status: 'loading', svg: '', log: '' });
+
+    debounceRef.current = setTimeout(async () => {
+      const myToken = tokenRef.current;
+      try {
+        const res = await fetch('/api/latex/render-graphic', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            graphic: raw,
+            projectPath: activeProjectPath || '',
+            cacheKey,
+          }),
+        });
+        const data = await res.json();
+        // Drop the result if the user has kept typing and triggered a newer
+        // render — we only apply the latest in-flight response.
+        if (myToken !== tokenRef.current) return;
+        if (data && data.success && data.svg) {
+          graphicSvgCache.set(cacheKey, data.svg);
+          // Cap cache to avoid unbounded growth
+          if (graphicSvgCache.size > GRAPHIC_CACHE_MAX) {
+            const firstKey = graphicSvgCache.keys().next().value;
+            graphicSvgCache.delete(firstKey);
+          }
+          setState({ status: 'ok', svg: data.svg, log: '' });
+        } else {
+          setState({ status: 'err', svg: '', log: (data && data.log) || 'render failed' });
+        }
+      } catch (err) {
+        if (myToken !== tokenRef.current) return;
+        setState({ status: 'err', svg: '', log: String(err) });
+      }
+    }, 250);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
+  }, [cacheKey, block.raw, block.source, activeProjectPath]);
+
+  return (
+    <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+        <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)' }}>
+          {block.graphicEngine === 'tikz' ? 'TikZ / PGFPlots' : 'graphic'}
+        </div>
+        <div
+          onClick={(e) => { e.stopPropagation(); onJumpToSource(block); }}
+          style={{ fontSize: '10px', color: 'var(--vscode-accent, #007acc)', cursor: 'pointer' }}
+          title="Jump to source line"
+        >
+          jump to source →
+        </div>
+      </div>
+      <div
+        style={{
+          padding: '8px',
+          background: 'var(--editor-bg, #1e1e1e)',
+          borderRadius: '3px',
+          minHeight: '60px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'auto',
+        }}
+      >
+        {state.status === 'loading' && (
+          <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)' }}>
+            Rendering preview…
+          </span>
+        )}
+        {state.status === 'err' && (
+          <pre
+            style={{
+              margin: 0,
+              fontSize: '10px',
+              color: 'var(--vscode-errorForeground, #f48771)',
+              maxHeight: '120px',
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              width: '100%',
+            }}
+            title={state.log}
+          >
+            {`Preview unavailable — ${state.log.split('\n').slice(-3).join('\n').trim()}`}
+          </pre>
+        )}
+        {state.status === 'ok' && (
+          <div
+            // The backend returns trusted SVG produced by tectonic from the
+            // user's own source. Using dangerouslySetInnerHTML avoids creating
+            // an <img> round-trip and keeps the SVG resolution crisp at any
+            // zoom level. The block is read-only, so no user input is rendered
+            // as HTML here.
+            dangerouslySetInnerHTML={{ __html: state.svg }}
+            style={{ maxWidth: '100%' }}
+          />
+        )}
+      </div>
+    </NonEditableWrapper>
+  );
+}
+
 function NonEditableWrapper({ block, onJumpToSource, children }) {
   return (
     <div
@@ -316,16 +489,91 @@ function MathBlock({ block, onJumpToSource }) {
   );
 }
 
-function FigureBlock({ block, activeProjectPath, onJumpToSource }) {
-  let imgSrc = block.src;
-  if (activeProjectPath && imgSrc && !imgSrc.startsWith('http') && !imgSrc.startsWith('data:')) {
-    imgSrc = `/api/file/raw?projectPath=${encodeURIComponent(activeProjectPath)}&filePath=${encodeURIComponent(imgSrc)}`;
-  }
+// ── FigureBlock ────────────────────────────────────────────────────────────
+//
+// Renders a \\begin{figure} block that just embeds an image via
+// \\includegraphics{...}. The source path is resolved by the backend
+// (/api/latex/render-include), which:
+//   - passes raster images (PNG/JPG/GIF/WEBP) through as-is
+//   - rasterizes the first page of a PDF to a PNG payload
+// This means users see a real preview of their figures without compiling
+// the whole document, including the \includegraphics{../illustrations/x.pdf}
+// case that previously 403'd on the /api/file/raw endpoint.
+function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
+  const [state, setState] = useState({ status: 'idle', src: '', mime: '', log: '' });
+  const tokenRef = useRef(0);
+  const raw = block.src || '';
+
+  useEffect(() => {
+    if (!raw.trim()) {
+      setState({ status: 'idle', src: '', mime: '', log: '' });
+      return;
+    }
+    // URL-encode the path components for the query string.
+    const params = new URLSearchParams({
+      projectPath: activeProjectPath || '',
+      filePath: raw,
+    });
+    if (sourceTex) params.set('sourceTex', sourceTex);
+    const url = `/api/latex/render-include?${params.toString()}`;
+
+    tokenRef.current += 1;
+    const myToken = tokenRef.current;
+
+    setState((s) => ({ ...s, status: 'loading' }));
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => {
+        if (myToken !== tokenRef.current) return;
+        if (data && data.success && data.data_base64 && data.mime) {
+          setState({
+            status: 'ok',
+            src: `data:${data.mime};base64,${data.data_base64}`,
+            mime: data.mime,
+            log: '',
+          });
+        } else {
+          setState({
+            status: 'err',
+            src: '',
+            mime: '',
+            log: (data && (data.error || data.log)) || 'preview failed',
+          });
+        }
+      })
+      .catch((err) => {
+        if (myToken !== tokenRef.current) return;
+        setState({ status: 'err', src: '', mime: '', log: String(err) });
+      });
+  }, [raw, activeProjectPath, sourceTex]);
+
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
       <figure style={{ margin: 0, textAlign: 'center' }}>
-        {imgSrc && (
-          <img src={imgSrc} alt={block.alt || ''} style={{ maxWidth: '100%', borderRadius: '4px' }} />
+        {state.status === 'loading' && (
+          <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', padding: '12px' }}>
+            Loading image preview…
+          </div>
+        )}
+        {state.status === 'ok' && (
+          <img
+            src={state.src}
+            alt={block.alt || ''}
+            style={{ maxWidth: '100%', borderRadius: '4px' }}
+          />
+        )}
+        {state.status === 'err' && (
+          <div
+            style={{
+              padding: '8px',
+              fontSize: '10px',
+              color: 'var(--vscode-errorForeground, #f48771)',
+              textAlign: 'left',
+            }}
+            title={state.log}
+          >
+            Image preview unavailable — {state.log}
+          </div>
         )}
         {block.caption && (
           <figcaption style={{ fontSize: '11px', color: 'var(--chat-muted, #8a8a8a)', marginTop: '6px' }}>

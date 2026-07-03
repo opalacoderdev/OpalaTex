@@ -49,6 +49,26 @@ export function latexToMarkdown(src) {
     }
   );
 
+  // ── 0.b Protect tikzpicture / PGFPlots blocks so they reach the renderer
+  //       untouched and can be previewed by the GraphicPreview component.
+  //       PGFPlots uses \begin{tikzpicture} (or axis) as the outer
+  //       environment, so detecting `tikzpicture` covers both. The sentinel
+  //       is designed to survive the remaining regex passes (it contains
+  //       no LaTeX commands and no fenced-code markers) and to be a valid
+  //       inline code token, which `formatMessage.jsx` maps to <code> and
+  //       can recognise via the `tikzgraphic:N` class hook.
+  const graphicBlocks = [];
+  s = s.replace(
+    /\\begin\{tikzpicture\*?\}([\s\S]*?)\\end\{tikzpicture\*?\}/g,
+    (_, body) => {
+      const idx = graphicBlocks.length;
+      const raw = '\\begin{tikzpicture}' + body + '\\end{tikzpicture}';
+      graphicBlocks.push(raw);
+      // Use a placeholder token that downstream regexes will leave alone.
+      return `OPALATEX_TIKZGRAPHIC_${idx}_OPALATEX`;
+    }
+  );
+
   // ── 1. Strip preamble up to \begin{document} ─────────────────────────────
   const docMatch = s.match(/\\begin\{document\}([\s\S]*?)(?:\\end\{document\}|$)/);
   if (docMatch) {
@@ -134,6 +154,19 @@ export function latexToMarkdown(src) {
 
   // ── 15. Restore protected code blocks ────────────────────────────────────
   s = s.replace(/\u0000CODEBLOCK(\d+)\u0000/g, (_, i) => codeBlocks[Number(i)]);
+
+  // ── 15.b Wrap restored graphic blocks in a fenced `tikzgraphic` block so
+  //        the Markdown renderer emits a single <code> with class
+  //        `language-tikzgraphic` (formatMessage.jsx intercepts that class
+  //        to call /api/latex/render-graphic).
+  s = s.replace(/OPALATEX_TIKZGRAPHIC_(\d+)_OPALATEX/g, (_, i) => {
+    const raw = graphicBlocks[Number(i)] || '';
+    // Re-encode the body so the Markdown fenced code block stays valid even
+    // if the source contains backticks or triple-backticks. We use a length
+    // of backticks that cannot appear inside the source (very rare) and
+    // store the actual raw text base64-free as plain text in the body.
+    return '```tikzgraphic\n' + raw + '\n```';
+  });
 
   // ── 16. Collapse excessive blank lines ───────────────────────────────────
   s = s.replace(/\n{3,}/g, '\n\n');

@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import i18n from '../i18n';
 import Mermaid from '../components/Mermaid';
+import GraphicPreview from '../components/GraphicPreview';
 
 // ── Custom component map ────────────────────────────────────────────────────
 // Maps HTML element names produced by react-markdown to custom React
@@ -52,6 +53,19 @@ const BASE_COMPONENTS = {
     const lang = (className || '').replace('language-', '');
     if (lang === 'mermaid') {
       return <Mermaid chart={String(children)} />;
+    }
+    if (lang === 'tikzgraphic') {
+      // LaTeX graphic preview: compile the snippet via the backend and
+      // render the resulting SVG inline. The body is the raw tikzpicture
+      // source produced by `latexToMarkdown` (no Markdown escaping needed).
+      const raw = String(children);
+      return (
+        <GraphicPreview
+          source={raw}
+          projectPath={activeProjectPath || ''}
+          label="TikZ / PGFPlots"
+        />
+      );
     }
     if (lang === 'thought') {
       return (

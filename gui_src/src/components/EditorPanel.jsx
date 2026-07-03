@@ -677,6 +677,7 @@ export default function EditorPanel({
               <RichTextEditor
                 source={fileContent}
                 activeProjectPath={activeProject?.project_path}
+                sourceTex={selectedFile}
                 zoomLevel={markdownZoomLevel}
                 onChange={setFileContent}
                 onJumpToSource={handleRichTextJumpToSource}
