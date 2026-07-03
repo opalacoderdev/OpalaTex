@@ -681,6 +681,34 @@ export default function EditorPanel({
               >
                 <Type size={12} style={{ color: isRichTextMode ? '#4daafc' : 'inherit' }} />
               </button>
+              {isRichTextMode && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '4px' }}>
+                  <button
+                    onClick={() => setMarkdownZoomLevel(prev => Math.max(0.5, prev - 0.1))}
+                    className="vscode-bottom-panel-clear-btn"
+                    style={{ padding: '6px' }}
+                    title={t('editorPanel.zoomOut')}
+                  >
+                    <ZoomOut size={12} />
+                  </button>
+                  <button
+                    onClick={() => setMarkdownZoomLevel(1.0)}
+                    className="vscode-bottom-panel-clear-btn"
+                    style={{ padding: '4px 6px', minWidth: '38px', fontSize: '11px', color: 'var(--vscode-text-fg)' }}
+                    title={t('editorPanel.resetZoom')}
+                  >
+                    {Math.round(markdownZoomLevel * 100)}%
+                  </button>
+                  <button
+                    onClick={() => setMarkdownZoomLevel(prev => Math.min(2.0, prev + 0.1))}
+                    className="vscode-bottom-panel-clear-btn"
+                    style={{ padding: '6px' }}
+                    title={t('editorPanel.zoomIn')}
+                  >
+                    <ZoomIn size={12} />
+                  </button>
+                </div>
+              )}
               <button
                 onClick={() => { setIsLatexPreviewMode(!isLatexPreviewMode); setIsPreviewMode(false); setIsRichTextMode(false); }}
                 className="vscode-bottom-panel-clear-btn"
