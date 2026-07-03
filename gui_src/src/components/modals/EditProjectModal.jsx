@@ -195,6 +195,29 @@ export default function EditProjectModal({
                 />
               </div>
 
+              {/* User Git root */}
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Git Root (Optional)</label>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    type="text"
+                    className="vscode-settings-input"
+                    value={editingProject.git_root_path || ''}
+                    onChange={e => setEditingProject(p => ({ ...p, git_root_path: e.target.value }))}
+                    placeholder="Defaults to project path"
+                    style={{ flex: 1 }}
+                  />
+                  <button type="button" className="vscode-button" style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}
+                    onClick={() => onOpenDirPicker('edit-git-root', editingProject.git_root_path || editingProject.project_path || '~')}>
+                    <FolderOpen size={14} />
+                  </button>
+                  <button type="button" className="vscode-button" style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}
+                    onClick={() => setEditingProject(p => ({ ...p, git_root_path: '' }))}>
+                    Clear
+                  </button>
+                </div>
+              </div>
+
               {/* Mode */}
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.mode')}</label>

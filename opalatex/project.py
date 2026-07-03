@@ -46,7 +46,8 @@ def _init_schema(db_path: str) -> None:
                 core_memory     TEXT NOT NULL DEFAULT '',
                 worker_model    TEXT NOT NULL DEFAULT '',
                 model_params    TEXT NOT NULL DEFAULT '{}',
-                main_file       TEXT NOT NULL DEFAULT ''
+                main_file       TEXT NOT NULL DEFAULT '',
+                git_root_path   TEXT NOT NULL DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS project_history (
@@ -99,6 +100,11 @@ def _init_schema(db_path: str) -> None:
         except sqlite3.OperationalError:
             pass
 
+        try:
+            conn.execute("ALTER TABLE projects ADD COLUMN git_root_path TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS project_chats (
                 id          TEXT PRIMARY KEY,
@@ -141,6 +147,7 @@ class ProjectData:
     worker_api_key: str = ""
     worker_api_base: str = ""
     main_file: str = ""
+    git_root_path: str = ""
     history: list = field(default_factory=list)   # [{role, content}]
 
     def clear_state(self) -> None:
@@ -182,7 +189,7 @@ class ProjectStore:
     def list_projects(self) -> list[dict]:
         with _conn(self.db_path) as conn:
             rows = conn.execute(
-                "SELECT name, project_name, project_path, created_at, updated_at, mode, model, worker_model, description, model_params, worker_model_params, use_shared_memory, main_file FROM projects ORDER BY updated_at DESC"
+                "SELECT name, project_name, project_path, created_at, updated_at, mode, model, worker_model, description, model_params, worker_model_params, use_shared_memory, main_file, git_root_path FROM projects ORDER BY updated_at DESC"
             ).fetchall()
             res = []
             for r in rows:
@@ -246,7 +253,7 @@ class ProjectStore:
                 res.append(d)
             return res
 
-    def create(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, apply_modelconfig: bool = True) -> ProjectData:
+    def create(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, apply_modelconfig: bool = True, git_root_path: str = "") -> ProjectData:
         now = datetime.now(timezone.utc).isoformat()
         _skills = skills if skills is not None else ["opalatex"]
         if "opalatex" not in _skills:
@@ -434,8 +441,8 @@ class ProjectStore:
 
         with _conn(self.db_path) as conn:
             conn.execute(
-                "INSERT INTO projects (name, created_at, updated_at, mode, model, worker_model, project_name, project_path, skills, description, core_memory, model_params, worker_model_params, use_shared_memory, main_file) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (name, now, now, mode, model, worker_model, project_name, abs_proj_path, json.dumps(_skills), description, "", json.dumps(_model_params), json.dumps(_worker_model_params), 0, ""),
+                "INSERT INTO projects (name, created_at, updated_at, mode, model, worker_model, project_name, project_path, skills, description, core_memory, model_params, worker_model_params, use_shared_memory, main_file, git_root_path) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (name, now, now, mode, model, worker_model, project_name, abs_proj_path, json.dumps(_skills), description, "", json.dumps(_model_params), json.dumps(_worker_model_params), 0, "", os.path.abspath(git_root_path) if git_root_path else ""),
             )
             # Create default main chat if it doesn't exist
             chat_id = f"main_{name}"
@@ -443,7 +450,7 @@ class ProjectStore:
                 "INSERT OR IGNORE INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
                 (chat_id, name, "Main Chat", now, "")
             )
-        return ProjectData(name=name, use_shared_memory=False, chats=[{"id": chat_id, "name": "Main Chat"}], current_chat_id=chat_id, mode=mode, model=model, worker_model=worker_model, project_name=project_name, project_path=abs_proj_path, skills=_skills, description=description, core_memory="", model_params=_model_params, worker_model_params=_worker_model_params, api_key=api_key or "", api_base=api_base or "", worker_api_key=worker_api_key or "", worker_api_base=worker_api_base or "", main_file="")
+        return ProjectData(name=name, use_shared_memory=False, chats=[{"id": chat_id, "name": "Main Chat"}], current_chat_id=chat_id, mode=mode, model=model, worker_model=worker_model, project_name=project_name, project_path=abs_proj_path, skills=_skills, description=description, core_memory="", model_params=_model_params, worker_model_params=_worker_model_params, api_key=api_key or "", api_base=api_base or "", worker_api_key=worker_api_key or "", worker_api_base=worker_api_base or "", main_file="", git_root_path=os.path.abspath(git_root_path) if git_root_path else "")
 
     def overwrite(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, use_shared_memory: bool = False) -> ProjectData:
         self.delete(name)
@@ -554,6 +561,7 @@ class ProjectStore:
                 worker_api_key=worker_api_key,
                 worker_api_base=worker_api_base,
                 main_file=row["main_file"] if "main_file" in row.keys() else "",
+                git_root_path=row["git_root_path"] if "git_root_path" in row.keys() else "",
                 history=[dict(r) for r in hist_rows],
             )
 
@@ -600,7 +608,7 @@ class ProjectStore:
         with _conn(self.db_path) as conn:
             conn.execute(
                 """UPDATE projects SET updated_at=?, mode=?, model=?, worker_model=?, project_name=?, project_path=?,
-                   skills=?, description=?, request=?, plan_text=?, subplans=?, results=?, core_memory=?, model_params=?, worker_model_params=?, use_shared_memory=?, main_file=? WHERE name=?""",
+                   skills=?, description=?, request=?, plan_text=?, subplans=?, results=?, core_memory=?, model_params=?, worker_model_params=?, use_shared_memory=?, main_file=?, git_root_path=? WHERE name=?""",
                 (
                     now,
                     project.mode,
@@ -619,6 +627,7 @@ class ProjectStore:
                     json.dumps(_worker_model_params, ensure_ascii=False),
                     int(project.use_shared_memory),
                     getattr(project, "main_file", ""),
+                    getattr(project, "git_root_path", ""),
                     project.name,
                 ),
             )

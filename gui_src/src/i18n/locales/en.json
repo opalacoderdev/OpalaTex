@@ -43,6 +43,8 @@
     "loadingHistory": "Loading history...",
     "noCommits": "No commits found.",
     "selectProjectForVcs": "Select a project to view version control.",
+    "chooseGitRoot": "Choose Git root",
+    "clearGitRoot": "Use project folder as Git root",
     "statusModified": "Modified",
     "statusAdded": "Added",
     "statusDeleted": "Deleted",

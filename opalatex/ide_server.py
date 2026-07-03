@@ -48,6 +48,85 @@ import json
 import urllib.parse
 import mimetypes
 import subprocess
+
+
+class GitContextError(ValueError):
+    pass
+
+
+def _is_path_within(child: str, parent: str) -> bool:
+    child_abs = os.path.normcase(os.path.abspath(child))
+    parent_abs = os.path.normcase(os.path.abspath(parent))
+    return child_abs == parent_abs or child_abs.startswith(parent_abs + os.sep)
+
+
+def _normalize_rel_path(path: str) -> str:
+    return path.replace("\\", "/").strip("/")
+
+
+def _resolve_git_context(project_path: str, use_shadow: bool = False, git_root_path: str | None = None) -> dict:
+    project_abs = os.path.abspath(project_path)
+    if not os.path.isdir(project_abs):
+        raise GitContextError("Invalid project path")
+
+    if use_shadow:
+        return {
+            "project_path": project_abs,
+            "repo_root": project_abs,
+            "cwd": project_abs,
+            "git_cmd": [
+                "git",
+                f"--git-dir={os.path.join(project_abs, '.opalatex', '.shadowgit')}",
+                f"--work-tree={project_abs}",
+            ],
+            "repo_prefix": "",
+            "source": "shadowgit",
+        }
+
+    repo_root = os.path.abspath(git_root_path) if git_root_path else project_abs
+    if not os.path.isdir(repo_root):
+        raise GitContextError("Invalid Git root path")
+    if not _is_path_within(repo_root, project_abs):
+        raise GitContextError("Git root must be inside the project path")
+    if not os.path.exists(os.path.join(repo_root, ".git")):
+        raise GitContextError("Selected Git root does not contain a .git repository")
+
+    repo_prefix = os.path.relpath(repo_root, project_abs)
+    if repo_prefix == ".":
+        repo_prefix = ""
+    return {
+        "project_path": project_abs,
+        "repo_root": repo_root,
+        "cwd": repo_root,
+        "git_cmd": ["git"],
+        "repo_prefix": _normalize_rel_path(repo_prefix),
+        "source": "git",
+    }
+
+
+def _repo_path_to_project_path(repo_path: str, git_ctx: dict) -> str:
+    clean = _normalize_rel_path(repo_path)
+    prefix = git_ctx.get("repo_prefix", "")
+    return _normalize_rel_path(f"{prefix}/{clean}" if prefix and clean else prefix or clean)
+
+
+def _project_path_to_repo_path(file_path: str, git_ctx: dict) -> str:
+    project_abs = git_ctx["project_path"]
+    repo_root = git_ctx["repo_root"]
+    if os.path.isabs(file_path):
+        file_abs = os.path.abspath(file_path)
+        if not _is_path_within(file_abs, project_abs):
+            raise GitContextError("File path is outside the project path")
+    else:
+        file_abs = os.path.abspath(os.path.join(project_abs, file_path))
+        if not _is_path_within(file_abs, project_abs):
+            raise GitContextError("File path is outside the project path")
+
+    if not _is_path_within(file_abs, repo_root):
+        raise GitContextError("File path is outside the selected Git root")
+    return _normalize_rel_path(os.path.relpath(file_abs, repo_root))
+
+
 def get_file_tree(dir_path, root_path=None):
     if root_path is None:
         root_path = dir_path
@@ -860,37 +939,20 @@ class AsyncHTTPServer:
             project_path = query.get('projectPath', [None])[0]
             file_path = query.get('filePath', [None])[0]
             use_shadow = query.get('shadow', ['false'])[0].lower() == 'true'
+            git_root_path = query.get('gitRootPath', [None])[0]
             if not project_path or not file_path:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath are required"}', "application/json")
                 return
             
             try:
-                # Git show HEAD:file expects file to be relative to the repo root
-                if os.path.isabs(file_path):
-                    try:
-                        rel_path = os.path.relpath(file_path, project_path)
-                    except ValueError:
-                        rel_path = file_path
-                else:
-                    rel_path = file_path
-                norm_file_path = rel_path.replace('\\', '/')
-                
                 import subprocess as sp
-                if use_shadow:
-                    shadow_git_dir = os.path.join(project_path, ".opalatex", ".shadowgit")
-                    git_dir_arg = f"--git-dir={shadow_git_dir}"
-                    work_tree_arg = f"--work-tree={project_path}"
-                    result = sp.run(
-                        ["git", git_dir_arg, work_tree_arg, "show", f"HEAD:{norm_file_path}"],
-                        capture_output=True, cwd=project_path, text=True
-                    )
-                    source = "shadowgit"
-                else:
-                    result = sp.run(
-                        ["git", "show", f"HEAD:{norm_file_path}"],
-                        capture_output=True, cwd=project_path, text=True
-                    )
-                    source = "git"
+                git_ctx = _resolve_git_context(project_path, use_shadow, git_root_path)
+                norm_file_path = _project_path_to_repo_path(file_path, git_ctx)
+                result = sp.run(
+                    git_ctx["git_cmd"] + ["show", f"HEAD:{norm_file_path}"],
+                    capture_output=True, cwd=git_ctx["cwd"], text=True
+                )
+                source = git_ctx["source"]
                     
                 if result.returncode == 0:
                     self.send_response(writer, 200, json.dumps({"content": result.stdout, "source": source}).encode('utf-8'), "application/json")
@@ -2004,6 +2066,23 @@ class AsyncHTTPServer:
                     self.send_response(writer, 400, b'{"error":"Project path does not exist or is not a directory"}', "application/json")
                     return
                 project.project_path = os.path.abspath(new_path)
+
+            if "git_root_path" in data:
+                new_git_root = data.get("git_root_path") or ""
+                if new_git_root:
+                    abs_git_root = os.path.abspath(new_git_root)
+                    if not os.path.isdir(abs_git_root):
+                        self.send_response(writer, 400, b'{"error":"Git root path does not exist or is not a directory"}', "application/json")
+                        return
+                    if not _is_path_within(abs_git_root, project.project_path):
+                        self.send_response(writer, 400, b'{"error":"Git root path must be inside the project path"}', "application/json")
+                        return
+                    if not os.path.exists(os.path.join(abs_git_root, ".git")):
+                        self.send_response(writer, 400, b'{"error":"Git root path must contain a .git repository"}', "application/json")
+                        return
+                    project.git_root_path = abs_git_root
+                else:
+                    project.git_root_path = ""
             
             if "main_file" in data:
                 project.main_file = data["main_file"]
@@ -2081,6 +2160,7 @@ class AsyncHTTPServer:
                 "worker_api_key": getattr(project, "worker_api_key", ""),
                 "worker_api_base": getattr(project, "worker_api_base", ""),
                 "current_chat_id": project.current_chat_id,
+                "git_root_path": getattr(project, "git_root_path", ""),
             }
             self.send_response(writer, 200, json.dumps(res_data).encode(), "application/json")
 
@@ -2390,15 +2470,16 @@ class AsyncHTTPServer:
         elif path == '/api/git/status':
             project_path = query.get('projectPath', [None])[0]
             is_shadow = query.get('shadow', ['false'])[0].lower() == 'true'
+            git_root_path = query.get('gitRootPath', [None])[0]
             if not project_path or not os.path.exists(project_path):
                 self.send_response(writer, 400, b'{"error":"Invalid project path"}', "application/json")
                 return
             import subprocess
             try:
-                git_cmd = ["git", f"--git-dir={os.path.join(project_path, '.opalatex', '.shadowgit')}", f"--work-tree={project_path}"] if is_shadow else ["git"]
+                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 res = subprocess.run(
-                    git_cmd + ["status", "--porcelain"],
-                    cwd=project_path,
+                    git_ctx["git_cmd"] + ["status", "--porcelain"],
+                    cwd=git_ctx["cwd"],
                     capture_output=True,
                     text=True
                 )
@@ -2410,6 +2491,7 @@ class AsyncHTTPServer:
                         filepath = line[3:].strip()
                         if " -> " in filepath:
                             filepath = filepath.split(" -> ")[1].strip()
+                        filepath = _repo_path_to_project_path(filepath, git_ctx)
                         # Determine effective display status and staged flag
                         if index_status == '?' and worktree_status == '?':
                             # Untracked
@@ -2433,14 +2515,15 @@ class AsyncHTTPServer:
             project_path = data.get("projectPath")
             message = data.get("message", "update")
             is_shadow = data.get("shadow", False)
+            git_root_path = data.get("gitRootPath")
             if not project_path:
                 self.send_response(writer, 400, b'{"error":"projectPath is required"}', "application/json")
                 return
             import subprocess
             try:
-                git_cmd = ["git", f"--git-dir={os.path.join(project_path, '.opalatex', '.shadowgit')}", f"--work-tree={project_path}"] if is_shadow else ["git"]
+                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 # Commit only what is already staged (no implicit git add .)
-                res = subprocess.run(git_cmd + ["commit", "-m", message], cwd=project_path, capture_output=True, text=True)
+                res = subprocess.run(git_ctx["git_cmd"] + ["commit", "-m", message], cwd=git_ctx["cwd"], capture_output=True, text=True)
                 if res.returncode == 0:
                     self.send_response(writer, 200, b'{"success":true}', "application/json")
                 elif "nothing to commit" in res.stdout or "nothing added to commit" in res.stdout:
@@ -2455,36 +2538,39 @@ class AsyncHTTPServer:
             project_path = query.get('projectPath', [None])[0]
             file_path_param = query.get('filePath', [None])[0]
             is_shadow = query.get('shadow', ['false'])[0].lower() == 'true'
+            git_root_path = query.get('gitRootPath', [None])[0]
             if not project_path or not os.path.exists(project_path):
                 self.send_response(writer, 400, b'{"error":"Invalid project path"}', "application/json")
                 return
             import subprocess
             try:
-                git_cmd = ["git", f"--git-dir={os.path.join(project_path, '.opalatex', '.shadowgit')}", f"--work-tree={project_path}"] if is_shadow else ["git"]
+                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                git_cmd = git_ctx["git_cmd"]
                 diff = ""
                 if file_path_param:
+                    repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
                     # Check if file is untracked
                     ls = subprocess.run(
-                        git_cmd + ["ls-files", "--", file_path_param],
-                        cwd=project_path, capture_output=True, text=True
+                        git_cmd + ["ls-files", "--", repo_file_path],
+                        cwd=git_ctx["cwd"], capture_output=True, text=True
                     )
                     full_path = os.path.join(project_path, file_path_param)
                     if not ls.stdout.strip() and os.path.isfile(full_path):
                         # Untracked file: show as new file diff
                         res = subprocess.run(
-                            git_cmd + ["diff", "--no-index", "/dev/null", file_path_param],
-                            cwd=project_path, capture_output=True, text=True
+                            git_cmd + ["diff", "--no-index", "/dev/null", repo_file_path],
+                            cwd=git_ctx["cwd"], capture_output=True, text=True
                         )
                         diff = res.stdout
                     elif not ls.stdout.strip() and os.path.isdir(full_path):
                         diff = f"(diretório não rastreado: {file_path_param})"
                     else:
-                        res = subprocess.run(git_cmd + ["diff", "--", file_path_param], cwd=project_path, capture_output=True, text=True)
-                        res_staged = subprocess.run(git_cmd + ["diff", "--cached", "--", file_path_param], cwd=project_path, capture_output=True, text=True)
+                        res = subprocess.run(git_cmd + ["diff", "--", repo_file_path], cwd=git_ctx["cwd"], capture_output=True, text=True)
+                        res_staged = subprocess.run(git_cmd + ["diff", "--cached", "--", repo_file_path], cwd=git_ctx["cwd"], capture_output=True, text=True)
                         diff = res.stdout + res_staged.stdout
                 else:
-                    res = subprocess.run(git_cmd + ["diff"], cwd=project_path, capture_output=True, text=True)
-                    res_staged = subprocess.run(git_cmd + ["diff", "--cached"], cwd=project_path, capture_output=True, text=True)
+                    res = subprocess.run(git_cmd + ["diff"], cwd=git_ctx["cwd"], capture_output=True, text=True)
+                    res_staged = subprocess.run(git_cmd + ["diff", "--cached"], cwd=git_ctx["cwd"], capture_output=True, text=True)
                     diff = res.stdout + res_staged.stdout
                 self.send_response(writer, 200, json.dumps({"diff": diff}).encode('utf-8'), "application/json")
             except Exception as e:
@@ -2495,15 +2581,16 @@ class AsyncHTTPServer:
             project_path = query.get('projectPath', [None])[0]
             limit = query.get('limit', ['20'])[0]
             is_shadow = query.get('shadow', ['false'])[0].lower() == 'true'
+            git_root_path = query.get('gitRootPath', [None])[0]
             if not project_path or not os.path.exists(project_path):
                 self.send_response(writer, 400, b'{"error":"Invalid project path"}', "application/json")
                 return
             import subprocess
             try:
-                git_cmd = ["git", f"--git-dir={os.path.join(project_path, '.opalatex', '.shadowgit')}", f"--work-tree={project_path}"] if is_shadow else ["git"]
+                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 res = subprocess.run(
-                    git_cmd + ["log", f"--max-count={limit}", "--pretty=format:%H|%h|%an|%ar|%s"],
-                    cwd=project_path, capture_output=True, text=True
+                    git_ctx["git_cmd"] + ["log", f"--max-count={limit}", "--pretty=format:%H|%h|%an|%ar|%s"],
+                    cwd=git_ctx["cwd"], capture_output=True, text=True
                 )
                 commits = []
                 for line in res.stdout.splitlines():
@@ -2520,16 +2607,19 @@ class AsyncHTTPServer:
             file_path_param = data.get("filePath")
             action = data.get("action", "stage")  # "stage" or "unstage"
             is_shadow = data.get("shadow", False)
+            git_root_path = data.get("gitRootPath")
             if not project_path or not file_path_param:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath required"}', "application/json")
                 return
             import subprocess
             try:
-                git_cmd = ["git", f"--git-dir={os.path.join(project_path, '.opalatex', '.shadowgit')}", f"--work-tree={project_path}"] if is_shadow else ["git"]
+                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                git_cmd = git_ctx["git_cmd"]
+                repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
                 if action == "stage":
-                    subprocess.run(git_cmd + ["add", "--", file_path_param], cwd=project_path, check=True)
+                    subprocess.run(git_cmd + ["add", "--", repo_file_path], cwd=git_ctx["cwd"], check=True)
                 else:
-                    subprocess.run(git_cmd + ["restore", "--staged", "--", file_path_param], cwd=project_path, check=True)
+                    subprocess.run(git_cmd + ["restore", "--staged", "--", repo_file_path], cwd=git_ctx["cwd"], check=True)
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
@@ -2539,16 +2629,19 @@ class AsyncHTTPServer:
             project_path = data.get("projectPath")
             file_path_param = data.get("filePath")
             is_shadow = data.get("shadow", False)
+            git_root_path = data.get("gitRootPath")
             if not project_path or not file_path_param:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath required"}', "application/json")
                 return
             import subprocess
             try:
-                git_cmd = ["git", f"--git-dir={os.path.join(project_path, '.opalatex', '.shadowgit')}", f"--work-tree={project_path}"] if is_shadow else ["git"]
+                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                git_cmd = git_ctx["git_cmd"]
+                repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
                 # For untracked files, remove them; for tracked files, restore
                 res = subprocess.run(
-                    git_cmd + ["ls-files", "--error-unmatch", "--", file_path_param],
-                    cwd=project_path, capture_output=True
+                    git_cmd + ["ls-files", "--error-unmatch", "--", repo_file_path],
+                    cwd=git_ctx["cwd"], capture_output=True
                 )
                 if res.returncode != 0:
                     # Untracked — delete file or directory
@@ -2559,7 +2652,7 @@ class AsyncHTTPServer:
                     elif os.path.exists(full):
                         os.remove(full)
                 else:
-                    subprocess.run(git_cmd + ["restore", "--", file_path_param], cwd=project_path, check=True)
+                    subprocess.run(git_cmd + ["restore", "--", repo_file_path], cwd=git_ctx["cwd"], check=True)
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")

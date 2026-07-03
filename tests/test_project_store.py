@@ -142,6 +142,23 @@ def test_save_persists_description_change(store):
     assert reloaded.description == "Updated description"
 
 
+def test_save_persists_git_root_path(store, tmp_path):
+    proj_dir = tmp_path / "project"
+    git_root = proj_dir / "paper"
+    git_root.mkdir(parents=True)
+    store.create(**_base_args(project_path=str(proj_dir)))
+
+    p = store.load("myproj")
+    p.git_root_path = str(git_root)
+    store.save(p)
+
+    reloaded = store.load("myproj")
+    assert reloaded.git_root_path == str(git_root)
+
+    listed = store.list_projects()
+    assert listed[0]["git_root_path"] == str(git_root)
+
+
 def test_save_always_keeps_opalatex_in_skills(store):
     """Even if someone accidentally removes opalatex before save, it must be restored."""
     store.create(**_base_args())

@@ -9,9 +9,11 @@
   --vscode-statusbar-fg: #ffffff;
   --vscode-text-fg: #cccccc;
   --vscode-text-light: #ffffff;
+  --vscode-descriptionForeground: #858585;
   --vscode-border: #3c3c3c;
   --vscode-active-item: #37373d;
   --vscode-hover-item: #2a2d2e;
+  --vscode-list-hoverBg: rgba(255, 255, 255, 0.04);
   --vscode-active-border: #007acc;
   --vscode-input-bg: #2d2d2d;
   --vscode-button-bg: #0e639c;
@@ -26,6 +28,8 @@
   --border-color: #3c3c3c;
   --vscode-textPreformat-foreground: #d7ba7d;
   --vscode-widget-border: #3c3c3c;
+  --chat-text: #cccccc;
+  --chat-muted: #8a8a8a;
   
   /* Battery colors */
   --battery-good: #4ade80;
@@ -58,9 +62,11 @@
   --vscode-statusbar-fg: #ffffff;
   --vscode-text-fg: #1e1e1e;
   --vscode-text-light: #1e1e1e;
+  --vscode-descriptionForeground: #666666;
   --vscode-border: #c8c8c8;
   --vscode-active-item: #d4e4f7;
   --vscode-hover-item: #e3ecf7;
+  --vscode-list-hoverBg: #e3ecf7;
   --vscode-active-border: #005fb8;
   --vscode-input-bg: #ffffff;
   --vscode-button-bg: #005fb8;
@@ -75,6 +81,8 @@
   --border-color: #c8c8c8;
   --vscode-textPreformat-foreground: #1a3a6b;
   --vscode-widget-border: #c8c8c8;
+  --chat-text: #1e1e1e;
+  --chat-muted: #555555;
 
   /* Battery colors */
   --battery-good: #059669;

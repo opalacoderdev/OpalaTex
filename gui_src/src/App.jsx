@@ -102,6 +102,22 @@ export default function App() {
   const [commitMessage, setCommitMessage] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
   const [useShadowGit, setUseShadowGit] = useState(false);
+  const currentGitRootPath = activeProject?.git_root_path || '';
+  const gitQuerySuffix = () => {
+    if (!activeProject) return '';
+    const params = new URLSearchParams({
+      projectPath: activeProject.project_path,
+      shadow: String(useShadowGit),
+    });
+    if (!useShadowGit && currentGitRootPath) params.set('gitRootPath', currentGitRootPath);
+    return params.toString();
+  };
+  const gitRequestPayload = (extra = {}) => ({
+    projectPath: activeProject?.project_path,
+    shadow: useShadowGit,
+    ...(!useShadowGit && currentGitRootPath ? { gitRootPath: currentGitRootPath } : {}),
+    ...extra,
+  });
 
   // ── Drag-and-drop ─────────────────────────────────────────────────────────
   const [draggedNode, setDraggedNode] = useState(null);
@@ -491,7 +507,7 @@ export default function App() {
 
   useEffect(() => {
     if (!activeProject || !selectedFile) return;
-    fetch(`/api/git/file-at-head?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(selectedFile)}&shadow=${useShadowGit}&t=${Date.now()}`)
+    fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)
       .then(r => r.ok ? r.json() : null)
       .then(gitData => {
         if (gitData && gitData.content !== undefined) {
@@ -503,7 +519,7 @@ export default function App() {
       .catch(() => {
         setOriginalFileContents(prev => ({ ...prev, [selectedFile]: '' }));
       });
-  }, [useShadowGit, selectedFile, activeProject]);
+  }, [useShadowGit, currentGitRootPath, selectedFile, activeProject]);
 
   useEffect(() => {
     const disableContextMenu = (e) => e.preventDefault();
@@ -553,11 +569,11 @@ export default function App() {
     if (!activeProject) return;
     const interval = setInterval(() => { fetchFiles(); fetchGitStatus(); }, 10000);
     return () => clearInterval(interval);
-  }, [activeProject, useShadowGit]);
+  }, [activeProject, useShadowGit, currentGitRootPath]);
 
   useEffect(() => {
     if (activeSidebarTab === 'git' && activeProject) fetchGitStatus();
-  }, [activeSidebarTab, activeProject]);
+  }, [activeSidebarTab, activeProject, currentGitRootPath]);
 
   // Un-maximize editor if all files are closed
   useEffect(() => {
@@ -623,7 +639,7 @@ export default function App() {
   const fetchGitStatus = async () => {
     if (!activeProject) return;
     try {
-      const res = await fetch(`/api/git/status?projectPath=${encodeURIComponent(activeProject.project_path)}&shadow=${useShadowGit}&t=${Date.now()}`);
+      const res = await fetch(`/api/git/status?${gitQuerySuffix()}&t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         // console.log(`[DEBUG fetchGitStatus] projectPath="${activeProject.project_path}" shadow=${useShadowGit} files=`, data.files);
@@ -682,7 +698,7 @@ export default function App() {
     try {
       const res = await fetch('/api/git/commit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectPath: activeProject.project_path, message: commitMessage, shadow: useShadowGit }),
+        body: JSON.stringify(gitRequestPayload({ message: commitMessage })),
       });
       const data = await res.json();
       console.log(`[DEBUG handleGitCommit] Response status=${res.status}`, data);
@@ -697,7 +713,7 @@ export default function App() {
     try {
       await fetch('/api/git/stage', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectPath: activeProject.project_path, filePath, action: 'stage', shadow: useShadowGit }),
+        body: JSON.stringify(gitRequestPayload({ filePath, action: 'stage' })),
       });
       fetchGitStatus();
     } catch (err) { addLog('error', t('app.stageError', { error: err.message })); }
@@ -708,7 +724,7 @@ export default function App() {
     try {
       await fetch('/api/git/stage', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectPath: activeProject.project_path, filePath, action: 'unstage', shadow: useShadowGit }),
+        body: JSON.stringify(gitRequestPayload({ filePath, action: 'unstage' })),
       });
       fetchGitStatus();
     } catch (err) { addLog('error', t('app.unstageError', { error: err.message })); }
@@ -719,7 +735,7 @@ export default function App() {
     try {
       const res = await fetch('/api/git/discard', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectPath: activeProject.project_path, filePath, shadow: useShadowGit }),
+        body: JSON.stringify(gitRequestPayload({ filePath })),
       });
       if (res.ok) { addLog('info', `Alterações descartadas: ${filePath}`); fetchGitStatus(); fetchFiles(); }
       else { const d = await res.json(); addLog('error', `Erro ao descartar: ${d.error}`); }
@@ -831,7 +847,7 @@ export default function App() {
         setFileContents(prev => ({ ...prev, [filePath]: data.content }));
         setOriginalFileContents(prev => ({ ...prev, [filePath]: data.content }));
 
-        fetch(`/api/git/file-at-head?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(filePath)}&shadow=${useShadowGit}&t=${Date.now()}`)
+        fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(filePath)}&t=${Date.now()}`)
           .then(r => r.ok ? r.json() : null)
           .then(gitData => {
             if (gitData && gitData.content !== undefined) {
@@ -860,7 +876,7 @@ export default function App() {
         addLog('info', `Arquivo salvo: ${selectedFile}`);
         setFileContents(prev => ({ ...prev, [selectedFile]: fileContent }));
 
-        fetch(`/api/git/file-at-head?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(selectedFile)}&shadow=${useShadowGit}&t=${Date.now()}`)
+        fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)
           .then(r => r.ok ? r.json() : null)
           .then(gitData => {
             if (gitData && gitData.content !== undefined) {
@@ -1091,7 +1107,7 @@ export default function App() {
     } catch (_) { }
     setModelConfigMsg('');
     setEditProjError('');
-    const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', main_file: fresh.main_file || '', model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: fresh.api_key || '', api_base: fresh.api_base || '', worker_api_key: fresh.worker_api_key || '', worker_api_base: fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
+    const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', main_file: fresh.main_file || '', git_root_path: fresh.git_root_path || '', model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: fresh.api_key || '', api_base: fresh.api_base || '', worker_api_key: fresh.worker_api_key || '', worker_api_base: fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
     console.log("[DEBUG APP] Estado editingProject final que vai para a Modal:", newState);
     setEditingProject(newState);
   };
@@ -1104,7 +1120,7 @@ export default function App() {
     try {
       const res = await fetch('/api/opalatex/update-project', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name: editingProject.name, display_name: editingProject.project_name, project_path: editingProject.project_path, main_file: editingProject.main_file, model: editingProject.model, worker_model: editingProject.worker_model, mode: editingProject.mode, description: editingProject.description, model_params: editingProject.model_params, worker_model_params: editingProject.worker_model_params, api_key: editingProject.api_key, api_base: editingProject.api_base, worker_api_key: editingProject.worker_api_key, worker_api_base: editingProject.worker_api_base, use_shared_memory: editingProject.use_shared_memory, chat_id: activeChatId }),
+        body: JSON.stringify({ project_name: editingProject.name, display_name: editingProject.project_name, project_path: editingProject.project_path, main_file: editingProject.main_file, git_root_path: editingProject.git_root_path || '', model: editingProject.model, worker_model: editingProject.worker_model, mode: editingProject.mode, description: editingProject.description, model_params: editingProject.model_params, worker_model_params: editingProject.worker_model_params, api_key: editingProject.api_key, api_base: editingProject.api_base, worker_api_key: editingProject.worker_api_key, worker_api_base: editingProject.worker_api_base, use_shared_memory: editingProject.use_shared_memory, chat_id: activeChatId }),
       });
       if (res.ok) {
         const updated = await res.json();
@@ -1218,11 +1234,43 @@ export default function App() {
     }
   };
 
+  const updateActiveGitRoot = async (gitRootPath) => {
+    if (!activeProject) return;
+    try {
+      const res = await fetch('/api/opalatex/update-project', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_name: activeProject.name,
+          git_root_path: gitRootPath || '',
+          chat_id: activeChatId,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setActiveProject(prev => prev ? { ...prev, git_root_path: data.git_root_path || '' } : prev);
+        setProjects(prev => prev.map(p => p.name === activeProject.name ? { ...p, git_root_path: data.git_root_path || '' } : p));
+        addLog('info', gitRootPath ? `Raiz Git definida: ${data.git_root_path}` : 'Raiz Git redefinida para a pasta do projeto.');
+        fetchGitStatus();
+      } else {
+        addLog('error', `Erro ao definir raiz Git: ${data.error || 'erro desconhecido'}`);
+      }
+    } catch (err) {
+      addLog('error', `Erro ao definir raiz Git: ${err.message}`);
+    }
+  };
+
   const confirmDirPicker = async () => {
     if (!dirPicker) return;
     if (dirPicker.target === 'new') setNewProjPath(dirPicker.current);
     else if (dirPicker.target === 'export-modelconfig') {
       exportModelConfig(dirPicker.current);
+    }
+    else if (dirPicker.target === 'git-root') {
+      await updateActiveGitRoot(dirPicker.current);
+    }
+    else if (dirPicker.target === 'edit-git-root') {
+      setEditingProject(p => ({ ...p, git_root_path: dirPicker.current }));
     }
     else if (dirPicker.target === 'import') {
       // Call import-project API
@@ -1388,7 +1436,7 @@ export default function App() {
                       console.log(`[DEBUG tool_result] Reloaded open file "${selectedFile}" from disk.`);
                       setFileContent(d.content);
                       setFileContents(prev => ({ ...prev, [selectedFile]: d.content }));
-                      fetch(`/api/git/file-at-head?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(selectedFile)}&shadow=${useShadowGit}&t=${Date.now()}`)
+                      fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)
                         .then(r => r.ok ? r.json() : null)
                         .then(gitData => {
                           if (gitData && gitData.content !== undefined) {
@@ -2163,6 +2211,9 @@ export default function App() {
                 onDiscardFile={handleDiscardFile}
                 useShadowGit={useShadowGit}
                 setUseShadowGit={setUseShadowGit}
+                gitRootPath={currentGitRootPath}
+                onPickGitRoot={() => openDirPicker('git-root', currentGitRootPath || activeProject?.project_path || '~')}
+                onClearGitRoot={() => updateActiveGitRoot('')}
               />
             )}
           </aside>

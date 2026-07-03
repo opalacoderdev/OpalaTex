@@ -43,6 +43,8 @@
     "loadingHistory": "Carregando histórico...",
     "noCommits": "Nenhum commit encontrado.",
     "selectProjectForVcs": "Selecione um projeto para ver o controle de versão.",
+    "chooseGitRoot": "Escolher raiz Git",
+    "clearGitRoot": "Usar pasta do projeto como raiz Git",
     "statusModified": "Modificado",
     "statusAdded": "Adicionado",
     "statusDeleted": "Deletado",

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, ChevronDown, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 function buildStatusMeta(t) {
@@ -108,6 +108,9 @@ export default function GitSidebar({
   onDiscardFile,
   useShadowGit,
   setUseShadowGit,
+  gitRootPath,
+  onPickGitRoot,
+  onClearGitRoot,
 }) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('changes'); // 'changes' | 'log'
@@ -118,29 +121,45 @@ export default function GitSidebar({
   const [loadingLog, setLoadingLog] = useState(false);
 
   const projectPath = activeProject?.project_path;
+  const effectiveGitRoot = gitRootPath || projectPath;
+  const gitQuery = useCallback((extra = {}) => {
+    const params = new URLSearchParams({
+      projectPath,
+      shadow: String(useShadowGit),
+      ...extra,
+    });
+    if (!useShadowGit && gitRootPath) params.set('gitRootPath', gitRootPath);
+    return params.toString();
+  }, [projectPath, useShadowGit, gitRootPath]);
+  const gitBody = useCallback((extra = {}) => ({
+    projectPath,
+    shadow: useShadowGit,
+    ...(!useShadowGit && gitRootPath ? { gitRootPath } : {}),
+    ...extra,
+  }), [projectPath, useShadowGit, gitRootPath]);
 
   const fetchLog = useCallback(async () => {
     if (!projectPath) return;
     setLoadingLog(true);
     try {
-      const res = await fetch(`/api/git/log?projectPath=${encodeURIComponent(projectPath)}&limit=30&shadow=${useShadowGit}`);
+      const res = await fetch(`/api/git/log?${gitQuery({ limit: '30' })}`);
       if (res.ok) { const d = await res.json(); setCommits(d.commits || []); }
     } catch { /* ignore */ }
     finally { setLoadingLog(false); }
-  }, [projectPath]);
+  }, [projectPath, gitQuery]);
 
   useEffect(() => {
     if (activeTab === 'log' && projectPath) fetchLog();
-  }, [activeTab, projectPath, fetchLog, useShadowGit]);
+  }, [activeTab, projectPath, fetchLog, useShadowGit, gitRootPath]);
 
   useEffect(() => {
     fetchGitStatus();
-  }, [useShadowGit]);
+  }, [useShadowGit, gitRootPath]);
 
   useEffect(() => {
     setExpandedDiffs({});
     setDiffs({});
-  }, [projectPath]);
+  }, [projectPath, gitRootPath]);
 
   const toggleDiff = async (filePath) => {
     const next = !expandedDiffs[filePath];
@@ -148,7 +167,7 @@ export default function GitSidebar({
     if (next && !diffs[filePath]) {
       setLoadingDiffs(prev => ({ ...prev, [filePath]: true }));
       try {
-        const res = await fetch(`/api/git/diff?projectPath=${encodeURIComponent(projectPath)}&filePath=${encodeURIComponent(filePath)}&shadow=${useShadowGit}`);
+        const res = await fetch(`/api/git/diff?${gitQuery({ filePath })}`);
         if (res.ok) { const d = await res.json(); setDiffs(prev => ({ ...prev, [filePath]: d.diff || '' })); }
       } catch { /* ignore */ }
       finally { setLoadingDiffs(prev => ({ ...prev, [filePath]: false })); }
@@ -180,7 +199,7 @@ export default function GitSidebar({
     for (const f of gitChanges) {
       if (!f.staged) {
         await fetch('/api/git/stage', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectPath, filePath: f.path, action: 'stage', shadow: useShadowGit }) });
+          body: JSON.stringify(gitBody({ filePath: f.path, action: 'stage' })) });
       }
     }
     setDiffs({});
@@ -229,6 +248,35 @@ export default function GitSidebar({
           <option value="user">👤 Meu Repositório (Git)</option>
           <option value="shadow">🤖 Histórico do Agente (Shadow)</option>
         </select>
+        {!useShadowGit && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px' }}>
+            <div
+              className="truncate"
+              title={effectiveGitRoot}
+              style={{ flex: 1, fontSize: '11px', color: '#808080', border: '1px solid var(--vscode-border)', borderRadius: '3px', padding: '3px 5px' }}
+            >
+              {effectiveGitRoot}
+            </div>
+            <button
+              type="button"
+              title={t('gitSidebar.chooseGitRoot')}
+              onClick={onPickGitRoot}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#808080', padding: '2px' }}
+            >
+              <FolderOpen size={13} />
+            </button>
+            {gitRootPath && (
+              <button
+                type="button"
+                title={t('gitSidebar.clearGitRoot')}
+                onClick={onClearGitRoot}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#808080', padding: '2px' }}
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
