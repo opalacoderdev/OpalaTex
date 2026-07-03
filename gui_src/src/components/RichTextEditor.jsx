@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useCallback, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Lock } from 'lucide-react';
+import katex from 'katex';
 import { parseLatexBlocks } from '../utils/latexBlockParser';
 import { serializeDocument } from '../utils/latexBlockSerializer';
 import { formatMessageContent } from '../utils/formatMessage';
@@ -37,8 +38,8 @@ function hashSource(str) {
 // Strategy:
 //   - Source LaTeX remains the single source of truth.
 //   - Only editable blocks are modified; complex blocks are preserved as-is.
-//   - Inline LaTeX commands (\textbf{}, \textit{}, $...$) are kept inside the
-//     editable text and rendered as styled spans via a lightweight renderer.
+//   - Inline math is rendered while blocks are idle and shown as raw LaTeX
+//     while the block is focused for editing.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function RichTextEditor({
@@ -51,7 +52,6 @@ export default function RichTextEditor({
 }) {
   const { t } = useTranslation();
   const blocks = useMemo(() => parseLatexBlocks(source), [source]);
-  const editingRef = useRef(null);
 
   // ── Handle edit in a contentEditable block ───────────────────────────────
   const handleBlockEdit = useCallback((blockId, newText) => {
@@ -163,57 +163,47 @@ function BlockRenderer({ block, activeProjectPath, sourceTex, onBlockEdit, onLis
 
 function HeadingBlock({ block, onEdit }) {
   const sizes = { 1: '22px', 2: '20px', 3: '18px', 4: '16px', 5: '14px', 6: '13px' };
+  const style = {
+    fontSize: sizes[block.level] || '18px',
+    fontWeight: 'bold',
+    color: 'var(--vscode-text-light, #ffffff)',
+    margin: '16px 0 8px 0',
+    outline: 'none',
+    padding: '2px 4px',
+    borderRadius: '3px',
+    borderBottom: '1px solid transparent',
+    whiteSpace: 'pre-wrap',
+  };
+
   return (
-    <div
-      contentEditable
-      suppressContentEditableWarning
-      onBlur={(e) => {
-        const newText = e.currentTarget.textContent;
-        if (newText !== block.text) onEdit(block.id, newText);
-      }}
-      style={{
-        fontSize: sizes[block.level] || '18px',
-        fontWeight: 'bold',
-        color: 'var(--vscode-text-light, #ffffff)',
-        margin: '16px 0 8px 0',
-        outline: 'none',
-        padding: '2px 4px',
-        borderRadius: '3px',
-        borderBottom: '1px solid transparent',
-        whiteSpace: 'pre-wrap',
-      }}
-      onFocus={(e) => { e.currentTarget.style.borderBottom = '1px solid var(--vscode-accent, #007acc)'; }}
-      onBlurCapture={(e) => { e.currentTarget.style.borderBottom = '1px solid transparent'; }}
-    >
-      {block.text}
-    </div>
+    <EditableLatexText
+      text={block.text}
+      onCommit={(newText) => onEdit(block.id, newText)}
+      style={style}
+      editingStyle={{ borderBottom: '1px solid var(--vscode-accent, #007acc)' }}
+    />
   );
 }
 
 function ParagraphBlock({ block, onEdit }) {
+  const style = {
+    margin: '6px 0',
+    fontSize: '13px',
+    lineHeight: '1.6',
+    color: 'var(--chat-text, #cccccc)',
+    outline: 'none',
+    padding: '2px 4px',
+    borderRadius: '3px',
+    whiteSpace: 'pre-wrap',
+  };
+
   return (
-    <div
-      contentEditable
-      suppressContentEditableWarning
-      onBlur={(e) => {
-        const newText = e.currentTarget.textContent;
-        if (newText !== block.text) onEdit(block.id, newText);
-      }}
-      style={{
-        margin: '6px 0',
-        fontSize: '13px',
-        lineHeight: '1.6',
-        color: 'var(--chat-text, #cccccc)',
-        outline: 'none',
-        padding: '2px 4px',
-        borderRadius: '3px',
-        whiteSpace: 'pre-wrap',
-      }}
-      onFocus={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBg, rgba(255,255,255,0.04))'; }}
-      onBlurCapture={(e) => { e.currentTarget.style.background = 'transparent'; }}
-    >
-      {block.text}
-    </div>
+    <EditableLatexText
+      text={block.text}
+      onCommit={(newText) => onEdit(block.id, newText)}
+      style={style}
+      editingStyle={{ background: 'var(--vscode-list-hoverBg, rgba(255,255,255,0.04))' }}
+    />
   );
 }
 
@@ -227,41 +217,26 @@ function ListBlock({ block, onItemEdit }) {
         <li key={i} style={{ margin: '4px 0', listStyleType: isDescription ? 'none' : undefined }}>
           {isDescription ? (
             <span style={{ display: 'flex', gap: '6px' }}>
-              <span
-                contentEditable
-                suppressContentEditableWarning
-                onBlur={(e) => {
-                  const v = e.currentTarget.textContent;
-                  if (v !== item.term) onItemEdit(block.id, i, 'term', v);
-                }}
+              <EditableLatexText
+                as="span"
+                text={item.term}
+                onCommit={(v) => onItemEdit(block.id, i, 'term', v)}
                 style={{ fontWeight: 'bold', color: 'var(--vscode-text-light, #ffffff)', outline: 'none', whiteSpace: 'pre-wrap' }}
-              >
-                {item.term}
-              </span>
-              <span
-                contentEditable
-                suppressContentEditableWarning
-                onBlur={(e) => {
-                  const v = e.currentTarget.textContent;
-                  if (v !== item.text) onItemEdit(block.id, i, 'text', v);
-                }}
+              />
+              <EditableLatexText
+                as="span"
+                text={item.text}
+                onCommit={(v) => onItemEdit(block.id, i, 'text', v)}
                 style={{ outline: 'none', flex: 1, whiteSpace: 'pre-wrap' }}
-              >
-                {item.text}
-              </span>
+              />
             </span>
           ) : (
-            <span
-              contentEditable
-              suppressContentEditableWarning
-              onBlur={(e) => {
-                const v = e.currentTarget.textContent;
-                if (v !== item.text) onItemEdit(block.id, i, 'text', v);
-              }}
+            <EditableLatexText
+              as="span"
+              text={item.text}
+              onCommit={(v) => onItemEdit(block.id, i, 'text', v)}
               style={{ outline: 'none', display: 'inline-block', width: '100%', whiteSpace: 'pre-wrap' }}
-            >
-              {item.text}
-            </span>
+            />
           )}
         </li>
       ))}
@@ -270,27 +245,25 @@ function ListBlock({ block, onItemEdit }) {
 }
 
 function QuoteBlock({ block, onEdit }) {
+  const style = {
+    margin: '8px 0',
+    paddingLeft: '12px',
+    borderLeft: '3px solid var(--vscode-accent, #007acc)',
+    color: 'var(--chat-muted, #8a8a8a)',
+    fontSize: '13px',
+    outline: 'none',
+    padding: '4px 8px',
+    whiteSpace: 'pre-wrap',
+  };
+
   return (
-    <blockquote
-      contentEditable
-      suppressContentEditableWarning
-      onBlur={(e) => {
-        const newText = e.currentTarget.textContent;
-        if (newText !== block.text) onEdit(block.id, newText);
-      }}
-      style={{
-        margin: '8px 0',
-        paddingLeft: '12px',
-        borderLeft: '3px solid var(--vscode-accent, #007acc)',
-        color: 'var(--chat-muted, #8a8a8a)',
-        fontSize: '13px',
-        outline: 'none',
-        padding: '4px 8px',
-        whiteSpace: 'pre-wrap',
-      }}
-    >
-      {block.text}
-    </blockquote>
+    <EditableLatexText
+      as="blockquote"
+      text={block.text}
+      onCommit={(newText) => onEdit(block.id, newText)}
+      style={style}
+      editingStyle={{ background: 'var(--vscode-list-hoverBg, rgba(255,255,255,0.04))' }}
+    />
   );
 }
 
@@ -310,6 +283,174 @@ function QuoteBlock({ block, onEdit }) {
 //   idle -> loading -> err (log set)
 // Debounced re-render so the user can type freely without spawning a compile
 // per keystroke.
+function EditableLatexText({ as: Tag = 'div', text, onCommit, style, editingStyle = {} }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const editRef = useRef(null);
+  const safeText = text || '';
+
+  useEffect(() => {
+    if (!isEditing || !editRef.current) return;
+    const el = editRef.current;
+    el.focus();
+    moveCaretToEnd(el);
+  }, [isEditing]);
+
+  const commit = useCallback((value) => {
+    setIsEditing(false);
+    if (value !== safeText) onCommit(value);
+  }, [onCommit, safeText]);
+
+  if (isEditing) {
+    return (
+      <Tag
+        ref={editRef}
+        contentEditable
+        suppressContentEditableWarning
+        onBlur={(e) => commit(e.currentTarget.textContent || '')}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            setIsEditing(false);
+          }
+        }}
+        style={{ ...style, ...editingStyle }}
+      >
+        {safeText}
+      </Tag>
+    );
+  }
+
+  return (
+    <Tag
+      tabIndex={0}
+      onClick={() => setIsEditing(true)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setIsEditing(true);
+        }
+      }}
+      style={{ ...style, cursor: 'text' }}
+    >
+      {renderInlineLatex(safeText)}
+    </Tag>
+  );
+}
+
+function moveCaretToEnd(el) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function renderInlineLatex(text) {
+  return tokenizeInlineMath(text).map((token, index) => {
+    if (token.type === 'text') {
+      return <React.Fragment key={index}>{token.value}</React.Fragment>;
+    }
+    const html = renderKatexInline(token.value);
+    if (!html) {
+      return <React.Fragment key={index}>{token.raw}</React.Fragment>;
+    }
+    return (
+      <span
+        key={index}
+        className="rich-text-inline-math"
+        data-latex={token.raw}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  });
+}
+
+function renderKatexInline(math) {
+  try {
+    return katex.renderToString(math, {
+      displayMode: false,
+      throwOnError: false,
+      strict: 'ignore',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function tokenizeInlineMath(text) {
+  const tokens = [];
+  let cursor = 0;
+  let i = 0;
+
+  const pushText = (end) => {
+    if (end > cursor) tokens.push({ type: 'text', value: text.slice(cursor, end) });
+  };
+
+  while (i < text.length) {
+    if (text.startsWith('\\(', i)) {
+      const end = findInlineCommandMathEnd(text, i + 2);
+      if (end !== -1) {
+        pushText(i);
+        tokens.push({
+          type: 'math',
+          value: text.slice(i + 2, end),
+          raw: text.slice(i, end + 2),
+        });
+        i = end + 2;
+        cursor = i;
+        continue;
+      }
+    }
+
+    if (text[i] === '$' && !isEscaped(text, i) && text[i + 1] !== '$' && text[i - 1] !== '$') {
+      const end = findInlineDollarMathEnd(text, i + 1);
+      if (end !== -1) {
+        pushText(i);
+        tokens.push({
+          type: 'math',
+          value: text.slice(i + 1, end),
+          raw: text.slice(i, end + 1),
+        });
+        i = end + 1;
+        cursor = i;
+        continue;
+      }
+    }
+
+    i++;
+  }
+
+  pushText(text.length);
+  return tokens;
+}
+
+function findInlineCommandMathEnd(text, start) {
+  let i = start;
+  while (i < text.length) {
+    if (text.startsWith('\\)', i) && !isEscaped(text, i)) return i;
+    i++;
+  }
+  return -1;
+}
+
+function findInlineDollarMathEnd(text, start) {
+  let i = start;
+  while (i < text.length) {
+    if (text[i] === '\n') return -1;
+    if (text[i] === '$' && !isEscaped(text, i) && text[i + 1] !== '$') return i;
+    i++;
+  }
+  return -1;
+}
+
+function isEscaped(text, index) {
+  let slashCount = 0;
+  for (let i = index - 1; i >= 0 && text[i] === '\\'; i--) slashCount++;
+  return slashCount % 2 === 1;
+}
+
 function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
   const [state, setState] = useState({ status: 'idle', svg: '', log: '' });
   const debounceRef = useRef(null);
@@ -656,7 +797,7 @@ function CommentBlock({ block }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Inline LaTeX renderer — REMOVED
+// Inline LaTeX renderer
 //
 // The previous implementation rendered \textbf{}, \textit{}, $...$ as styled
 // HTML spans inside contentEditable blocks. This caused a critical bug:
@@ -664,10 +805,8 @@ function CommentBlock({ block }) {
 // LaTeX commands), corrupting the source even when the user didn't edit
 // anything.
 //
-// Fix: editable blocks now render the raw LaTeX text as-is. The user sees
-// \textbf{bold} and $x^2$ in plain text while editing. This is the same
-// approach as Overleaf's Rich Text beta for unsupported inline commands —
-// they show the raw LaTeX in editable regions.
+// Fix: editable blocks render inline math only while idle. On focus, the same
+// block switches back to raw LaTeX so blur serialization preserves commands.
 //
 // Non-editable blocks (math display, figures, tables) still render via
 // KaTeX/react-markdown since they are read-only and never serialized back.
