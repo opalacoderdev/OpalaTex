@@ -47,6 +47,7 @@ export default function RichTextEditor({
   activeProjectPath,
   sourceTex,
   zoomLevel = 1.0,
+  initialSourceLine,
   onChange,
   onJumpToSource,
   onActiveSourceLineChange,
@@ -55,6 +56,7 @@ export default function RichTextEditor({
   const blocks = useMemo(() => parseLatexBlocks(source), [source]);
   const containerRef = useRef(null);
   const activeLineRef = useRef(1);
+  const lastInitialLineRef = useRef(null);
 
   // ── Handle edit in a contentEditable block ───────────────────────────────
   const handleBlockEdit = useCallback((blockId, newText) => {
@@ -103,6 +105,30 @@ export default function RichTextEditor({
     const line = Number(current?.getAttribute('data-source-line'));
     if (line) setActiveSourceLine(line);
   }, [setActiveSourceLine]);
+
+  useEffect(() => {
+    const line = Number(initialSourceLine);
+    const container = containerRef.current;
+    if (!line || !container || lastInitialLineRef.current === line) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const items = Array.from(container.querySelectorAll('[data-source-line]'));
+      if (!items.length) return;
+
+      let target = items[0];
+      for (const item of items) {
+        const itemLine = Number(item.getAttribute('data-source-line'));
+        if (!itemLine || itemLine > line) break;
+        target = item;
+      }
+
+      container.scrollTop = Math.max(0, target.offsetTop - 24);
+      lastInitialLineRef.current = line;
+      setActiveSourceLine(Number(target.getAttribute('data-source-line')) || line);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [blocks, initialSourceLine, setActiveSourceLine]);
 
   return (
     <div

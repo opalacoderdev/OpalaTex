@@ -3,6 +3,7 @@ import json
 import urllib.request
 import platform
 import re
+from .subprocess_utils import utf8_text_kwargs
 
 def check_ollama_status():
     """Check if Ollama is installed and running, and get its version."""
@@ -13,7 +14,7 @@ def check_ollama_status():
 
     # Check via CLI
     try:
-        result = subprocess.run(["ollama", "--version"], capture_output=True, text=True, check=True)
+        result = subprocess.run(["ollama", "--version"], capture_output=True, check=True, **utf8_text_kwargs())
         # Usually outputs: "ollama version is 0.3.14" or "ollama version 0.3.14"
         installed = True
         output = result.stdout.strip()

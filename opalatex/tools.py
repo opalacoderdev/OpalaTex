@@ -479,6 +479,8 @@ def write_file(path: str, content: str) -> str:
 
 
 import platform
+from .subprocess_utils import utf8_text_kwargs
+
 _os_info = f"{platform.system()} ({platform.release()})"
 _run_cmd_desc = f"Execute a non-interactive shell command (e.g. ls, dir, mkdir, grep, npm install). Runs inside the project directory. Returns stdout/stderr. NEVER run servers or infinite processes. NEVER use echo/printf/cat to write file content — use write_file instead. NOTE: Host OS is {_os_info}. Use the appropriate shell commands."
 
@@ -491,7 +493,7 @@ def run_command(command: str) -> str:
             command,
             shell=True,
             capture_output=True,
-            text=True,
+            **utf8_text_kwargs(),
             stdin=subprocess.DEVNULL,
             timeout=120,
             cwd=cwd,
@@ -559,7 +561,7 @@ def run_python_script(script_path: str, args: str = "") -> str:
             cmd,
             shell=True,
             capture_output=True,
-            text=True,
+            **utf8_text_kwargs(),
             stdin=subprocess.DEVNULL,
             timeout=120,
             cwd=cwd,
@@ -612,7 +614,7 @@ def search_code(query: str, path: str = ".") -> str:
             f"grep -rnI --exclude-dir='.git' --exclude-dir='node_modules' --exclude-dir='__pycache__' '{query}' {resolved}",
             shell=True,
             capture_output=True,
-            text=True,
+            **utf8_text_kwargs(),
             timeout=30,
             cwd=get_project_path(),
         )

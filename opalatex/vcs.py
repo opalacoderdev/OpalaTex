@@ -8,6 +8,7 @@ from typing import List, Callable
 from agenticblocks.core.function_block import as_tool
 
 from . import terminal as T
+from .subprocess_utils import utf8_text_kwargs
 from .tools import AGENT_PROGRESS, _preview, get_project_path
 
 # ─── Base Strategy ────────────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ def _run_shadow_git(command: str, project_path: str | None = None) -> subprocess
         full_cmd,
         shell=True,
         capture_output=True,
-        text=True,
+        **utf8_text_kwargs(),
         cwd=project_path
     )
 

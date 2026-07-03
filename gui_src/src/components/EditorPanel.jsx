@@ -516,6 +516,7 @@ export default function EditorPanel({
           activeProjectPath={activeProject?.project_path}
           sourceTex={selectedFile}
           zoomLevel={markdownZoomLevel}
+          initialSourceLine={richTextSourceLineRef.current}
           onChange={setFileContent}
           onJumpToSource={handleRichTextJumpToSource}
           onActiveSourceLineChange={(line) => {

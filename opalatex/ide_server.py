@@ -48,6 +48,7 @@ import json
 import urllib.parse
 import mimetypes
 import subprocess
+from opalatex.subprocess_utils import utf8_text_kwargs
 
 
 class GitContextError(ValueError):
@@ -313,7 +314,7 @@ def _read_clipboard() -> str:
             [sys.executable, '-c',
              'from PyQt6.QtWidgets import QApplication; app=QApplication([]);'
              ' print(app.clipboard().text(), end="")'],
-            capture_output=True, text=True, timeout=3, env=os.environ.copy(),
+            capture_output=True, timeout=3, env=os.environ.copy(), **utf8_text_kwargs(),
         )
         if r.returncode == 0:
             return r.stdout
@@ -344,7 +345,7 @@ def _write_clipboard(text: str):
             [sys.executable, '-c',
              f'from PyQt6.QtWidgets import QApplication; app=QApplication([]);'
              f' app.clipboard().setText("{escaped}"); app.processEvents()'],
-            capture_output=True, text=True, timeout=3, env=os.environ.copy(),
+            capture_output=True, timeout=3, env=os.environ.copy(), **utf8_text_kwargs(),
         )
         if r.returncode == 0:
             return True, ''
@@ -950,7 +951,7 @@ class AsyncHTTPServer:
                 norm_file_path = _project_path_to_repo_path(file_path, git_ctx)
                 result = sp.run(
                     git_ctx["git_cmd"] + ["show", f"HEAD:{norm_file_path}"],
-                    capture_output=True, cwd=git_ctx["cwd"], text=True
+                    capture_output=True, cwd=git_ctx["cwd"], **utf8_text_kwargs()
                 )
                 source = git_ctx["source"]
                     
@@ -2360,6 +2361,9 @@ class AsyncHTTPServer:
                     await writer.drain()
             except (ConnectionResetError, BrokenPipeError):
                 pass  # normal client disconnect
+            except OSError as e:
+                if getattr(e, "winerror", None) != 10053:
+                    print(f"Terminal stream error: {e}")
             except Exception as e:
                 print(f"Terminal stream error: {e}")
             finally:
@@ -2481,7 +2485,7 @@ class AsyncHTTPServer:
                     git_ctx["git_cmd"] + ["status", "--porcelain"],
                     cwd=git_ctx["cwd"],
                     capture_output=True,
-                    text=True
+                    **utf8_text_kwargs()
                 )
                 files = []
                 for line in res.stdout.splitlines():
@@ -2523,7 +2527,12 @@ class AsyncHTTPServer:
             try:
                 git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 # Commit only what is already staged (no implicit git add .)
-                res = subprocess.run(git_ctx["git_cmd"] + ["commit", "-m", message], cwd=git_ctx["cwd"], capture_output=True, text=True)
+                res = subprocess.run(
+                    git_ctx["git_cmd"] + ["commit", "-m", message],
+                    cwd=git_ctx["cwd"],
+                    capture_output=True,
+                    **utf8_text_kwargs(),
+                )
                 if res.returncode == 0:
                     self.send_response(writer, 200, b'{"success":true}', "application/json")
                 elif "nothing to commit" in res.stdout or "nothing added to commit" in res.stdout:
@@ -2552,25 +2561,25 @@ class AsyncHTTPServer:
                     # Check if file is untracked
                     ls = subprocess.run(
                         git_cmd + ["ls-files", "--", repo_file_path],
-                        cwd=git_ctx["cwd"], capture_output=True, text=True
+                        cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs()
                     )
                     full_path = os.path.join(project_path, file_path_param)
                     if not ls.stdout.strip() and os.path.isfile(full_path):
                         # Untracked file: show as new file diff
                         res = subprocess.run(
                             git_cmd + ["diff", "--no-index", "/dev/null", repo_file_path],
-                            cwd=git_ctx["cwd"], capture_output=True, text=True
+                            cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs()
                         )
                         diff = res.stdout
                     elif not ls.stdout.strip() and os.path.isdir(full_path):
                         diff = f"(diretório não rastreado: {file_path_param})"
                     else:
-                        res = subprocess.run(git_cmd + ["diff", "--", repo_file_path], cwd=git_ctx["cwd"], capture_output=True, text=True)
-                        res_staged = subprocess.run(git_cmd + ["diff", "--cached", "--", repo_file_path], cwd=git_ctx["cwd"], capture_output=True, text=True)
+                        res = subprocess.run(git_cmd + ["diff", "--", repo_file_path], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
+                        res_staged = subprocess.run(git_cmd + ["diff", "--cached", "--", repo_file_path], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
                         diff = res.stdout + res_staged.stdout
                 else:
-                    res = subprocess.run(git_cmd + ["diff"], cwd=git_ctx["cwd"], capture_output=True, text=True)
-                    res_staged = subprocess.run(git_cmd + ["diff", "--cached"], cwd=git_ctx["cwd"], capture_output=True, text=True)
+                    res = subprocess.run(git_cmd + ["diff"], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
+                    res_staged = subprocess.run(git_cmd + ["diff", "--cached"], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
                     diff = res.stdout + res_staged.stdout
                 self.send_response(writer, 200, json.dumps({"diff": diff}).encode('utf-8'), "application/json")
             except Exception as e:
@@ -2590,7 +2599,7 @@ class AsyncHTTPServer:
                 git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 res = subprocess.run(
                     git_ctx["git_cmd"] + ["log", f"--max-count={limit}", "--pretty=format:%H|%h|%an|%ar|%s"],
-                    cwd=git_ctx["cwd"], capture_output=True, text=True
+                    cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs()
                 )
                 commits = []
                 for line in res.stdout.splitlines():
