@@ -121,6 +121,11 @@
     "deleteCurrentChat": "Deletar Chat Atual",
     "aiThoughts": "Pensamentos da IA",
     "exportMessage": "Exportar esta resposta",
+    "editMessage": "Editar mensagem",
+    "saveEdit": "Salvar edição",
+    "cancelEdit": "Cancelar edição",
+    "generateResponse": "Gerar resposta",
+    "generateResponseTooltip": "Gerar uma resposta do agente a partir desta mensagem",
     "hideThink": "Ocultar <think>",
     "hideThinkTooltip": "Ocultar blocos <think> do chat",
     "tryAgain": "Tentar Novamente"

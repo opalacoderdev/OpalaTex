@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
-import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw } from 'lucide-react';
+import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatMessageContent } from '../utils/formatMessage';
 import { readClipboard } from '../utils/clipboard.js';
@@ -19,6 +19,8 @@ export default function ChatPanel({
   setIsChatVisible,
   chatWidth,
   handleSendMessage,
+  onEditUserMessage,
+  onGenerateResponseForUserMessage,
   handleInterruptAgent,
   chatEndRef,
   onClearChat,
@@ -127,6 +129,8 @@ export default function ChatPanel({
   const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
   const [newChatName, setNewChatName] = useState('');
   const [showSearchModal, setShowSearchModal] = useState(false);
+  const [editingMessageIndex, setEditingMessageIndex] = useState(null);
+  const [editingMessageDraft, setEditingMessageDraft] = useState('');
 
   // Custom confirm state for deleting chat
   const [chatToDelete, setChatToDelete] = useState(null);
@@ -444,6 +448,10 @@ export default function ChatPanel({
 
     try {
       const projectName = activeProject?.name || '';
+      const persistedMessageIndex = chatMessages
+        .slice(0, messageIndex + 1)
+        .filter(msg => msg.id !== undefined || msg.timestamp)
+        .length - 1;
       const res = await fetch('/api/chat/branch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -451,7 +459,7 @@ export default function ChatPanel({
           project_name: projectName,
           source_chat_id: activeChatId,
           new_chat_name: newChatName,
-          message_index: messageIndex
+          message_index: Math.max(0, persistedMessageIndex)
         })
       });
       
@@ -474,6 +482,26 @@ export default function ChatPanel({
       console.error(e);
       alert(t('app.error', 'Erro:') + ' ' + e.message);
     }
+  };
+
+  const handleStartEditMessage = (messageIndex, message) => {
+    setEditingMessageIndex(messageIndex);
+    setEditingMessageDraft(message.content || '');
+  };
+
+  const handleCancelEditMessage = () => {
+    setEditingMessageIndex(null);
+    setEditingMessageDraft('');
+  };
+
+  const handleSubmitEditMessage = async (messageIndex, message) => {
+    const nextContent = editingMessageDraft.trim();
+    if (!nextContent || nextContent === message.content) {
+      handleCancelEditMessage();
+      return;
+    }
+    await onEditUserMessage?.(messageIndex, message, nextContent);
+    handleCancelEditMessage();
   };
 
   const handleExportSingleMessage = (content) => {
@@ -994,6 +1022,8 @@ export default function ChatPanel({
       <div className="vscode-chat-history" ref={historyRef} onContextMenu={onContextMenu} style={{ zoom: chatZoom, ['--chat-font-scale']: chatZoom }}>
         {chatMessages.map((msg, i) => {
           const isUser = msg.role === 'user';
+          const isLastMessage = i === chatMessages.length - 1;
+          const canGenerateResponse = isUser && isLastMessage && !isAgentRunning && editingMessageIndex !== i;
           const atts = msg._attachments || [];
           
           let displayContent = msg.content;
@@ -1028,6 +1058,28 @@ export default function ChatPanel({
                     </span>
                   )}
                 </div>
+                {isUser && (
+                  <button
+                    onClick={() => handleStartEditMessage(i, msg)}
+                    disabled={isAgentRunning}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: isAgentRunning ? 'not-allowed' : 'pointer',
+                      color: 'var(--vscode-descriptionForeground, #717171)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '2px',
+                      borderRadius: '3px',
+                      transition: 'background-color 0.1s, color 0.1s',
+                      opacity: isAgentRunning ? 0.5 : 1,
+                    }}
+                    title={t('chatPanel.editMessage', 'Edit message')}
+                    className="msg-action-btn"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                )}
                 <button
                   onClick={() => handleBranchChat(i)}
                   style={{
@@ -1085,7 +1137,54 @@ export default function ChatPanel({
                 </div>
               )}
               <div className="vscode-chat-msg-content">
-                {formatMessageContent(displayContent, activeProject?.project_path)}
+                {editingMessageIndex === i && isUser ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <textarea
+                      value={editingMessageDraft}
+                      onChange={(e) => setEditingMessageDraft(e.target.value)}
+                      className="vscode-chat-textarea"
+                      rows={Math.min(8, Math.max(2, editingMessageDraft.split('\n').length))}
+                      autoFocus
+                      disabled={isAgentRunning}
+                      style={{
+                        width: '100%',
+                        resize: 'vertical',
+                        minHeight: '72px',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleSubmitEditMessage(i, msg)}
+                        disabled={isAgentRunning || !editingMessageDraft.trim()}
+                        className="vscode-button"
+                        title={t('chatPanel.saveEdit', 'Save edit')}
+                        style={{ padding: '5px 7px', display: 'flex', alignItems: 'center' }}
+                      >
+                        <Check size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCancelEditMessage}
+                        className="vscode-button"
+                        title={t('chatPanel.cancelEdit', 'Cancel edit')}
+                        style={{
+                          padding: '5px 7px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          background: 'transparent',
+                          border: '1px solid var(--vscode-border)',
+                          color: 'var(--vscode-text-fg)',
+                        }}
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  formatMessageContent(displayContent, activeProject?.project_path)
+                )}
                 {isError && lastUserMsgBeforeThis && (
                   <button
                     onClick={() => handleSendMessage(null, lastUserMsgBeforeThis)}
@@ -1105,6 +1204,31 @@ export default function ChatPanel({
                     }}
                   >
                     <RefreshCw size={14} /> {t('chatPanel.tryAgain', 'Tentar Novamente')}
+                  </button>
+                )}
+                {canGenerateResponse && (
+                  <button
+                    type="button"
+                    onClick={() => onGenerateResponseForUserMessage?.(i, msg)}
+                    style={{
+                      marginTop: '10px',
+                      padding: '7px 11px',
+                      background: 'var(--vscode-button-background, #0e639c)',
+                      color: 'var(--vscode-button-foreground, #ffffff)',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '7px',
+                      width: 'fit-content',
+                      boxShadow: '0 1px 0 rgba(255,255,255,0.08) inset',
+                    }}
+                    title={t('chatPanel.generateResponseTooltip', 'Generate an assistant response from this message')}
+                  >
+                    <Sparkles size={14} />
+                    {t('chatPanel.generateResponse', 'Generate response')}
                   </button>
                 )}
               </div>

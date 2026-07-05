@@ -267,6 +267,37 @@ def test_branch_chat_copies_attachments(store):
     assert loaded.history[0]["_attachments"] == [att]
 
 
+def test_truncate_chat_history_from_index_removes_suffix(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    store.append_message(p, "user", "first")
+    store.append_message(p, "assistant", "first reply")
+    store.append_message(p, "user", "second")
+
+    deleted_ids = store.truncate_chat_history_from_index("myproj", p.current_chat_id, 1)
+
+    loaded = store.load("myproj", chat_id=p.current_chat_id)
+    assert len(deleted_ids) == 2
+    assert [m["content"] for m in loaded.history] == ["first"]
+
+
+def test_branch_chat_prefix_copies_messages_before_index(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    source_chat = p.current_chat_id
+    att = {"type": "image", "data": "abc123", "mime": "image/jpeg", "name": "shot.jpg"}
+    store.append_message(p, "user", "first", attachments=[att])
+    store.append_message(p, "assistant", "first reply")
+    store.append_message(p, "user", "second")
+
+    copied = store.branch_chat_prefix("myproj", source_chat, "branch-edit", "Edited", 2)
+
+    loaded = store.load("myproj", chat_id="branch-edit")
+    assert [m["content"] for m in copied] == ["first", "first reply"]
+    assert [m["content"] for m in loaded.history] == ["first", "first reply"]
+    assert loaded.history[0]["_attachments"] == [att]
+
+
 # ---------------------------------------------------------------------------
 # 7. list_projects ordering
 # ---------------------------------------------------------------------------

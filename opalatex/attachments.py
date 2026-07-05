@@ -80,7 +80,14 @@ def build_attachment_descriptor(
     """
     if mime == "application/pdf":
         text = extract_pdf_text(data_b64, max_chars=max_chars)
-        return {"type": "pdf_text", "data": text, "mime": mime, "name": filename}
+        return {
+            "type": "pdf_text",
+            "data": text,
+            "raw_data": data_b64,
+            "raw_mime": mime,
+            "mime": mime,
+            "name": filename,
+        }
 
     if mime.startswith("image/"):
         compressed = compress_image(data_b64, mime)

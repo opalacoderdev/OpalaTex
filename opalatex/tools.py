@@ -75,13 +75,18 @@ class _AgentProgress:
 
 
 AGENT_PROGRESS = _AgentProgress()
-_RECENT_IMAGE_ATTACHMENTS: dict[str, dict] = {}
+_RECENT_FILE_ATTACHMENTS: dict[str, dict] = {}
+
+
+def set_recent_file_attachments(attachments_by_alias: dict[str, dict]) -> None:
+    """Register chat attachments that tools may reference by synthetic alias."""
+    _RECENT_FILE_ATTACHMENTS.clear()
+    _RECENT_FILE_ATTACHMENTS.update(attachments_by_alias or {})
 
 
 def set_recent_image_attachments(attachments_by_alias: dict[str, dict]) -> None:
-    """Register chat image attachments that tools may reference by synthetic alias."""
-    _RECENT_IMAGE_ATTACHMENTS.clear()
-    _RECENT_IMAGE_ATTACHMENTS.update(attachments_by_alias or {})
+    """Backward-compatible wrapper for callers that only register images."""
+    set_recent_file_attachments(attachments_by_alias)
 
 # Set once at session start via set_project_path(); all tools use this as their workspace.
 _PROJECT_PATH: str = ""
@@ -362,6 +367,23 @@ def opalatex_tool(name: str, description: str, is_safe: bool = False):
 # ─── Tools ───────────────────────────────────────────────────────────────────
 @opalatex_tool(name="read_file", is_safe=True, description="Read the contents of a file in the project workspace. Relative paths are resolved from the project directory.")
 def read_file(path: str) -> str:
+    attachment = _RECENT_FILE_ATTACHMENTS.get(path) or _RECENT_FILE_ATTACHMENTS.get(os.path.basename(path))
+    if attachment:
+        att_type = attachment.get("type", "")
+        if att_type == "pdf_text":
+            raw_data = attachment.get("raw_data")
+            if raw_data:
+                try:
+                    from opalatex.attachments import extract_pdf_text
+                    return extract_pdf_text(raw_data)
+                except Exception as e:
+                    raise ValueError(f"Error extracting attached PDF '{attachment.get('name', path)}': {e}")
+            return attachment.get("data", "")
+        if att_type == "image":
+            raise ValueError(
+                f"'{path}' is an image attachment. Use analyze_image('{path}', prompt) to inspect it."
+            )
+
     try:
         resolved = _resolve_path(path)
     except Exception as e:
@@ -393,7 +415,7 @@ def analyze_image(file_path: str, prompt: str = "Describe this image in detail")
         import litellm
         from .config import get_agent_llm_kwargs, get_agent_model
         
-        attachment = _RECENT_IMAGE_ATTACHMENTS.get(file_path) or _RECENT_IMAGE_ATTACHMENTS.get(os.path.basename(file_path))
+        attachment = _RECENT_FILE_ATTACHMENTS.get(file_path) or _RECENT_FILE_ATTACHMENTS.get(os.path.basename(file_path))
         if attachment:
             resolved = file_path
             encoded_img = attachment.get("data", "")

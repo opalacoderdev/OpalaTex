@@ -539,7 +539,7 @@ class ProjectStore:
                     chats = [{"id": chat_id, "name": "Main Chat"}]
                     
             hist_rows = conn.execute(
-                "SELECT role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id",
+                "SELECT id, role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id",
                 (name, chat_id),
             ).fetchall()
             # Read api_key and api_base from local .env if it exists
@@ -606,6 +606,7 @@ class ProjectStore:
                 compile_on_save_full=compile_full,
                 history=[
                     {
+                        "id": r["id"],
                         "role": r["role"],
                         "content": r["content"],
                         "timestamp": r["timestamp"],
@@ -706,7 +707,7 @@ class ProjectStore:
             )
             message_id = cursor.lastrowid
             
-        message = {"role": role, "content": content, "timestamp": now}
+        message = {"id": message_id, "role": role, "content": content, "timestamp": now}
         if clean_attachments:
             message["_attachments"] = clean_attachments
         project.history.append(message)
@@ -732,6 +733,30 @@ class ProjectStore:
                 conn.execute("DELETE FROM project_history WHERE project = ? AND chat_id = ?", (name, chat_id))
             else:
                 conn.execute("DELETE FROM project_history WHERE project = ?", (name,))
+
+    def truncate_chat_history_from_index(self, name: str, chat_id: str, from_index: int) -> list[int]:
+        if from_index < 0:
+            raise ValueError("from_index must be >= 0")
+        with _conn(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id",
+                (name, chat_id),
+            ).fetchall()
+            if from_index >= len(rows):
+                raise ValueError("from_index is outside the chat history")
+            deleted_ids = [int(r["id"]) for r in rows[from_index:]]
+            placeholders = ",".join("?" for _ in deleted_ids)
+            conn.execute(
+                f"DELETE FROM project_history WHERE project = ? AND chat_id = ? AND id IN ({placeholders})",
+                (name, chat_id, *deleted_ids),
+            )
+        try:
+            from .archival import get_collection
+            collection = get_collection(name)
+            collection.delete(ids=[str(i) for i in deleted_ids])
+        except Exception:
+            pass
+        return deleted_ids
 
     def get_chat_core_memory(self, name: str, chat_id: str) -> str:
         with _conn(self.db_path) as conn:
@@ -803,6 +828,43 @@ class ProjectStore:
                         hist_row["attachments"] or "[]",
                     )
                 )
+
+    def branch_chat_prefix(self, name: str, source_chat_id: str, new_chat_id: str, new_chat_name: str, limit: int) -> list[dict]:
+        if limit < 0:
+            raise ValueError("limit must be >= 0")
+        with _conn(self.db_path) as conn:
+            now = datetime.now(timezone.utc).isoformat()
+            row = conn.execute("SELECT core_memory FROM project_chats WHERE project = ? AND id = ?", (name, source_chat_id)).fetchone()
+            core_memory = row["core_memory"] if row else ""
+            conn.execute(
+                "INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
+                (new_chat_id, name, new_chat_name, now, core_memory),
+            )
+            history = conn.execute(
+                "SELECT role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id LIMIT ?",
+                (name, source_chat_id, limit),
+            ).fetchall()
+            copied = []
+            for hist_row in history:
+                cursor = conn.execute(
+                    "INSERT INTO project_history (project, chat_id, timestamp, role, content, attachments) VALUES (?,?,?,?,?,?)",
+                    (
+                        name,
+                        new_chat_id,
+                        hist_row["timestamp"],
+                        hist_row["role"],
+                        hist_row["content"],
+                        hist_row["attachments"] or "[]",
+                    ),
+                )
+                copied.append({
+                    "id": cursor.lastrowid,
+                    "role": hist_row["role"],
+                    "content": hist_row["content"],
+                    "timestamp": hist_row["timestamp"],
+                    "_attachments": json.loads(hist_row["attachments"] or "[]"),
+                })
+            return copied
 
 # Backward-compat alias
 SessionStore = ProjectStore

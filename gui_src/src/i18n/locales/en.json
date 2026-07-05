@@ -121,6 +121,11 @@
     "deleteCurrentChat": "Delete Current Chat",
     "aiThoughts": "AI Thoughts",
     "exportMessage": "Export this response",
+    "editMessage": "Edit message",
+    "saveEdit": "Save edit",
+    "cancelEdit": "Cancel edit",
+    "generateResponse": "Generate response",
+    "generateResponseTooltip": "Generate an assistant response from this message",
     "hideThink": "Hide <think>",
     "hideThinkTooltip": "Hide <think> blocks from chat",
     "tryAgain": "Try Again"

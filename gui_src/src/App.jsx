@@ -1546,8 +1546,9 @@ export default function App() {
     }
   };
 
-  const handleSendMessage = async (e, retryMsg = null) => {
+  const handleSendMessage = async (e, retryMsg = null, options = {}) => {
     if (e && e.preventDefault) e.preventDefault();
+    const targetChatId = options.chatIdOverride || activeChatId;
 
     try {
       const r = await fetch('/api/settings/ai-provider');
@@ -1569,7 +1570,11 @@ export default function App() {
     let userText = '';
     let attachmentsSnapshot = [];
 
-    if (retryMsg) {
+    if (options.overrideText !== undefined) {
+      if (!activeProject || isAgentRunning) return;
+      userText = options.overrideText;
+      attachmentsSnapshot = options.overrideAttachments || [];
+    } else if (retryMsg) {
       if (!activeProject || isAgentRunning) return;
       userText = retryMsg.content === '📎 Attachment' ? '' : retryMsg.content;
       attachmentsSnapshot = retryMsg._attachments || [];
@@ -1580,9 +1585,36 @@ export default function App() {
       setChatInput('');
       setPendingAttachments([]);
     }
+    if (options.replaceFromIndex !== undefined) {
+      try {
+        const truncateRes = await fetch('/api/chat/truncate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            project_name: activeProject.name,
+            chat_id: targetChatId,
+            from_index: options.replaceFromIndex,
+          }),
+        });
+        if (!truncateRes.ok) {
+          const err = await truncateRes.json().catch(() => ({}));
+          throw new Error(err.error || 'Failed to truncate chat history');
+        }
+      } catch (err) {
+        addLog('error', `Falha ao preparar edição: ${err.message}`);
+        return;
+      }
+    }
     // Show attachment previews alongside the user message in the chat history
     const userMsg = { role: 'user', content: userText || '📎 Attachment', _attachments: attachmentsSnapshot, timestamp: new Date().toISOString() };
     setChatMessages(prev => {
+      if (options.baseMessages) {
+        return [...options.baseMessages, userMsg];
+      }
+      if (options.replaceFromIndex !== undefined) {
+        const replaceUiIndex = options.replaceUiIndex ?? options.replaceFromIndex;
+        return [...prev.slice(0, replaceUiIndex), userMsg];
+      }
       if (retryMsg) {
         const idx = prev.indexOf(retryMsg);
         if (idx !== -1) {
@@ -1601,7 +1633,7 @@ export default function App() {
       try {
         const res = await fetch('/api/opalatex/slash-command', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: userText.trim(), project_name: activeProject.name, project_path: activeProject.project_path, chat_id: activeChatId }),
+          body: JSON.stringify({ prompt: userText.trim(), project_name: activeProject.name, project_path: activeProject.project_path, chat_id: targetChatId }),
         });
         const result = await res.json();
         if (result.status === 'confirm') {
@@ -1632,7 +1664,7 @@ export default function App() {
           project_name: activeProject.name, project_path: activeProject.project_path,
           model: activeProject.model, current_file: selectedFile || '',
           editor_content: fileContent || '', selected_text: selectedText || '',
-          chat_id: activeChatId,
+          chat_id: targetChatId,
           attachments: attachmentsSnapshot,
         }),
       });
@@ -1656,6 +1688,90 @@ export default function App() {
       addLog('error', `Falha na execução: ${err.message}`);
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, timestamp: new Date().toISOString() }]);
     } finally { setIsAgentRunning(false); fetchFiles(); fetchProblems(); }
+  };
+
+  const handleEditUserMessage = async (messageIndex, originalMessage, editedContent) => {
+    if (!activeProject || isAgentRunning || !originalMessage || originalMessage.role !== 'user') return;
+    const nextContent = (editedContent || '').trim();
+    if (!nextContent || nextContent === originalMessage.content) return;
+
+    let lastUserIndex = -1;
+    for (let i = chatMessages.length - 1; i >= 0; i--) {
+      if (chatMessages[i]?.role === 'user') {
+        lastUserIndex = i;
+        break;
+      }
+    }
+
+    const attachments = originalMessage._attachments || [];
+    const persistedMessageIndex = chatMessages
+      .slice(0, messageIndex)
+      .filter(msg => msg.id !== undefined || msg.timestamp)
+      .length;
+    if (messageIndex === lastUserIndex) {
+      await handleSendMessage(null, null, {
+        overrideText: nextContent,
+        overrideAttachments: attachments,
+        replaceFromIndex: persistedMessageIndex,
+        replaceUiIndex: messageIndex,
+      });
+      return;
+    }
+
+    const sourceChat = chats.find(c => c.id === activeChatId);
+    const newChatName = `${sourceChat?.name || 'Chat'} (edited)`;
+    try {
+      const res = await fetch('/api/chat/branch-edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_name: activeProject.name,
+          source_chat_id: activeChatId,
+          new_chat_name: newChatName,
+          message_index: persistedMessageIndex,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to create edited branch');
+      }
+      const data = await res.json();
+      const branchHistory = data.history || [];
+      const newChatId = data.new_chat_id;
+      setActiveChatId(newChatId);
+      setActiveProject(prev => prev ? { ...prev, current_chat_id: newChatId } : null);
+      setChats(prev => [...prev, { id: newChatId, name: data.name || newChatName }]);
+      setChatMessages(branchHistory);
+      await handleSendMessage(null, null, {
+        overrideText: nextContent,
+        overrideAttachments: attachments,
+        chatIdOverride: newChatId,
+        baseMessages: branchHistory,
+      });
+      fetch(`/api/chat/list?project_name=${encodeURIComponent(activeProject.name)}&t=${Date.now()}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.chats) setChats(d.chats); })
+        .catch(() => { });
+    } catch (err) {
+      addLog('error', `Falha ao criar branch editada: ${err.message}`);
+    }
+  };
+
+  const handleGenerateResponseForUserMessage = async (messageIndex, message) => {
+    if (!activeProject || isAgentRunning || !message || message.role !== 'user') return;
+    const content = message.content === '📎 Attachment' ? '' : (message.content || '');
+    const attachments = message._attachments || [];
+    if (!content.trim() && attachments.length === 0) return;
+    const persistedMessageIndex = chatMessages
+      .slice(0, messageIndex)
+      .filter(msg => msg.id !== undefined || msg.timestamp)
+      .length;
+    await handleSendMessage(null, null, {
+      overrideText: content,
+      overrideAttachments: attachments,
+      replaceFromIndex: persistedMessageIndex,
+      replaceUiIndex: messageIndex,
+    });
   };
 
   const sendConfirmResponse = async (value) => {
@@ -2394,6 +2510,8 @@ export default function App() {
               setIsChatVisible={setIsChatVisible}
               chatWidth={chatWidth}
               handleSendMessage={handleSendMessage}
+              onEditUserMessage={handleEditUserMessage}
+              onGenerateResponseForUserMessage={handleGenerateResponseForUserMessage}
               handleInterruptAgent={handleInterruptAgent}
               onClearChat={() => {
                 const currentProjName = activeProject ? (activeProject.project_name || activeProject.name) : '';

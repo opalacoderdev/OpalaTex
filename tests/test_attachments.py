@@ -84,6 +84,20 @@ def test_build_attachment_descriptor_image():
     base64.b64decode(desc["data"])
 
 
+def test_build_attachment_descriptor_pdf_preserves_original(monkeypatch):
+    from opalatex import attachments
+
+    raw = base64.b64encode(b"%PDF-1.4 fake").decode()
+    monkeypatch.setattr(attachments, "extract_pdf_text", lambda data_b64, max_chars=None: "PDF text")
+
+    desc = attachments.build_attachment_descriptor("paper.pdf", raw, "application/pdf")
+
+    assert desc["type"] == "pdf_text"
+    assert desc["data"] == "PDF text"
+    assert desc["raw_data"] == raw
+    assert desc["raw_mime"] == "application/pdf"
+
+
 def test_build_attachment_descriptor_unknown_passes_through():
     from opalatex.attachments import build_attachment_descriptor
 
@@ -111,6 +125,25 @@ def test_agent_input_accepts_attachments():
     inp = AgentInput(prompt="Describe this", attachments=[att])
     assert len(inp.attachments) == 1
     assert inp.attachments[0]["type"] == "image"
+
+
+def test_read_file_extracts_recent_pdf_attachment(monkeypatch):
+    import opalatex.tools as tools
+
+    raw = base64.b64encode(b"%PDF-1.4 fake").decode()
+    monkeypatch.setattr("opalatex.attachments.extract_pdf_text", lambda data_b64: f"extracted:{data_b64}")
+
+    tools.set_recent_file_attachments({
+        "input_file_0.pdf": {
+            "type": "pdf_text",
+            "data": "preview text",
+            "raw_data": raw,
+            "mime": "application/pdf",
+            "name": "paper.pdf",
+        }
+    })
+
+    assert tools.read_file("input_file_0.pdf") == f"extracted:{raw}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

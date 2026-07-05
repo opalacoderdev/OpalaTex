@@ -903,9 +903,9 @@ async def handle_run(data: dict):
             attachment_aliases = {
                 _attachment_alias(idx, att): att
                 for idx, att in enumerate(final_attachments)
-                if att.get("type") == "image"
+                if att.get("type") in ("image", "pdf_text")
             }
-            tools_mod.set_recent_image_attachments(attachment_aliases)
+            tools_mod.set_recent_file_attachments(attachment_aliases)
 
             if final_attachments:
                 source = "current message" if raw_attachments else "recent chat history"
@@ -916,7 +916,8 @@ async def handle_run(data: dict):
                 prompt += (
                     f"\n\n[Attachment context from {source}. These files are attached to this LLM message. "
                     f"Use the visual/PDF content directly when possible. If a tool asks for a file path, "
-                    f"use the listed alias exactly.]\n" + "\n".join(summaries)
+                    f"use the listed alias exactly. For PDF aliases, read_file(alias) extracts the original attached PDF.]\n"
+                    + "\n".join(summaries)
                 )
 
             # Save user message to store immediately so it's not lost if the agent crashes
