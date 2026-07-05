@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import shutil
 import base64
+import time
 
 def get_tectonic_path():
     """Find tectonic in the project bin directory or in PATH."""
@@ -143,12 +144,256 @@ def guess_main_file(project_dir: str) -> str:
         pass
     return ""
 
-def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", project_dir: str = "") -> dict:
+
+LATEX_ARTIFACT_EXTENSIONS = {
+    ".aux", ".bbl", ".bcf", ".blg", ".dvi", ".fdb_latexmk", ".fls",
+    ".idx", ".ilg", ".ind", ".lof", ".log", ".lot", ".nav", ".out",
+    ".snm", ".toc", ".vrb", ".xdv",
+}
+
+LATEX_ARTIFACT_SUFFIXES = {
+    ".synctex.gz",
+    ".run.xml",
+    ".fdb_latexmk",
+}
+
+
+def clean_latex_artifacts(project_dir: str) -> dict:
+    """Remove generated LaTeX artifacts inside the project tree."""
+    if not project_dir or not os.path.isdir(project_dir):
+        return {"success": False, "removed": [], "errors": ["project_dir is not a directory"]}
+
+    project_abs = os.path.abspath(project_dir)
+    ignored_dirs = {".git", ".opalatex", "node_modules", "__pycache__"}
+    removed = []
+    errors = []
+
+    for root, dirs, files in os.walk(project_abs):
+        dirs[:] = [d for d in dirs if d not in ignored_dirs]
+        for name in files:
+            lower_name = name.lower()
+            _, ext = os.path.splitext(lower_name)
+            is_artifact = (
+                ext in LATEX_ARTIFACT_EXTENSIONS
+                or any(lower_name.endswith(suffix) for suffix in LATEX_ARTIFACT_SUFFIXES)
+                or (lower_name.startswith("opalatex_partial_") and ext in {".tex", ".pdf"})
+            )
+            if not is_artifact:
+                continue
+
+            full_path = os.path.abspath(os.path.join(root, name))
+            if full_path != project_abs and not full_path.startswith(project_abs + os.sep):
+                continue
+            try:
+                os.remove(full_path)
+                removed.append(os.path.relpath(full_path, project_abs).replace("\\", "/"))
+            except OSError as e:
+                errors.append(f"{os.path.relpath(full_path, project_abs)}: {e}")
+
+    return {"success": len(errors) == 0, "removed": removed, "errors": errors}
+
+
+def _strip_tex_extension(path: str) -> str:
+    normalized = (path or "").replace("\\", "/").strip()
+    if normalized.lower().endswith(".tex"):
+        normalized = normalized[:-4]
+    return normalized.strip("/")
+
+
+def _same_tex_target(left: str, right: str) -> bool:
+    return _strip_tex_extension(left).lower() == _strip_tex_extension(right).lower()
+
+
+def _find_include_command_for_file(main_content: str, target_rel_from_main: str):
+    source = _strip_latex_comments(main_content)
+    for command in ("include", "input"):
+        pattern = re.compile(r'\\' + command + r'\s*\{([^}]+)\}')
+        for match in pattern.finditer(source):
+            arg = match.group(1).strip()
+            if _same_tex_target(arg, target_rel_from_main):
+                return command, arg
+    return "", ""
+
+
+def compile_latex_partial(tex_content: str, file_path: str, main_file: str, project_dir: str,
+                          include_pdf_base64: bool = True) -> dict:
+    """
+    Compile only the current included/input file while preserving SyncTeX.
+
+    This is an editing-time preview path. If the current file is the main file
+    or cannot be matched as an \include/\input target, it returns a clear
+    failure so callers can fall back to full compilation.
+    """
+    if not file_path or not main_file or not project_dir:
+        return {
+            "success": False,
+            "pdf_base64": None,
+            "pdf_path": "",
+            "synctex_path": "",
+            "timing": {},
+            "log": "Partial compile requires file_path, main_file, and project_dir.",
+            "partial": True,
+        }
+
+    project_abs = os.path.abspath(project_dir)
+    abs_file = os.path.abspath(file_path)
+    abs_main = os.path.abspath(os.path.join(project_abs, main_file))
+    main_dir = os.path.dirname(abs_main)
+
+    if os.path.normcase(abs_file) == os.path.normcase(abs_main):
+        result = compile_latex(tex_content, file_path, main_file, project_dir, include_pdf_base64)
+        result["partial"] = False
+        result["partial_mode"] = "main"
+        return result
+
+    try:
+        os.makedirs(os.path.dirname(abs_file), exist_ok=True)
+        with open(abs_file, "w", encoding="utf-8") as f:
+            f.write(tex_content)
+    except Exception:
+        pass
+
+    try:
+        with open(abs_main, "r", encoding="utf-8", errors="ignore") as f:
+            main_content = f.read()
+    except OSError as e:
+        return {
+            "success": False,
+            "pdf_base64": None,
+            "pdf_path": "",
+            "synctex_path": "",
+            "timing": {},
+            "log": f"Could not read main file for partial compile: {e}",
+            "partial": True,
+        }
+
+    target_rel_from_main = os.path.relpath(abs_file, main_dir).replace("\\", "/")
+    command, include_arg = _find_include_command_for_file(main_content, target_rel_from_main)
+    if not command:
+        return {
+            "success": False,
+            "pdf_base64": None,
+            "pdf_path": "",
+            "synctex_path": "",
+            "timing": {},
+            "log": "Current file was not found as a direct \\include or \\input in the main file.",
+            "partial": True,
+        }
+
+    begin_doc = main_content.find("\\begin{document}")
+    if begin_doc < 0:
+        return {
+            "success": False,
+            "pdf_base64": None,
+            "pdf_path": "",
+            "synctex_path": "",
+            "timing": {},
+            "log": "Main file has no \\begin{document}; partial compile cannot build a wrapper.",
+            "partial": True,
+        }
+
+    if command == "include":
+        preview_content = (
+            main_content[:begin_doc]
+            + f"\n\\includeonly{{{_strip_tex_extension(include_arg)}}}\n"
+            + main_content[begin_doc:]
+        )
+        partial_mode = "includeonly"
+    else:
+        preamble = main_content[:begin_doc]
+        preview_content = (
+            preamble
+            + "\n\\begin{document}\n"
+            + f"\\input{{{include_arg}}}\n"
+            + "\\end{document}\n"
+        )
+        partial_mode = "input-wrapper"
+
+    tectonic_cmd = get_tectonic_path()
+    preview_stem = f"opalatex_partial_{os.path.splitext(os.path.basename(abs_file))[0]}"
+    preview_tex = os.path.join(main_dir, preview_stem + ".tex")
+    preview_pdf = os.path.join(main_dir, preview_stem + ".pdf")
+    preview_synctex = os.path.join(main_dir, preview_stem + ".synctex.gz")
+
+    try:
+        with open(preview_tex, "w", encoding="utf-8") as f:
+            f.write(preview_content)
+
+        compile_started = time.perf_counter()
+        result = subprocess.run(
+            [
+                tectonic_cmd,
+                "--synctex",
+                "--keep-intermediates",
+                "--keep-logs",
+                "-c",
+                "minimal",
+                preview_tex,
+            ],
+            cwd=main_dir,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        compile_seconds = time.perf_counter() - compile_started
+        success = result.returncode == 0 and os.path.exists(preview_pdf)
+        log = result.stdout + "\n" + result.stderr
+        if result.returncode == 0 and not os.path.exists(preview_pdf):
+            log += "\nError: PDF file was not generated despite 0 exit code."
+
+        pdf_base64 = None
+        pdf_read_seconds = 0.0
+        if success and include_pdf_base64:
+            pdf_read_started = time.perf_counter()
+            with open(preview_pdf, "rb") as pdf_file:
+                pdf_base64 = base64.b64encode(pdf_file.read()).decode("utf-8")
+            pdf_read_seconds = time.perf_counter() - pdf_read_started
+
+        return {
+            "success": success,
+            "pdf_base64": pdf_base64,
+            "pdf_path": preview_pdf if success else "",
+            "synctex_path": preview_synctex if success and os.path.exists(preview_synctex) else "",
+            "timing": {
+                "compile_seconds": round(compile_seconds, 3),
+                "pdf_read_seconds": round(pdf_read_seconds, 3),
+            },
+            "log": log,
+            "partial": True,
+            "partial_mode": partial_mode,
+        }
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "pdf_base64": None,
+            "pdf_path": "",
+            "synctex_path": "",
+            "timing": {},
+            "log": "Error: 'tectonic' compiler is not installed or not found in PATH.",
+            "partial": True,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "pdf_base64": None,
+            "pdf_path": "",
+            "synctex_path": "",
+            "timing": {},
+            "log": f"Partial compile failed: {e}",
+            "partial": True,
+        }
+
+
+def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", project_dir: str = "",
+                  include_pdf_base64: bool = True) -> dict:
     """
     Compiles LaTeX content using Tectonic.
     Returns a dictionary with:
     - success (bool): True if compilation succeeded
-    - pdf_base64 (str): Base64 encoded PDF string if success
+    - pdf_base64 (str): Base64 encoded PDF string if success and include_pdf_base64 is True
+    - pdf_path (str): Absolute path to the generated PDF if success
+    - synctex_path (str): Absolute path to the generated SyncTeX file if success
+    - timing (dict): Compile and post-processing timings in seconds
     - log (str): Output log from the compiler
     """
     tectonic_cmd = get_tectonic_path()
@@ -177,46 +422,66 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
         pdf_path = os.path.join(os.path.dirname(abs_main_file), f"{base_no_ext}.pdf")
         synctex_path = os.path.join(os.path.dirname(abs_main_file), f"{base_no_ext}.synctex.gz")
         
-        for p in [pdf_path, synctex_path]:
-            if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
-        
         try:
+            compile_started = time.perf_counter()
             result = subprocess.run(
-                [tectonic_cmd, "--synctex", abs_main_file],
+                [
+                    tectonic_cmd,
+                    "--synctex",
+                    "--keep-intermediates",
+                    "--keep-logs",
+                    "-c",
+                    "minimal",
+                    abs_main_file,
+                ],
                 cwd=project_dir,
                 capture_output=True,
                 encoding="utf-8",
                 errors="replace"
             )
+            compile_seconds = time.perf_counter() - compile_started
             success = result.returncode == 0
             log = result.stdout + "\n" + result.stderr
             pdf_base64 = None
+            pdf_read_seconds = 0.0
             if success and os.path.exists(pdf_path):
-                with open(pdf_path, "rb") as pdf_file:
-                    pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
+                if include_pdf_base64:
+                    pdf_read_started = time.perf_counter()
+                    with open(pdf_path, "rb") as pdf_file:
+                        pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
+                    pdf_read_seconds = time.perf_counter() - pdf_read_started
             else:
                 success = False
-                log += "\nError: PDF file was not generated despite 0 exit code."
+                if result.returncode == 0:
+                    log += "\nError: PDF file was not generated despite 0 exit code."
             
             return {
                 "success": success,
                 "pdf_base64": pdf_base64,
+                "pdf_path": pdf_path if success else "",
+                "synctex_path": synctex_path if success and os.path.exists(synctex_path) else "",
+                "timing": {
+                    "compile_seconds": round(compile_seconds, 3),
+                    "pdf_read_seconds": round(pdf_read_seconds, 3),
+                },
                 "log": log
             }
         except FileNotFoundError:
             return {
                 "success": False,
                 "pdf_base64": None,
+                "pdf_path": "",
+                "synctex_path": "",
+                "timing": {},
                 "log": "Error: 'tectonic' compiler is not installed or not found in PATH.\nPlease install it from https://tectonic-typesetting.github.io/"
             }
         except Exception as e:
             return {
                 "success": False,
                 "pdf_base64": None,
+                "pdf_path": "",
+                "synctex_path": "",
+                "timing": {},
                 "log": f"An unexpected error occurred: {str(e)}"
             }
 
@@ -227,32 +492,35 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
     base_no_ext = os.path.splitext(base_name)[0]
     tex_file_path = os.path.join(temp_dir, base_name)
     
-    if file_path:
-        target_pdf = os.path.splitext(file_path)[0] + ".pdf"
-        target_synctex = os.path.splitext(file_path)[0] + ".synctex.gz"
-        for p in [target_pdf, target_synctex]:
-            if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
-    
     try:
         with open(tex_file_path, "w", encoding="utf-8") as f:
             f.write(tex_content)
             
         # Run tectonic
+        compile_started = time.perf_counter()
         result = subprocess.run(
-            [tectonic_cmd, "--synctex", tex_file_path],
+            [
+                tectonic_cmd,
+                "--synctex",
+                "--keep-intermediates",
+                "--keep-logs",
+                "-c",
+                "minimal",
+                tex_file_path,
+            ],
             cwd=temp_dir,
             capture_output=True,
             encoding="utf-8",
             errors="replace"
         )
+        compile_seconds = time.perf_counter() - compile_started
         
         success = result.returncode == 0
         pdf_base64 = None
         log = result.stdout + "\n" + result.stderr
+        final_pdf_path = ""
+        final_synctex_path = ""
+        pdf_read_seconds = 0.0
         
         if success:
             pdf_path = os.path.join(temp_dir, f"{base_no_ext}.pdf")
@@ -262,24 +530,41 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
                     try:
                         target_pdf = os.path.splitext(file_path)[0] + ".pdf"
                         shutil.copy2(pdf_path, target_pdf)
+                        final_pdf_path = target_pdf
                         
                         # Copy synctex file if it exists
                         synctex_path = os.path.join(temp_dir, f"{base_no_ext}.synctex.gz")
                         if os.path.exists(synctex_path):
                             target_synctex = os.path.splitext(file_path)[0] + ".synctex.gz"
                             shutil.copy2(synctex_path, target_synctex)
+                            final_synctex_path = target_synctex
                     except Exception as copy_err:
                         log += f"\nWarning: could not save PDF to {file_path}'s directory: {copy_err}"
                         
-                with open(pdf_path, "rb") as pdf_file:
-                    pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
+                if not final_pdf_path:
+                    final_pdf_path = pdf_path
+                if not final_synctex_path:
+                    synctex_path = os.path.join(temp_dir, f"{base_no_ext}.synctex.gz")
+                    final_synctex_path = synctex_path if os.path.exists(synctex_path) else ""
+                if include_pdf_base64:
+                    pdf_read_started = time.perf_counter()
+                    with open(pdf_path, "rb") as pdf_file:
+                        pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
+                    pdf_read_seconds = time.perf_counter() - pdf_read_started
             else:
                 success = False
-                log += "\nError: PDF file was not generated despite 0 exit code."
+                if result.returncode == 0:
+                    log += "\nError: PDF file was not generated despite 0 exit code."
                 
         return {
             "success": success,
             "pdf_base64": pdf_base64,
+            "pdf_path": final_pdf_path if success else "",
+            "synctex_path": final_synctex_path if success else "",
+            "timing": {
+                "compile_seconds": round(compile_seconds, 3),
+                "pdf_read_seconds": round(pdf_read_seconds, 3),
+            },
             "log": log
         }
         
@@ -287,12 +572,18 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
         return {
             "success": False,
             "pdf_base64": None,
+            "pdf_path": "",
+            "synctex_path": "",
+            "timing": {},
             "log": "Error: 'tectonic' compiler is not installed or not found in PATH.\nPlease install it from https://tectonic-typesetting.github.io/"
         }
     except Exception as e:
         return {
             "success": False,
             "pdf_base64": None,
+            "pdf_path": "",
+            "synctex_path": "",
+            "timing": {},
             "log": f"An unexpected error occurred: {str(e)}"
         }
     finally:

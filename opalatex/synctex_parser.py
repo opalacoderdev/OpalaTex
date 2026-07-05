@@ -102,10 +102,10 @@ def find_pdf_position(synctex_path, target_file, target_line):
                 best_nodes.append(node)
                 
     if not best_nodes:
-        print(f"SyncTeX debug: No nodes found for target_line={target_line}", file=sys.stderr)
+        #print(f"SyncTeX debug: No nodes found for target_line={target_line}", file=sys.stderr)
         return None
         
-    print(f"SyncTeX debug: target_line={target_line}, best_line={best_line}, min_dist={min_dist}, num_nodes={len(best_nodes)}", file=sys.stderr)
+    #print(f"SyncTeX debug: target_line={target_line}, best_line={best_line}, min_dist={min_dist}, num_nodes={len(best_nodes)}", file=sys.stderr)
     
     # Aggregate to find paragraph bounding box using ONLY text nodes ('h', 'x') to avoid glues ('g', 'k') expanding the box too much
     text_nodes = [n for n in best_nodes if n['type'] in ('h', 'x')]

@@ -10,7 +10,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
-const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse }, ref) => {
+const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady }, ref) => {
   const { t } = useTranslation();
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
@@ -18,8 +18,11 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
   const [scale, setScale] = useState(1.2);
   const containerRef = useRef(null);
   const scrollPosRef = useRef(0);
+  const restoreScrollPosRef = useRef(0);
+  const isReloadingPdfRef = useRef(false);
 
   const handleScroll = () => {
+    if (isReloadingPdfRef.current) return;
     if (containerRef.current) {
       scrollPosRef.current = containerRef.current.scrollTop;
     }
@@ -54,35 +57,51 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
   };
 
   useEffect(() => {
+    if (containerRef.current) {
+      restoreScrollPosRef.current = containerRef.current.scrollTop;
+      scrollPosRef.current = containerRef.current.scrollTop;
+    }
+    isReloadingPdfRef.current = true;
+
     if (directUrl) {
       setPdfUrl(directUrl);
+    } else if (sourceUrl) {
+      setPdfUrl(sourceUrl);
     } else if (base64Pdf) {
       setPdfUrl(`/api/latex/pdf?ts=${Date.now()}`);
     } else {
       setPdfUrl('');
+      isReloadingPdfRef.current = false;
     }
-  }, [base64Pdf, directUrl]);
+  }, [base64Pdf, sourceUrl, directUrl]);
 
   function onDocumentLoadSuccess({ numPages }) {
     setNumPages(numPages);
     setTimeout(() => {
       if (containerRef.current) {
-        containerRef.current.scrollTop = scrollPosRef.current;
+        const nextScrollTop = restoreScrollPosRef.current || scrollPosRef.current;
+        containerRef.current.scrollTop = nextScrollTop;
+        scrollPosRef.current = nextScrollTop;
       }
-    }, 100);
+      isReloadingPdfRef.current = false;
+      if (onDocumentReady) onDocumentReady();
+    }, 150);
   }
   
-  // Expose scroll method to parent for Forward Search (Editor -> PDF)
-   useImperativeHandle(ref, () => ({
-    scrollTo: (page, x, y, w, h) => {
+  const scrollToPosition = (page, x, y, w, h, attempt = 0) => {
       if (!containerRef.current) return;
       const pageEl = containerRef.current.querySelector(`[data-page-number="${page}"]`);
+      if (!pageEl && attempt < 10) {
+        setTimeout(() => {
+          scrollToPosition(page, x, y, w, h, attempt + 1);
+        }, 120);
+        return;
+      }
       if (pageEl) {
-        // scale is 1.2
-        const targetX = x * 1.2;
-        const targetY = y * 1.2;
-        const targetW = (w || 10) * 1.2; // fallback width if 0
-        const targetH = (h || 14) * 1.2; // fallback height if 0
+        const targetX = x * scale;
+        const targetY = y * scale;
+        const targetW = (w || 10) * scale;
+        const targetH = (h || 14) * scale;
         
         // y from the backend is already the TOP of the bounding box (min_y - 10).
         // No need to subtract height.
@@ -101,7 +120,11 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
           setHighlight(null);
         }, 2500);
       }
-    }
+  };
+
+  // Expose scroll method to parent for Forward Search (Editor -> PDF)
+   useImperativeHandle(ref, () => ({
+    scrollTo: scrollToPosition
   }));
 
   const handlePageDoubleClick = async (e, pageIndex) => {
@@ -128,7 +151,7 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
     }
   };
 
-  if (errorLog && !base64Pdf && !directUrl) {
+  if (errorLog && !base64Pdf && !sourceUrl && !directUrl) {
     const parseErrors = (log) => {
       if (!log) return [];
       const lines = log.split('\n');
@@ -207,7 +230,7 @@ const PdfPreview = forwardRef(({ base64Pdf, directUrl, isCompiling, errorLog, ac
     );
   }
 
-  if (!base64Pdf && !directUrl) {
+  if (!base64Pdf && !sourceUrl && !directUrl) {
     return (
       <div className="flex items-center justify-center h-full w-full bg-slate-900 text-slate-500">
         <p>No document compiled yet. Write some LaTeX and compile!</p>

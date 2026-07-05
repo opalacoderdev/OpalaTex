@@ -175,7 +175,7 @@ export default function App() {
   const [editorFontSize, setEditorFontSize] = useState(() => Number(safeGetLocalStorage('editorFontSize', 13)));
   const [editorTabSize, setEditorTabSize] = useState(() => Number(safeGetLocalStorage('editorTabSize', 4)));
   const [editorWordWrap, setEditorWordWrap] = useState(() => safeGetLocalStorage('editorWordWrap', 'on'));
-  const [compileOnSave, setCompileOnSave] = useState(() => safeGetLocalStorage('compileOnSave', 'true') === 'true');
+  const [compileOnSave, setCompileOnSave] = useState(() => safeGetLocalStorage('compileOnSave', 'false') === 'true');
   const [globalAiProvider, setGlobalAiProvider] = useState('local');
 
   useEffect(() => {

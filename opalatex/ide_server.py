@@ -2,6 +2,7 @@ import sys
 import os
 import io
 import base64
+import time
 from opalatex.i18n import _ as get_translation
 
 # ── Force UTF-8 on all I/O streams (critical for PyInstaller --windowed) ─────
@@ -549,7 +550,6 @@ class AsyncHTTPServer:
                         resp_data = json.loads(resp.read().decode('utf-8'))
                         if resp_data.get("success"):
                             from opalatex.licensing import _load_license_data, _save_license_data, get_machine_id
-                            import time
                             
                             license_key = resp_data["licenseKey"]
                             expires_at = resp_data["expiresAtTs"]
@@ -579,12 +579,37 @@ class AsyncHTTPServer:
             return
 
 
+        # 0. Clean LaTeX artifacts
+        if path == '/api/latex/clean' and method == 'POST':
+            project_path = data.get('projectPath', '')
+            if not project_path:
+                self.send_response(writer, 400, b'{"error":"projectPath is required"}', "application/json")
+                return
+
+            try:
+                from opalatex.latex_compiler import clean_latex_artifacts
+                result = clean_latex_artifacts(project_path)
+                if result.get("success"):
+                    self.last_pdf_bytes = None
+                    self.last_pdf_path = ""
+                status = 200 if result.get("success") else 500
+                self.send_response(writer, status, json.dumps(result).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({
+                    "success": False,
+                    "removed": [],
+                    "errors": [str(e)],
+                }).encode('utf-8'), "application/json")
+            return
+
         # 0. Compile LaTeX
         if path == '/api/latex/compile':
-            from opalatex.latex_compiler import compile_latex
+            from opalatex.latex_compiler import compile_latex, compile_latex_partial
+            request_started = time.perf_counter()
             content = data.get('content', '')
             file_path = data.get('filePath', '')
             project_path = data.get('projectPath', '')
+            partial = bool(data.get('partial', False))
             
             if not content:
                 self.send_response(writer, 400, b'{"error":"content is required"}', "application/json")
@@ -615,13 +640,28 @@ class AsyncHTTPServer:
                 main_file = determine_main_file_for_compilation(full_path, content, project_path, main_file)
             
             # run compilation
-            result = compile_latex(content, full_path, main_file, project_path)
+            if partial:
+                result = compile_latex_partial(content, full_path, main_file, project_path, include_pdf_base64=False)
+                if not result.get("success") and "not found as a direct" in (result.get("log") or ""):
+                    result["log"] += "\nFalling back to full compilation."
+                    fallback = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False)
+                    fallback["partial_fallback_reason"] = result["log"]
+                    result = fallback
+            else:
+                result = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False)
             
-            # Save the pdf bytes in memory to bypass WebView blob restrictions
-            if result.get("success") and result.get("pdf_base64"):
-                self.last_pdf_bytes = base64.b64decode(result["pdf_base64"])
+            if result.get("success") and result.get("pdf_path"):
+                self.last_pdf_path = result["pdf_path"]
+                self.last_synctex_path = result.get("synctex_path", "")
+                self.last_pdf_bytes = None
+                result["pdf_url"] = f"/api/latex/pdf?ts={int(time.time() * 1000)}"
             else:
                 self.last_pdf_bytes = None
+                self.last_pdf_path = ""
+                self.last_synctex_path = ""
+            timing = result.get("timing") or {}
+            timing["request_seconds"] = round(time.perf_counter() - request_started, 3)
+            result["timing"] = timing
                 
             self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
             return
@@ -718,7 +758,13 @@ class AsyncHTTPServer:
 
         # 0.1 Serve Latest PDF
         if path == '/api/latex/pdf':
-            if hasattr(self, 'last_pdf_bytes') and self.last_pdf_bytes:
+            if hasattr(self, 'last_pdf_path') and self.last_pdf_path and os.path.exists(self.last_pdf_path):
+                try:
+                    with open(self.last_pdf_path, "rb") as pdf_file:
+                        self.send_response(writer, 200, pdf_file.read(), "application/pdf")
+                except Exception as e:
+                    self.send_response(writer, 500, f"Error reading PDF: {e}".encode("utf-8"), "text/plain")
+            elif hasattr(self, 'last_pdf_bytes') and self.last_pdf_bytes:
                 self.send_response(writer, 200, self.last_pdf_bytes, "application/pdf")
             else:
                 self.send_response(writer, 404, b'No PDF generated yet.', "text/plain")
@@ -763,13 +809,12 @@ class AsyncHTTPServer:
                     
                 target_pdf = os.path.splitext(full_path)[0] + ".pdf"
                 if os.path.exists(target_pdf):
-                    with open(target_pdf, "rb") as pdf_file:
-                        pdf_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
-                        
-                    self.last_pdf_bytes = base64.b64decode(pdf_base64)
+                    self.last_pdf_path = target_pdf
+                    self.last_synctex_path = os.path.splitext(full_path)[0] + ".synctex.gz"
+                    self.last_pdf_bytes = None
                     self.send_response(writer, 200, json.dumps({
                         "found": True,
-                        "pdf_base64": pdf_base64
+                        "pdf_url": f"/api/latex/pdf?ts={int(time.time() * 1000)}"
                     }).encode('utf-8'), "application/json")
                 else:
                     self.send_response(writer, 200, json.dumps({"found": False}).encode('utf-8'), "application/json")
@@ -820,8 +865,11 @@ class AsyncHTTPServer:
                 
                 target_full_path = os.path.abspath(os.path.join(project_path, file_path))
 
-                synctex_path = os.path.splitext(main_full_path)[0] + ".synctex.gz"
-                
+                default_synctex_path = os.path.splitext(main_full_path)[0] + ".synctex.gz"
+                synctex_path = default_synctex_path
+                if hasattr(self, "last_synctex_path") and self.last_synctex_path and os.path.exists(self.last_synctex_path):
+                    synctex_path = self.last_synctex_path
+                 
                 if not os.path.exists(synctex_path):
                     self.send_response(writer, 404, b'{"error":"synctex file not found"}', "application/json")
                     return

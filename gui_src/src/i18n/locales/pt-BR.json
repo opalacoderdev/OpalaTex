@@ -78,6 +78,8 @@
     "installingTectonic": "Instalando...",
     "installTectonicError": "Erro na instalação: ",
     "installTectonicTooltip": "Baixar e instalar o compilador Tectonic para LaTeX",
+    "compilePartial": "Parcial",
+    "compilePartialTooltip": "Compilar arquivo/capítulo atual com SyncTeX",
     "zoomIn": "Aumentar Zoom",
     "zoomOut": "Diminuir Zoom",
     "resetZoom": "Resetar Zoom",

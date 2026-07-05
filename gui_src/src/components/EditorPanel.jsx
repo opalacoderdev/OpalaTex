@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen } from 'lucide-react';
+import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
 import { safeSetLocalStorage } from '../utils/storage';
@@ -78,11 +78,44 @@ export default function EditorPanel({
   }, [setEditorFontSize]);
 
   // PDF state
-  const [pdfBase64, setPdfBase64] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [pdfErrorLog, setPdfErrorLog] = useState('');
+  const [compileTiming, setCompileTiming] = useState(null);
+  const [cleanMessage, setCleanMessage] = useState('');
   const [isTectonicAvailable, setIsTectonicAvailable] = useState(true);
   const [isInstallingTectonic, setIsInstallingTectonic] = useState(false);
+  const [isCleaningLatex, setIsCleaningLatex] = useState(false);
+  const pendingPdfSyncRef = useRef(null);
+
+  const getCurrentEditorLine = () => (
+    localEditorRef.current?.getPosition?.()?.lineNumber || null
+  );
+
+  const syncPdfToEditorLine = useCallback(async ({ line, filePath, projectPath }) => {
+    if (!line || !filePath || !projectPath) return false;
+    try {
+      const res = await fetch(`/api/latex/synctex?action=tex2pdf&line=${line}&filePath=${encodeURIComponent(filePath)}&projectPath=${encodeURIComponent(projectPath)}`);
+      const data = await res.json();
+      if (res.ok && data.result?.page && pdfPreviewRef.current) {
+        pdfPreviewRef.current.scrollTo(data.result.page, data.result.x, data.result.y, data.result.w, data.result.h);
+        return true;
+      }
+      if (!res.ok || data.error) {
+        setPdfErrorLog(`SyncTeX Forward Search failed: ${data.error || 'No result found'}`);
+      }
+    } catch (err) {
+      setPdfErrorLog("SyncTeX request failed: " + err.message);
+    }
+    return false;
+  }, []);
+
+  const handlePdfDocumentReady = useCallback(() => {
+    const pending = pendingPdfSyncRef.current;
+    if (!pending) return;
+    pendingPdfSyncRef.current = null;
+    syncPdfToEditorLine(pending);
+  }, [syncPdfToEditorLine]);
 
   const handleInstallTectonic = async () => {
     setIsInstallingTectonic(true);
@@ -118,7 +151,7 @@ export default function EditorPanel({
   const prevProjectRef = useRef(activeProject?.project_path);
   useEffect(() => {
     if (activeProject?.project_path !== prevProjectRef.current) {
-      setPdfBase64(null);
+      setPdfUrl(null);
       setPdfErrorLog('');
       prevProjectRef.current = activeProject?.project_path;
     }
@@ -137,16 +170,16 @@ export default function EditorPanel({
       fetch(`/api/latex/check-pdf?filePath=${encodeURIComponent(selectedFile)}&projectPath=${encodeURIComponent(activeProject.project_path)}`)
         .then(r => r.json())
         .then(data => {
-          if (data.found && data.pdf_base64) {
-            setPdfBase64(data.pdf_base64);
+          if (data.found && (data.pdf_url || data.pdf_base64)) {
+            setPdfUrl(data.pdf_url || `/api/latex/pdf?ts=${Date.now()}`);
             setPdfErrorLog('');
           }
-          // If not found, do NOT clear pdfBase64, so the main document's PDF remains visible
+          // If not found, do NOT clear pdfUrl, so the main document's PDF remains visible
           // when clicking into an included file (e.g., apendice.tex).
         })
         .catch(() => {});
     }
-    // We also do NOT clear pdfBase64 if not a .tex file, 
+    // We also do NOT clear pdfUrl if not a .tex file,
     // so users can see the PDF while editing .bib or .cls files.
   }, [selectedFile, activeProject?.project_path]);
 
@@ -165,29 +198,75 @@ export default function EditorPanel({
     }
   }, [selectedFile, jumpToLine, setJumpToLine]);
 
-  const handleCompile = async (skipSave = false) => {
+  const handleCompile = async (skipSave = false, partial = false) => {
     if (!skipSave) saveFile();
+    const compileLine = getCurrentEditorLine();
+    const compileFile = selectedFile;
+    const compileProjectPath = activeProject?.project_path;
     setIsCompiling(true);
     setPdfErrorLog('');
+    setCleanMessage('');
+    setCompileTiming(null);
     try {
       const res = await fetch('/api/latex/compile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: fileContent, filePath: selectedFile, projectPath: activeProject?.project_path })
+        body: JSON.stringify({ content: fileContent, filePath: selectedFile, projectPath: activeProject?.project_path, partial })
       });
       const data = await res.json();
+      if (data.timing) setCompileTiming(data.timing);
       if (data.success) {
-        setPdfBase64(data.pdf_base64);
+        if (compileLine && compileFile && compileProjectPath) {
+          pendingPdfSyncRef.current = {
+            line: compileLine,
+            filePath: compileFile,
+            projectPath: compileProjectPath,
+          };
+        }
+        setPdfUrl(data.pdf_url || `/api/latex/pdf?ts=${Date.now()}`);
       } else {
         setPdfErrorLog(data.log);
-        if (data.pdf_base64) setPdfBase64(data.pdf_base64);
-        else setPdfBase64(null);
+        if (data.pdf_url || data.pdf_base64) setPdfUrl(data.pdf_url || `/api/latex/pdf?ts=${Date.now()}`);
+        else setPdfUrl(null);
       }
     } catch (err) {
       setPdfErrorLog('Failed to connect to backend: ' + err.message);
     } finally {
       setIsCompiling(false);
     }
+  };
+
+  const handleCleanLatex = async () => {
+    if (!activeProject?.project_path) return;
+    setIsCleaningLatex(true);
+    setPdfErrorLog('');
+    setCompileTiming(null);
+    setCleanMessage('');
+    try {
+      const res = await fetch('/api/latex/clean', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath: activeProject.project_path })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPdfUrl(null);
+        setCleanMessage(`Cleaned ${data.removed?.length || 0}`);
+      } else {
+        setPdfErrorLog((data.errors || ['Clean failed']).join('\n'));
+      }
+    } catch (err) {
+      setPdfErrorLog('Failed to clean LaTeX artifacts: ' + err.message);
+    } finally {
+      setIsCleaningLatex(false);
+    }
+  };
+
+  const formatCompileTiming = (timing) => {
+    if (!timing) return '';
+    const seconds = timing.compile_seconds ?? timing.request_seconds;
+    if (typeof seconds !== 'number') return '';
+    return `${seconds.toFixed(seconds >= 10 ? 1 : 2)}s`;
   };
 
   useEffect(() => {
@@ -339,18 +418,11 @@ export default function EditorPanel({
         
         if (line && currentProject?.project_path && currentFile) {
           console.log('Forward Search: editor line =', line, ', file =', currentFile);
-          try {
-            const res = await fetch(`/api/latex/synctex?action=tex2pdf&line=${line}&filePath=${encodeURIComponent(currentFile)}&projectPath=${encodeURIComponent(currentProject.project_path)}`);
-            const data = await res.json();
-            if (res.ok && data.result && data.result.page && pdfPreviewRef.current) {
-              console.log('SyncTeX result:', JSON.stringify(data.result));
-              pdfPreviewRef.current.scrollTo(data.result.page, data.result.x, data.result.y, data.result.w, data.result.h);
-            } else {
-              setPdfErrorLog(`SyncTeX Forward Search failed: ${data.error || 'No result found'}`);
-            }
-          } catch (err) {
-            setPdfErrorLog("SyncTeX request failed: " + err.message);
-          }
+          syncPdfToEditorLine({
+            line,
+            filePath: currentFile,
+            projectPath: currentProject.project_path,
+          });
         }
       }
     });
@@ -623,7 +695,7 @@ export default function EditorPanel({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {isTexFile && isTectonicAvailable && (
             <button
-              onClick={handleCompile}
+              onClick={() => handleCompile(false, false)}
               disabled={isCompiling || isSaving}
               className="vscode-button"
               style={{ backgroundColor: '#217b3b', color: 'white' }}
@@ -631,6 +703,52 @@ export default function EditorPanel({
               {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <Printer size={12} />}
               <span>{isCompiling ? 'Compiling...' : (isSaving ? t('editorPanel.saving') : 'Compile LaTeX')}</span>
             </button>
+          )}
+          {isTexFile && isTectonicAvailable && (
+            <button
+              onClick={() => handleCompile(false, true)}
+              disabled={isCompiling || isSaving}
+              className="vscode-button"
+              style={{ backgroundColor: '#0e639c', color: 'white' }}
+              title={t('editorPanel.compilePartialTooltip')}
+            >
+              {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <FileText size={12} />}
+              <span>{t('editorPanel.compilePartial')}</span>
+            </button>
+          )}
+          {isTexFile && isTectonicAvailable && (
+            <button
+              onClick={handleCleanLatex}
+              disabled={isCompiling || isSaving || isCleaningLatex}
+              className="vscode-bottom-panel-clear-btn"
+              style={{ padding: '6px' }}
+              title="Clean LaTeX artifacts"
+            >
+              {isCleaningLatex ? <RefreshCw size={12} className="animate-spin" /> : <Trash2 size={12} />}
+            </button>
+          )}
+          {isTexFile && compileTiming && !isCompiling && (
+            <span
+              title={`Tectonic: ${compileTiming.compile_seconds ?? '?'}s | Request: ${compileTiming.request_seconds ?? '?'}s`}
+              style={{
+                color: 'var(--vscode-descriptionForeground, #888)',
+                fontSize: '11px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Last: {formatCompileTiming(compileTiming)}
+            </span>
+          )}
+          {isTexFile && cleanMessage && !isCleaningLatex && !isCompiling && (
+            <span
+              style={{
+                color: 'var(--vscode-descriptionForeground, #888)',
+                fontSize: '11px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {cleanMessage}
+            </span>
           )}
           {isTexFile && (
             <label
@@ -882,12 +1000,14 @@ export default function EditorPanel({
           <div style={{ height: '100%', background: '#0A0D14', borderLeft: '1px solid #1E2330' }}>
             <PdfPreview 
               ref={pdfPreviewRef}
-              base64Pdf={pdfBase64} 
+              base64Pdf={null}
+              sourceUrl={pdfUrl}
               isCompiling={isCompiling} 
               errorLog={pdfErrorLog} 
               activeProject={activeProject}
               selectedFile={selectedFile}
               onSyncTexNavigate={handleSyncTexNavigate}
+              onDocumentReady={handlePdfDocumentReady}
               onCollapse={() => setIsPdfPreviewCollapsed(true)}
             />
           </div>

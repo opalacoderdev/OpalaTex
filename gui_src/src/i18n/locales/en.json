@@ -78,6 +78,8 @@
     "installingTectonic": "Installing...",
     "installTectonicError": "Installation error: ",
     "installTectonicTooltip": "Download and install the Tectonic LaTeX compiler",
+    "compilePartial": "Part",
+    "compilePartialTooltip": "Compile current file/chapter with SyncTeX",
     "zoomIn": "Zoom In",
     "zoomOut": "Zoom Out",
     "resetZoom": "Reset Zoom",
