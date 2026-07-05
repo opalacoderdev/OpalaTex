@@ -75,6 +75,13 @@ class _AgentProgress:
 
 
 AGENT_PROGRESS = _AgentProgress()
+_RECENT_IMAGE_ATTACHMENTS: dict[str, dict] = {}
+
+
+def set_recent_image_attachments(attachments_by_alias: dict[str, dict]) -> None:
+    """Register chat image attachments that tools may reference by synthetic alias."""
+    _RECENT_IMAGE_ATTACHMENTS.clear()
+    _RECENT_IMAGE_ATTACHMENTS.update(attachments_by_alias or {})
 
 # Set once at session start via set_project_path(); all tools use this as their workspace.
 _PROJECT_PATH: str = ""
@@ -379,22 +386,31 @@ def read_file(path: str) -> str:
 
 @opalatex_tool(name="analyze_image", is_safe=True, description="Analyzes an image file using computer vision and returns a text description. Use this when the user asks you to look at a chart, UI mockup, or any image file.")
 def analyze_image(file_path: str, prompt: str = "Describe this image in detail") -> str:
+    model = ""
     try:
         import base64
         import mimetypes
         import litellm
         from .config import get_agent_llm_kwargs, get_agent_model
         
-        resolved = _resolve_path(file_path)
-        if not os.path.exists(resolved) or os.path.isdir(resolved):
+        attachment = _RECENT_IMAGE_ATTACHMENTS.get(file_path) or _RECENT_IMAGE_ATTACHMENTS.get(os.path.basename(file_path))
+        if attachment:
+            resolved = file_path
+            encoded_img = attachment.get("data", "")
+            content_type = attachment.get("mime") or "image/jpeg"
+        else:
+            resolved = _resolve_path(file_path)
+        if not attachment and (not os.path.exists(resolved) or os.path.isdir(resolved)):
             return "infelizmente não consegui analisar sua imagem: arquivo não encontrado ou é um diretório."
             
-        content_type, _ = mimetypes.guess_type(resolved)
-        if not content_type or not content_type.startswith("image/"):
-            content_type = "image/jpeg"
+        if not attachment:
+            content_type, _ = mimetypes.guess_type(resolved)
+            if not content_type or not content_type.startswith("image/"):
+                content_type = "image/jpeg"
             
-        with open(resolved, "rb") as f:
-            encoded_img = base64.b64encode(f.read()).decode("utf-8")
+        if not attachment:
+            with open(resolved, "rb") as f:
+                encoded_img = base64.b64encode(f.read()).decode("utf-8")
             
         kwargs = get_agent_llm_kwargs("memgpt")
         

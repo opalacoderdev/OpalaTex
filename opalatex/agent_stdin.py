@@ -162,6 +162,43 @@ def print_event(event: str, data: dict):
             import sys
             sys.stderr.write(f"[DEBUG] Error invoking event hook: {ex}\n")
 
+
+def _attachment_alias(index: int, att: dict) -> str:
+    name = att.get("name") or "attachment"
+    _, ext = os.path.splitext(name)
+    if not ext:
+        mime = att.get("mime", "")
+        if mime == "application/pdf":
+            ext = ".pdf"
+        elif mime.startswith("image/"):
+            ext = "." + mime.split("/", 1)[1].replace("jpeg", "jpg")
+    return f"input_file_{index}{ext or ''}"
+
+
+def _attachment_summary(att: dict, alias: str) -> str:
+    name = att.get("name") or alias
+    att_type = att.get("type", "")
+    mime = att.get("mime", "")
+    if att_type == "image":
+        return f"- {alias}: image attachment '{name}' ({mime or 'image'})"
+    if att_type == "pdf_text":
+        chars = len(att.get("data", "") or "")
+        return f"- {alias}: PDF attachment '{name}' ({chars} extracted text chars)"
+    return f"- {alias}: attachment '{name}' ({mime or att_type or 'unknown'})"
+
+
+def _recent_history_attachments(history: list, *, limit: int = 3) -> list[dict]:
+    attachments: list[dict] = []
+    for msg in reversed(history or []):
+        if msg.get("role") != "user":
+            continue
+        for att in reversed(msg.get("_attachments") or []):
+            if att.get("type") in ("image", "pdf_text"):
+                attachments.append(att)
+                if len(attachments) >= limit:
+                    return list(reversed(attachments))
+    return list(reversed(attachments))
+
 from opalatex.config import DEFAULT_MODEL, DEFAULT_DB_PATH
 from opalatex.project import ProjectStore, ProjectData
 from opalatex.memgpt_runtime import build_chat_orchestrator
@@ -834,8 +871,14 @@ async def handle_run(data: dict):
             free_tokens = max(0, num_ctx - history_tokens)
             free_chars = free_tokens * 4  # back to chars
 
+            user_history_content = prompt
+            history_attachments = []
+            if not raw_attachments and current_project:
+                history_attachments = _recent_history_attachments(getattr(current_project, "history", []) or [])
+
+            attachments_for_turn = list(raw_attachments or history_attachments)
             final_attachments = []
-            for att in raw_attachments:
+            for att in attachments_for_turn:
                 att_type = att.get("type", "")
                 if att_type == "image" and not model_supports_vision:
                     prompt += (
@@ -857,9 +900,28 @@ async def handle_run(data: dict):
                 else:
                     final_attachments.append(att)
 
+            attachment_aliases = {
+                _attachment_alias(idx, att): att
+                for idx, att in enumerate(final_attachments)
+                if att.get("type") == "image"
+            }
+            tools_mod.set_recent_image_attachments(attachment_aliases)
+
+            if final_attachments:
+                source = "current message" if raw_attachments else "recent chat history"
+                summaries = [
+                    _attachment_summary(att, _attachment_alias(idx, att))
+                    for idx, att in enumerate(final_attachments)
+                ]
+                prompt += (
+                    f"\n\n[Attachment context from {source}. These files are attached to this LLM message. "
+                    f"Use the visual/PDF content directly when possible. If a tool asks for a file path, "
+                    f"use the listed alias exactly.]\n" + "\n".join(summaries)
+                )
+
             # Save user message to store immediately so it's not lost if the agent crashes
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
-                current_store.append_message(current_project, "user", prompt)
+                current_store.append_message(current_project, "user", user_history_content, attachments=raw_attachments)
                 current_store.save(current_project)
 
             with apply_meta_params(agent, _meta_overrides):

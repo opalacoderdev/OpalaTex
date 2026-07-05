@@ -242,6 +242,31 @@ def test_delete_removes_history(store):
     assert p2.history == []
 
 
+def test_append_message_persists_attachments(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    att = {"type": "image", "data": "abc123", "mime": "image/jpeg", "name": "shot.jpg"}
+
+    store.append_message(p, "user", "describe this", attachments=[att])
+
+    loaded = store.load("myproj", chat_id=p.current_chat_id)
+    assert loaded.history[0]["content"] == "describe this"
+    assert loaded.history[0]["_attachments"] == [att]
+
+
+def test_branch_chat_copies_attachments(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    source_chat = p.current_chat_id
+    att = {"type": "image", "data": "abc123", "mime": "image/jpeg", "name": "shot.jpg"}
+    store.append_message(p, "user", "describe this", attachments=[att])
+
+    store.branch_chat("myproj", source_chat, "branch-1", "Branch", 0)
+
+    loaded = store.load("myproj", chat_id="branch-1")
+    assert loaded.history[0]["_attachments"] == [att]
+
+
 # ---------------------------------------------------------------------------
 # 7. list_projects ordering
 # ---------------------------------------------------------------------------

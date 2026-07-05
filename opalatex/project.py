@@ -67,6 +67,7 @@ def _init_schema(db_path: str) -> None:
                 timestamp   TEXT NOT NULL,
                 role        TEXT NOT NULL,
                 content     TEXT NOT NULL,
+                attachments TEXT NOT NULL DEFAULT '[]',
                 FOREIGN KEY (project) REFERENCES projects(name) ON DELETE CASCADE
             );
         """)
@@ -139,6 +140,11 @@ def _init_schema(db_path: str) -> None:
 
         try:
             conn.execute("ALTER TABLE project_history ADD COLUMN chat_id TEXT NOT NULL DEFAULT 'main'")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE project_history ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'")
         except sqlite3.OperationalError:
             pass
 
@@ -533,7 +539,7 @@ class ProjectStore:
                     chats = [{"id": chat_id, "name": "Main Chat"}]
                     
             hist_rows = conn.execute(
-                "SELECT role, content, timestamp FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id",
+                "SELECT role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id",
                 (name, chat_id),
             ).fetchall()
             # Read api_key and api_base from local .env if it exists
@@ -598,7 +604,15 @@ class ProjectStore:
                 git_root_path=row["git_root_path"] if "git_root_path" in row.keys() else "",
                 compile_on_save_partial=compile_partial,
                 compile_on_save_full=compile_full,
-                history=[dict(r) for r in hist_rows],
+                history=[
+                    {
+                        "role": r["role"],
+                        "content": r["content"],
+                        "timestamp": r["timestamp"],
+                        "_attachments": json.loads(r["attachments"] or "[]"),
+                    }
+                    for r in hist_rows
+                ],
             )
 
     def save(self, project: ProjectData) -> None:
@@ -674,17 +688,28 @@ class ProjectStore:
                 ),
             )
 
-    def append_message(self, project: ProjectData, role: str, content: str) -> None:
+    def append_message(self, project: ProjectData, role: str, content: str, attachments: list | None = None) -> None:
         now = datetime.now(timezone.utc).isoformat()
         message_id = None
+        clean_attachments = attachments or []
         with _conn(self.db_path) as conn:
             cursor = conn.execute(
-                "INSERT INTO project_history (project, chat_id, timestamp, role, content) VALUES (?,?,?,?,?)",
-                (project.name, project.current_chat_id, now, role, content),
+                "INSERT INTO project_history (project, chat_id, timestamp, role, content, attachments) VALUES (?,?,?,?,?,?)",
+                (
+                    project.name,
+                    project.current_chat_id,
+                    now,
+                    role,
+                    content,
+                    json.dumps(clean_attachments, ensure_ascii=False),
+                ),
             )
             message_id = cursor.lastrowid
             
-        project.history.append({"role": role, "content": content})
+        message = {"role": role, "content": content, "timestamp": now}
+        if clean_attachments:
+            message["_attachments"] = clean_attachments
+        project.history.append(message)
         
         # Envia também para o banco de dados vetorial
         try:
@@ -762,14 +787,21 @@ class ProjectStore:
             
             # 3. Copiar histórico até message_index
             history = conn.execute(
-                "SELECT role, content, timestamp FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id LIMIT ?",
+                "SELECT role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id LIMIT ?",
                 (name, source_chat_id, message_index + 1)
             ).fetchall()
             
             for hist_row in history:
                 conn.execute(
-                    "INSERT INTO project_history (project, chat_id, timestamp, role, content) VALUES (?,?,?,?,?)",
-                    (name, new_chat_id, hist_row["timestamp"], hist_row["role"], hist_row["content"])
+                    "INSERT INTO project_history (project, chat_id, timestamp, role, content, attachments) VALUES (?,?,?,?,?,?)",
+                    (
+                        name,
+                        new_chat_id,
+                        hist_row["timestamp"],
+                        hist_row["role"],
+                        hist_row["content"],
+                        hist_row["attachments"] or "[]",
+                    )
                 )
 
 # Backward-compat alias
