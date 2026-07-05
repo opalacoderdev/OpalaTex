@@ -43,9 +43,7 @@ export default function EditorPanel({
   activeProject,
   jumpToLine,
   setJumpToLine,
-  triggerCompileId,
-  compileOnSave,
-  onCompileOnSaveChange,
+  triggerCompileRequest,
 }) {
   const { t } = useTranslation();
   const [isDiffMode, setIsDiffMode] = useState(false);
@@ -270,10 +268,10 @@ export default function EditorPanel({
   };
 
   useEffect(() => {
-    if (triggerCompileId && triggerCompileId > 0) {
-      handleCompile(true);
+    if (triggerCompileRequest?.id) {
+      handleCompile(true, triggerCompileRequest.partial === true);
     }
-  }, [triggerCompileId]);
+  }, [triggerCompileRequest]);
 
   const handlePrintPDF = () => {
     document.body.classList.add('printing-editor');
@@ -749,29 +747,6 @@ export default function EditorPanel({
             >
               {cleanMessage}
             </span>
-          )}
-          {isTexFile && (
-            <label
-              title={t('settingsModal.compileOnSave')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                color: 'var(--vscode-text-fg)',
-                fontSize: '12px',
-                userSelect: 'none',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={compileOnSave}
-                onChange={(e) => onCompileOnSaveChange(e.target.checked)}
-                style={{ cursor: 'pointer' }}
-              />
-              <span>{t('settingsModal.compileOnSave')}</span>
-            </label>
           )}
           {isTexFile && !isTectonicAvailable && (
             <button

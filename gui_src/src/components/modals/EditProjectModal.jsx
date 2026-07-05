@@ -195,6 +195,38 @@ export default function EditProjectModal({
                 />
               </div>
 
+              <div className="flex flex-col" style={{ gap: '8px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.latexCompileOnSave')}</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--vscode-text-fg)', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="radio"
+                    name="compile-on-save-mode"
+                    checked={editingProject.compile_on_save_full !== true}
+                    onChange={() => setEditingProject(p => ({
+                      ...p,
+                      compile_on_save_partial: true,
+                      compile_on_save_full: false,
+                    }))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span>{t('editProjectModal.compileOnSavePartial')}</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--vscode-text-fg)', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="radio"
+                    name="compile-on-save-mode"
+                    checked={editingProject.compile_on_save_full === true}
+                    onChange={() => setEditingProject(p => ({
+                      ...p,
+                      compile_on_save_partial: false,
+                      compile_on_save_full: true,
+                    }))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span>{t('editProjectModal.compileOnSaveFull')}</span>
+                </label>
+              </div>
+
               {/* User Git root */}
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Git Root (Optional)</label>

@@ -175,7 +175,6 @@ export default function App() {
   const [editorFontSize, setEditorFontSize] = useState(() => Number(safeGetLocalStorage('editorFontSize', 13)));
   const [editorTabSize, setEditorTabSize] = useState(() => Number(safeGetLocalStorage('editorTabSize', 4)));
   const [editorWordWrap, setEditorWordWrap] = useState(() => safeGetLocalStorage('editorWordWrap', 'on'));
-  const [compileOnSave, setCompileOnSave] = useState(() => safeGetLocalStorage('compileOnSave', 'false') === 'true');
   const [globalAiProvider, setGlobalAiProvider] = useState('local');
 
   useEffect(() => {
@@ -198,7 +197,7 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('ephemeralParams')) || {}; } catch { return {}; }
   });
 
-  const [triggerCompileId, setTriggerCompileId] = useState(0);
+  const [triggerCompileRequest, setTriggerCompileRequest] = useState(null);
 
   // ── Inline prompt (editor Ctrl+L / context-menu actions) ────────────────
   const [inlinePrompt, setInlinePrompt] = useState(null);
@@ -907,18 +906,20 @@ export default function App() {
           });
         fetchGitStatus();
         fetchProblems();
-        if (compileOnSave && selectedFile && selectedFile.toLowerCase().match(/\.(tex|cls|sty|bib)$/)) {
-          setTriggerCompileId(Date.now());
+        if (selectedFile && selectedFile.toLowerCase().match(/\.(tex|cls|sty|bib)$/)) {
+          const compileFull = activeProject.compile_on_save_full === true;
+          const compilePartial = activeProject.compile_on_save_partial !== false;
+          if (compileFull || compilePartial) {
+            setTriggerCompileRequest({
+              id: Date.now(),
+              partial: !compileFull && compilePartial,
+            });
+          }
         }
       }
       else addLog('error', `Erro ao salvar arquivo: ${selectedFile}`);
     } catch (err) { addLog('error', `Erro de escrita: ${err.message}`); }
     finally { setIsSaving(false); }
-  };
-
-  const handleCompileOnSaveChange = (enabled) => {
-    setCompileOnSave(enabled);
-    safeSetLocalStorage('compileOnSave', enabled.toString());
   };
 
   useEffect(() => { saveFileRef.current = saveFile; }, [saveFile]);
@@ -1128,7 +1129,8 @@ export default function App() {
     } catch (_) { }
     setModelConfigMsg('');
     setEditProjError('');
-    const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', main_file: fresh.main_file || '', git_root_path: fresh.git_root_path || '', model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: fresh.api_key || '', api_base: fresh.api_base || '', worker_api_key: fresh.worker_api_key || '', worker_api_base: fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
+    const compileOnSaveFull = fresh.compile_on_save_full === true;
+    const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', main_file: fresh.main_file || '', git_root_path: fresh.git_root_path || '', compile_on_save_partial: !compileOnSaveFull, compile_on_save_full: compileOnSaveFull, model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: fresh.api_key || '', api_base: fresh.api_base || '', worker_api_key: fresh.worker_api_key || '', worker_api_base: fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
     console.log("[DEBUG APP] Estado editingProject final que vai para a Modal:", newState);
     setEditingProject(newState);
   };
@@ -1141,7 +1143,7 @@ export default function App() {
     try {
       const res = await fetch('/api/opalatex/update-project', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name: editingProject.name, display_name: editingProject.project_name, project_path: editingProject.project_path, main_file: editingProject.main_file, git_root_path: editingProject.git_root_path || '', model: editingProject.model, worker_model: editingProject.worker_model, mode: editingProject.mode, description: editingProject.description, model_params: editingProject.model_params, worker_model_params: editingProject.worker_model_params, api_key: editingProject.api_key, api_base: editingProject.api_base, worker_api_key: editingProject.worker_api_key, worker_api_base: editingProject.worker_api_base, use_shared_memory: editingProject.use_shared_memory, chat_id: activeChatId }),
+        body: JSON.stringify({ project_name: editingProject.name, display_name: editingProject.project_name, project_path: editingProject.project_path, main_file: editingProject.main_file, git_root_path: editingProject.git_root_path || '', compile_on_save_partial: editingProject.compile_on_save_partial !== false, compile_on_save_full: editingProject.compile_on_save_full === true, model: editingProject.model, worker_model: editingProject.worker_model, mode: editingProject.mode, description: editingProject.description, model_params: editingProject.model_params, worker_model_params: editingProject.worker_model_params, api_key: editingProject.api_key, api_base: editingProject.api_base, worker_api_key: editingProject.worker_api_key, worker_api_base: editingProject.worker_api_base, use_shared_memory: editingProject.use_shared_memory, chat_id: activeChatId }),
       });
       if (res.ok) {
         const updated = await res.json();
@@ -2343,9 +2345,7 @@ export default function App() {
                 }
               }}
               activeProject={activeProject}
-              triggerCompileId={triggerCompileId}
-              compileOnSave={compileOnSave}
-              onCompileOnSaveChange={handleCompileOnSaveChange}
+              triggerCompileRequest={triggerCompileRequest}
             />
           )}
 
@@ -2545,7 +2545,6 @@ export default function App() {
           editorFontSize={editorFontSize} setEditorFontSize={setEditorFontSize}
           editorTabSize={editorTabSize} setEditorTabSize={setEditorTabSize}
           editorWordWrap={editorWordWrap} setEditorWordWrap={setEditorWordWrap}
-          compileOnSave={compileOnSave} setCompileOnSave={setCompileOnSave}
           isInstallingDeps={isInstallingDeps}
           installDepsStatus={installDepsStatus}
           installDepsLog={installDepsLog}

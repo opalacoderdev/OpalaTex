@@ -2136,6 +2136,17 @@ class AsyncHTTPServer:
             if "main_file" in data:
                 project.main_file = data["main_file"]
 
+            if "compile_on_save_partial" in data:
+                project.compile_on_save_partial = bool(data["compile_on_save_partial"])
+
+            if "compile_on_save_full" in data:
+                project.compile_on_save_full = bool(data["compile_on_save_full"])
+
+            if getattr(project, "compile_on_save_full", False):
+                project.compile_on_save_partial = False
+            elif not getattr(project, "compile_on_save_partial", True):
+                project.compile_on_save_partial = True
+
             if "use_shared_memory" in data:
                 project.use_shared_memory = bool(data["use_shared_memory"])
 
@@ -2210,6 +2221,8 @@ class AsyncHTTPServer:
                 "worker_api_base": getattr(project, "worker_api_base", ""),
                 "current_chat_id": project.current_chat_id,
                 "git_root_path": getattr(project, "git_root_path", ""),
+                "compile_on_save_partial": getattr(project, "compile_on_save_partial", True),
+                "compile_on_save_full": getattr(project, "compile_on_save_full", False),
             }
             self.send_response(writer, 200, json.dumps(res_data).encode(), "application/json")
 

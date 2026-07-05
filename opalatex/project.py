@@ -26,6 +26,15 @@ def _conn(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+def _normalize_compile_on_save(partial: bool, full: bool) -> tuple[bool, bool]:
+    """Keep compile-on-save mode mutually exclusive; partial is the default."""
+    if full:
+        return False, True
+    if partial:
+        return True, False
+    return True, False
+
+
 def _init_schema(db_path: str) -> None:
     with _conn(db_path) as conn:
         conn.executescript("""
@@ -47,7 +56,9 @@ def _init_schema(db_path: str) -> None:
                 worker_model    TEXT NOT NULL DEFAULT '',
                 model_params    TEXT NOT NULL DEFAULT '{}',
                 main_file       TEXT NOT NULL DEFAULT '',
-                git_root_path   TEXT NOT NULL DEFAULT ''
+                git_root_path   TEXT NOT NULL DEFAULT '',
+                compile_on_save_partial INTEGER NOT NULL DEFAULT 1,
+                compile_on_save_full INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS project_history (
@@ -105,6 +116,16 @@ def _init_schema(db_path: str) -> None:
         except sqlite3.OperationalError:
             pass
 
+        try:
+            conn.execute("ALTER TABLE projects ADD COLUMN compile_on_save_partial INTEGER NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE projects ADD COLUMN compile_on_save_full INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS project_chats (
                 id          TEXT PRIMARY KEY,
@@ -148,6 +169,8 @@ class ProjectData:
     worker_api_base: str = ""
     main_file: str = ""
     git_root_path: str = ""
+    compile_on_save_partial: bool = True
+    compile_on_save_full: bool = False
     history: list = field(default_factory=list)   # [{role, content}]
 
     def clear_state(self) -> None:
@@ -189,12 +212,18 @@ class ProjectStore:
     def list_projects(self) -> list[dict]:
         with _conn(self.db_path) as conn:
             rows = conn.execute(
-                "SELECT name, project_name, project_path, created_at, updated_at, mode, model, worker_model, description, model_params, worker_model_params, use_shared_memory, main_file, git_root_path FROM projects ORDER BY updated_at DESC"
+                "SELECT name, project_name, project_path, created_at, updated_at, mode, model, worker_model, description, model_params, worker_model_params, use_shared_memory, main_file, git_root_path, compile_on_save_partial, compile_on_save_full FROM projects ORDER BY updated_at DESC"
             ).fetchall()
             res = []
             for r in rows:
                 d = dict(r)
                 d["use_shared_memory"] = bool(d.get("use_shared_memory", True))
+                partial, full = _normalize_compile_on_save(
+                    bool(d.get("compile_on_save_partial", True)),
+                    bool(d.get("compile_on_save_full", False)),
+                )
+                d["compile_on_save_partial"] = partial
+                d["compile_on_save_full"] = full
                 
                 if "model_params" in d and d["model_params"]:
                     try:
@@ -441,8 +470,8 @@ class ProjectStore:
 
         with _conn(self.db_path) as conn:
             conn.execute(
-                "INSERT INTO projects (name, created_at, updated_at, mode, model, worker_model, project_name, project_path, skills, description, core_memory, model_params, worker_model_params, use_shared_memory, main_file, git_root_path) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (name, now, now, mode, model, worker_model, project_name, abs_proj_path, json.dumps(_skills), description, "", json.dumps(_model_params), json.dumps(_worker_model_params), 0, "", os.path.abspath(git_root_path) if git_root_path else ""),
+                "INSERT INTO projects (name, created_at, updated_at, mode, model, worker_model, project_name, project_path, skills, description, core_memory, model_params, worker_model_params, use_shared_memory, main_file, git_root_path, compile_on_save_partial, compile_on_save_full) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (name, now, now, mode, model, worker_model, project_name, abs_proj_path, json.dumps(_skills), description, "", json.dumps(_model_params), json.dumps(_worker_model_params), 0, "", os.path.abspath(git_root_path) if git_root_path else "", 1, 0),
             )
             # Create default main chat if it doesn't exist
             chat_id = f"main_{name}"
@@ -450,7 +479,7 @@ class ProjectStore:
                 "INSERT OR IGNORE INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
                 (chat_id, name, "Main Chat", now, "")
             )
-        return ProjectData(name=name, use_shared_memory=False, chats=[{"id": chat_id, "name": "Main Chat"}], current_chat_id=chat_id, mode=mode, model=model, worker_model=worker_model, project_name=project_name, project_path=abs_proj_path, skills=_skills, description=description, core_memory="", model_params=_model_params, worker_model_params=_worker_model_params, api_key=api_key or "", api_base=api_base or "", worker_api_key=worker_api_key or "", worker_api_base=worker_api_base or "", main_file="", git_root_path=os.path.abspath(git_root_path) if git_root_path else "")
+        return ProjectData(name=name, use_shared_memory=False, chats=[{"id": chat_id, "name": "Main Chat"}], current_chat_id=chat_id, mode=mode, model=model, worker_model=worker_model, project_name=project_name, project_path=abs_proj_path, skills=_skills, description=description, core_memory="", model_params=_model_params, worker_model_params=_worker_model_params, api_key=api_key or "", api_base=api_base or "", worker_api_key=worker_api_key or "", worker_api_base=worker_api_base or "", main_file="", git_root_path=os.path.abspath(git_root_path) if git_root_path else "", compile_on_save_partial=True, compile_on_save_full=False)
 
     def overwrite(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, use_shared_memory: bool = False) -> ProjectData:
         self.delete(name)
@@ -531,6 +560,11 @@ class ProjectStore:
                     except Exception:
                         pass
 
+            compile_partial, compile_full = _normalize_compile_on_save(
+                bool(row["compile_on_save_partial"]) if "compile_on_save_partial" in row.keys() else True,
+                bool(row["compile_on_save_full"]) if "compile_on_save_full" in row.keys() else False,
+            )
+
             return ProjectData(
                 name=name,
                 use_shared_memory=bool(row["use_shared_memory"] if "use_shared_memory" in row.keys() else 1),
@@ -562,6 +596,8 @@ class ProjectStore:
                 worker_api_base=worker_api_base,
                 main_file=row["main_file"] if "main_file" in row.keys() else "",
                 git_root_path=row["git_root_path"] if "git_root_path" in row.keys() else "",
+                compile_on_save_partial=compile_partial,
+                compile_on_save_full=compile_full,
                 history=[dict(r) for r in hist_rows],
             )
 
@@ -572,6 +608,10 @@ class ProjectStore:
             _skills = ["opalatex"] + _skills
         _model_params = project.model_params if hasattr(project, "model_params") else {}
         _worker_model_params = project.worker_model_params if hasattr(project, "worker_model_params") and project.worker_model_params else _model_params.copy()
+        compile_partial, compile_full = _normalize_compile_on_save(
+            bool(getattr(project, "compile_on_save_partial", True)),
+            bool(getattr(project, "compile_on_save_full", False)),
+        )
         
         # Save api_key and api_base to project's local .env
         if hasattr(project, "api_key") or hasattr(project, "api_base") or hasattr(project, "worker_api_key") or hasattr(project, "worker_api_base"):
@@ -608,7 +648,7 @@ class ProjectStore:
         with _conn(self.db_path) as conn:
             conn.execute(
                 """UPDATE projects SET updated_at=?, mode=?, model=?, worker_model=?, project_name=?, project_path=?,
-                   skills=?, description=?, request=?, plan_text=?, subplans=?, results=?, core_memory=?, model_params=?, worker_model_params=?, use_shared_memory=?, main_file=?, git_root_path=? WHERE name=?""",
+                   skills=?, description=?, request=?, plan_text=?, subplans=?, results=?, core_memory=?, model_params=?, worker_model_params=?, use_shared_memory=?, main_file=?, git_root_path=?, compile_on_save_partial=?, compile_on_save_full=? WHERE name=?""",
                 (
                     now,
                     project.mode,
@@ -628,6 +668,8 @@ class ProjectStore:
                     int(project.use_shared_memory),
                     getattr(project, "main_file", ""),
                     getattr(project, "git_root_path", ""),
+                    int(compile_partial),
+                    int(compile_full),
                     project.name,
                 ),
             )

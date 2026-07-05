@@ -220,7 +220,10 @@
     "descriptionPlaceholder": "Optional project description...",
     "apiKeyPlaceholder": "Ex: sk-...",
     "apiBasePlaceholder": "Ex: http://localhost:11434/v1",
-    "altModelPlaceholder": "(uses global default if empty)"
+    "altModelPlaceholder": "(uses global default if empty)",
+    "latexCompileOnSave": "LaTeX Compile on Save",
+    "compileOnSavePartial": "Compile on save (partial)",
+    "compileOnSaveFull": "Compile on save (full)"
   },
   "settingsModal": {
     "title": "SETTINGS",

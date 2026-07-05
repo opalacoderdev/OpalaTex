@@ -223,7 +223,10 @@
     "descriptionPlaceholder": "Descrição opcional do projeto...",
     "apiKeyPlaceholder": "Ex: sk-...",
     "apiBasePlaceholder": "Ex: http://localhost:11434/v1",
-    "altModelPlaceholder": "(usa o padrão global se vazio)"
+    "altModelPlaceholder": "(usa o padrão global se vazio)",
+    "latexCompileOnSave": "Compilar LaTeX ao Salvar",
+    "compileOnSavePartial": "Compilar ao salvar (parcial)",
+    "compileOnSaveFull": "Compilar ao salvar (total)"
   },
   "settingsModal": {
     "title": "CONFIGURAÇÕES DA IDE",

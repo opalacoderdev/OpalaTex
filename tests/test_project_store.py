@@ -76,10 +76,42 @@ def test_load_roundtrips_all_fields(store):
     assert "opalatex" in loaded.skills
     assert "python_subprocess" in loaded.skills
     assert loaded.description == "A test project"
+    assert loaded.compile_on_save_partial is True
+    assert loaded.compile_on_save_full is False
 
 
 def test_load_nonexistent_returns_none(store):
     assert store.load("ghost") is None
+
+
+def test_compile_on_save_settings_persist(store):
+    project = store.create(**_base_args())
+    project.compile_on_save_partial = False
+    project.compile_on_save_full = True
+    store.save(project)
+
+    loaded = store.load("myproj")
+    listed = store.list_projects()[0]
+
+    assert loaded.compile_on_save_partial is False
+    assert loaded.compile_on_save_full is True
+    assert listed["compile_on_save_partial"] is False
+    assert listed["compile_on_save_full"] is True
+
+
+def test_compile_on_save_settings_are_mutually_exclusive(store):
+    project = store.create(**_base_args())
+    project.compile_on_save_partial = True
+    project.compile_on_save_full = True
+    store.save(project)
+
+    loaded = store.load("myproj")
+    listed = store.list_projects()[0]
+
+    assert loaded.compile_on_save_partial is False
+    assert loaded.compile_on_save_full is True
+    assert listed["compile_on_save_partial"] is False
+    assert listed["compile_on_save_full"] is True
 
 
 # ---------------------------------------------------------------------------

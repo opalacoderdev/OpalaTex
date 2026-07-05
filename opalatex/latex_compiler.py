@@ -215,6 +215,82 @@ def _find_include_command_for_file(main_content: str, target_rel_from_main: str)
     return "", ""
 
 
+def _copy_partial_shared_artifacts(main_dir: str, main_file: str, preview_stem: str) -> list:
+    """Copy main-job auxiliary files so partial previews can resolve refs/citations."""
+    main_stem = os.path.splitext(os.path.basename(main_file))[0]
+    copied = []
+    for suffix in (".aux", ".bbl", ".bcf", ".run.xml", ".toc", ".lof", ".lot", ".out"):
+        source = os.path.join(main_dir, main_stem + suffix)
+        target = os.path.join(main_dir, preview_stem + suffix)
+        if not os.path.exists(source):
+            continue
+        try:
+            shutil.copy2(source, target)
+            copied.append(os.path.basename(target))
+        except OSError:
+            pass
+    return copied
+
+
+def _has_bibliography_markers(content: str) -> bool:
+    source = _strip_latex_comments(content)
+    return bool(re.search(r'\\(?:cite\w*|bibliography|addbibresource|printbibliography)\b', source))
+
+
+def _run_bibliography_tool_if_needed(main_dir: str, preview_stem: str, preview_content: str,
+                                     copied_artifacts: list) -> dict:
+    """Run biber/bibtex for a partial preview when inherited .bbl data is absent."""
+    preview_bbl = os.path.join(main_dir, preview_stem + ".bbl")
+    if os.path.exists(preview_bbl) or f"{preview_stem}.bbl" in copied_artifacts:
+        return {"ran": False, "log": ""}
+    if not _has_bibliography_markers(preview_content):
+        return {"ran": False, "log": ""}
+
+    preview_bcf = os.path.join(main_dir, preview_stem + ".bcf")
+    preview_aux = os.path.join(main_dir, preview_stem + ".aux")
+    if os.path.exists(preview_bcf):
+        tool = shutil.which("biber")
+    elif os.path.exists(preview_aux):
+        tool = shutil.which("bibtex")
+    else:
+        tool = None
+
+    if not tool:
+        return {
+            "ran": False,
+            "log": "\nWarning: citations detected, but neither biber nor bibtex is available for partial bibliography generation.",
+        }
+
+    result = subprocess.run(
+        [tool, preview_stem],
+        cwd=main_dir,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return {
+        "ran": result.returncode == 0,
+        "log": "\n" + result.stdout + "\n" + result.stderr,
+    }
+
+
+def _disable_non_target_direct_includes(main_content: str, target_command: str, target_arg: str) -> str:
+    """Keep the main document shell while skipping direct siblings of an input target."""
+    pattern = re.compile(r'\\(include|input)\s*\{([^}]+)\}')
+    begin_doc = main_content.find("\\begin{document}")
+    if begin_doc < 0:
+        return main_content
+
+    def replace(match):
+        command = match.group(1)
+        arg = match.group(2).strip()
+        if command == target_command and _same_tex_target(arg, target_arg):
+            return match.group(0)
+        return f"% OpalaTex partial compile skipped \\{command}{{{arg}}}"
+
+    return main_content[:begin_doc] + pattern.sub(replace, main_content[begin_doc:])
+
+
 def compile_latex_partial(tex_content: str, file_path: str, main_file: str, project_dir: str,
                           include_pdf_base64: bool = True) -> dict:
     """
@@ -300,13 +376,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
         )
         partial_mode = "includeonly"
     else:
-        preamble = main_content[:begin_doc]
-        preview_content = (
-            preamble
-            + "\n\\begin{document}\n"
-            + f"\\input{{{include_arg}}}\n"
-            + "\\end{document}\n"
-        )
+        preview_content = _disable_non_target_direct_includes(main_content, command, include_arg)
         partial_mode = "input-wrapper"
 
     tectonic_cmd = get_tectonic_path()
@@ -319,25 +389,39 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
         with open(preview_tex, "w", encoding="utf-8") as f:
             f.write(preview_content)
 
+        copied_artifacts = _copy_partial_shared_artifacts(main_dir, main_file, preview_stem)
+
+        def run_tectonic():
+            return subprocess.run(
+                [
+                    tectonic_cmd,
+                    "--synctex",
+                    "--keep-intermediates",
+                    "--keep-logs",
+                    "-c",
+                    "minimal",
+                    preview_tex,
+                ],
+                cwd=main_dir,
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+
         compile_started = time.perf_counter()
-        result = subprocess.run(
-            [
-                tectonic_cmd,
-                "--synctex",
-                "--keep-intermediates",
-                "--keep-logs",
-                "-c",
-                "minimal",
-                preview_tex,
-            ],
-            cwd=main_dir,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        result = run_tectonic()
+        log = result.stdout + "\n" + result.stderr
+        bib_result = _run_bibliography_tool_if_needed(main_dir, preview_stem, preview_content, copied_artifacts)
+        if bib_result["log"]:
+            log += bib_result["log"]
+        if bib_result["ran"]:
+            rerun = run_tectonic()
+            result = rerun
+            log += "\n" + rerun.stdout + "\n" + rerun.stderr
         compile_seconds = time.perf_counter() - compile_started
         success = result.returncode == 0 and os.path.exists(preview_pdf)
-        log = result.stdout + "\n" + result.stderr
+        if copied_artifacts:
+            log += "\nPartial compile reused auxiliary artifacts: " + ", ".join(copied_artifacts)
         if result.returncode == 0 and not os.path.exists(preview_pdf):
             log += "\nError: PDF file was not generated despite 0 exit code."
 
