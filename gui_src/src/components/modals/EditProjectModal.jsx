@@ -201,7 +201,21 @@ export default function EditProjectModal({
                   <input
                     type="radio"
                     name="compile-on-save-mode"
-                    checked={editingProject.compile_on_save_full !== true}
+                    checked={editingProject.compile_on_save_partial !== true && editingProject.compile_on_save_full !== true}
+                    onChange={() => setEditingProject(p => ({
+                      ...p,
+                      compile_on_save_partial: false,
+                      compile_on_save_full: false,
+                    }))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span>{t('editProjectModal.compileOnSaveDisabled')}</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--vscode-text-fg)', fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="radio"
+                    name="compile-on-save-mode"
+                    checked={editingProject.compile_on_save_partial === true && editingProject.compile_on_save_full !== true}
                     onChange={() => setEditingProject(p => ({
                       ...p,
                       compile_on_save_partial: true,

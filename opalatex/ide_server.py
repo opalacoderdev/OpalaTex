@@ -2144,8 +2144,6 @@ class AsyncHTTPServer:
 
             if getattr(project, "compile_on_save_full", False):
                 project.compile_on_save_partial = False
-            elif not getattr(project, "compile_on_save_partial", True):
-                project.compile_on_save_partial = True
 
             if "use_shared_memory" in data:
                 project.use_shared_memory = bool(data["use_shared_memory"])

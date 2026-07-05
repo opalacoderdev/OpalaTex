@@ -225,6 +225,7 @@
     "apiBasePlaceholder": "Ex: http://localhost:11434/v1",
     "altModelPlaceholder": "(usa o padrão global se vazio)",
     "latexCompileOnSave": "Compilar LaTeX ao Salvar",
+    "compileOnSaveDisabled": "Desabilitado",
     "compileOnSavePartial": "Compilar ao salvar (parcial)",
     "compileOnSaveFull": "Compilar ao salvar (total)"
   },

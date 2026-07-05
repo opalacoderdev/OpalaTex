@@ -27,12 +27,12 @@ def _conn(db_path: str) -> sqlite3.Connection:
 
 
 def _normalize_compile_on_save(partial: bool, full: bool) -> tuple[bool, bool]:
-    """Keep compile-on-save mode mutually exclusive; partial is the default."""
+    """Keep compile-on-save mode mutually exclusive; both false means disabled."""
     if full:
         return False, True
     if partial:
         return True, False
-    return True, False
+    return False, False
 
 
 def _init_schema(db_path: str) -> None:

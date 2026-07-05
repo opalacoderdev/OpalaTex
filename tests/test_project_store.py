@@ -114,6 +114,21 @@ def test_compile_on_save_settings_are_mutually_exclusive(store):
     assert listed["compile_on_save_full"] is True
 
 
+def test_compile_on_save_settings_can_be_disabled(store):
+    project = store.create(**_base_args())
+    project.compile_on_save_partial = False
+    project.compile_on_save_full = False
+    store.save(project)
+
+    loaded = store.load("myproj")
+    listed = store.list_projects()[0]
+
+    assert loaded.compile_on_save_partial is False
+    assert loaded.compile_on_save_full is False
+    assert listed["compile_on_save_partial"] is False
+    assert listed["compile_on_save_full"] is False
+
+
 # ---------------------------------------------------------------------------
 # 3. rename fails if target exists
 # ---------------------------------------------------------------------------

@@ -129,3 +129,47 @@ def test_partial_compile_runs_bibtex_when_no_bbl_exists(monkeypatch, tmp_path):
 
     assert result["success"] is True
     assert calls == ["tectonic", "bibtex", "tectonic"]
+
+
+def test_partial_compile_preserves_chapter_number_for_input_chapter(monkeypatch, tmp_path):
+    main = tmp_path / "main.tex"
+    for index in range(1, 5):
+        (tmp_path / f"cap{index}.tex").write_text(
+            f"\\chapter{{Chapter {index}}}\nContent {index}\n",
+            encoding="utf-8",
+        )
+    main.write_text(
+        "\\documentclass{book}\n"
+        "\\begin{document}\n"
+        "\\input{cap1}\n"
+        "\\input{cap2}\n"
+        "\\input{cap3}\n"
+        "\\input{cap4}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(latex_compiler, "get_tectonic_path", lambda: "tectonic")
+
+    def fake_run(cmd, cwd, capture_output, encoding, errors):
+        preview_source = (tmp_path / "opalatex_partial_cap4.tex").read_text(encoding="utf-8")
+        assert "\\setcounter{chapter}{3}\n\\input{cap4}" in preview_source
+        assert "skipped \\input{cap1}" in preview_source
+        assert "skipped \\input{cap2}" in preview_source
+        assert "skipped \\input{cap3}" in preview_source
+        (tmp_path / "opalatex_partial_cap4.pdf").write_bytes(b"%PDF")
+        (tmp_path / "opalatex_partial_cap4.synctex.gz").write_bytes(b"synctex")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(latex_compiler.subprocess, "run", fake_run)
+
+    result = latex_compiler.compile_latex_partial(
+        "\\chapter{Chapter 4}\nUpdated content\n",
+        str(tmp_path / "cap4.tex"),
+        "main.tex",
+        str(tmp_path),
+        include_pdf_base64=False,
+    )
+
+    assert result["success"] is True
+    assert result["partial_mode"] == "input-wrapper"

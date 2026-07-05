@@ -274,17 +274,64 @@ def _run_bibliography_tool_if_needed(main_dir: str, preview_stem: str, preview_c
     }
 
 
-def _disable_non_target_direct_includes(main_content: str, target_command: str, target_arg: str) -> str:
+def _resolve_tex_include_path(base_dir: str, arg: str) -> str:
+    normalized = (arg or "").replace("\\", os.sep)
+    candidates = [
+        os.path.join(base_dir, normalized),
+        os.path.join(base_dir, normalized + ".tex"),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return ""
+
+
+def _count_numbered_chapters(source: str) -> int:
+    text = _strip_latex_comments(source)
+    return len(re.findall(r'\\chapter\s*(?!\*)', text))
+
+
+def _count_chapters_before_target(main_content: str, main_dir: str, target_command: str, target_arg: str) -> int:
+    pattern = re.compile(r'\\(include|input)\s*\{([^}]+)\}')
+    begin_doc = main_content.find("\\begin{document}")
+    if begin_doc < 0:
+        return 0
+
+    body = main_content[begin_doc:]
+    count = 0
+    cursor = 0
+    for match in pattern.finditer(body):
+        count += _count_numbered_chapters(body[cursor:match.start()])
+        command = match.group(1)
+        arg = match.group(2).strip()
+        if command == target_command and _same_tex_target(arg, target_arg):
+            return count
+
+        included_path = _resolve_tex_include_path(main_dir, arg)
+        if included_path:
+            try:
+                with open(included_path, "r", encoding="utf-8", errors="ignore") as f:
+                    count += _count_numbered_chapters(f.read())
+            except OSError:
+                pass
+        cursor = match.end()
+    return 0
+
+
+def _disable_non_target_direct_includes(main_content: str, main_dir: str, target_command: str, target_arg: str) -> str:
     """Keep the main document shell while skipping direct siblings of an input target."""
     pattern = re.compile(r'\\(include|input)\s*\{([^}]+)\}')
     begin_doc = main_content.find("\\begin{document}")
     if begin_doc < 0:
         return main_content
+    chapter_count = _count_chapters_before_target(main_content, main_dir, target_command, target_arg)
 
     def replace(match):
         command = match.group(1)
         arg = match.group(2).strip()
         if command == target_command and _same_tex_target(arg, target_arg):
+            if chapter_count > 0:
+                return f"\\setcounter{{chapter}}{{{chapter_count}}}\n" + match.group(0)
             return match.group(0)
         return f"% OpalaTex partial compile skipped \\{command}{{{arg}}}"
 
@@ -376,7 +423,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
         )
         partial_mode = "includeonly"
     else:
-        preview_content = _disable_non_target_direct_includes(main_content, command, include_arg)
+        preview_content = _disable_non_target_direct_includes(main_content, main_dir, command, include_arg)
         partial_mode = "input-wrapper"
 
     tectonic_cmd = get_tectonic_path()
