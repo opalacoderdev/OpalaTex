@@ -33,10 +33,17 @@ def test_clean_latex_artifacts_removes_generated_files_only(tmp_path):
 
 
 def test_clean_latex_artifacts_removes_partial_preview_files(tmp_path):
-    for rel_path in ["opalatex_partial_ch1.tex", "opalatex_partial_ch1.pdf"]:
+    partial_files = [
+        "opalatex_partial_ch1.tex",
+        "opalatex_partial_ch1.pdf",
+        "opalatex_partial_ch1.aux",
+        "opalatex_partial_ch1.bbl",
+        "opalatex_partial_ch1.synctex.gz",
+    ]
+    for rel_path in partial_files:
         (tmp_path / rel_path).write_text("generated", encoding="utf-8")
 
     result = clean_latex_artifacts(str(tmp_path))
 
     assert result["success"] is True
-    assert sorted(result["removed"]) == ["opalatex_partial_ch1.pdf", "opalatex_partial_ch1.tex"]
+    assert sorted(result["removed"]) == sorted(partial_files)

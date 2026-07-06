@@ -66,6 +66,56 @@ def _normalize_rel_path(path: str) -> str:
     return path.replace("\\", "/").strip("/")
 
 
+OPALATEX_HIDDEN_ARTIFACT_PREFIXES = ("opalatex_partial_",)
+OPALATEX_GIT_EXCLUDE_PATTERNS = ("opalatex_partial_*",)
+
+
+def _is_opalatex_hidden_artifact(path: str) -> bool:
+    return os.path.basename(path).lower().startswith(OPALATEX_HIDDEN_ARTIFACT_PREFIXES)
+
+
+def _append_git_exclude_patterns(exclude_path: str) -> None:
+    existing = set()
+    if os.path.exists(exclude_path):
+        with open(exclude_path, "r", encoding="utf-8", errors="ignore") as f:
+            existing = {line.strip() for line in f if line.strip() and not line.lstrip().startswith("#")}
+
+    missing = [pattern for pattern in OPALATEX_GIT_EXCLUDE_PATTERNS if pattern not in existing]
+    if not missing:
+        return
+
+    os.makedirs(os.path.dirname(exclude_path), exist_ok=True)
+    needs_newline = False
+    if os.path.exists(exclude_path) and os.path.getsize(exclude_path) > 0:
+        with open(exclude_path, "rb") as f:
+            f.seek(-1, os.SEEK_END)
+            needs_newline = f.read(1) not in {b"\n", b"\r"}
+
+    with open(exclude_path, "a", encoding="utf-8") as f:
+        if needs_newline:
+            f.write("\n")
+        f.write("# OpalaTex generated artifacts\n")
+        for pattern in missing:
+            f.write(pattern + "\n")
+
+
+def _ensure_opalatex_git_excludes(git_ctx: dict) -> None:
+    if git_ctx.get("source") == "shadowgit":
+        exclude_path = os.path.join(git_ctx["project_path"], ".opalatex", ".gitignore")
+        _append_git_exclude_patterns(exclude_path)
+        subprocess.run(
+            git_ctx["git_cmd"] + ["config", "core.excludesFile", exclude_path],
+            cwd=git_ctx["cwd"],
+            capture_output=True,
+            **utf8_text_kwargs(),
+        )
+        return
+
+    git_meta_path = os.path.join(git_ctx["repo_root"], ".git")
+    if os.path.isdir(git_meta_path):
+        _append_git_exclude_patterns(os.path.join(git_meta_path, "info", "exclude"))
+
+
 def _resolve_git_context(project_path: str, use_shadow: bool = False, git_root_path: str | None = None) -> dict:
     project_abs = os.path.abspath(project_path)
     if not os.path.isdir(project_abs):
@@ -129,6 +179,36 @@ def _project_path_to_repo_path(file_path: str, git_ctx: dict) -> str:
     return _normalize_rel_path(os.path.relpath(file_abs, repo_root))
 
 
+def _discard_git_path(git_ctx: dict, repo_file_path: str) -> None:
+    """Discard tracked/staged changes, or remove an untracked path."""
+    git_cmd = git_ctx["git_cmd"]
+    ls = subprocess.run(
+        git_cmd + ["ls-files", "--error-unmatch", "--", repo_file_path],
+        cwd=git_ctx["cwd"],
+        capture_output=True,
+        **utf8_text_kwargs(),
+    )
+    if ls.returncode == 0:
+        res = subprocess.run(
+            git_cmd + ["restore", "--staged", "--worktree", "--", repo_file_path],
+            cwd=git_ctx["cwd"],
+            capture_output=True,
+            **utf8_text_kwargs(),
+        )
+        if res.returncode != 0:
+            raise RuntimeError(res.stderr or res.stdout or "Git restore failed")
+        return
+
+    full_path = os.path.abspath(os.path.join(git_ctx["repo_root"], repo_file_path))
+    if not _is_path_within(full_path, git_ctx["repo_root"]):
+        raise GitContextError("File path is outside the selected Git root")
+    if os.path.isdir(full_path):
+        import shutil
+        shutil.rmtree(full_path)
+    elif os.path.exists(full_path):
+        os.remove(full_path)
+
+
 def get_file_tree(dir_path, root_path=None):
     if root_path is None:
         root_path = dir_path
@@ -143,7 +223,9 @@ def get_file_tree(dir_path, root_path=None):
         # Skip heavy/hidden directories
         if item in ['node_modules', '.git', '.venv', '.env', '__pycache__', '.pytest_cache']:
             continue
-            
+        if _is_opalatex_hidden_artifact(item):
+            continue
+             
         full_path = os.path.join(dir_path, item)
         rel_path = os.path.relpath(full_path, root_path)
         
@@ -2589,6 +2671,7 @@ class AsyncHTTPServer:
             import subprocess
             try:
                 git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                _ensure_opalatex_git_excludes(git_ctx)
                 res = subprocess.run(
                     git_ctx["git_cmd"] + ["status", "--porcelain"],
                     cwd=git_ctx["cwd"],
@@ -2604,6 +2687,8 @@ class AsyncHTTPServer:
                         if " -> " in filepath:
                             filepath = filepath.split(" -> ")[1].strip()
                         filepath = _repo_path_to_project_path(filepath, git_ctx)
+                        if _is_opalatex_hidden_artifact(filepath):
+                            continue
                         # Determine effective display status and staged flag
                         if index_status == '?' and worktree_status == '?':
                             # Untracked
@@ -2750,12 +2835,20 @@ class AsyncHTTPServer:
             if not project_path or not file_path_param:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath required"}', "application/json")
                 return
+            try:
+                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
+                _discard_git_path(git_ctx, repo_file_path)
+                self.send_response(writer, 200, b'{"success":true}', "application/json")
+                return
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                return
             import subprocess
             try:
                 git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 git_cmd = git_ctx["git_cmd"]
                 repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
-                # For untracked files, remove them; for tracked files, restore
                 res = subprocess.run(
                     git_cmd + ["ls-files", "--error-unmatch", "--", repo_file_path],
                     cwd=git_ctx["cwd"], capture_output=True

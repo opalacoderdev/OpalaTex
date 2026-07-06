@@ -37,6 +37,25 @@ import EditModelsModal from './components/modals/EditModelsModal';
 import AddProviderModal from './components/modals/AddProviderModal';
 import LicenseModal from './components/modals/LicenseModal';
 
+const normalizeEditorPathKey = (filePath, caseInsensitive = false) => {
+  if (!filePath) return '';
+  let normalized = String(filePath)
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/^\.\//, '');
+  const parts = [];
+  for (const part of normalized.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..' && parts.length > 0 && parts[parts.length - 1] !== '..') {
+      parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+  normalized = parts.join('/');
+  return caseInsensitive ? normalized.toLowerCase() : normalized;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // App
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,6 +65,37 @@ export default function App() {
   // ── Projects / files ──────────────────────────────────────────────────────
   const [projects, setProjects] = useState([]);
   const [activeProject, setActiveProject] = useState(null);
+  const isCaseInsensitiveProjectPath = Boolean(
+    activeProject?.project_path?.includes('\\') ||
+    /^[a-z]:/i.test(activeProject?.project_path || '') ||
+    navigator.userAgent.toLowerCase().includes('windows')
+  );
+  const filePathKey = (filePath) => normalizeEditorPathKey(filePath, isCaseInsensitiveProjectPath);
+  const sameFilePath = (left, right) => filePathKey(left) === filePathKey(right);
+  const isFileInsidePath = (filePath, parentPath) => {
+    const parentKey = filePathKey(parentPath);
+    const childKey = filePathKey(filePath);
+    return childKey === parentKey || childKey.startsWith(`${parentKey}/`);
+  };
+  const replaceFilePathPrefix = (filePath, oldPath, newPath) => {
+    if (!isFileInsidePath(filePath, oldPath)) return filePath;
+    const normalizedFile = String(filePath).replace(/\\/g, '/');
+    const normalizedOld = String(oldPath).replace(/\\/g, '/').replace(/\/+$/g, '');
+    const oldSegments = normalizedOld.split('/').filter(Boolean).length;
+    const suffix = normalizedFile.split('/').filter(Boolean).slice(oldSegments).join('/');
+    return suffix ? `${newPath}/${suffix}` : newPath;
+  };
+  const dedupeOpenFileList = (files, preferredPath = null) => {
+    const preferredKey = preferredPath ? filePathKey(preferredPath) : null;
+    const seen = new Set();
+    return files.reduce((deduped, file) => {
+      const key = filePathKey(file);
+      if (!key || seen.has(key)) return deduped;
+      seen.add(key);
+      deduped.push(preferredKey === key ? preferredPath : file);
+      return deduped;
+    }, []);
+  };
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedNodes, setSelectedNodes] = useState(new Set());
@@ -215,6 +265,26 @@ export default function App() {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const saveFileRef = useRef(null);
+  const diskFileContentsRef = useRef({});
+
+  async function refreshSelectedFileFromDiskIfUnmodified() {
+    if (!activeProject?.project_path || !selectedFile) return;
+    const lastDiskContent = diskFileContentsRef.current[selectedFile];
+    if (lastDiskContent === undefined || fileContent !== lastDiskContent) return;
+    try {
+      const res = await fetch(`/api/file/read?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.content === lastDiskContent) return;
+      diskFileContentsRef.current[selectedFile] = data.content;
+      setFileContent(data.content);
+      setFileContents(prev => ({ ...prev, [selectedFile]: data.content }));
+      setOriginalFileContents(prev => ({ ...prev, [selectedFile]: data.content }));
+      addLog('info', `Reloaded from disk: ${selectedFile}`);
+    } catch {
+      // Ignore transient file reads; the next refresh/focus will try again.
+    }
+  }
 
   // ── Hooks ─────────────────────────────────────────────────────────────────
   const { startResizing } = useResizing({ setSidebarWidth, setChatWidth, setBottomPanelHeight, sidebarWidth, chatWidth, bottomPanelHeight });
@@ -565,10 +635,25 @@ export default function App() {
   }, [activeProject]);
 
   useEffect(() => {
+    diskFileContentsRef.current = {};
+  }, [activeProject?.project_path]);
+
+  useEffect(() => {
     if (!activeProject) return;
-    const interval = setInterval(() => { fetchFiles(); fetchGitStatus(); }, 10000);
-    return () => clearInterval(interval);
-  }, [activeProject, useShadowGit, currentGitRootPath]);
+    const refreshWorkspace = () => {
+      fetchFiles();
+      fetchGitStatus();
+      refreshSelectedFileFromDiskIfUnmodified();
+    };
+    const interval = setInterval(refreshWorkspace, 10000);
+    window.addEventListener('focus', refreshWorkspace);
+    document.addEventListener('visibilitychange', refreshWorkspace);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', refreshWorkspace);
+      document.removeEventListener('visibilitychange', refreshWorkspace);
+    };
+  }, [activeProject, useShadowGit, currentGitRootPath, selectedFile, fileContent]);
 
   useEffect(() => {
     if (activeSidebarTab === 'git' && activeProject) fetchGitStatus();
@@ -580,6 +665,15 @@ export default function App() {
       setIsEditorMaximized(false);
     }
   }, [openFiles, isEditorMaximized]);
+
+  useEffect(() => {
+    setOpenFiles(prev => {
+      const deduped = dedupeOpenFileList(prev, selectedFile);
+      return deduped.length === prev.length && deduped.every((file, index) => file === prev[index])
+        ? prev
+        : deduped;
+    });
+  }, [isCaseInsensitiveProjectPath, selectedFile]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const trimToLimit = (arr, limit) => arr.length > limit ? arr.slice(arr.length - limit) : arr;
@@ -752,6 +846,37 @@ export default function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gitRequestPayload({ filePath })),
       });
+      if (res.ok) {
+        addLog('info', `Discarded changes: ${filePath}`);
+        setFileContents(prev => {
+          const next = { ...prev };
+          delete next[filePath];
+          return next;
+        });
+        if (sameFilePath(selectedFile, filePath)) {
+          const readRes = await fetch(`/api/file/read?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(filePath)}&t=${Date.now()}`);
+          if (readRes.ok) {
+            const data = await readRes.json();
+            diskFileContentsRef.current[filePath] = data.content;
+            setFileContent(data.content);
+            setFileContents(prev => ({ ...prev, [filePath]: data.content }));
+            setOriginalFileContents(prev => ({ ...prev, [filePath]: data.content }));
+          } else {
+            delete diskFileContentsRef.current[filePath];
+            setOpenFiles(prev => prev.filter(f => !sameFilePath(f, filePath)));
+            setSelectedFile(null);
+            setFileContent('');
+            setOriginalFileContents(prev => {
+              const next = { ...prev };
+              delete next[filePath];
+              return next;
+            });
+          }
+        }
+        fetchGitStatus();
+        fetchFiles();
+        return;
+      }
       if (res.ok) { addLog('info', `Alterações descartadas: ${filePath}`); fetchGitStatus(); fetchFiles(); }
       else { const d = await res.json(); addLog('error', `Erro ao descartar: ${d.error}`); }
     } catch (err) { addLog('error', `Erro ao descartar alterações: ${err.message}`); }
@@ -813,7 +938,19 @@ export default function App() {
     if (!activeProject) return;
     setIsBottomMaximized(false);
     if (selectedFile) setFileContents(prev => ({ ...prev, [selectedFile]: fileContent }));
-    setOpenFiles(prev => prev.includes(filePath) ? prev : [...prev, filePath]);
+    const cachedFilePath = Object.keys(fileContents).find(path => sameFilePath(path, filePath)) || filePath;
+    setOpenFiles(prev => {
+      const deduped = dedupeOpenFileList(prev, filePath);
+      return deduped.some(openFile => sameFilePath(openFile, filePath))
+        ? deduped.map(openFile => sameFilePath(openFile, filePath) ? filePath : openFile)
+        : [...deduped, filePath];
+    });
+    if (cachedFilePath !== filePath) {
+      setFileContents(prev => ({ ...prev, [filePath]: prev[cachedFilePath] }));
+      setOriginalFileContents(prev => (
+        prev[cachedFilePath] === undefined ? prev : { ...prev, [filePath]: prev[cachedFilePath] }
+      ));
+    }
     setSelectedFile(filePath);
     setLayoutMode('ide'); // Force the IDE view so the text editor is visible
     if (jumpLine !== null) {
@@ -847,9 +984,9 @@ export default function App() {
       }).catch(err => console.error("Failed to auto-switch to edit mode:", err));
     }
 
-    if (fileContents[filePath] !== undefined) {
-      console.log(`[DEBUG handleFileSelect] CACHE HIT for "${filePath}" — serving cached content (${fileContents[filePath].length} chars). Disk NOT read.`);
-      setFileContent(fileContents[filePath]);
+    if (fileContents[cachedFilePath] !== undefined) {
+      console.log(`[DEBUG handleFileSelect] CACHE HIT for "${filePath}" — serving cached content (${fileContents[cachedFilePath].length} chars). Disk NOT read.`);
+      setFileContent(fileContents[cachedFilePath]);
       return;
     }
     console.log(`[DEBUG handleFileSelect] CACHE MISS for "${filePath}" — fetching from disk.`);
@@ -858,6 +995,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         console.log(`[DEBUG handleFileSelect] Loaded from disk: ${data.content.length} chars`);
+        diskFileContentsRef.current[filePath] = data.content;
         setFileContent(data.content);
         setFileContents(prev => ({ ...prev, [filePath]: data.content }));
         setOriginalFileContents(prev => ({ ...prev, [filePath]: data.content }));
@@ -889,6 +1027,7 @@ export default function App() {
       });
       if (res.ok) {
         addLog('info', `Arquivo salvo: ${selectedFile}`);
+        diskFileContentsRef.current[selectedFile] = fileContent;
         setFileContents(prev => ({ ...prev, [selectedFile]: fileContent }));
 
         fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)
@@ -926,10 +1065,10 @@ export default function App() {
 
   const handleCloseTab = (filePath, e) => {
     if (e) { e.stopPropagation(); e.preventDefault(); }
-    if (selectedFile === filePath) setFileContents(prev => ({ ...prev, [filePath]: fileContent }));
+    if (sameFilePath(selectedFile, filePath)) setFileContents(prev => ({ ...prev, [filePath]: fileContent }));
     setOpenFiles(prev => {
-      const remaining = prev.filter(f => f !== filePath);
-      if (selectedFile === filePath) {
+      const remaining = prev.filter(f => !sameFilePath(f, filePath));
+      if (sameFilePath(selectedFile, filePath)) {
         if (remaining.length > 0) { const next = remaining[remaining.length - 1]; setSelectedFile(next); setFileContent(fileContents[next] || ''); }
         else { setSelectedFile(null); setFileContent(''); }
       }
@@ -968,14 +1107,25 @@ export default function App() {
       if (res.ok) {
         addLog('info', `${node.isDirectory ? 'Diretório' : 'Arquivo'} renomeado de ${node.path} para ${newPath}`);
         if (!node.isDirectory) {
-          setOpenFiles(prev => prev.map(f => f === node.path ? newPath : f));
-          setFileContents(prev => { const n = { ...prev }; n[newPath] = n[node.path]; delete n[node.path]; return n; });
-          if (selectedFile === node.path) setSelectedFile(newPath);
+          setOpenFiles(prev => dedupeOpenFileList(prev.map(f => sameFilePath(f, node.path) ? newPath : f), newPath));
+          setFileContents(prev => {
+            const n = { ...prev };
+            const oldKey = Object.keys(n).find(k => sameFilePath(k, node.path));
+            if (oldKey !== undefined) { n[newPath] = n[oldKey]; delete n[oldKey]; }
+            return n;
+          });
+          setOriginalFileContents(prev => {
+            const n = { ...prev };
+            const oldKey = Object.keys(n).find(k => sameFilePath(k, node.path));
+            if (oldKey !== undefined) { n[newPath] = n[oldKey]; delete n[oldKey]; }
+            return n;
+          });
+          if (sameFilePath(selectedFile, node.path)) setSelectedFile(newPath);
         } else {
-          const prefix = `${node.path}/`;
-          setOpenFiles(prev => prev.map(f => f.startsWith(prefix) ? f.replace(node.path, newPath) : f));
-          setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[k.startsWith(prefix) ? k.replace(node.path, newPath) : k] = v; return n; });
-          if (selectedFile?.startsWith(prefix)) setSelectedFile(prev => prev.replace(node.path, newPath));
+          setOpenFiles(prev => dedupeOpenFileList(prev.map(f => replaceFilePathPrefix(f, node.path, newPath)), newPath));
+          setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
+          setOriginalFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
+          if (isFileInsidePath(selectedFile, node.path)) setSelectedFile(prev => replaceFilePathPrefix(prev, node.path, newPath));
         }
         await fetchFiles();
       } else { const e = await res.json(); addLog('error', `Falha ao renomear: ${e.error}`); alert(`Erro ao renomear: ${e.error}`); }
@@ -1042,9 +1192,10 @@ export default function App() {
             const res = await fetch('/api/file/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, filePath: pathToDelete }) });
             if (res.ok) {
               successCount++;
-              setOpenFiles(prev => prev.filter(f => f !== pathToDelete && !f.startsWith(`${pathToDelete}/`)));
-              setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) if (k !== pathToDelete && !k.startsWith(`${pathToDelete}/`)) n[k] = v; return n; });
-              if (selectedFile === pathToDelete || selectedFile?.startsWith(`${pathToDelete}/`)) {
+              setOpenFiles(prev => prev.filter(f => !isFileInsidePath(f, pathToDelete)));
+              setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) if (!isFileInsidePath(k, pathToDelete)) n[k] = v; return n; });
+              setOriginalFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) if (!isFileInsidePath(k, pathToDelete)) n[k] = v; return n; });
+              if (isFileInsidePath(selectedFile, pathToDelete)) {
                 // If it's the current file, we can't reliably pick the 'last' open file easily in a loop, so we just clear it.
                 setSelectedFile(null); setFileContent('');
               }
@@ -1458,6 +1609,7 @@ export default function App() {
                   .then(d => {
                     if (d) {
                       console.log(`[DEBUG tool_result] Reloaded open file "${selectedFile}" from disk.`);
+                      diskFileContentsRef.current[selectedFile] = d.content;
                       setFileContent(d.content);
                       setFileContents(prev => ({ ...prev, [selectedFile]: d.content }));
                       fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)

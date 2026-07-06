@@ -85,7 +85,20 @@
     "resetZoom": "Resetar Zoom",
     "savePdf": "Salvar PDF",
     "collapsePdfPreview": "Recolher preview PDF",
-    "showPdfPreview": "Mostrar preview PDF"
+    "showPdfPreview": "Mostrar preview PDF",
+    "latexHelpTitle": "Ajuda do editor LaTeX",
+    "latexHelpClose": "Fechar ajuda",
+    "latexHelpShortcutsTitle": "Atalhos",
+    "latexHelpFeaturesTitle": "Ferramentas principais",
+    "latexHelpSave": "Salva o arquivo atual.",
+    "latexHelpInline": "Pede ao OpalaTex para editar ou gerar conteudo no cursor.",
+    "latexHelpTerminal": "Mostra ou oculta o terminal.",
+    "latexHelpSyncTex": "Vai da linha do codigo para o preview PDF.",
+    "latexHelpCompile": "Compila o LaTeX para atualizar o preview PDF.",
+    "latexHelpPartial": "Compila apenas o arquivo ou capitulo atual.",
+    "latexHelpRichText": "Alterna para o modo rich text para editar texto corrido.",
+    "latexHelpPreview": "Mostra um preview LaTeX ao vivo, somente leitura.",
+    "latexHelpSnippets": "Insere snippets LaTeX comuns."
   },
   "chatPanel": {
     "header": "OPALATEX CHAT",

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText } from 'lucide-react';
+import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText, HelpCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
 import { safeSetLocalStorage } from '../utils/storage';
@@ -52,6 +52,7 @@ export default function EditorPanel({
   const [isRichTextMode, setIsRichTextMode] = useState(false);
   const [isPdfPreviewCollapsed, setIsPdfPreviewCollapsed] = useState(false);
   const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
+  const [showLatexHelp, setShowLatexHelp] = useState(false);
   const [editorContextMenu, setEditorContextMenu] = useState(null);
   const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
   const pendingEditorLineRef = useRef(null);
@@ -566,6 +567,10 @@ export default function EditorPanel({
     }
   }, [selectedFile]);
 
+  useEffect(() => {
+    setShowLatexHelp(false);
+  }, [selectedFile]);
+
   if (!selectedFile) {
     return (
       <div className="vscode-editor-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
@@ -928,6 +933,64 @@ export default function EditorPanel({
                 {isPreviewMode ? <EyeOff size={12} style={{ color: '#4daafc' }} /> : <Eye size={12} />}
               </button>
             </>
+          )}
+
+          {isTexFile && (
+            <div style={{ position: 'relative', display: 'inline-flex' }}>
+              <button
+                onClick={() => setShowLatexHelp(prev => !prev)}
+                className="vscode-bottom-panel-clear-btn"
+                style={{ padding: '6px' }}
+                title={t('editorPanel.latexHelpTitle')}
+                aria-label={t('editorPanel.latexHelpTitle')}
+                aria-expanded={showLatexHelp}
+              >
+                <HelpCircle size={12} style={{ color: showLatexHelp ? '#4daafc' : 'inherit' }} />
+              </button>
+              {showLatexHelp && (
+                <div className="latex-help-popover" role="dialog" aria-label={t('editorPanel.latexHelpTitle')}>
+                  <div className="latex-help-header">
+                    <span>{t('editorPanel.latexHelpTitle')}</span>
+                    <button
+                      onClick={() => setShowLatexHelp(false)}
+                      className="vscode-bottom-panel-clear-btn"
+                      style={{ padding: '3px' }}
+                      title={t('editorPanel.latexHelpClose')}
+                      aria-label={t('editorPanel.latexHelpClose')}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                  <div className="latex-help-section-title">{t('editorPanel.latexHelpShortcutsTitle')}</div>
+                  <dl className="latex-help-list">
+                    <div>
+                      <dt>Ctrl+S</dt>
+                      <dd>{t('editorPanel.latexHelpSave')}</dd>
+                    </div>
+                    <div>
+                      <dt>Ctrl+L</dt>
+                      <dd>{t('editorPanel.latexHelpInline')}</dd>
+                    </div>
+                    <div>
+                      <dt>Ctrl+J</dt>
+                      <dd>{t('editorPanel.latexHelpTerminal')}</dd>
+                    </div>
+                    <div>
+                      <dt>Ctrl/Alt+Click</dt>
+                      <dd>{t('editorPanel.latexHelpSyncTex')}</dd>
+                    </div>
+                  </dl>
+                  <div className="latex-help-section-title">{t('editorPanel.latexHelpFeaturesTitle')}</div>
+                  <ul className="latex-help-feature-list">
+                    <li>{t('editorPanel.latexHelpCompile')}</li>
+                    <li>{t('editorPanel.latexHelpPartial')}</li>
+                    <li>{t('editorPanel.latexHelpRichText')}</li>
+                    <li>{t('editorPanel.latexHelpPreview')}</li>
+                    <li>{t('editorPanel.latexHelpSnippets')}</li>
+                  </ul>
+                </div>
+              )}
+            </div>
           )}
 
           <button

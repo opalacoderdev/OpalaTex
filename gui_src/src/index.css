@@ -900,6 +900,74 @@ input:focus, select:focus, textarea:focus {
   color: #ffffff;
 }
 
+.latex-help-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(340px, calc(100vw - 32px));
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  z-index: 2000;
+  background: var(--vscode-sidebar-bg);
+  border: 1px solid var(--vscode-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color: var(--vscode-text-fg);
+  padding: 10px;
+  user-select: text;
+}
+
+.latex-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.latex-help-section-title {
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  font-weight: 700;
+  margin: 10px 0 6px;
+  text-transform: uppercase;
+}
+
+.latex-help-list {
+  display: grid;
+  gap: 5px;
+}
+
+.latex-help-list div {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.latex-help-list dt {
+  color: var(--vscode-textPreformat-foreground);
+  font-family: "Fira Code", "Courier New", Courier, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.latex-help-list dd,
+.latex-help-feature-list {
+  color: var(--vscode-text-fg);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.latex-help-feature-list {
+  margin-left: 15px;
+}
+
+.latex-help-feature-list li {
+  margin: 4px 0;
+}
+
 .select-none {
   user-select: none;
 }

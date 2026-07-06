@@ -11,6 +11,14 @@ from . import terminal as T
 from .subprocess_utils import utf8_text_kwargs
 from .tools import AGENT_PROGRESS, _preview, get_project_path
 
+SHADOW_GITIGNORE_PATTERNS = [
+    ".env",
+    "node_modules/",
+    "__pycache__/",
+    ".venv/",
+    "opalatex_partial_*",
+]
+
 # ─── Base Strategy ────────────────────────────────────────────────────────────
 
 class VersionControlStrategy(ABC):
@@ -79,6 +87,25 @@ def _run_shadow_git(command: str, project_path: str | None = None) -> subprocess
         cwd=project_path
     )
 
+
+def _ensure_shadow_gitignore(gitignore_path: str):
+    existing = set()
+    if os.path.exists(gitignore_path):
+        with open(gitignore_path, "r", encoding="utf-8", errors="ignore") as f:
+            existing = {line.strip() for line in f if line.strip() and not line.lstrip().startswith("#")}
+    missing = [pattern for pattern in SHADOW_GITIGNORE_PATTERNS if pattern not in existing]
+    if not missing:
+        return
+
+    os.makedirs(os.path.dirname(gitignore_path), exist_ok=True)
+    has_content = os.path.exists(gitignore_path) and os.path.getsize(gitignore_path) > 0
+    with open(gitignore_path, "a", encoding="utf-8") as f:
+        if has_content:
+            f.write("\n")
+        for pattern in missing:
+            f.write(pattern + "\n")
+
+
 def _init_shadow_git(project_path: str):
     """Initialize the shadow git repository if it doesn't exist."""
     shadow_base = os.path.join(project_path, ".opalatex")
@@ -92,22 +119,22 @@ def _init_shadow_git(project_path: str):
     if os.path.exists(old_shadow_dir) and not os.path.exists(shadow_dir):
         shutil.move(old_shadow_dir, shadow_dir)
 
+    _ensure_shadow_gitignore(gitignore_path)
+
     if not os.path.exists(shadow_dir):
         # Init repo
         cmd = f'git --git-dir="{shadow_dir}" --work-tree="{project_path}" init'
         subprocess.run(cmd, shell=True, capture_output=True, cwd=project_path)
-        
-        # Configure excludes file
-        if not os.path.exists(gitignore_path):
-            with open(gitignore_path, "w", encoding="utf-8") as f:
-                f.write(".env\nnode_modules/\n__pycache__/\n.venv/\n")
-                
+
         cmd_exclude = f'git --git-dir="{shadow_dir}" --work-tree="{project_path}" config core.excludesFile "{gitignore_path}"'
         subprocess.run(cmd_exclude, shell=True, capture_output=True, cwd=project_path)
         
         # Initial commit
         _run_shadow_git("add .", project_path)
         _run_shadow_git("commit -m 'Initial checkpoint (Auto)'", project_path)
+
+    cmd_exclude = f'git --git-dir="{shadow_dir}" --work-tree="{project_path}" config core.excludesFile "{gitignore_path}"'
+    subprocess.run(cmd_exclude, shell=True, capture_output=True, cwd=project_path)
 
 def _auto_checkpoint(message: str, project_path: str | None = None):
     """Automatically create a checkpoint in the shadow git."""

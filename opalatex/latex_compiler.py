@@ -176,7 +176,7 @@ def clean_latex_artifacts(project_dir: str) -> dict:
             is_artifact = (
                 ext in LATEX_ARTIFACT_EXTENSIONS
                 or any(lower_name.endswith(suffix) for suffix in LATEX_ARTIFACT_SUFFIXES)
-                or (lower_name.startswith("opalatex_partial_") and ext in {".tex", ".pdf"})
+                or lower_name.startswith("opalatex_partial_")
             )
             if not is_artifact:
                 continue

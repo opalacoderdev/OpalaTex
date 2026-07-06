@@ -911,7 +911,7 @@ def read_core_memory() -> str:
         mem = _PROJECT_STORE.get_chat_core_memory(_PROJECT_SESSION.name, getattr(_PROJECT_SESSION, "current_chat_id", "main"))
         return mem or "(Core memory is empty)"
 
-@opalatex_tool(name="append_core_memory", is_safe=False, description="Append a new persistent rule, context, or decision to the Core Memory. Do this when you learn something about the user's preferences or the project's state that you want to remember across different executions.")
+@opalatex_tool(name="append_core_memory", is_safe=True, description="Append a new persistent rule, context, or decision to the Core Memory. Do this when you learn something about the user's preferences, demands or the project's state that you want to remember across different executions.")
 def append_core_memory(content: str) -> str:
     AGENT_PROGRESS.update("append_core_memory", f"content={_preview(content)}")
     if not _PROJECT_SESSION or not _PROJECT_STORE:
