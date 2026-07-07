@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Check, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText, HelpCircle } from 'lucide-react';
+import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText, HelpCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
 import { safeSetLocalStorage } from '../utils/storage';
@@ -198,7 +198,10 @@ export default function EditorPanel({
   }, [selectedFile, jumpToLine, setJumpToLine]);
 
   const handleCompile = async (skipSave = false, partial = false) => {
-    if (!skipSave) saveFile();
+    if (!skipSave) {
+      const saved = await saveFile({ suppressCompile: true });
+      if (!saved) return;
+    }
     const compileLine = getCurrentEditorLine();
     const compileFile = selectedFile;
     const compileProjectPath = activeProject?.project_path;
@@ -668,7 +671,7 @@ export default function EditorPanel({
     <div ref={editorContainerRef} className="vscode-editor-panel" style={{ position: 'relative' }}>
       {/* Tab bar */}
       <div className="vscode-tabs">
-        <div className="flex h-full overflow-x-auto" style={{ gap: '2px' }}>
+        <div className="vscode-tab-list">
           {openFiles.map(filePath => {
             const isActive = filePath === selectedFile;
             const currentContent = isActive ? fileContent : fileContents[filePath];
@@ -681,7 +684,11 @@ export default function EditorPanel({
                 className={`vscode-tab ${isActive ? 'active' : ''}`}
                 style={{ cursor: 'pointer', userSelect: 'none' }}
               >
-                <span style={{ color: isActive ? '#ffffff' : '#a0a0a0' }}>
+                <span
+                  className="vscode-tab-label"
+                  title={filePath}
+                  style={{ color: isActive ? '#ffffff' : '#a0a0a0' }}
+                >
                   {filePath.replace(/\\/g, '/').split('/').pop()}{isDirty ? ' *' : ''}
                 </span>
                 <button
@@ -695,7 +702,7 @@ export default function EditorPanel({
           })}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="vscode-editor-actions">
           {isTexFile && isTectonicAvailable && (
             <button
               onClick={() => handleCompile(false, false)}
@@ -704,7 +711,7 @@ export default function EditorPanel({
               style={{ backgroundColor: '#217b3b', color: 'white' }}
             >
               {(isCompiling || isSaving) ? <RefreshCw size={12} className="animate-spin" /> : <Printer size={12} />}
-              <span>{isCompiling ? 'Compiling...' : (isSaving ? t('editorPanel.saving') : 'Compile LaTeX')}</span>
+              <span>{isCompiling ? t('editorPanel.compiling') : t('editorPanel.compile')}</span>
             </button>
           )}
           {isTexFile && isTectonicAvailable && (
@@ -769,9 +776,10 @@ export default function EditorPanel({
             onClick={saveFile}
             disabled={isSaving}
             className="vscode-button"
+            title={t('editorPanel.save')}
+            aria-label={t('editorPanel.save')}
           >
-            {isSaving ? <RefreshCw size={12} className="animate-spin" /> : <Check size={12} />}
-            <span>{isSaving ? t('editorPanel.saving') : t('editorPanel.save')}</span>
+            {isSaving ? <Save size={12} className="save-pulse" /> : <Save size={12} />}
           </button>
 
           <button

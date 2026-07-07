@@ -951,12 +951,6 @@ export default function App() {
         prev[cachedFilePath] === undefined ? prev : { ...prev, [filePath]: prev[cachedFilePath] }
       ));
     }
-    setSelectedFile(filePath);
-    setLayoutMode('ide'); // Force the IDE view so the text editor is visible
-    if (jumpLine !== null) {
-      setJumpToLine({ file: filePath, line: jumpLine });
-    }
-
     // Auto-switch to edit mode (IDE mode) when a file is opened
     if (activeProject.mode !== 'edit') {
       const updatedProject = { ...activeProject, mode: 'edit' };
@@ -987,6 +981,11 @@ export default function App() {
     if (fileContents[cachedFilePath] !== undefined) {
       console.log(`[DEBUG handleFileSelect] CACHE HIT for "${filePath}" — serving cached content (${fileContents[cachedFilePath].length} chars). Disk NOT read.`);
       setFileContent(fileContents[cachedFilePath]);
+      setSelectedFile(filePath);
+      setLayoutMode('ide'); // Force the IDE view so the text editor is visible
+      if (jumpLine !== null) {
+        setJumpToLine({ file: filePath, line: jumpLine });
+      }
       return;
     }
     console.log(`[DEBUG handleFileSelect] CACHE MISS for "${filePath}" — fetching from disk.`);
@@ -999,6 +998,11 @@ export default function App() {
         setFileContent(data.content);
         setFileContents(prev => ({ ...prev, [filePath]: data.content }));
         setOriginalFileContents(prev => ({ ...prev, [filePath]: data.content }));
+        setSelectedFile(filePath);
+        setLayoutMode('ide'); // Force the IDE view so the text editor is visible
+        if (jumpLine !== null) {
+          setJumpToLine({ file: filePath, line: jumpLine });
+        }
 
         fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(filePath)}&t=${Date.now()}`)
           .then(r => r.ok ? r.json() : null)
@@ -1013,12 +1017,22 @@ export default function App() {
             setOriginalFileContents(prev => ({ ...prev, [filePath]: '' }));
           });
       }
-      else addLog('error', `Erro ao ler arquivo: ${filePath}`);
-    } catch (err) { addLog('error', `Erro de leitura: ${err.message}`); }
+      else {
+        addLog('error', `Erro ao ler arquivo: ${filePath}`);
+        setSelectedFile(filePath);
+        setFileContent('');
+        setLayoutMode('ide');
+      }
+    } catch (err) {
+      addLog('error', `Erro de leitura: ${err.message}`);
+      setSelectedFile(filePath);
+      setFileContent('');
+      setLayoutMode('ide');
+    }
   };
 
-  const saveFile = async () => {
-    if (!activeProject || !selectedFile) return;
+  const saveFile = async ({ suppressCompile = false } = {}) => {
+    if (!activeProject || !selectedFile) return false;
     setIsSaving(true);
     try {
       const res = await fetch('/api/file/write', {
@@ -1045,7 +1059,7 @@ export default function App() {
           });
         fetchGitStatus();
         fetchProblems();
-        if (selectedFile && selectedFile.toLowerCase().match(/\.(tex|cls|sty|bib)$/)) {
+        if (!suppressCompile && selectedFile && selectedFile.toLowerCase().match(/\.(tex|cls|sty|bib)$/)) {
           const compileFull = activeProject.compile_on_save_full === true;
           const compilePartial = activeProject.compile_on_save_partial !== false;
           if (compileFull || compilePartial) {
@@ -1055,9 +1069,16 @@ export default function App() {
             });
           }
         }
+        return true;
       }
-      else addLog('error', `Erro ao salvar arquivo: ${selectedFile}`);
-    } catch (err) { addLog('error', `Erro de escrita: ${err.message}`); }
+      else {
+        addLog('error', `Erro ao salvar arquivo: ${selectedFile}`);
+        return false;
+      }
+    } catch (err) {
+      addLog('error', `Erro de escrita: ${err.message}`);
+      return false;
+    }
     finally { setIsSaving(false); }
   };
 

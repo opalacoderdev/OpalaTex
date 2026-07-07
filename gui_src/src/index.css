@@ -520,20 +520,40 @@ input:focus, select:focus, textarea:focus {
   border-bottom: 1px solid #252526;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding-right: 16px;
+  min-width: 0;
   flex-shrink: 0;
+}
+
+.vscode-tab-list {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .vscode-tab {
   height: 100%;
+  flex: 0 0 132px;
+  max-width: 132px;
   background-color: var(--vscode-tab-inactive-bg);
   border-top: 2px solid transparent;
-  padding: 0 16px;
+  padding: 0 10px 0 12px;
   display: flex;
   align-items: center;
   gap: 8px;
   border-right: 1px solid #252526;
+  min-width: 0;
+}
+
+.vscode-tab-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vscode-tab.active {
@@ -541,7 +561,20 @@ input:focus, select:focus, textarea:focus {
   border-top-color: var(--vscode-active-border);
 }
 
+.vscode-editor-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 12px 0 10px;
+  border-left: 1px solid #252526;
+  background-color: var(--vscode-tab-inactive-bg);
+  white-space: nowrap;
+}
+
 .vscode-tab-close-btn {
+  flex: 0 0 auto;
   background: transparent;
   border: none;
   color: #858585;
@@ -555,6 +588,19 @@ input:focus, select:focus, textarea:focus {
   background-color: #3c3c3c;
   color: #ffffff;
   border-radius: 50%;
+}
+
+.save-pulse {
+  animation: savePulse 1s ease-in-out infinite;
+}
+
+@keyframes savePulse {
+  0%, 100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .vscode-editor-container {
