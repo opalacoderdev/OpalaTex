@@ -347,6 +347,37 @@ export default function App() {
         body: JSON.stringify(modelData)
       });
       if (res.ok) {
+        const projectUsesMainModel = activeProject?.model === modelData.id;
+        const projectUsesWorkerModel = activeProject?.worker_model === modelData.id;
+        if (activeProject && (projectUsesMainModel || projectUsesWorkerModel)) {
+          const payload = {
+            project_name: activeProject.name,
+            chat_id: activeChatId
+          };
+          if (projectUsesMainModel) {
+            payload.api_key = modelData.api_key || '';
+            payload.api_base = modelData.api_base || '';
+          }
+          if (projectUsesWorkerModel) {
+            payload.worker_api_key = modelData.api_key || '';
+            payload.worker_api_base = modelData.api_base || '';
+          }
+
+          const projectRes = await fetch('/api/opalatex/update-project', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          if (projectRes.ok) {
+            const updated = await projectRes.json();
+            setActiveProject(prev => prev ? ({ ...prev, ...updated }) : prev);
+            setProjects(prev => prev.map(p => (p.name === updated.name) ? { ...p, ...updated } : p));
+            setEditingProject(prev => {
+              if (!prev || prev.name !== updated.name) return prev;
+              return { ...prev, ...updated };
+            });
+          }
+        }
         fetchGlobalModels();
         setShowAddProviderModal(false);
       }
@@ -1303,7 +1334,9 @@ export default function App() {
     setEditProjError('');
     const compileOnSaveFull = fresh.compile_on_save_full === true;
     const compileOnSavePartial = !compileOnSaveFull && fresh.compile_on_save_partial !== false;
-    const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', main_file: fresh.main_file || '', git_root_path: fresh.git_root_path || '', compile_on_save_partial: compileOnSavePartial, compile_on_save_full: compileOnSaveFull, model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: fresh.api_key || '', api_base: fresh.api_base || '', worker_api_key: fresh.worker_api_key || '', worker_api_base: fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
+    const selectedMainModel = globalModels.find(m => m.id === fresh.model);
+    const selectedWorkerModel = globalModels.find(m => m.id === fresh.worker_model);
+    const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', main_file: fresh.main_file || '', git_root_path: fresh.git_root_path || '', compile_on_save_partial: compileOnSavePartial, compile_on_save_full: compileOnSaveFull, model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: selectedMainModel?.api_key || fresh.api_key || '', api_base: selectedMainModel?.api_base || fresh.api_base || '', worker_api_key: selectedWorkerModel?.api_key || fresh.worker_api_key || '', worker_api_base: selectedWorkerModel?.api_base || fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
     console.log("[DEBUG APP] Estado editingProject final que vai para a Modal:", newState);
     setEditingProject(newState);
   };
@@ -2752,6 +2785,7 @@ export default function App() {
       {showNewProjectModal && (
         <NewProjectModal
           globalAiProvider={globalAiProvider}
+          globalModels={globalModels}
           onClose={() => setShowNewProjectModal(false)}
           onSubmit={handleCreateProject}
           newProjName={newProjName} setNewProjName={setNewProjName}
@@ -2799,6 +2833,7 @@ export default function App() {
       {editingProject && (
         <EditProjectModal
           globalAiProvider={globalAiProvider}
+          globalModels={globalModels}
           editingProject={editingProject}
           setEditingProject={setEditingProject}
           onClose={() => setEditingProject(null)}

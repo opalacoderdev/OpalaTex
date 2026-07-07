@@ -24,6 +24,7 @@ function ParamNumber({ label, value, onChange, step, min, max, placeholder }) {
 // Project settings edit modal (model params, paths, credentials, etc.).
 export default function EditProjectModal({
   globalAiProvider,
+  globalModels = [],
   editingProject,
   setEditingProject,
   onClose,
@@ -88,6 +89,32 @@ export default function EditProjectModal({
       }
       
       return isWorker ? { ...p, worker_model_params: n } : { ...p, model_params: n };
+    });
+  };
+
+  const applySavedModelCredentials = (value, target) => {
+    const saved = (globalModels || []).find(m => m.id === value);
+    setEditingProject(p => {
+      if (!p) return p;
+      if (target === 'worker') {
+        return {
+          ...p,
+          worker_model: value,
+          ...(saved ? {
+            worker_api_key: saved.api_key || '',
+            worker_api_base: saved.api_base || ''
+          } : {})
+        };
+      }
+
+      return {
+        ...p,
+        model: value,
+        ...(saved ? {
+          api_key: saved.api_key || '',
+          api_base: saved.api_base || ''
+        } : {})
+      };
     });
   };
 
@@ -431,13 +458,16 @@ export default function EditProjectModal({
                       type="text"
                       list="edit-models"
                       value={editingProject.model}
-                      onChange={e => setEditingProject(p => ({ ...p, model: e.target.value }))}
+                      onChange={e => applySavedModelCredentials(e.target.value, 'main')}
                       onBlur={() => onLoadModelConfig(true)}
                       placeholder="gemini/gemini-2.5-flash"
                       style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
                     <datalist id="edit-models">
                       <option value="OpalaTexCloud" />
+                      {(globalModels || []).map(m => (
+                        <option key={`edit-model-${m.id}`} value={m.id} />
+                      ))}
                       <option value="gemini/gemini-flash-lite-latest" />
                       <option value="anthropic/claude-3-5-sonnet-latest" />
                       <option value="openai/gpt-4o" />
@@ -638,12 +668,23 @@ export default function EditProjectModal({
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <input
                       type="text"
+                      list="edit-worker-models"
                       className="vscode-settings-input"
                       value={editingProject.worker_model || ''}
-                      onChange={e => setEditingProject(p => ({ ...p, worker_model: e.target.value }))}
+                      onChange={e => applySavedModelCredentials(e.target.value, 'worker')}
                       placeholder={t('editProjectModal.workerModelPlaceholder')}
                       style={{ flex: 1, borderColor: getBorderColor(workerModelStatus) }}
                     />
+                    <datalist id="edit-worker-models">
+                      {(globalModels || []).map(m => (
+                        <option key={`edit-worker-model-${m.id}`} value={m.id} />
+                      ))}
+                      <option value="gemini/gemini-flash-lite-latest" />
+                      <option value="anthropic/claude-3-5-sonnet-latest" />
+                      <option value="openai/gpt-4o" />
+                      <option value="ollama/gemma4:12b" />
+                      <option value="ollama/gemma4:31b-cloud" />
+                    </datalist>
                   </div>
                 )}
                 {globalAiProvider !== 'cloud' && (

@@ -62,6 +62,9 @@ import litellm
 # Ollama (and some other local providers) don't support params like
 # presence_penalty. Drop unsupported params silently instead of crashing.
 litellm.drop_params = True
+# OpalaTex agents use Chat Completions-style tool loops. Do not let LiteLLM
+# globally reroute OpenAI chat calls to the stateful Responses API.
+litellm.route_all_chat_openai_to_responses = False
 
 from opalatex.chat_meta_params import parse_meta_params, apply_meta_params
 
@@ -667,7 +670,12 @@ async def handle_run(data: dict):
         if model_params.get("max_tool_calls") is not None:
             agent_kwargs["max_tool_calls"] = int(model_params["max_tool_calls"])
 
-        from opalatex.config import resolve_model_for_thinking, get_agent_model, get_agent_llm_kwargs
+        from opalatex.config import (
+            resolve_model_for_thinking,
+            get_agent_model,
+            get_agent_llm_kwargs,
+            sanitize_litellm_kwargs_for_model,
+        )
         
         _model = model or DEFAULT_MODEL
         _model = resolve_model_for_thinking(_model, model_kwargs)
@@ -678,7 +686,7 @@ async def handle_run(data: dict):
         # Merge global kwargs so we get the cloud API base and keys
         _global_kwargs = get_agent_llm_kwargs(_agent_name)
         _global_kwargs.update(model_kwargs)
-        model_kwargs = _global_kwargs
+        model_kwargs = sanitize_litellm_kwargs_for_model(_model, _global_kwargs)
 
         from opalatex.ui_settings import load_ui_settings
         _is_cloud = load_ui_settings().get("ai_provider") == "cloud"
@@ -694,6 +702,9 @@ async def handle_run(data: dict):
             **agent_kwargs
         )
         #print("WORKER SPROMPT ", system_prompt)
+
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+    wrap_agent_litellm_compat(agent)
     
     # Setup message history if provided (for custom/standard LLMAgentBlock)
     if messages_history and hasattr(agent, "internal_history"):

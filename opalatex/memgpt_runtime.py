@@ -8,8 +8,9 @@ uses to delegate work to skills:
     (LLMAgentBlock) is spawned with the skill's SKILL.md body as its system prompt
     and the workflow tools available, plus an **intercepted** ``send_message``.
   - The interceptor (a wrapper around the sub-agent's ``send_message``) displays
-    each message to the user AND records the exchange into the MemGPT's
-    ``internal_history`` so the orchestrator stays aware of what happened.
+    each message to the user and buffers it for the ``run_skill`` tool result so
+    the orchestrator stays aware of what happened without corrupting tool-call
+    adjacency in ``internal_history``.
   - ``build_chat_orchestrator(project, store)`` builds the MemGPT itself: the
     framework ``MemGPTAgentBlock`` primed with the ``chat-orchestrator`` SKILL.md,
     the Level-1 metadata of the active skills, the ``run_skill`` tool, and the
@@ -385,6 +386,8 @@ def build_run_skill_tool(
             tool_role_workaround=worker_agent_params.get("tool_role_workaround", "user" if model.startswith("ollama") else None),
             termination_tools=["send_message"],
         )
+        from .litellm_compat import wrap_agent_litellm_compat
+        wrap_agent_litellm_compat(sub_agent)
 
         from opalatex.agent_stdin import print_event
         
@@ -711,7 +714,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         tools=orchestrator_tools,
         model_kwargs=_llm_kwargs,
         max_heartbeats=_agent_params.get("max_heartbeats", get_agent_max_heartbeats("memgpt", 20)),
-        max_context_tokens=_agent_params.get("max_context_tokens", _llm_kwargs.get("num_ctx", 8192)),
+        max_context_tokens=_agent_params.get("max_context_tokens", model_params.get("num_ctx", _llm_kwargs.get("num_ctx", 8192))),
         eviction_threshold=_agent_params.get("eviction_threshold", 1.0),
         memory_pressure_threshold=_agent_params.get("memory_pressure_threshold", 0.7),
         debug=_agent_params.get("debug", False),
@@ -719,6 +722,8 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         response_mode=_agent_params.get("response_mode", get_agent_response_mode("memgpt")),
         tool_role_workaround=_agent_params.get("tool_role_workaround", "user" if model.startswith("ollama") else None),
     )
+    from .litellm_compat import wrap_agent_litellm_compat
+    wrap_agent_litellm_compat(memgpt)
 
     #print("BEGIN MEMGPT SYSTEM PROMPT >>>>>>>>>>>>>>")
     #print(system_prompt)

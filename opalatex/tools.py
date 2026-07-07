@@ -413,7 +413,7 @@ def analyze_image(file_path: str, prompt: str = "Describe this image in detail")
         import base64
         import mimetypes
         import litellm
-        from .config import get_agent_llm_kwargs, get_agent_model
+        from .config import get_agent_llm_kwargs, get_agent_model, sanitize_litellm_kwargs_for_model
         
         attachment = _RECENT_FILE_ATTACHMENTS.get(file_path) or _RECENT_FILE_ATTACHMENTS.get(os.path.basename(file_path))
         if attachment:
@@ -458,6 +458,8 @@ def analyze_image(file_path: str, prompt: str = "Describe this image in detail")
                     kwargs["api_base"] = kwargs["api_base"][:-3]
                 elif kwargs["api_base"].endswith("/v1/"):
                     kwargs["api_base"] = kwargs["api_base"][:-4]
+        kwargs = sanitize_litellm_kwargs_for_model(model, kwargs)
+        kwargs.pop("stream", None)
 
         messages = [
             {

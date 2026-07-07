@@ -82,7 +82,187 @@ def test_opalatex_cloud_model_mapping_and_overrides():
             # Even if ai_provider is local, selecting OpalaTexCloud should override kwargs
             with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
                 kwargs = get_agent_llm_kwargs("memgpt")
-                assert kwargs["api_base"] == "https://opalacoder.com/api/chat-proxy"
-                assert kwargs["api_key"] == "OPALA-TEST-KEY"
-                assert kwargs["custom_llm_provider"] == "openai"
+    assert kwargs["api_base"] == "https://opalacoder.com/api/chat-proxy"
+    assert kwargs["api_key"] == "OPALA-TEST-KEY"
+    assert kwargs["custom_llm_provider"] == "openai"
+    assert kwargs["drop_params"] is True
+
+
+def test_internal_attachment_flags_are_not_sent_to_litellm():
+    """Internal attachment flags must not leak into provider request kwargs."""
+    from opalatex.config import get_agent_llm_kwargs
+    from unittest.mock import patch
+
+    class FakeSession:
+        model = "openai/gpt-5.5"
+        model_params = {
+            "force_vision": True,
+            "pdf_truncate": True,
+            "pdf_truncate_pct": 50,
+            "temperature": 0.2,
+        }
+        project_path = "/fake/path"
+
+    with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+        with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+            kwargs = get_agent_llm_kwargs("custom_agent")
+
+    assert "temperature" not in kwargs
+    assert kwargs["drop_params"] is True
+    assert "force_vision" not in kwargs
+    assert "pdf_truncate" not in kwargs
+    assert "pdf_truncate_pct" not in kwargs
+
+
+def test_openai_models_do_not_receive_local_only_litellm_kwargs():
+    """OpenAI endpoints must only receive provider-supported request kwargs."""
+    from opalatex.config import get_agent_llm_kwargs
+    from unittest.mock import patch
+
+    class FakeSession:
+        model = "openai/gpt-5.5"
+        model_params = {
+            "num_ctx": 8192,
+            "top_k": 40,
+            "min_p": 0.1,
+            "repetition_penalty": 1.1,
+            "think": False,
+            "reasoning_effort": "none",
+            "temperature": 0.2,
+            "tool_role_workaround": "user",
+            "response_mode": "last",
+            "max_heartbeats": 15,
+            "unknown_param": "boom",
+        }
+        project_path = "/fake/path"
+
+    with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+        with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+            kwargs = get_agent_llm_kwargs("custom_agent")
+
+    assert "temperature" not in kwargs
+    assert kwargs["drop_params"] is True
+    assert "num_ctx" not in kwargs
+    assert "top_k" not in kwargs
+    assert "min_p" not in kwargs
+    assert "repetition_penalty" not in kwargs
+    assert "think" not in kwargs
+    assert "reasoning_effort" not in kwargs
+    assert "tool_role_workaround" not in kwargs
+    assert "response_mode" not in kwargs
+    assert "max_heartbeats" not in kwargs
+    assert "unknown_param" not in kwargs
+
+
+def test_openai_gpt55_chat_model_strips_reasoning_effort_to_avoid_responses_bridge():
+    """GPT-5.4+ with tools + reasoning_effort makes LiteLLM use Responses API.
+
+    AgenticBlocks uses Chat Completions-style tool loops, so the chat model id
+    must not carry reasoning_effort. The explicit openai/responses/* model id is
+    still allowed to opt into Responses behavior.
+    """
+    from opalatex.config import sanitize_litellm_kwargs_for_model
+
+    chat_kwargs = sanitize_litellm_kwargs_for_model(
+        "openai/gpt-5.5",
+        {"reasoning_effort": "medium", "temperature": 0.2},
+    )
+    responses_kwargs = sanitize_litellm_kwargs_for_model(
+        "openai/responses/gpt-5.5",
+        {"reasoning_effort": "medium", "temperature": 0.2},
+    )
+
+    assert "reasoning_effort" not in chat_kwargs
+    assert responses_kwargs["reasoning_effort"] == "medium"
+
+
+def test_openai_gpt55_chat_model_strips_default_only_sampling_params():
+    """GPT-5 chat models reject non-default sampling values such as temperature=0.7."""
+    from opalatex.config import sanitize_litellm_kwargs_for_model
+
+    kwargs = sanitize_litellm_kwargs_for_model(
+        "openai/gpt-5.5",
+        {
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "frequency_penalty": 0.3,
+            "presence_penalty": 0.2,
+            "max_tokens": 128,
+        },
+    )
+
+    assert "temperature" not in kwargs
+    assert "top_p" not in kwargs
+    assert "frequency_penalty" not in kwargs
+    assert "presence_penalty" not in kwargs
+    assert kwargs["max_tokens"] == 128
+    assert kwargs["drop_params"] is True
+
+
+def test_gemini_models_drop_unknown_params_but_keep_supported_ones():
+    """Provider-supported filtering must be model-aware, not OpenAI-only."""
+    from opalatex.config import get_agent_llm_kwargs
+    from unittest.mock import patch
+
+    class FakeSession:
+        model = "gemini/gemini-3.1-flash-lite"
+        model_params = {
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "frequency_penalty": 0.3,
+            "presence_penalty": 0.2,
+            "num_ctx": 8192,
+            "top_k": 40,
+            "think": False,
+            "tool_role_workaround": "user",
+            "unknown_param": "boom",
+        }
+        project_path = "/fake/path"
+
+    with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+        with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+            kwargs = get_agent_llm_kwargs("custom_agent")
+
+    assert kwargs["temperature"] == 0.2
+    assert kwargs["top_p"] == 0.9
+    assert kwargs["frequency_penalty"] == 0.3
+    assert kwargs["presence_penalty"] == 0.2
+    assert kwargs["drop_params"] is True
+    assert "num_ctx" not in kwargs
+    assert "top_k" not in kwargs
+    assert "think" not in kwargs
+    assert "tool_role_workaround" not in kwargs
+    assert "unknown_param" not in kwargs
+
+
+def test_ollama_models_keep_local_only_litellm_kwargs():
+    """Ollama still needs local tuning params such as num_ctx and think."""
+    from opalatex.config import get_agent_llm_kwargs
+    from unittest.mock import patch
+
+    class FakeSession:
+        model = "ollama/gemma4:12b"
+        model_params = {
+            "num_ctx": 8192,
+            "top_k": 40,
+            "min_p": 0.1,
+            "repetition_penalty": 1.1,
+            "think": False,
+            "temperature": 0.2,
+            "unknown_param": "boom",
+        }
+        project_path = "/fake/path"
+
+    with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+        with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+            kwargs = get_agent_llm_kwargs("custom_agent")
+
+    assert kwargs["temperature"] == 0.2
+    assert kwargs["num_ctx"] == 8192
+    assert kwargs["top_k"] == 40
+    assert kwargs["min_p"] == 0.1
+    assert kwargs["repetition_penalty"] == 1.1
+    assert kwargs["think"] is False
+    assert "drop_params" not in kwargs
+    assert "unknown_param" not in kwargs
 

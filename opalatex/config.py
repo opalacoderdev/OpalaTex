@@ -149,9 +149,50 @@ _NON_LITELLM_FIELDS = {
     "max_heartbeats", "max_context_tokens", "eviction_threshold",
     "memory_pressure_threshold", "response_mode",
     # LLMAgentBlock params
-    "max_iterations", "max_tool_calls", "on_max_iterations",
+    "max_iterations", "max_tool_calls", "on_max_iterations", "tool_role_workaround",
     # Shared
     "debug", "use_shared_router", "loop_detection", "loop_detection_limit",
+}
+
+# Internal OpalaTex feature flags stored with model_params, but never accepted by LiteLLM.
+_INTERNAL_MODEL_PARAM_FIELDS = {
+    "force_vision",
+    "pdf_truncate",
+    "pdf_truncate_pct",
+}
+
+# LiteLLM passes these fields through to providers that do not understand them.
+# They are useful for local Ollama models, but OpenAI-compatible endpoints reject
+# them as unknown request parameters.
+_LOCAL_ONLY_LITELLM_FIELDS = {
+    "num_ctx",
+    "top_k",
+    "min_p",
+    "repetition_penalty",
+    "think",
+}
+
+_OLLAMA_COMPAT_LITELLM_FIELDS = _LOCAL_ONLY_LITELLM_FIELDS | {
+    "presence_penalty",
+}
+
+_LITELLM_TRANSPORT_FIELDS = {
+    "api_key",
+    "api_base",
+    "api_version",
+    "base_url",
+    "custom_llm_provider",
+    "organization",
+    "default_headers",
+    "extra_headers",
+    "timeout",
+    "request_timeout",
+    "force_timeout",
+    "stream_timeout",
+    "max_retries",
+    "drop_params",
+    "allowed_openai_params",
+    "additional_drop_params",
 }
 
 # Agent constructor params that can be overridden per-project via model_params.
@@ -294,9 +335,84 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
         # The proxy itself uses google/genai, but litellm expects openai format when using a generic proxy base
         merged["custom_llm_provider"] = "openai"
 
-    for field in _NON_LITELLM_FIELDS:
+    for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
         merged.pop(field, None)
-    return merged
+    return sanitize_litellm_kwargs_for_model(resolved_model, merged)
+
+
+def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
+    """Remove provider-incompatible kwargs before passing them to LiteLLM."""
+    cleaned = dict(kwargs or {})
+    for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
+        cleaned.pop(field, None)
+
+    provider = ""
+    if model and "/" in model:
+        provider = model.split("/", 1)[0].lower()
+
+    custom_provider = cleaned.get("custom_llm_provider")
+    supported_params = None
+    try:
+        import litellm
+        supported_params = litellm.get_supported_openai_params(
+            model=model,
+            custom_llm_provider=custom_provider,
+        )
+    except Exception:
+        supported_params = None
+
+    if supported_params:
+        allowed = set(supported_params) | _LITELLM_TRANSPORT_FIELDS
+        if provider in {"ollama", "ollama_chat"}:
+            allowed |= _OLLAMA_COMPAT_LITELLM_FIELDS
+        cleaned = {key: value for key, value in cleaned.items() if key in allowed}
+    elif provider not in {"ollama", "ollama_chat"}:
+        for field in _LOCAL_ONLY_LITELLM_FIELDS:
+            cleaned.pop(field, None)
+
+    if provider not in {"ollama", "ollama_chat"} and cleaned.get("reasoning_effort") in {"", "none", None}:
+        cleaned.pop("reasoning_effort", None)
+
+    # LiteLLM bridges OpenAI GPT-5.4+ chat-completion requests to the Responses
+    # API when tools and reasoning_effort are both present. AgenticBlocks expects
+    # Chat Completions tool-call adjacency, so that bridge can leave Responses
+    # waiting for function_call_output items and produce "No tool output found".
+    # Users can still opt into Responses explicitly with openai/responses/<model>.
+    if _is_openai_gpt5_chat_model(model, provider, custom_provider):
+        cleaned.pop("reasoning_effort", None)
+        cleaned.pop("reasoning_summary", None)
+        cleaned.pop("reasoningSummary", None)
+        _strip_openai_gpt5_default_only_sampling_params(cleaned)
+
+    # Ask LiteLLM to drop provider-unsupported optional params instead of
+    # surfacing them as BadRequest errors on OpenAI-compatible endpoints.
+    if provider not in {"ollama", "ollama_chat"}:
+        cleaned.setdefault("drop_params", True)
+
+    return cleaned
+
+
+def _is_openai_gpt5_chat_model(model: str, provider: str, custom_provider: str | None) -> bool:
+    """Return True for OpenAI GPT-5 chat models that must avoid Responses bridge."""
+    if provider != "openai" and custom_provider != "openai":
+        return False
+    model_name = model.split("/", 1)[1] if "/" in model else model
+    if model_name.startswith("responses/"):
+        return False
+    if not model_name.startswith("gpt-5."):
+        return False
+    version = model_name[len("gpt-5."):]
+    prefix = version.split("-", 1)[0]
+    try:
+        return float(prefix) >= 4.0
+    except ValueError:
+        return False
+
+
+def _strip_openai_gpt5_default_only_sampling_params(cleaned: dict) -> None:
+    """Remove sampling knobs that GPT-5 chat models only accept at defaults."""
+    for field in ("temperature", "top_p", "presence_penalty", "frequency_penalty"):
+        cleaned.pop(field, None)
 
 
 def resolve_model_for_thinking(model: str, llm_kwargs: dict) -> str:

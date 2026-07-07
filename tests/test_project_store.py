@@ -396,3 +396,51 @@ def test_store_load_saves_and_loads_api_credentials(store, tmp_path):
     assert reloaded.worker_api_key == "new_worker_key"
 
 
+def test_provider_specific_api_credentials_are_saved_and_loaded(store, tmp_path):
+    openai_dir = tmp_path / "openai_project"
+    gemini_dir = tmp_path / "gemini_project"
+    openai_dir.mkdir()
+    gemini_dir.mkdir()
+
+    store.create(
+        name="openai_creds",
+        mode="plan",
+        model="openai/gpt-4o",
+        project_name="OpenAI Creds",
+        project_path=str(openai_dir),
+        api_key="openai_key",
+    )
+    store.create(
+        name="gemini_creds",
+        mode="plan",
+        model="gemini/gemini-2.5-flash",
+        project_name="Gemini Creds",
+        project_path=str(gemini_dir),
+        api_key="gemini_key",
+    )
+
+    assert "OPENAI_API_KEY=openai_key" in (openai_dir / ".env").read_text(encoding="utf-8")
+    assert "GEMINI_API_KEY=gemini_key" in (gemini_dir / ".env").read_text(encoding="utf-8")
+
+    assert store.load("openai_creds").api_key == "openai_key"
+    assert store.load("gemini_creds").api_key == "gemini_key"
+
+
+def test_legacy_openai_api_key_is_still_loaded_for_non_openai_models(store, tmp_path):
+    proj_dir = tmp_path / "legacy_project"
+    proj_dir.mkdir()
+    (proj_dir / ".env").write_text("OPENAI_API_KEY=legacy_key\nOPENAI_API_BASE=legacy_base\n", encoding="utf-8")
+
+    store.create(
+        name="legacy_creds",
+        mode="plan",
+        model="gemini/gemini-2.5-flash",
+        project_name="Legacy Creds",
+        project_path=str(proj_dir),
+    )
+
+    loaded = store.load("legacy_creds")
+    assert loaded.api_key == "legacy_key"
+    assert loaded.api_base == "legacy_base"
+
+

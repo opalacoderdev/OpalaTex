@@ -70,13 +70,11 @@ def test_intercepted_send_message_records_into_memgpt(tmp_path):
     sm = make_intercepted_send_message(m, "implement-feature")
     # FunctionBlock wraps the function; call the underlying callable.
     raw = getattr(sm, "_func", None) or sm
+    m._current_worker_messages = []
     result = raw("Created hello.txt with the requested content.")
     assert "DONE" in result
-    assert len(m.internal_history) == before + 1
-    last = m.internal_history[-1]
-    assert last["role"] == "assistant"
-    assert "[skill:implement-feature]" in last["content"]
-    assert "hello.txt" in last["content"]
+    assert len(m.internal_history) == before
+    assert m._current_worker_messages == ["Created hello.txt with the requested content."]
 
 
 def test_run_skill_unknown_skill_returns_error(tmp_path):

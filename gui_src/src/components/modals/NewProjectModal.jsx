@@ -6,6 +6,7 @@ import { useModelValidation } from './useModelValidation';
 // Modal for registering a new project.
 export default function NewProjectModal({
   globalAiProvider,
+  globalModels = [],
   onClose,
   onSubmit,
   newProjName, setNewProjName,
@@ -43,6 +44,24 @@ export default function NewProjectModal({
 
   const handleParamChange = (setter, key, val) => {
     setter(prev => ({ ...prev, [key]: val }));
+  };
+
+  const applySavedModelCredentials = (value, target) => {
+    const saved = (globalModels || []).find(m => m.id === value);
+    if (target === 'worker') {
+      setNewProjWorkerModel(value);
+      if (saved) {
+        setNewProjWorkerApiKey(saved.api_key || '');
+        setNewProjWorkerApiBase(saved.api_base || '');
+      }
+      return;
+    }
+
+    setNewProjModel(value);
+    if (saved) {
+      setNewProjApiKey(saved.api_key || '');
+      setNewProjApiBase(saved.api_base || '');
+    }
   };
 
   const tabs = [
@@ -205,7 +224,7 @@ export default function NewProjectModal({
                   <select
                     className="vscode-settings-input"
                     value={newProjModel || 'OpalaTexCloud'}
-                    onChange={(e) => setNewProjModel(e.target.value)}
+                    onChange={(e) => applySavedModelCredentials(e.target.value, 'main')}
                   >
                     <option value="OpalaTexCloud">OpalaTex Cloud (Padrão)</option>
                     <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash</option>
@@ -219,13 +238,16 @@ export default function NewProjectModal({
                       type="text"
                       list="default-models"
                       value={newProjModel}
-                      onChange={(e) => setNewProjModel(e.target.value)}
+                      onChange={(e) => applySavedModelCredentials(e.target.value, 'main')}
                       onBlur={() => onLoadModelConfig(true)}
                       placeholder={t('newProjectModal.modelPlaceholder')}
                       style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
                     <datalist id="default-models">
                       <option value="OpalaTexCloud" />
+                      {(globalModels || []).map(m => (
+                        <option key={`new-model-${m.id}`} value={m.id} />
+                      ))}
                       <option value="gemini/gemini-flash-lite-latest" />
                       <option value="anthropic/claude-3-5-sonnet-latest" />
                       <option value="openai/gpt-4o" />
@@ -307,7 +329,7 @@ export default function NewProjectModal({
                   <select
                     className="vscode-settings-input"
                     value={newProjWorkerModel || 'OpalaTexCloud'}
-                    onChange={e => setNewProjWorkerModel(e.target.value)}
+                    onChange={e => applySavedModelCredentials(e.target.value, 'worker')}
                   >
                     <option value="OpalaTexCloud">OpalaTex Cloud (Padrão)</option>
                     <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash</option>
@@ -321,11 +343,14 @@ export default function NewProjectModal({
                       type="text"
                       list="default-worker-models"
                       value={newProjWorkerModel}
-                      onChange={e => setNewProjWorkerModel(e.target.value)}
+                      onChange={e => applySavedModelCredentials(e.target.value, 'worker')}
                       placeholder="ollama/gemma4:12b (Opcional)"
                       style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
                     <datalist id="default-worker-models">
+                      {(globalModels || []).map(m => (
+                        <option key={`new-worker-model-${m.id}`} value={m.id} />
+                      ))}
                       <option value="gemini/gemini-flash-lite-latest" />
                       <option value="anthropic/claude-3-5-sonnet-latest" />
                       <option value="ollama/gemma4:12b" />

@@ -8,6 +8,42 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .config import DEFAULT_DB_PATH
+from .api_keys import get_env_var_for_model
+
+
+def _env_base_var_for_model(model: str) -> str:
+    key_var = get_env_var_for_model(model or "")
+    if key_var.endswith("_API_KEY"):
+        return key_var[:-len("_API_KEY")] + "_API_BASE"
+    return ""
+
+
+def _read_env_values(path: str) -> dict[str, str]:
+    values = {}
+    if not os.path.isfile(path):
+        return values
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+                key, value = stripped.split("=", 1)
+                values[key.strip()] = value.strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return values
+
+
+def _first_env_value(values: dict[str, str], names: list[str]) -> str:
+    for name in names:
+        if name and values.get(name, "") != "":
+            return values[name]
+    return ""
+
+
+def _api_credential_names(model: str) -> tuple[str, str]:
+    return get_env_var_for_model(model or ""), _env_base_var_for_model(model or "")
 
 
 def _ensure_dir(path: str) -> None:
@@ -257,7 +293,8 @@ class ProjectStore:
                 d["worker_model_params"].setdefault("think", False)
                 d["worker_model_params"].setdefault("stream", False)
                 
-                # Load api_key and api_base from local .env if it exists
+                # Load api_key and api_base from local .env if it exists.
+                # Provider-specific names are preferred, with legacy OPENAI_* as fallback.
                 d["api_key"] = ""
                 d["api_base"] = ""
                 d["worker_api_key"] = ""
@@ -266,24 +303,13 @@ class ProjectStore:
                 if proj_path:
                     abs_proj_path = os.path.expanduser(proj_path)
                     if os.path.isdir(abs_proj_path):
-                        env_path = os.path.join(abs_proj_path, ".env")
-                        if os.path.isfile(env_path):
-                            try:
-                                with open(env_path, "r", encoding="utf-8") as f:
-
-                                    for line in f:
-                                        line = line.strip()
-                                        if line.startswith("OPENAI_API_KEY="):
-                                            d["api_key"] = line.split("=", 1)[1].strip().strip('"').strip("'")
-                                        elif line.startswith("OPENAI_API_BASE="):
-                                            d["api_base"] = line.split("=", 1)[1].strip().strip('"').strip("'")
-                                        elif line.startswith("WORKER_API_KEY="):
-                                            d["worker_api_key"] = line.split("=", 1)[1].strip().strip('"').strip("'")
-                                        elif line.startswith("WORKER_API_BASE="):
-                                            d["worker_api_base"] = line.split("=", 1)[1].strip().strip('"').strip("'")
-
-                            except Exception:
-                                pass
+                        env_values = _read_env_values(os.path.join(abs_proj_path, ".env"))
+                        key_var, base_var = _api_credential_names(d.get("model", ""))
+                        worker_key_var, worker_base_var = _api_credential_names(d.get("worker_model", ""))
+                        d["api_key"] = _first_env_value(env_values, [key_var, "OPENAI_API_KEY"])
+                        d["api_base"] = _first_env_value(env_values, [base_var, "OPENAI_API_BASE"])
+                        d["worker_api_key"] = _first_env_value(env_values, ["WORKER_API_KEY", worker_key_var])
+                        d["worker_api_base"] = _first_env_value(env_values, ["WORKER_API_BASE", worker_base_var])
                 
                 res.append(d)
             return res
@@ -342,16 +368,19 @@ class ProjectStore:
                     pass
             
             def upsert_env(var_name, val):
+                if not var_name:
+                    return
                 for i, line in enumerate(env_lines):
                     if line.strip().startswith(f"{var_name}="):
                         env_lines[i] = f"{var_name}={val}\n"
                         return
                 env_lines.append(f"{var_name}={val}\n")
-                
+
+            api_key_var, api_base_var = _api_credential_names(model)
             if api_key:
-                upsert_env("OPENAI_API_KEY", api_key)
+                upsert_env(api_key_var or "OPENAI_API_KEY", api_key)
             if api_base:
-                upsert_env("OPENAI_API_BASE", api_base)
+                upsert_env(api_base_var or "OPENAI_API_BASE", api_base)
             if worker_api_key:
                 upsert_env("WORKER_API_KEY", worker_api_key)
             if worker_api_base:
@@ -440,13 +469,15 @@ class ProjectStore:
                             config_api_base = config.pop('api_base')
                             if not api_base: 
                                 api_base = config_api_base
-                                upsert_env("OPENAI_API_BASE", api_base)
+                                api_key_var, api_base_var = _api_credential_names(model)
+                                upsert_env(api_base_var or "OPENAI_API_BASE", api_base)
                                 
                         if 'api_key' in config:
                             config_api_key = config.pop('api_key')
                             if not api_key: 
                                 api_key = config_api_key
-                                upsert_env("OPENAI_API_KEY", api_key)
+                                api_key_var, api_base_var = _api_credential_names(model)
+                                upsert_env(api_key_var or "OPENAI_API_KEY", api_key)
                                 
                         if 'worker_model' in config:
                             alt_model = config.pop('worker_model')
@@ -463,7 +494,13 @@ class ProjectStore:
                                 
                 except Exception:
                     pass
-                    
+
+            final_api_key_var, final_api_base_var = _api_credential_names(model)
+            if api_key:
+                upsert_env(final_api_key_var or "OPENAI_API_KEY", api_key)
+            if api_base:
+                upsert_env(final_api_base_var or "OPENAI_API_BASE", api_base)
+
             try:
                 with open(env_path, "w", encoding="utf-8") as f:
 
@@ -542,29 +579,23 @@ class ProjectStore:
                 "SELECT id, role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id",
                 (name, chat_id),
             ).fetchall()
-            # Read api_key and api_base from local .env if it exists
+            # Read api_key and api_base from local .env if it exists.
+            # Provider-specific names are preferred, with legacy OPENAI_* as fallback.
             api_key = ""
             api_base = ""
             worker_api_key = ""
             worker_api_base = ""
             proj_path = row["project_path"]
             if proj_path and os.path.isdir(proj_path):
-                env_path = os.path.join(proj_path, ".env")
-                if os.path.isfile(env_path):
-                    try:
-                        with open(env_path, "r", encoding="utf-8") as f:
-                            for line in f:
-                                line = line.strip()
-                                if line.startswith("OPENAI_API_KEY="):
-                                    api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                                elif line.startswith("OPENAI_API_BASE="):
-                                    api_base = line.split("=", 1)[1].strip().strip('"').strip("'")
-                                elif line.startswith("WORKER_API_KEY="):
-                                    worker_api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                                elif line.startswith("WORKER_API_BASE="):
-                                    worker_api_base = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    except Exception:
-                        pass
+                env_values = _read_env_values(os.path.join(proj_path, ".env"))
+                model = row["model"]
+                worker_model = row["worker_model"] if "worker_model" in row.keys() else ""
+                key_var, base_var = _api_credential_names(model)
+                worker_key_var, worker_base_var = _api_credential_names(worker_model)
+                api_key = _first_env_value(env_values, [key_var, "OPENAI_API_KEY"])
+                api_base = _first_env_value(env_values, [base_var, "OPENAI_API_BASE"])
+                worker_api_key = _first_env_value(env_values, ["WORKER_API_KEY", worker_key_var])
+                worker_api_base = _first_env_value(env_values, ["WORKER_API_BASE", worker_base_var])
 
             compile_partial, compile_full = _normalize_compile_on_save(
                 bool(row["compile_on_save_partial"]) if "compile_on_save_partial" in row.keys() else True,
@@ -642,14 +673,17 @@ class ProjectStore:
             def upsert_env(var_name, val):
                 if val is None:
                     return
+                if not var_name:
+                    return
                 for i, line in enumerate(env_lines):
                     if line.strip().startswith(f"{var_name}="):
                         env_lines[i] = f"{var_name}={val}\n"
                         return
                 env_lines.append(f"{var_name}={val}\n")
 
-            upsert_env("OPENAI_API_KEY", getattr(project, "api_key", ""))
-            upsert_env("OPENAI_API_BASE", getattr(project, "api_base", ""))
+            api_key_var, api_base_var = _api_credential_names(getattr(project, "model", ""))
+            upsert_env(api_key_var or "OPENAI_API_KEY", getattr(project, "api_key", ""))
+            upsert_env(api_base_var or "OPENAI_API_BASE", getattr(project, "api_base", ""))
             upsert_env("WORKER_API_KEY", getattr(project, "worker_api_key", ""))
             upsert_env("WORKER_API_BASE", getattr(project, "worker_api_base", ""))
 
