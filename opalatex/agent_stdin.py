@@ -66,6 +66,54 @@ litellm.drop_params = True
 # globally reroute OpenAI chat calls to the stateful Responses API.
 litellm.route_all_chat_openai_to_responses = False
 
+# ── Register model cost for the OpalaTex Cloud proxy model ──────────────────
+# The Cloud proxy routes openai/gemini-3.1-flash-lite to Google Gemini via
+# opalacoder.com. LiteLLM has no built-in cost entry for this custom routing,
+# so register_model emits a DeprecationWarning about missing cache cost fields
+# on every Router deployment (once per session, per model_id hash).
+#
+# We register the canonical provider-prefixed name with cache cost fields set
+# to 0.0 (billing is handled server-side via token_balance, not via LiteLLM's
+# cost map), which silences the warning for the alias entry.
+#
+# The Router also registers under a SHA-256 model_id hash (derived from
+# litellm_params including api_key), which is unstable across sessions and
+# cannot be pre-registered. We suppress that specific warning via a logging
+# filter so it doesn't pollute the console without affecting other warnings.
+try:
+    litellm.register_model({
+        "openai/gemini-3.1-flash-lite": {
+            "litellm_provider": "openai",
+            "mode": "chat",
+            "input_cost_per_token": 0.0,
+            "output_cost_per_token": 0.0,
+            "cache_creation_input_token_cost": 0.0,
+            "cache_read_input_token_cost": 0.0,
+        },
+    })
+except Exception:
+    pass
+
+import logging as _logging
+
+class _RegisterModelCostFilter(_logging.Filter):
+    """Suppress only the register_model cache-cost warning (hash-based id).
+
+    The hash-based model_id is unstable (depends on api_key/api_base in
+    litellm_params), so it cannot be pre-registered. This filter silences
+    that specific message without affecting other LiteLLM warnings.
+    """
+    def filter(self, record: _logging.LogRecord) -> bool:
+        msg = record.getMessage() if hasattr(record, "getMessage") else str(record)
+        if "not in built-in cost map and no prefix/region variant matched" in msg:
+            return False
+        return True
+
+try:
+    litellm.verbose_logger.addFilter(_RegisterModelCostFilter())
+except Exception:
+    pass
+
 from opalatex.chat_meta_params import parse_meta_params, apply_meta_params
 
 def _friendly_llm_error(exc: Exception, project=None) -> str:

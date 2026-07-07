@@ -384,6 +384,14 @@ def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
         cleaned.pop("reasoningSummary", None)
         _strip_openai_gpt5_default_only_sampling_params(cleaned)
 
+    # Gemini 3+ deprecates request-level sampling params (temperature, top_p,
+    # top_k) — Google recommends moving sampling guidance into the system
+    # instructions. Only strip when using the gemini/vertex_ai provider
+    # directly (NOT when routed through the OpalaTex Cloud proxy, which uses
+    # custom_llm_provider=openai and already discards sampling params).
+    if _is_gemini3_direct_model(model, provider, custom_provider):
+        _strip_gemini3_sampling_params(cleaned)
+
     # Ask LiteLLM to drop provider-unsupported optional params instead of
     # surfacing them as BadRequest errors on OpenAI-compatible endpoints.
     if provider not in {"ollama", "ollama_chat"}:
@@ -412,6 +420,33 @@ def _is_openai_gpt5_chat_model(model: str, provider: str, custom_provider: str |
 def _strip_openai_gpt5_default_only_sampling_params(cleaned: dict) -> None:
     """Remove sampling knobs that GPT-5 chat models only accept at defaults."""
     for field in ("temperature", "top_p", "presence_penalty", "frequency_penalty"):
+        cleaned.pop(field, None)
+
+
+def _is_gemini3_direct_model(model: str, provider: str, custom_provider: str | None) -> bool:
+    """Return True for Gemini 3+ models reached via the gemini/vertex_ai provider.
+
+    The OpalaTex Cloud proxy uses custom_llm_provider=openai, so it is excluded
+    here — the proxy already discards sampling params and the DeprecationWarning
+    is only emitted by LiteLLM's vertex_and_google_ai_studio_gemini module.
+    """
+    if custom_provider == "openai":
+        return False
+    if provider not in {"gemini", "vertex_ai", "vertex"}:
+        return False
+    model_name = model.split("/", 1)[1] if "/" in model else model
+    # Match gemini-3, gemini-3.1, gemini-3-pro-preview, etc. (not gemini-2.5).
+    return model_name.lower().startswith("gemini-3")
+
+
+def _strip_gemini3_sampling_params(cleaned: dict) -> None:
+    """Remove sampling params deprecated for Gemini 3+.
+
+    Google's guidance is to move sampling into the system instructions instead
+    of sending temperature/top_p/top_k as request fields. We simply drop them
+    (Gemini 3 defaults are reasonable); the system_prompt is left untouched.
+    """
+    for field in ("temperature", "top_p", "top_k"):
         cleaned.pop(field, None)
 
 
