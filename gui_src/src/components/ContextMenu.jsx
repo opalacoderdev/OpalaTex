@@ -1,5 +1,5 @@
 import React, { useRef, useLayoutEffect } from 'react';
-import { Plus, FolderPlus, Edit2, Trash2, Copy, ClipboardPaste, ExternalLink } from 'lucide-react';
+import { Plus, FolderPlus, Upload, Edit2, Trash2, Copy, ClipboardPaste, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Floating right-click context menu for the file explorer.
@@ -8,6 +8,7 @@ export default function ContextMenu({
   rightClickedNode,
   handleCreateNewFile,
   handleCreateNewDir,
+  handleImportFile,
   handleRenameNode,
   handleDeleteNode,
   handleCopyNode,
@@ -60,6 +61,13 @@ export default function ContextMenu({
       >
         <FolderPlus size={13} style={{ color: '#007acc' }} />
         <span>{t('contextMenu.newDir')}</span>
+      </div>
+      <div
+        className="vscode-context-menu-item"
+        onClick={() => handleImportFile(parentPath)}
+      >
+        <Upload size={13} style={{ color: '#007acc' }} />
+        <span>{t('contextMenu.importFile', 'Import File...')}</span>
       </div>
       {rightClickedNode && (
         <>

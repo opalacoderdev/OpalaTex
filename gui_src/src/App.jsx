@@ -266,6 +266,8 @@ export default function App() {
   const monacoRef = useRef(null);
   const saveFileRef = useRef(null);
   const diskFileContentsRef = useRef({});
+  const importFileInputRef = useRef(null);
+  const importTargetPathRef = useRef('');
 
   async function refreshSelectedFileFromDiskIfUnmodified() {
     if (!activeProject?.project_path || !selectedFile) return;
@@ -1148,6 +1150,40 @@ export default function App() {
       if (res.ok) { addLog('info', `Diretório criado: ${dirname}`); await fetchFiles(); }
       else { const e = await res.json(); addLog('error', `Falha ao criar diretório: ${e.error}`); alert(`Erro ao criar diretório: ${e.error}`); }
     } catch (err) { addLog('error', `Erro na chamada de criação de diretório: ${err.message}`); }
+  };
+
+  const handleImportFile = (parentPath = '') => {
+    if (!activeProject) return;
+    importTargetPathRef.current = parentPath || '';
+    setContextMenu(null);
+    importFileInputRef.current?.click();
+  };
+
+  const handleImportFileSelected = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !activeProject) return;
+
+    const targetDir = importTargetPathRef.current || '';
+    const formData = new FormData();
+    formData.append('projectPath', activeProject.project_path);
+    formData.append('targetDir', targetDir);
+    formData.append('file', file, file.name);
+
+    try {
+      const res = await fetch('/api/file/import', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to import file');
+      addLog('info', `Arquivo importado: ${data.filePath || file.name}`);
+      await fetchFiles();
+      if (data.filePath) await handleFileSelect(data.filePath);
+    } catch (err) {
+      addLog('error', `Erro ao importar arquivo: ${err.message}`);
+      alert(`Erro ao importar arquivo: ${err.message}`);
+    }
   };
 
   const handleRenameNode = async (node) => {
@@ -2490,6 +2526,12 @@ export default function App() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="vscode-app">
+      <input
+        ref={importFileInputRef}
+        type="file"
+        style={{ display: 'none' }}
+        onChange={handleImportFileSelected}
+      />
       <div className={`vscode-main ${licenseData?.status === 'TRIAL_EXPIRED' ? 'pointer-events-none opacity-20' : ''}`}>
 
         {/* Activity Bar */}
@@ -2934,6 +2976,7 @@ export default function App() {
         rightClickedNode={rightClickedNode}
         handleCreateNewFile={handleCreateNewFile}
         handleCreateNewDir={handleCreateNewDir}
+        handleImportFile={handleImportFile}
         handleRenameNode={handleRenameNode}
         handleDeleteNode={handleDeleteNode}
         handleCopyNode={handleCopyNode}

@@ -180,6 +180,7 @@
   "contextMenu": {
     "newFile": "Novo Arquivo...",
     "newDir": "Novo Diretório...",
+    "importFile": "Importar Arquivo...",
     "rename": "Renomear...",
     "delete": "Excluir",
     "copy": "Copiar",

@@ -49,6 +49,8 @@ import json
 import urllib.parse
 import mimetypes
 import subprocess
+from email.parser import BytesParser
+from email.policy import default as email_default_policy
 from opalatex.subprocess_utils import utf8_text_kwargs
 
 
@@ -64,6 +66,32 @@ def _is_path_within(child: str, parent: str) -> bool:
 
 def _normalize_rel_path(path: str) -> str:
     return path.replace("\\", "/").strip("/")
+
+
+def _parse_multipart_form(body: bytes, content_type: str) -> tuple[dict, dict]:
+    raw_message = (
+        f"Content-Type: {content_type}\r\n"
+        "MIME-Version: 1.0\r\n\r\n"
+    ).encode("utf-8") + body
+    message = BytesParser(policy=email_default_policy).parsebytes(raw_message)
+    fields = {}
+    files = {}
+
+    for part in message.iter_parts():
+        if part.get_content_disposition() != "form-data":
+            continue
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+        payload = part.get_payload(decode=True) or b""
+        filename = part.get_param("filename", header="content-disposition")
+        if filename is not None:
+            files[name] = {"filename": filename, "content": payload}
+        else:
+            charset = part.get_content_charset() or "utf-8"
+            fields[name] = payload.decode(charset, errors="replace")
+
+    return fields, files
 
 
 OPALATEX_HIDDEN_ARTIFACT_PREFIXES = ("opalatex_partial_",)
@@ -1178,6 +1206,62 @@ class AsyncHTTPServer:
                 else:
                     shutil.copy2(full_source, full_target)
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 3.4.6. Import External File
+        elif path == '/api/file/import' and method == 'POST':
+            content_type = headers.get('content-type', '')
+            if not content_type.lower().startswith('multipart/form-data'):
+                self.send_response(writer, 400, b'{"error":"multipart/form-data is required"}', "application/json")
+                return
+            try:
+                form_fields, form_files = _parse_multipart_form(body, content_type)
+                project_path = form_fields.get('projectPath')
+                target_dir = form_fields.get('targetDir', '')
+                upload = form_files.get('file')
+                if not project_path or not upload:
+                    self.send_response(writer, 400, b'{"error":"projectPath and file are required"}', "application/json")
+                    return
+
+                project_abs = os.path.abspath(project_path)
+                if not os.path.isdir(project_abs):
+                    self.send_response(writer, 404, b'{"error":"Project directory not found"}', "application/json")
+                    return
+
+                safe_name = os.path.basename(upload.get('filename') or '').strip()
+                if not safe_name:
+                    self.send_response(writer, 400, b'{"error":"Imported file must have a name"}', "application/json")
+                    return
+
+                target_dir_abs = os.path.abspath(os.path.join(project_abs, target_dir or ''))
+                if not _is_path_within(target_dir_abs, project_abs):
+                    self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
+                    return
+
+                os.makedirs(target_dir_abs, exist_ok=True)
+                full_target = os.path.abspath(os.path.join(target_dir_abs, safe_name))
+                if not _is_path_within(full_target, project_abs):
+                    self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
+                    return
+
+                if os.path.exists(full_target):
+                    base, ext = os.path.splitext(full_target)
+                    counter = 1
+                    while os.path.exists(full_target):
+                        full_target = f"{base}_copy{counter if counter > 1 else ''}{ext}"
+                        counter += 1
+
+                with open(full_target, 'wb') as f:
+                    f.write(upload.get('content', b''))
+
+                imported_path = _normalize_rel_path(os.path.relpath(full_target, project_abs))
+                self.send_response(
+                    writer,
+                    200,
+                    json.dumps({"success": True, "filePath": imported_path}).encode('utf-8'),
+                    "application/json",
+                )
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 

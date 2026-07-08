@@ -180,8 +180,12 @@
   "contextMenu": {
     "newFile": "New File...",
     "newDir": "New Dir...",
+    "importFile": "Import File...",
     "rename": "Rename...",
-    "delete": "Delete"
+    "delete": "Delete",
+    "copy": "Copy",
+    "paste": "Paste",
+    "openInSystem": "Open with default app"
   },
   "textContextMenu": {
     "copy": "Copy",
