@@ -60,8 +60,10 @@ def sanitize_tool_call_messages(messages: list[dict[str, Any]]) -> list[dict[str
             idx += 1
 
         by_id = {m.get("tool_call_id"): m for m in buffered_tool_messages}
+        previous_role = _previous_conversation_role(cleaned)
+        has_valid_turn_order = previous_role in {"user", "tool"}
         has_all_expected_outputs = expected <= set(by_id)
-        if not has_all_expected_outputs:
+        if not has_all_expected_outputs or not has_valid_turn_order:
             cleaned.append(_assistant_tool_calls_as_text(msg, tool_calls))
             for tool_msg in buffered_tool_messages + orphan_tool_messages:
                 cleaned.append(_orphan_tool_as_user_message(tool_msg))
@@ -107,6 +109,14 @@ def sanitize_agent_state(agent: Any) -> None:
     """Repair persisted agent state and provider-incompatible tool settings."""
     _disable_tool_role_workaround_for_native_tool_providers(agent)
     _sanitize_agent_history_in_place(agent)
+
+
+def _previous_conversation_role(messages: list[dict[str, Any]]) -> str | None:
+    for msg in reversed(messages):
+        role = msg.get("role")
+        if role != "system":
+            return role
+    return None
 
 
 def _sanitize_agent_history_in_place(agent: Any) -> None:

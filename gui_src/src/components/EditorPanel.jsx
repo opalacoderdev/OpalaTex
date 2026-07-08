@@ -316,8 +316,30 @@ export default function EditorPanel({
     const normalizeSlash = (p) => (p || '').replace(/\\/g, '/');
     const normalizedFile = normalizeSlash(file);
     const normalizedSelected = normalizeSlash(selectedFile);
-    if (file && normalizedFile !== normalizedSelected) {
+
+    // Guard against empty/invalid file paths from SyncTeX — these would
+    // open a blank untitled tab in the editor.
+    if (!file || !file.trim()) {
+      if (isRichTextMode) {
+        exitRichTextMode(line);
+      } else if (localEditorRef.current) {
+        localEditorRef.current.revealLineInCenter(line);
+        localEditorRef.current.setPosition({ lineNumber: line, column: 1 });
+        localEditorRef.current.focus();
+      }
+      return;
+    }
+
+    if (normalizedFile !== normalizedSelected) {
+      // Switching to a different file — handleFileSelect sets jumpToLine so
+      // the editor navigates after the file loads. Exit Rich Text mode
+      // first so Monaco mounts and can consume the jump target.
+      if (isRichTextMode) exitRichTextMode(line);
       handleFileSelect(file, line);
+    } else if (isRichTextMode) {
+      // Same file, but Monaco is not mounted in Rich Text mode — exit to
+      // Monaco and let the mount handler reveal the target line.
+      exitRichTextMode(line);
     } else if (localEditorRef.current) {
       localEditorRef.current.revealLineInCenter(line);
       localEditorRef.current.setPosition({ lineNumber: line, column: 1 });

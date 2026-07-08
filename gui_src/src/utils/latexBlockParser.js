@@ -258,14 +258,29 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
     const inputMatch = envBody.match(/\\input\s*\{([^}]*)\}/);
     const capMatch = envBody.match(/\\caption\{([^}]*)\}/);
     const labMatch = envBody.match(/\\label\{([^}]*)\}/);
+
+    // Detect inline graphic environments (tikzpicture, pgfplots, picture,
+    // chemfig, forest, pstricks) embedded directly inside \begin{figure}.
+    // This is the most common way users write TikZ — the entire graphic
+    // source lives inside the figure body, not in a separate \input file.
+    // We extract the full \begin{env}...\end{env} block so the backend can
+    // compile it as-is.
+    const inlineGraphicMatch = envBody.match(
+      /\\begin\{(tikzpicture\*?|picture|chemfig|forest|pspicture)\}[\s\S]*?\\end\{\1\}/
+    );
+
     return {
       ...base,
       type: 'figure',
       editable: false,
       src: imgMatch ? imgMatch[1] : '',
       inputSrc: !imgMatch && inputMatch ? inputMatch[1] : '',
-      graphicSource: !imgMatch && inputMatch ? inputMatch[0] : '',
-      graphicEngine: !imgMatch && inputMatch ? 'tikz' : '',
+      graphicSource: imgMatch
+        ? ''
+        : (inputMatch ? inputMatch[0] : (inlineGraphicMatch ? inlineGraphicMatch[0] : '')),
+      graphicEngine: imgMatch
+        ? ''
+        : (inputMatch ? 'tikz' : (inlineGraphicMatch ? inlineGraphicMatch[1].replace('*', '') : '')),
       alt: capMatch ? capMatch[1] : '',
       caption: capMatch ? capMatch[1] : '',
       label: labMatch ? labMatch[1] : '',

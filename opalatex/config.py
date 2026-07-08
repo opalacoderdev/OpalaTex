@@ -176,6 +176,13 @@ _OLLAMA_COMPAT_LITELLM_FIELDS = _LOCAL_ONLY_LITELLM_FIELDS | {
     "presence_penalty",
 }
 
+_COMMON_SAMPLING_LITELLM_FIELDS = {
+    "temperature",
+    "top_p",
+    "frequency_penalty",
+    "presence_penalty",
+}
+
 _LITELLM_TRANSPORT_FIELDS = {
     "api_key",
     "api_base",
@@ -365,6 +372,8 @@ def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
         allowed = set(supported_params) | _LITELLM_TRANSPORT_FIELDS
         if provider in {"ollama", "ollama_chat"}:
             allowed |= _OLLAMA_COMPAT_LITELLM_FIELDS
+        if provider == "gemini":
+            allowed |= _COMMON_SAMPLING_LITELLM_FIELDS
         cleaned = {key: value for key, value in cleaned.items() if key in allowed}
     elif provider not in {"ollama", "ollama_chat"}:
         for field in _LOCAL_ONLY_LITELLM_FIELDS:

@@ -3,7 +3,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { useTranslation } from 'react-i18next';
-import { Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown } from 'lucide-react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -16,10 +16,13 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const [pdfUrl, setPdfUrl] = useState('');
   const [highlight, setHighlight] = useState(null);
   const [scale, setScale] = useState(1.2);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState('');
   const containerRef = useRef(null);
   const scrollPosRef = useRef(0);
   const restoreScrollPosRef = useRef(0);
   const isReloadingPdfRef = useRef(false);
+  const pageNavRef = useRef(null);
 
   const handleScroll = () => {
     if (isReloadingPdfRef.current) return;
@@ -39,6 +42,72 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const handleResetZoom = () => {
     setScale(1.2);
   };
+
+  // ── Page navigation ────────────────────────────────────────────────────
+  // Scroll the PDF container so the requested page is centered in view.
+  // Uses the same [data-page-number] selector as the forward-search
+  // highlight logic. Retries a few times in case the page element has not
+  // been rendered yet by react-pdf.
+  const scrollToPage = (pageNum, attempt = 0) => {
+    if (!containerRef.current || !numPages) return;
+    const target = Math.max(1, Math.min(pageNum, numPages));
+    const pageEl = containerRef.current.querySelector(`[data-page-number="${target}"]`);
+    if (!pageEl && attempt < 10) {
+      setTimeout(() => scrollToPage(target, attempt + 1), 120);
+      return;
+    }
+    if (pageEl) {
+      const offset = pageEl.offsetTop - containerRef.current.clientHeight / 2 + pageEl.clientHeight / 2;
+      containerRef.current.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' });
+      setCurrentPage(target);
+    }
+  };
+
+  const handlePageNavSubmit = () => {
+    const n = parseInt(pageInput, 10);
+    if (!isNaN(n)) {
+      scrollToPage(n);
+    }
+    setPageInput('');
+  };
+
+  const handlePageNavPrev = () => {
+    scrollToPage(currentPage - 1);
+  };
+
+  const handlePageNavNext = () => {
+    scrollToPage(currentPage + 1);
+  };
+
+  // Track which page is currently in view using IntersectionObserver so the
+  // page indicator stays in sync when the user scrolls manually.
+  useEffect(() => {
+    if (!containerRef.current || !numPages) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Pick the entry closest to the top of the viewport.
+        let best = null;
+        let bestTop = Infinity;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const top = Math.abs(entry.boundingClientRect.top);
+            if (top < bestTop) {
+              bestTop = top;
+              best = entry.target;
+            }
+          }
+        }
+        if (best) {
+          const pn = parseInt(best.getAttribute('data-page-number'), 10);
+          if (!isNaN(pn)) setCurrentPage(pn);
+        }
+      },
+      { root: containerRef.current, threshold: 0.1 },
+    );
+    const pageEls = containerRef.current.querySelectorAll('[data-page-number]');
+    pageEls.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [numPages, scale]);
 
   const handleSavePdf = () => {
     if (!pdfUrl) return;
@@ -77,6 +146,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
 
   function onDocumentLoadSuccess({ numPages }) {
     setNumPages(numPages);
+    setCurrentPage(1);
     setTimeout(() => {
       if (containerRef.current) {
         const nextScrollTop = restoreScrollPosRef.current || scrollPosRef.current;
@@ -352,6 +422,91 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
           >
             <RotateCcw size={18} />
           </button>
+        )}
+        {/* Page navigation: prev / [input] of N / next */}
+        {numPages && numPages > 1 && (
+          <>
+            <div style={{ width: '1px', height: '24px', background: 'var(--vscode-border)', margin: '0 2px' }} />
+            <button
+              onClick={handlePageNavPrev}
+              disabled={currentPage <= 1}
+              className="flex items-center justify-center rounded-md transition-colors"
+              style={{
+                width: '32px',
+                height: '32px',
+                background: 'var(--vscode-input-bg)',
+                border: '1px solid var(--vscode-border)',
+                color: currentPage <= 1 ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-text-fg)',
+                opacity: currentPage <= 1 ? 0.5 : 1,
+                cursor: currentPage <= 1 ? 'default' : 'pointer',
+              }}
+              onMouseEnter={(e) => { if (currentPage > 1) { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; } }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+              title={t('editorPanel.prevPage')}
+            >
+              <ChevronUp size={18} />
+            </button>
+            <div
+              ref={pageNavRef}
+              className="flex items-center rounded-md"
+              style={{
+                background: 'var(--vscode-input-bg)',
+                border: '1px solid var(--vscode-border)',
+                height: '32px',
+              }}
+              title={t('editorPanel.goToPage')}
+            >
+              <input
+                type="text"
+                value={pageInput}
+                onChange={(e) => setPageInput(e.target.value.replace(/[^0-9]/g, ''))}
+                onKeyDown={(e) => { if (e.key === 'Enter') handlePageNavSubmit(); }}
+                onFocus={(e) => e.target.select()}
+                placeholder={String(currentPage)}
+                className="text-center"
+                style={{
+                  width: '32px',
+                  height: '100%',
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  color: 'var(--vscode-text-fg)',
+                  fontSize: '12px',
+                }}
+              />
+              <span
+                className="text-xs flex items-center px-1.5"
+                style={{
+                  color: 'var(--vscode-descriptionForeground)',
+                  fontSize: '11px',
+                  whiteSpace: 'nowrap',
+                  borderLeft: '1px solid var(--vscode-border)',
+                  height: '100%',
+                }}
+              >
+                / {numPages}
+              </span>
+            </div>
+            <button
+              onClick={handlePageNavNext}
+              disabled={currentPage >= numPages}
+              className="flex items-center justify-center rounded-md transition-colors"
+              style={{
+                width: '32px',
+                height: '32px',
+                background: 'var(--vscode-input-bg)',
+                border: '1px solid var(--vscode-border)',
+                color: currentPage >= numPages ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-text-fg)',
+                opacity: currentPage >= numPages ? 0.5 : 1,
+                cursor: currentPage >= numPages ? 'default' : 'pointer',
+              }}
+              onMouseEnter={(e) => { if (currentPage < numPages) { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; } }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+              title={t('editorPanel.nextPage')}
+            >
+              <ChevronDown size={18} />
+            </button>
+          </>
         )}
       </div>
       

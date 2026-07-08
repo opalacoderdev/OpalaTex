@@ -5,6 +5,8 @@ import tempfile
 import shutil
 import base64
 import time
+import hashlib
+import json
 
 def get_tectonic_path():
     """Find tectonic in the project bin directory or in PATH."""
@@ -836,6 +838,56 @@ def _collect_graphic_preview_setup(project_path: str) -> str:
     return "\n".join(collected)
 
 
+# ── Disk cache for graphic previews ────────────────────────────────────────
+# SVGs are persisted to ~/.opalatex/graphic_cache/<hash>.svg so previews
+# survive across IDE restarts. The cache key incorporates the graphic source,
+# the resolved preamble, and the project setup so that editing \definecolor
+# or \usepackage in the project main file invalidates stale entries.
+
+def _graphic_cache_dir() -> str:
+    """Return the on-disk graphic cache directory, creating it if needed."""
+    cache_dir = os.path.join(os.path.expanduser("~"), ".opalatex", "graphic_cache")
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+    except OSError:
+        pass
+    return cache_dir
+
+
+def _graphic_disk_cache_key(graphic_source: str, preamble: str, project_setup: str) -> str:
+    """Compute a stable SHA-256 hash of everything that affects the SVG output."""
+    payload = "\n".join([
+        (graphic_source or "").strip(),
+        "\n---preamble---\n",
+        (preamble or "").strip(),
+        "\n---setup---\n",
+        (project_setup or "").strip(),
+    ])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _graphic_disk_cache_get(key: str):
+    """Return cached SVG bytes for *key*, or ``None`` on miss."""
+    path = os.path.join(_graphic_cache_dir(), key + ".svg")
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                return f.read()
+    except OSError:
+        pass
+    return None
+
+
+def _graphic_disk_cache_put(key: str, svg: str) -> None:
+    """Persist *svg* to the disk cache. Best-effort — never raises."""
+    path = os.path.join(_graphic_cache_dir(), key + ".svg")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(svg)
+    except OSError:
+        pass
+
+
 def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble: str = "",
                           cache_key: str = "", graphic_engine: str = "",
                           source_tex: str = "") -> dict:
@@ -969,6 +1021,18 @@ def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble:
     if project_setup:
         preamble = preamble.rstrip() + "\n" + project_setup + "\n"
 
+    # ── Disk cache lookup (survives IDE restarts) ───────────────────────────
+    # The key incorporates the graphic source, the resolved preamble, and
+    # the project setup so that editing \definecolor or \usepackage in the
+    # project main file invalidates stale entries automatically.
+    disk_key = _graphic_disk_cache_key(body, preamble, project_setup)
+    disk_svg = _graphic_disk_cache_get(disk_key)
+    if disk_svg is not None:
+        # Populate the in-process cache too so subsequent hits are O(1).
+        if cache_key:
+            cache[cache_key] = {"svg": disk_svg, "ts": time.time()}
+        return {"success": True, "svg": disk_svg, "log": "", "cached": True}
+
     full_doc = (
         preamble
         + "\n\\begin{document}\n"
@@ -991,6 +1055,7 @@ def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble:
             capture_output=True,
             encoding="utf-8",
             errors="replace",
+            timeout=60,
         )
         if result.returncode != 0 or not os.path.exists(pdf_path):
             return {
@@ -1025,13 +1090,14 @@ def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble:
         svg = page.get_svg_image(text_as_path=True)
         doc.close()
 
+        # ── Persist to both caches ────────────────────────────────────────
         if cache_key:
-            import time as _t
-            cache[cache_key] = {"svg": svg, "ts": _t.time()}
-            # Cap cache size to avoid unbounded growth
+            cache[cache_key] = {"svg": svg, "ts": time.time()}
+            # Cap in-process cache size to avoid unbounded growth
             if len(cache) > 256:
                 oldest = min(cache.items(), key=lambda kv: kv[1]["ts"])
                 cache.pop(oldest[0], None)
+        _graphic_disk_cache_put(disk_key, svg)
 
         return {"success": True, "svg": svg, "log": "", "cached": False}
     except FileNotFoundError:
@@ -1039,6 +1105,13 @@ def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble:
             "success": False,
             "svg": "",
             "log": "Error: 'tectonic' compiler is not installed or not found in PATH.",
+            "cached": False,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "svg": "",
+            "log": "Error: tectonic compilation timed out after 60 seconds.",
             "cached": False,
         }
     except Exception as e:

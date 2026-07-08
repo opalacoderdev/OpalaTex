@@ -199,8 +199,8 @@ def test_openai_gpt55_chat_model_strips_default_only_sampling_params():
     assert kwargs["drop_params"] is True
 
 
-def test_gemini_models_drop_unknown_params_but_keep_supported_ones():
-    """Provider-supported filtering must be model-aware, not OpenAI-only."""
+def test_gemini_models_drop_unknown_params_and_deprecated_sampling():
+    """Gemini 3 direct calls drop deprecated sampling params and unknown fields."""
     from opalatex.config import get_agent_llm_kwargs
     from unittest.mock import patch
 
@@ -223,8 +223,8 @@ def test_gemini_models_drop_unknown_params_but_keep_supported_ones():
         with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
             kwargs = get_agent_llm_kwargs("custom_agent")
 
-    assert kwargs["temperature"] == 0.2
-    assert kwargs["top_p"] == 0.9
+    assert "temperature" not in kwargs
+    assert "top_p" not in kwargs
     assert kwargs["frequency_penalty"] == 0.3
     assert kwargs["presence_penalty"] == 0.2
     assert kwargs["drop_params"] is True

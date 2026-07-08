@@ -42,6 +42,7 @@ def test_sanitize_tool_call_messages_preserves_complete_tool_pair():
     from opalatex.litellm_compat import sanitize_tool_call_messages
 
     messages = [
+        {"role": "user", "content": "read x"},
         {
             "role": "assistant",
             "content": "",
@@ -58,6 +59,60 @@ def test_sanitize_tool_call_messages_preserves_complete_tool_pair():
     ]
 
     assert sanitize_tool_call_messages(messages) == messages
+
+
+def test_sanitize_tool_call_messages_strips_tool_call_with_invalid_turn_order():
+    from opalatex.litellm_compat import sanitize_tool_call_messages
+
+    messages = [
+        {"role": "assistant", "content": "Previous assistant text"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_bad_order",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": '{"path":"x"}'},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_bad_order", "name": "read_file", "content": "ok"},
+    ]
+
+    sanitized = sanitize_tool_call_messages(messages)
+
+    assert sanitized[0] == messages[0]
+    assert sanitized[1]["role"] == "assistant"
+    assert "tool_calls" not in sanitized[1]
+    assert "read_file" in sanitized[1]["content"]
+    assert sanitized[2]["role"] == "user"
+    assert "Recovered orphan tool result" in sanitized[2]["content"]
+
+
+def test_sanitize_tool_call_messages_strips_tool_call_at_history_start():
+    from opalatex.litellm_compat import sanitize_tool_call_messages
+
+    sanitized = sanitize_tool_call_messages([
+        {"role": "system", "content": "summary"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_at_start",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_at_start", "name": "read_file", "content": "ok"},
+    ])
+
+    assert sanitized[0]["role"] == "system"
+    assert sanitized[1]["role"] == "assistant"
+    assert "tool_calls" not in sanitized[1]
+    assert sanitized[2]["role"] == "user"
 
 
 def test_wrap_agent_litellm_compat_adds_drop_params(monkeypatch):
@@ -154,6 +209,7 @@ def test_wrap_agent_litellm_compat_disables_tool_role_workaround_for_openai():
 
     calls = {}
     messages = [
+        {"role": "user", "content": "read"},
         {
             "role": "assistant",
             "content": "",
@@ -192,8 +248,8 @@ def test_wrap_agent_litellm_compat_disables_tool_role_workaround_for_openai():
 
     assert result == "ok"
     assert calls["tool_role_workaround"] is None
-    assert calls["messages"][1]["role"] == "tool"
-    assert calls["messages"][1]["tool_call_id"] == "call_ok"
+    assert calls["messages"][2]["role"] == "tool"
+    assert calls["messages"][2]["tool_call_id"] == "call_ok"
 
 
 def test_wrap_agent_litellm_compat_keeps_tool_role_workaround_for_ollama():
