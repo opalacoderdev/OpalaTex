@@ -17,7 +17,7 @@ export function useResizing({ setSidebarWidth, setChatWidth, setBottomPanelHeigh
         setSidebarWidth(newWidth);
       } else if (direction === 'right') {
         const deltaX = mouseMoveEvent.clientX - startX;
-        const newWidth = Math.max(200, Math.min(600, startWidthRight - deltaX));
+        const newWidth = Math.max(200, Math.min(900, startWidthRight - deltaX));
         setChatWidth(newWidth);
       } else if (direction === 'bottom') {
         const deltaY = mouseMoveEvent.clientY - startY;

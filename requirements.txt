@@ -1,7 +1,7 @@
 # >=0.8.37 required: the MemGPT block's text-emitted tool-call parser must handle
 # the nested {"tool_calls":[{"function":{...}}]} shape small models emit on later
 # turns. Older versions reject it, poisoning context until the turn returns empty.
-agenticblocks.io>=0.9.7
+agenticblocks.io>=0.9.11
 pyyaml>=6.0
 python-dotenv>=1.0.0
 rich>=13.0.0

@@ -6,12 +6,18 @@ import sys
 import asyncio
 import pytest
 from unittest.mock import MagicMock, AsyncMock
+from types import SimpleNamespace
 
 from opalatex.agent_stdin import (
     print_event,
     wrap_tool,
     patched_get_available_tools,
     handle_load_project,
+    _empty_response_failure_message,
+    _response_with_thought,
+    _worker_summary_response,
+    clear_worker_message_buffer,
+    record_worker_message,
 )
 
 def test_print_event(monkeypatch):
@@ -76,6 +82,346 @@ def test_patched_get_available_tools():
     for t in tools:
         assert hasattr(t, "name")
         assert hasattr(t, "description")
+
+
+def test_empty_response_failure_message_is_localized():
+    from opalatex.i18n import set_lang
+
+    set_lang("en")
+    assert _empty_response_failure_message() == "The agent finished without calling send_message after automatic correction attempts. No fallback response was saved."
+
+    set_lang("pt")
+    assert _empty_response_failure_message() == "O agente terminou sem chamar send_message após as tentativas automáticas de correção. Nenhuma resposta fallback foi salva."
+
+
+def test_worker_summary_response_prefers_current_worker_messages():
+    clear_worker_message_buffer()
+    record_worker_message("stale recorded worker message")
+
+    class Agent:
+        _current_worker_messages = ["Created test.tex successfully."]
+        _last_worker_summary = "stale summary"
+
+    assert _worker_summary_response(Agent()) == "Created test.tex successfully."
+    clear_worker_message_buffer()
+
+
+def test_worker_summary_response_falls_back_to_last_worker_summary():
+    clear_worker_message_buffer()
+
+    class Agent:
+        _current_worker_messages = []
+        _last_worker_summary = "Worker finished the requested task."
+
+    assert _worker_summary_response(Agent()) == "Worker finished the requested task."
+
+
+def test_worker_summary_response_prefers_last_worker_chat_response():
+    clear_worker_message_buffer()
+
+    class Agent:
+        _last_worker_chat_response = "Visible worker response."
+        _current_worker_messages = []
+        _last_worker_summary = "older summary"
+
+    assert _worker_summary_response(Agent()) == "Visible worker response."
+
+
+def test_worker_summary_response_prefers_visible_intermediate_agent_response():
+    clear_worker_message_buffer()
+
+    import opalatex.agent_stdin as stdin_mod
+
+    original_hook = stdin_mod.event_hook
+    stdin_mod.event_hook = lambda _payload: None
+    try:
+        stdin_mod.print_event("agent_response", {
+            "response": "Already visible in chat.",
+            "intermediate": True,
+        })
+    finally:
+        stdin_mod.event_hook = original_hook
+
+    class Agent:
+        _last_worker_chat_response = ""
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        internal_history = []
+
+    assert _worker_summary_response(Agent()) == "Already visible in chat."
+    clear_worker_message_buffer()
+
+
+def test_worker_summary_response_extracts_run_skill_tool_result():
+    clear_worker_message_buffer()
+
+    class Agent:
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        internal_history = [
+            {
+                "role": "tool",
+                "content": (
+                    "[skill 'command-line' finished] Worker's summary/report:\n"
+                    "(Tools used by worker: 2)\n"
+                    "Created test.tex and saved the requested LaTeX article."
+                ),
+            }
+        ]
+
+    assert _worker_summary_response(Agent()) == "Created test.tex and saved the requested LaTeX article."
+
+
+def test_worker_summary_response_uses_recorded_worker_message_when_agent_has_no_summary():
+    clear_worker_message_buffer()
+    record_worker_message("Worker send_message reached stdout.")
+
+    class Agent:
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        internal_history = []
+
+    assert _worker_summary_response(Agent()) == "Worker send_message reached stdout."
+    clear_worker_message_buffer()
+
+
+def test_response_with_thought_preserves_snapshot_for_storage():
+    assert _response_with_thought("Done.", ["plan ", "then act"]) == (
+        "<think>\nplan then act\n</think>\n\nDone."
+    )
+    assert _response_with_thought("<think>\nold\n</think>\n\nDone.", ["new"]) == (
+        "<think>\nold\n</think>\n\nDone."
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_run_retries_orchestrator_before_using_worker_summary(monkeypatch):
+    import opalatex.agent_stdin as stdin_mod
+
+    events = []
+    prompts = []
+
+    class FakeMemGPT:
+        model = "fake/model"
+        model_kargs = {}
+        internal_history = []
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        calls = 0
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, agent_input):
+            self.calls += 1
+            prompts.append(agent_input.prompt)
+            if self.calls == 1:
+                self._current_worker_messages = ["Worker created test.tex successfully."]
+                return SimpleNamespace(response="")
+            return SimpleNamespace(response="Created test.tex successfully. Please verify the file.")
+
+    monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(stdin_mod, "current_memgpt", FakeMemGPT())
+    monkeypatch.setattr(stdin_mod, "current_project", None)
+    monkeypatch.setattr(stdin_mod, "current_store", None)
+
+    await stdin_mod.handle_run({
+        "agent": "chat_orchestrator",
+        "prompt": "create test.tex",
+    })
+
+    assert len(prompts) == 2
+    assert "Worker created test.tex successfully." in prompts[1]
+    assert "send_message" in prompts[1]
+    agent_responses = [data["response"] for event, data in events if event == "agent_response"]
+    assert agent_responses == ["Created test.tex successfully. Please verify the file."]
+
+
+@pytest.mark.asyncio
+async def test_handle_run_does_not_promote_worker_message_without_orchestrator_response(monkeypatch, tmp_path):
+    import opalatex.agent_stdin as stdin_mod
+    from opalatex.memgpt_runtime import make_intercepted_send_message
+
+    events = []
+    saved_messages = []
+
+    class FakeProject:
+        name = "proj"
+        mode = "auto"
+        project_path = str(tmp_path)
+        model = "fake/model"
+        current_chat_id = "main"
+
+    class FakeStore:
+        def append_message(self, _project, role, content, attachments=None):
+            saved_messages.append((role, content))
+
+        def save(self, _project):
+            pass
+
+    class FakeMemGPT:
+        model = "fake/model"
+        model_kargs = {}
+        internal_history = []
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        _last_worker_chat_response = ""
+        _worker_response_emitted = False
+        calls = 0
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, agent_input):
+            self.calls += 1
+            if self.calls == 1:
+                send_message = make_intercepted_send_message(self, "command-line")
+                raw = getattr(send_message, "_func", None) or send_message
+                raw("Worker created test.tex successfully.")
+                self._current_worker_messages = []
+                self._last_worker_summary = ""
+                return SimpleNamespace(response="")
+            assert "Worker created test.tex successfully." in agent_input.prompt
+            assert "send_message" in agent_input.prompt
+            return SimpleNamespace(response="The file test.tex was created. Please verify it.")
+
+    fake_agent = FakeMemGPT()
+    monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(stdin_mod, "current_memgpt", fake_agent)
+    monkeypatch.setattr(stdin_mod, "current_project", FakeProject())
+    monkeypatch.setattr(stdin_mod, "current_store", FakeStore())
+
+    await stdin_mod.handle_run({
+        "agent": "chat_orchestrator",
+        "prompt": "create test.tex",
+    })
+
+    assistant_messages = [content for role, content in saved_messages if role == "assistant"]
+    assert assistant_messages == ["The file test.tex was created. Please verify it."]
+
+    agent_responses = [data["response"] for event, data in events if event == "agent_response"]
+    assert agent_responses == ["The file test.tex was created. Please verify it."]
+    assert fake_agent.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_handle_run_reports_error_when_orchestrator_never_sends_message(monkeypatch, tmp_path):
+    import opalatex.agent_stdin as stdin_mod
+    from opalatex.i18n import set_lang
+
+    set_lang("en")
+
+    events = []
+    saved_messages = []
+    prompts = []
+
+    class FakeProject:
+        name = "proj"
+        mode = "auto"
+        project_path = str(tmp_path)
+        model = "fake/model"
+        current_chat_id = "main"
+
+    class FakeStore:
+        def append_message(self, _project, role, content, attachments=None):
+            saved_messages.append((role, content))
+
+        def save(self, _project):
+            pass
+
+    class FakeMemGPT:
+        model = "fake/model"
+        model_kargs = {}
+        internal_history = []
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        _last_worker_chat_response = ""
+        _worker_response_emitted = False
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, agent_input):
+            prompts.append(agent_input.prompt)
+            self._current_worker_messages = ["Worker claims it completed the job."]
+            return SimpleNamespace(response="")
+
+    monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(stdin_mod, "current_memgpt", FakeMemGPT())
+    monkeypatch.setattr(stdin_mod, "current_project", FakeProject())
+    monkeypatch.setattr(stdin_mod, "current_store", FakeStore())
+
+    await stdin_mod.handle_run({
+        "agent": "chat_orchestrator",
+        "prompt": "create test.tex",
+    })
+
+    assistant_messages = [content for role, content in saved_messages if role == "assistant"]
+    assert assistant_messages == []
+
+    agent_responses = [data["response"] for event, data in events if event == "agent_response"]
+    assert agent_responses == []
+    errors = [data["message"] for event, data in events if event == "error"]
+    assert errors == [
+        "The agent finished without calling send_message after automatic correction attempts. No fallback response was saved."
+    ]
+    assert len(prompts) == 3
+    assert "send_message" in prompts[1]
+    assert "send_message" in prompts[2]
+    assert "O trabalho solicitado parece ter sido concluído" not in "\n".join(agent_responses)
+
+
+@pytest.mark.asyncio
+async def test_handle_run_persists_thought_snapshot_without_reemitting_it(monkeypatch, tmp_path):
+    import opalatex.agent_stdin as stdin_mod
+
+    events = []
+    saved_messages = []
+
+    class FakeProject:
+        name = "proj"
+        mode = "auto"
+        project_path = str(tmp_path)
+        model = "fake/model"
+        current_chat_id = "main"
+
+    class FakeStore:
+        def append_message(self, _project, role, content, attachments=None):
+            saved_messages.append((role, content))
+
+        def save(self, _project):
+            pass
+
+    class FakeMemGPT:
+        model = "fake/model"
+        model_kargs = {}
+        internal_history = []
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        on_thinking = None
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, _agent_input):
+            self.on_thinking("I should save the file.")
+            return SimpleNamespace(response="The file was saved.")
+
+    monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(stdin_mod, "current_memgpt", FakeMemGPT())
+    monkeypatch.setattr(stdin_mod, "current_project", FakeProject())
+    monkeypatch.setattr(stdin_mod, "current_store", FakeStore())
+
+    await stdin_mod.handle_run({
+        "agent": "chat_orchestrator",
+        "prompt": "save file",
+    })
+
+    assistant_messages = [content for role, content in saved_messages if role == "assistant"]
+    assert assistant_messages == ["<think>\nI should save the file.\n</think>\n\nThe file was saved."]
+
+    agent_responses = [data["response"] for event, data in events if event == "agent_response"]
+    assert agent_responses == ["The file was saved."]
 
 
 @pytest.mark.asyncio

@@ -129,7 +129,7 @@ export default function App() {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [layoutMode, setLayoutMode] = useState('ide');
-  const [isChatVisible, setIsChatVisible] = useState(false);
+  const [isChatVisible, setIsChatVisible] = useState(true);
   const [activeSidebarTab, setActiveSidebarTab] = useState('explorer');
   const [contextMenu, setContextMenu] = useState(null);
   const [clipboardNode, setClipboardNode] = useState(null);
@@ -142,8 +142,6 @@ export default function App() {
   useEffect(() => {
     if (layoutMode === 'chat') {
       setIsChatVisible(true);
-    } else if (layoutMode === 'ide') {
-      setIsChatVisible(false);
     }
   }, [layoutMode]);
 
@@ -174,8 +172,8 @@ export default function App() {
   const [dragOverPath, setDragOverPath] = useState(null);
 
   // ── Panel sizing ──────────────────────────────────────────────────────────
-  const [sidebarWidth, setSidebarWidth] = useState(260);
-  const [chatWidth, setChatWidth] = useState(320);
+  const [sidebarWidth, setSidebarWidth] = useState(330);
+  const [chatWidth, setChatWidth] = useState(400);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(240);
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [isBottomMaximized, setIsBottomMaximized] = useState(false);

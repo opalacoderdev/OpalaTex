@@ -17,6 +17,7 @@ from opalatex.memgpt_runtime import (
     build_chat_orchestrator,
     build_run_skill_tool,
     make_intercepted_send_message,
+    _current_date_instruction,
 )
 from opalatex.project import ProjectData
 from opalatex.config import DEFAULT_MODEL, WORKER_MODEL
@@ -58,6 +59,22 @@ def test_chat_orchestrator_system_prompt_embeds_skill_metadata(tmp_path):
     assert "view-editor" in m.system_prompt
 
 
+def test_current_date_instruction_is_prepended_to_system_prompt(tmp_path):
+    m = build_chat_orchestrator(_project(tmp_path), None)
+    assert m.system_prompt.startswith("Today is ")
+    assert "you MUST use the web_search tool before answering" in m.system_prompt
+    assert "Never claim that a current, recent, or future-dated event did not happen" in m.system_prompt
+    assert "send_message` with `message=\"\"`" in m.system_prompt
+
+
+def test_current_date_instruction_formats_english_date():
+    from datetime import datetime
+
+    instruction = _current_date_instruction(datetime(2026, 7, 9))
+    assert instruction.startswith("Today is July 9, 2026.")
+    assert "web_search" in instruction
+
+
 def test_uses_framework_memgpt_block(tmp_path):
     from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
     m = build_chat_orchestrator(_project(tmp_path), None)
@@ -65,16 +82,32 @@ def test_uses_framework_memgpt_block(tmp_path):
 
 
 def test_intercepted_send_message_records_into_memgpt(tmp_path):
+    from opalatex.agent_stdin import clear_worker_message_buffer, _worker_summary_response
+    import opalatex.agent_stdin as stdin_mod
+
+    clear_worker_message_buffer()
+    events = []
     m = build_chat_orchestrator(_project(tmp_path), None)
     before = len(m.internal_history)
     sm = make_intercepted_send_message(m, "implement-feature")
     # FunctionBlock wraps the function; call the underlying callable.
     raw = getattr(sm, "_func", None) or sm
     m._current_worker_messages = []
-    result = raw("Created hello.txt with the requested content.")
+    original_hook = stdin_mod.event_hook
+    stdin_mod.event_hook = lambda payload: events.append(payload)
+    try:
+        result = raw("Created hello.txt with the requested content.")
+    finally:
+        stdin_mod.event_hook = original_hook
     assert "DONE" in result
     assert len(m.internal_history) == before
     assert m._current_worker_messages == ["Created hello.txt with the requested content."]
+    assert _worker_summary_response(m) == "Created hello.txt with the requested content."
+    assert {
+        "event": "info",
+        "message": "[implement-feature] Created hello.txt with the requested content.",
+    } in events
+    clear_worker_message_buffer()
 
 
 def test_run_skill_unknown_skill_returns_error(tmp_path):

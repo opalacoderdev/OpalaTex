@@ -131,7 +131,8 @@ _STRINGS = {
         "workflow_edit_not_found": "edit_file: old_str not found in {path}",
         "workflow_edit_ambiguous": "edit_file: old_str matches {n} locations in {path} — be more specific",
         "empty_response_retry_info": "The model generated an empty response. Forcing an automatic correction attempt...",
-        "empty_response_nudge": "Look, you have successfully completed the tasks/tools. Now, please tell the user what you did and summarize your changes.",
+        "empty_response_nudge": "You finished the requested work but did not send a user-facing response. You MUST now call send_message with a non-empty message that summarizes what you did and asks the user to verify the result if appropriate. Do not call send_message with an empty string.",
+        "empty_response_unresolved_error": "The agent finished without calling send_message after automatic correction attempts. No fallback response was saved.",
         "project_exists_in_folder": "The folder is already being used by the project '{name}'. Only one project per folder is allowed."
     },
     "pt": {
@@ -262,7 +263,8 @@ _STRINGS = {
         "workflow_edit_not_found": "edit_file: old_str não encontrado em {path}",
         "workflow_edit_ambiguous": "edit_file: old_str encontrado em {n} locais em {path} — seja mais específico",
         "empty_response_retry_info": "O modelo gerou uma resposta vazia. Forçando uma tentativa de correção automática...",
-        "empty_response_nudge": "Olha, você já concluiu a execução das ferramentas com sucesso. Agora, por favor, explique ao usuário o que você fez e resuma as alterações realizadas.",
+        "empty_response_nudge": "Você concluiu o trabalho solicitado, mas não enviou uma resposta visível ao usuário. Agora você DEVE chamar send_message com uma mensagem não vazia resumindo o que fez e pedindo que o usuário verifique o resultado, se apropriado. Não chame send_message com uma string vazia.",
+        "empty_response_unresolved_error": "O agente terminou sem chamar send_message após as tentativas automáticas de correção. Nenhuma resposta fallback foi salva.",
         "project_exists_in_folder": "Esta pasta já está sendo usada pelo projeto '{name}'. Só é permitido um projeto por pasta."
     }
 }

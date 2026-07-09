@@ -216,6 +216,23 @@ def get_project_path() -> str:
     return _PROJECT_PATH or os.getcwd()
 
 
+def _collect_python_files(root: str, base_dir: str | None = None) -> list[str]:
+    """Collect Python files below root while skipping OpalaTex internals."""
+    base = os.path.abspath(base_dir or root)
+    start = os.path.abspath(root)
+    skipped_dirs = {"opalatex", "tests", "skills", "debug", "__pycache__", ".git", ".venv"}
+    files: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(start):
+        dirnames[:] = [d for d in dirnames if d not in skipped_dirs]
+        rel_dir = os.path.relpath(dirpath, base)
+        if rel_dir != "." and any(part in skipped_dirs for part in rel_dir.split(os.sep)):
+            continue
+        for filename in filenames:
+            if filename.endswith(".py"):
+                files.append(os.path.join(dirpath, filename))
+    return files
+
+
 def _resolve_path(path: str) -> str:
     """Make path absolute, rooted at the project directory if relative."""
     if os.path.isabs(path):

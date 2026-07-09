@@ -46,6 +46,7 @@ REFACTORED_KEYS = [
     "api_key_missing_fallback",
     "alt_model_error",
     "fallback_to_model",
+    "empty_response_unresolved_error",
 ]
 
 

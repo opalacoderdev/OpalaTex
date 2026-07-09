@@ -7,10 +7,10 @@ uses to delegate work to skills:
     bound to a MemGPT instance. When the MemGPT calls it, an ephemeral sub-agent
     (LLMAgentBlock) is spawned with the skill's SKILL.md body as its system prompt
     and the workflow tools available, plus an **intercepted** ``send_message``.
-  - The interceptor (a wrapper around the sub-agent's ``send_message``) displays
-    each message to the user and buffers it for the ``run_skill`` tool result so
-    the orchestrator stays aware of what happened without corrupting tool-call
-    adjacency in ``internal_history``.
+  - The interceptor (a wrapper around the sub-agent's ``send_message``) records
+    worker messages as diagnostic info and buffers them for the ``run_skill`` tool
+    result. The chat-orchestrator remains responsible for the final user-facing
+    ``send_message``.
   - ``build_chat_orchestrator(project, store)`` builds the MemGPT itself: the
     framework ``MemGPTAgentBlock`` primed with the ``chat-orchestrator`` SKILL.md,
     the Level-1 metadata of the active skills, the ``run_skill`` tool, and the
@@ -20,6 +20,7 @@ The module is additive: the legacy intent-routing path in cli.py is untouched
 until the REPL is switched over (Phase 4).
 """
 from __future__ import annotations
+from datetime import datetime
 from opalatex.tools import read_file
 from opalatex.tools import get_project_overview
 from opalatex.tools import run_command
@@ -64,6 +65,20 @@ from .tools import get_available_tools
 CHAT_ORCHESTRATOR_SKILL = "chat-orchestrator"
 
 _PROVIDER_ALIASES = {"ollama_chat": "ollama"}
+
+
+def _current_date_instruction(now: datetime | None = None) -> str:
+    """Return the dynamic date/freshness instruction prepended to the agent prompt."""
+    today = now or datetime.now()
+    date_text = f"{today.strftime('%B')} {today.day}, {today.year}"
+    return (
+        f"Today is {date_text}. For any user request involving recent events, "
+        "current facts, latest/last occurrences, schedules, public facts that may "
+        "have changed, or dates that could be after your training data, you MUST "
+        "use the web_search tool before answering, refusing, or delegating. Never "
+        "claim that a current or future-dated event did not happen without first "
+        "checking the web."
+    )
 
 
 def _apply_modelconfig_provider(model: str, project) -> str:
@@ -124,12 +139,10 @@ def resolve_skill_model(skill_meta: dict, project_model: str | None,
 # ---------------------------------------------------------------------------
 
 def make_intercepted_send_message(memgpt: MemGPTAgentBlock, skill_name: str):
-    """Return a ``send_message`` tool whose calls are displayed to the user and
-    mirrored into *memgpt*'s internal history (docs/specs/06 §4).
+    """Return a ``send_message`` tool whose calls are logged and buffered.
 
-    The wrapper is deterministic — it does not depend on model behavior. Each call
-    appends a user-visible line and records the exchange so the MemGPT resumes the
-    conversation aware of what the sub-agent said.
+    The wrapper is deterministic: each call records the worker report so the
+    orchestrator can summarize it in its own final ``send_message``.
     """
 
     @as_tool(
@@ -146,19 +159,26 @@ def make_intercepted_send_message(memgpt: MemGPTAgentBlock, skill_name: str):
         ),
     )
     def send_message(message: str) -> str:
-        # 1. Show to the user (the sub-agent speaks directly).
-        T.console.print(f"\n[bold green]OpalaTex ({skill_name}):[/bold green] {message}\n")
-        import json
-        print(json.dumps({
-            "event": "info",
-            "data": {"message": f"[{skill_name}] {message}"}
-        }), flush=True)
-        
-        # 2. Record the message to be returned as the tool result, instead of 
-        # injecting a rogue 'assistant' message mid-turn.
+        # 1. Record the worker message before emitting any diagnostic event.
         if hasattr(memgpt, "_current_worker_messages"):
             memgpt._current_worker_messages.append(message)
-        return "[DONE] message delivered to user"
+        memgpt._last_worker_chat_response = message
+        memgpt._worker_response_emitted = False
+        info_message = f"[{skill_name}] {message}"
+        try:
+            from . import agent_stdin as stdin_mod
+            stdin_mod.record_worker_message(message)
+            stdin_mod.print_event("info", {"message": info_message})
+        except Exception:
+            import json
+            print(json.dumps({
+                "event": "info",
+                "message": info_message,
+            }), flush=True)
+
+        # 2. Show to the terminal for diagnostics.
+        T.console.print(f"\n[bold green]OpalaTex ({skill_name}):[/bold green] {message}\n")
+        return "[DONE] message recorded for orchestrator"
 
     return send_message
 
@@ -533,6 +553,8 @@ def build_run_skill_tool(
             if not worker_summary.strip() or "max iterations reached" in worker_summary.lower():
                 worker_summary = f"[AVISO: O worker terminou sem um resumo claro. Ele realizou {tool_calls} chamadas de ferramenta e o último texto gerado foi: {out_text}]"
 
+        memgpt._last_worker_summary = worker_summary
+
         # Record this run
         memgpt._skill_run_history.append({
             "skill": skill_name,
@@ -564,11 +586,14 @@ def _chat_orchestrator_body(project_path: str) -> str:
             return meta["body"]
     return (
         "You are the OpalaTex chat-orchestrator. You operate in a strict TOOL-ONLY environment.\n"
-        "1. You MUST NEVER reply to the user with plain conversational text. If you want to communicate with the user (to provide analysis, code snippets, or report completion), YOU MUST use the 'send_message' tool.\n"
-        "2. When a user request requires making changes to files, running terminal commands, or writing code, YOU MUST DELEGATE IT by calling run_skill(skill_name, context) using the most appropriate skill.\n"
-        "3. You CAN and SHOULD use your tools (like read_file, get_project_overview, search_conversation_history) to investigate the user's request and diagnose the problem first.\n"
-        "4. Before calling run_skill, formulate a clear execution plan in the 'context'. Instruct the worker that the plan is a SUGGESTION and they can adapt it if needed.\n"
-        "5. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan. If the task IS complete, you MUST call 'send_message' to report the final result to the user.\n"
+        "1. The runtime prepends today's date to this prompt. If the user asks for recent, latest, current, future-dated, or otherwise time-sensitive information, you MUST use web_search before answering, refusing, or delegating. You MUST NOT hallucinate dates or assume something did not happen without first searching the web.\n" 
+        "2. You MUST NEVER reply to the user with plain conversational text. If you want to communicate with the user (to provide analysis, code snippets, or report completion), YOU MUST use the 'send_message' tool with a non-empty message.\n"
+        "3. You CAN and SHOULD use your tools (like read_file, write_file, web_search, get_project_overview, search_conversation_history) to investigate the user's request and diagnose the problem first.\n"
+        "4. If the user asks for something that you don't know, you can use web_search to find relevant information. If the user asks for something in the project, you can use get_project_overview to explore the project structure and read_file to read files.\n"
+        "5. Whenever the user asks a question involving dates, time, recent events, latest events, sports, news, public figures, APIs, or potentially anachronistic information, you must search the web for updated information.\n"
+        "6. You can call run_skill to execute tasks (content generation, file manipulation, project scaffolding, etc.). Before calling run_skill, formulate a clear execution plan in the 'context'. Instruct the worker that the plan is a SUGGESTION and they can adapt it if needed.\n"
+        "7. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan. If the task IS complete, you MUST call 'send_message' with a non-empty final result for the user.\n"
+        "NEVER assume something didn't happen without first searching the web using the web_search tool.\n"
         "CRITICAL: If you use a <think> block to plan your actions, you MUST NOT stop generating afterwards. You MUST conclude your turn by outputting a valid JSON tool call (either another tool, run_skill, or send_message). An empty text response or a plain text reply without a JSON tool call is a critical failure.\n\n"
         "ACHIEVEMENTS MEMORY INSTRUCTION:\n"
         "You have the 'update_achievements_memory' tool. Use it FREQUENTLY to record your progress and milestones.\n"
@@ -666,10 +691,12 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         )
 
     system_prompt = (
+        f"{_current_date_instruction()}\n\n"
         f"{body}\n\n"
         f"{project_block}\n"
         f"## Available skills (call run_skill with the skill name)\n{metadata}\n"
     )
+
     model = get_agent_model("memgpt", get_agent_model("chat_agent", project_model))
     model = _apply_modelconfig_provider(model, project)
     _llm_kwargs = get_agent_llm_kwargs("memgpt")

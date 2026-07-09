@@ -53,6 +53,13 @@ sys.stdout = sys.stderr
 # Hook to intercept event prints (e.g. for Python GUI server)
 event_hook = None
 
+# Worker send_message calls are emitted as info events. Keep the latest worker
+# messages only as context for corrective retries when the orchestrator finishes
+# silently; they must not become a final assistant response by themselves.
+_LAST_WORKER_MESSAGES: list[str] = []
+_LAST_INTERMEDIATE_AGENT_RESPONSE = ""
+EMPTY_RESPONSE_MAX_CORRECTION_ATTEMPTS = 2
+
 # Pending GUI input requests: maps request-id -> asyncio.Future so that the
 # /api/opalatex/input_response endpoint can resolve them.
 _gui_input_pending: dict = {}
@@ -169,7 +176,114 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
     return msg
 
 
+def clear_worker_message_buffer() -> None:
+    """Clear worker messages captured outside the final agent_response path."""
+    global _LAST_INTERMEDIATE_AGENT_RESPONSE
+    _LAST_WORKER_MESSAGES.clear()
+    _LAST_INTERMEDIATE_AGENT_RESPONSE = ""
+
+
+def record_worker_message(message: str) -> None:
+    """Record a worker send_message for corrective retry context."""
+    text = str(message or "").strip()
+    if text:
+        _LAST_WORKER_MESSAGES.append(text)
+
+
+def _worker_summary_response(agent) -> str:
+    """Return the latest worker-facing summary for corrective retry context."""
+    if _LAST_INTERMEDIATE_AGENT_RESPONSE.strip():
+        return _LAST_INTERMEDIATE_AGENT_RESPONSE.strip()
+
+    worker_response = str(getattr(agent, "_last_worker_chat_response", "") or "").strip()
+    if worker_response:
+        return worker_response
+
+    messages = [
+        str(m).strip()
+        for m in getattr(agent, "_current_worker_messages", []) or []
+        if str(m).strip()
+    ]
+    if messages:
+        return "\n".join(messages)
+
+    summary = str(getattr(agent, "_last_worker_summary", "") or "").strip()
+    if summary:
+        return summary
+
+    if _LAST_WORKER_MESSAGES:
+        return "\n".join(_LAST_WORKER_MESSAGES)
+
+    for item in reversed(getattr(agent, "internal_history", []) or []):
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content") or "")
+        summary = _extract_worker_summary_from_tool_result(content)
+        if summary:
+            return summary
+
+    return ""
+
+
+def _extract_worker_summary_from_tool_result(content: str) -> str:
+    """Extract a worker report from a run_skill tool result."""
+    marker = "Worker's summary/report:"
+    if marker not in content:
+        return ""
+
+    summary = content.split(marker, 1)[1].strip()
+    lines = summary.splitlines()
+    if lines and lines[0].strip().startswith("(Tools used by worker:"):
+        summary = "\n".join(lines[1:]).strip()
+    return summary
+
+
+def _response_with_thought(response: str, thought_chunks: list[str]) -> str:
+    """Return the persisted chat content, preserving the turn thought snapshot."""
+    thought = "".join(thought_chunks).strip()
+    text = str(response or "").strip()
+    if not thought:
+        return text
+    if text.startswith("<think>") or text.startswith("```thought"):
+        return text
+    return f"<think>\n{thought}\n</think>\n\n{text}".strip()
+
+
+def _empty_response_retry_prompt(worker_summary: str = "") -> str:
+    """Build the corrective prompt used when the orchestrator ends silently."""
+    from opalatex.i18n import _
+
+    prompt = _("empty_response_nudge")
+    summary = str(worker_summary or "").strip()
+    if summary:
+        prompt += (
+            "\n\nThe worker already completed work and returned this summary. "
+            "Use it to produce the final user-facing message; do not repeat the work:\n"
+            f"{summary}"
+        )
+    return prompt
+
+
+def _empty_response_failure_message() -> str:
+    """Return the localized hard failure for missing final send_message."""
+    from opalatex.i18n import _
+
+    return _("empty_response_unresolved_error")
+
+
 def print_event(event: str, data: dict):
+    global _LAST_INTERMEDIATE_AGENT_RESPONSE
+    if event == "agent_response" and data.get("intermediate"):
+        response = str(data.get("response") or "").strip()
+        if response:
+            _LAST_INTERMEDIATE_AGENT_RESPONSE = response
+            record_worker_message(response)
+        event = "info"
+        data = {
+            "message": response,
+            "agent": data.get("agent"),
+        }
+
     payload = {"event": event, **data}
     hook = event_hook
     if not hook:
@@ -984,37 +1098,51 @@ async def handle_run(data: dict):
                 current_store.append_message(current_project, "user", user_history_content, attachments=raw_attachments)
                 current_store.save(current_project)
 
+            if agent_type in ("orchestrator", "chat_orchestrator"):
+                clear_worker_message_buffer()
+                agent._current_worker_messages = []
+                agent._last_worker_summary = ""
+                agent._last_worker_chat_response = ""
+                agent._worker_response_emitted = False
+
             with apply_meta_params(agent, _meta_overrides):
                 resp_obj = await agent.run(AgentInput(prompt=prompt, attachments=final_attachments))
             response = resp_obj.response.strip() if resp_obj.response else ""
             
-            if not response:
+            empty_response_attempts = 0
+            while not response and empty_response_attempts < EMPTY_RESPONSE_MAX_CORRECTION_ATTEMPTS:
+                empty_response_attempts += 1
+                worker_summary = _worker_summary_response(agent)
                 from opalatex.i18n import _
                 print_event("info", {"message": _("empty_response_retry_info")})
-                retry_prompt = _("empty_response_nudge")
+                retry_prompt = _empty_response_retry_prompt(worker_summary)
                 with apply_meta_params(agent, _meta_overrides):
                     resp_obj = await agent.run(AgentInput(prompt=retry_prompt))
                 response = resp_obj.response.strip() if resp_obj.response else ""
+
+            if not response:
+                raise RuntimeError(_empty_response_failure_message())
             
             if thought_chunks:
-                full_thought = "".join(thought_chunks).strip()
+                pass
                 #print(f"[DIAG-PY] thought_chunks len={len(thought_chunks)}, full_thought len={len(full_thought)}", flush=True)
                 # Only prepend thinking blocks for chat agents — not for inline_editor or
                 # other worker agents where the response is expected to be a raw code block.
                 # Prepending would cause App.jsx to extract the thinking text instead of the code.
-                if full_thought and not response.startswith("```thought") and agent_type in ("chat_orchestrator", "orchestrator"):
-                    response = f"```thought\n{full_thought}\n```\n\n{response}".strip()
+                # App.jsx already prepends the thought snapshot from thought events.
             #else:
                 #print(f"[DIAG-PY] thought_chunks EMPTY - thinking not detected in stream", flush=True)
 
             #print(f"[DIAG-PY] response[:200] = {repr(response[:200])}", flush=True)
 
+            persisted_response = _response_with_thought(response, thought_chunks)
+
             # Save assistant response and achievements
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
                 if tools_mod.TURN_ACHIEVEMENTS:
                     current_store.append_message(current_project, "system", f"Achievements logged during this turn:\n{tools_mod.TURN_ACHIEVEMENTS}")
-                if response:
-                    current_store.append_message(current_project, "assistant", response)
+                if persisted_response:
+                    current_store.append_message(current_project, "assistant", persisted_response)
                 # Revert any temporary mode changes (like create_plan setting mode to 'auto')
                 if 'initial_project_mode' in locals() and initial_project_mode:
                     current_project.mode = initial_project_mode
