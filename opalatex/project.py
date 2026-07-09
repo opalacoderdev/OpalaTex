@@ -723,7 +723,7 @@ class ProjectStore:
                 ),
             )
 
-    def append_message(self, project: ProjectData, role: str, content: str, attachments: list | None = None) -> None:
+    def append_message(self, project: ProjectData, role: str, content: str, attachments: list | None = None) -> int:
         now = datetime.now(timezone.utc).isoformat()
         message_id = None
         clean_attachments = attachments or []
@@ -760,6 +760,8 @@ class ProjectStore:
         except Exception:
             pass
 
+        return int(message_id)
+
 
     def clear_project_history(self, name: str, chat_id: str = None) -> None:
         with _conn(self.db_path) as conn:
@@ -790,6 +792,7 @@ class ProjectStore:
             collection.delete(ids=[str(i) for i in deleted_ids])
         except Exception:
             pass
+
         return deleted_ids
 
     def get_chat_core_memory(self, name: str, chat_id: str) -> str:

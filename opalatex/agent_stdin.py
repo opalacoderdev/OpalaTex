@@ -59,6 +59,7 @@ event_hook = None
 _LAST_WORKER_MESSAGES: list[str] = []
 _LAST_INTERMEDIATE_AGENT_RESPONSE = ""
 EMPTY_RESPONSE_MAX_CORRECTION_ATTEMPTS = 2
+_ACTIVE_THOUGHT_CHUNKS: list[str] | None = None
 
 # Pending GUI input requests: maps request-id -> asyncio.Future so that the
 # /api/opalatex/input_response endpoint can resolve them.
@@ -249,6 +250,13 @@ def _response_with_thought(response: str, thought_chunks: list[str]) -> str:
     return f"<think>\n{thought}\n</think>\n\n{text}".strip()
 
 
+def _record_turn_thought(content: str) -> None:
+    """Record a thought chunk for the active chat turn, if any."""
+    text = str(content or "")
+    if text and _ACTIVE_THOUGHT_CHUNKS is not None:
+        _ACTIVE_THOUGHT_CHUNKS.append(text)
+
+
 def _empty_response_retry_prompt(worker_summary: str = "") -> str:
     """Build the corrective prompt used when the orchestrator ends silently."""
     from opalatex.i18n import _
@@ -284,6 +292,10 @@ def print_event(event: str, data: dict):
             "agent": data.get("agent"),
         }
 
+    already_recorded_thought = bool(data.pop("_thought_recorded", False))
+    if event == "thought" and not already_recorded_thought:
+        _record_turn_thought(data.get("content", ""))
+
     payload = {"event": event, **data}
     hook = event_hook
     if not hook:
@@ -316,12 +328,11 @@ def print_event(event: str, data: dict):
                     thought_content = f"Tool '{data.get('tool', '')}' returned an error. Analyzing the failure..."
                 else:
                     thought_content = f"Received successful return from tool '{data.get('tool', '')}'. Analyzing the obtained result..."
-            elif event == "agent_response":
-                thought_content = "Response generated successfully by the model. Finishing agent turn."
             elif event == "error":
                 thought_content = f"Alert: An error occurred during execution: {data.get('message', '')}"
                 
             if thought_content:
+                _record_turn_thought(thought_content)
                 hook({"event": "thought", "content": thought_content})
         except Exception as ex:
             import sys
@@ -877,13 +888,15 @@ async def handle_run(data: dict):
                 "content": msg.get("content", "")
             })
             
+    global _ACTIVE_THOUGHT_CHUNKS
     thought_chunks = []
+    _ACTIVE_THOUGHT_CHUNKS = thought_chunks
     in_think_block = [False]
     think_buffer = [""]
 
     def _on_thinking(chunk: str) -> None:
-        thought_chunks.append(chunk)
-        print_event("thought", {"content": chunk, "agent": agent_type})
+        _record_turn_thought(chunk)
+        print_event("thought", {"content": chunk, "agent": agent_type, "_thought_recorded": True})
 
     def _on_chunk(chunk: str) -> None:
         think_buffer[0] += chunk
@@ -1136,19 +1149,25 @@ async def handle_run(data: dict):
             #print(f"[DIAG-PY] response[:200] = {repr(response[:200])}", flush=True)
 
             persisted_response = _response_with_thought(response, thought_chunks)
+            assistant_message_id = None
 
             # Save assistant response and achievements
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
                 if tools_mod.TURN_ACHIEVEMENTS:
                     current_store.append_message(current_project, "system", f"Achievements logged during this turn:\n{tools_mod.TURN_ACHIEVEMENTS}")
                 if persisted_response:
-                    current_store.append_message(current_project, "assistant", persisted_response)
+                    assistant_message_id = current_store.append_message(current_project, "assistant", persisted_response)
                 # Revert any temporary mode changes (like create_plan setting mode to 'auto')
                 if 'initial_project_mode' in locals() and initial_project_mode:
                     current_project.mode = initial_project_mode
                 current_store.save(current_project)
 
-            print_event("agent_response", {"response": response})
+            response_payload = {"response": response}
+            if agent_type in ("orchestrator", "chat_orchestrator"):
+                response_payload["persisted_response"] = persisted_response
+                if assistant_message_id is not None:
+                    response_payload["message_id"] = assistant_message_id
+            print_event("agent_response", response_payload)
         except opalatex.tools.UserCancelException as e:
             # The user denied a tool operation; gracefully abort the turn without feeding an error back to the LLM.
             print_event("agent_response", {"response": "Turno cancelado pelo usuário."})
@@ -1161,6 +1180,7 @@ async def handle_run(data: dict):
     finally:
         T._async_confirm_hook = orig_async_confirm_hook
         T._async_ask_hook = orig_async_ask_hook
+        _ACTIVE_THOUGHT_CHUNKS = None
 
     print_event("agent_finished", {})
 

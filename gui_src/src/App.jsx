@@ -1733,12 +1733,17 @@ export default function App() {
 
         setChatMessages(prev => {
           const last = prev[prev.length - 1];
-          let finalContent = responseText;
-          if (thoughtSnapshot && thoughtSnapshot.trim()) {
+          let finalContent = data.persisted_response || responseText;
+          if (!data.persisted_response && thoughtSnapshot && thoughtSnapshot.trim()) {
             finalContent = `<think>\n${thoughtSnapshot.trim()}\n</think>\n\n${responseText}`;
           }
           if (last?.role === 'assistant' && last.content === finalContent) return prev;
-          return [...prev, { role: 'assistant', content: finalContent, timestamp: new Date().toISOString() }];
+          return [...prev, {
+            id: data.message_id,
+            role: 'assistant',
+            content: finalContent,
+            timestamp: new Date().toISOString(),
+          }];
         });
 
         // ── Auto-replace: if there is a pending inline selection range, extract

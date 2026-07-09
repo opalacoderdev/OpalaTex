@@ -2787,7 +2787,13 @@ class AsyncHTTPServer:
                             status = worktree_status
                             staged = False
                         files.append({"path": filepath, "status": status, "staged": staged})
-                self.send_response(writer, 200, json.dumps({"files": files}).encode('utf-8'), "application/json")
+                self.send_response(writer, 200, json.dumps({"files": files, "git_available": True}).encode('utf-8'), "application/json")
+            except GitContextError as e:
+                self.send_response(writer, 200, json.dumps({
+                    "files": [],
+                    "git_available": False,
+                    "error": str(e),
+                }).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 

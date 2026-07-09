@@ -247,9 +247,11 @@ def test_append_message_persists_attachments(store):
     p = store.load("myproj")
     att = {"type": "image", "data": "abc123", "mime": "image/jpeg", "name": "shot.jpg"}
 
-    store.append_message(p, "user", "describe this", attachments=[att])
+    message_id = store.append_message(p, "user", "describe this", attachments=[att])
 
     loaded = store.load("myproj", chat_id=p.current_chat_id)
+    assert isinstance(message_id, int)
+    assert loaded.history[0]["id"] == message_id
     assert loaded.history[0]["content"] == "describe this"
     assert loaded.history[0]["_attachments"] == [att]
 
@@ -270,13 +272,15 @@ def test_branch_chat_copies_attachments(store):
 def test_truncate_chat_history_from_index_removes_suffix(store):
     store.create(**_base_args())
     p = store.load("myproj")
-    store.append_message(p, "user", "first")
-    store.append_message(p, "assistant", "first reply")
-    store.append_message(p, "user", "second")
+    first_id = store.append_message(p, "user", "first")
+    reply_id = store.append_message(p, "assistant", "first reply")
+    second_id = store.append_message(p, "user", "second")
 
     deleted_ids = store.truncate_chat_history_from_index("myproj", p.current_chat_id, 1)
 
     loaded = store.load("myproj", chat_id=p.current_chat_id)
+    assert deleted_ids == [reply_id, second_id]
+    assert loaded.history[0]["id"] == first_id
     assert len(deleted_ids) == 2
     assert [m["content"] for m in loaded.history] == ["first"]
 

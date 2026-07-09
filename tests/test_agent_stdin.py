@@ -422,6 +422,71 @@ async def test_handle_run_persists_thought_snapshot_without_reemitting_it(monkey
 
     agent_responses = [data["response"] for event, data in events if event == "agent_response"]
     assert agent_responses == ["The file was saved."]
+    persisted_responses = [data["persisted_response"] for event, data in events if event == "agent_response"]
+    assert persisted_responses == ["<think>\nI should save the file.\n</think>\n\nThe file was saved."]
+
+
+@pytest.mark.asyncio
+async def test_handle_run_persists_auxiliary_thought_events(monkeypatch, tmp_path):
+    import opalatex.agent_stdin as stdin_mod
+
+    events = []
+    saved_messages = []
+
+    class FakeProject:
+        name = "proj"
+        mode = "auto"
+        project_path = str(tmp_path)
+        model = "fake/model"
+        current_chat_id = "main"
+
+    class FakeStore:
+        def append_message(self, _project, role, content, attachments=None):
+            saved_messages.append((role, content))
+
+        def save(self, _project):
+            pass
+
+    class FakeMemGPT:
+        model = "fake/model"
+        model_kargs = {}
+        internal_history = []
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        on_thinking = None
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, _agent_input):
+            stdin_mod.print_event("tool_result", {
+                "tool": "write_file",
+                "result": "ok",
+                "is_error": False,
+                "agent": "chat_orchestrator",
+            })
+            return SimpleNamespace(response="The file was saved.")
+
+    monkeypatch.setattr(stdin_mod, "event_hook", lambda payload: events.append(payload))
+    monkeypatch.setattr(stdin_mod, "current_memgpt", FakeMemGPT())
+    monkeypatch.setattr(stdin_mod, "current_project", FakeProject())
+    monkeypatch.setattr(stdin_mod, "current_store", FakeStore())
+
+    await stdin_mod.handle_run({
+        "agent": "chat_orchestrator",
+        "prompt": "save file",
+    })
+
+    assistant_messages = [content for role, content in saved_messages if role == "assistant"]
+    assert len(assistant_messages) == 1
+    assert assistant_messages[0].startswith("<think>")
+    assert "Received successful return from tool 'write_file'" in assistant_messages[0]
+    assert assistant_messages[0].endswith("The file was saved.")
+
+    agent_responses = [payload["response"] for payload in events if payload["event"] == "agent_response"]
+    assert agent_responses == ["The file was saved."]
+    persisted_responses = [payload["persisted_response"] for payload in events if payload["event"] == "agent_response"]
+    assert persisted_responses == assistant_messages
 
 
 @pytest.mark.asyncio

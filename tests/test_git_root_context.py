@@ -1,9 +1,12 @@
 import shutil
 import subprocess
+import json
+from unittest.mock import AsyncMock
 
 import pytest
 
 from opalatex.ide_server import (
+    AsyncHTTPServer,
     GitContextError,
     _discard_git_path,
     _ensure_opalatex_git_excludes,
@@ -23,6 +26,41 @@ def _init_repo(path):
     _git(path, "init")
     _git(path, "config", "user.email", "test@example.com")
     _git(path, "config", "user.name", "Test")
+
+
+@pytest.mark.asyncio
+async def test_git_status_endpoint_handles_project_without_git(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+
+    await server.route_api(
+        "GET",
+        "/api/git/status",
+        {"projectPath": [str(project)], "shadow": ["false"]},
+        {},
+        b"",
+        writer,
+    )
+
+    assert responses == [
+        (
+            200,
+            {
+                "files": [],
+                "git_available": False,
+                "error": "Selected Git root does not contain a .git repository",
+            },
+            "application/json",
+        )
+    ]
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
