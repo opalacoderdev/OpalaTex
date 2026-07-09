@@ -56,7 +56,7 @@ export default function RichTextEditor({
   const blocks = useMemo(() => parseLatexBlocks(source), [source]);
   const containerRef = useRef(null);
   const activeLineRef = useRef(1);
-  const lastInitialLineRef = useRef(null);
+  const didInitialScrollRef = useRef(false);
 
   // ── Handle edit in a contentEditable block ───────────────────────────────
   const handleBlockEdit = useCallback((blockId, newText) => {
@@ -109,7 +109,7 @@ export default function RichTextEditor({
   useEffect(() => {
     const line = Number(initialSourceLine);
     const container = containerRef.current;
-    if (!line || !container || lastInitialLineRef.current === line) return;
+    if (!line || !container || didInitialScrollRef.current) return;
 
     const frame = window.requestAnimationFrame(() => {
       const items = Array.from(container.querySelectorAll('[data-source-line]'));
@@ -123,12 +123,12 @@ export default function RichTextEditor({
       }
 
       container.scrollTop = Math.max(0, target.offsetTop - 24);
-      lastInitialLineRef.current = line;
+      didInitialScrollRef.current = true;
       setActiveSourceLine(Number(target.getAttribute('data-source-line')) || line);
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [blocks, initialSourceLine, setActiveSourceLine]);
+  }, [initialSourceLine, setActiveSourceLine]);
 
   return (
     <div
@@ -1018,23 +1018,28 @@ function parseTablePreview(block) {
 }
 
 function extractTabularFromSource(source) {
-  const match = source.match(/\\begin\{tabular\*?\}/);
+  const match = source.match(/\\begin\{(tabular\*?|tabularx\*?|tabulary\*?|longtable\*?)\}/);
   if (!match) return null;
+  const envName = match[1];
   const start = match.index;
-  const endMatch = source.slice(start).match(/\\end\{tabular\*?\}/);
+  const endRe = new RegExp(`\\\\end\\{${envName.replace('*', '\\*')}\\}`);
+  const endMatch = source.slice(start).match(endRe);
   if (!endMatch) return null;
   const raw = source.slice(start, start + endMatch.index + endMatch[0].length);
-  const begin = raw.match(/^\\begin\{tabular\*?\}/);
+  const begin = raw.match(/^\\begin\{(tabular\*?|tabularx\*?|tabulary\*?|longtable\*?)\}/);
   let cursor = begin ? begin[0].length : 0;
   const args = [];
+  const maxArgs = (envName.startsWith('tabularx') || envName.startsWith('tabulary') || envName === 'tabular*')
+    ? 2
+    : 1;
   while (raw[cursor] === '{') {
     const close = findMatchingBraceInText(raw, cursor);
     if (close === -1) break;
     args.push(raw.slice(cursor + 1, close));
     cursor = close + 1;
-    if (args.length >= 2) break;
+    if (args.length >= maxArgs) break;
   }
-  const bodyEnd = raw.search(/\\end\{tabular\*?\}/);
+  const bodyEnd = raw.search(endRe);
   return {
     columnSpec: args[args.length - 1] || '',
     body: raw.slice(cursor, bodyEnd === -1 ? raw.length : bodyEnd),
@@ -1135,7 +1140,8 @@ function parseColumnAlignments(spec) {
     if (char === 'l') alignments.push('left');
     else if (char === 'c') alignments.push('center');
     else if (char === 'r') alignments.push('right');
-    else if ('pmbX'.includes(char) && spec[cursor + 1] === '{') {
+    else if (char === 'X') alignments.push('left');
+    else if ('pmb'.includes(char) && spec[cursor + 1] === '{') {
       alignments.push('left');
       const close = findMatchingBraceInText(spec, cursor + 1);
       cursor = close === -1 ? cursor : close;

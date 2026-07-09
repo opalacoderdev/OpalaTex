@@ -43,6 +43,23 @@
 let blockIdCounter = 0;
 function nextId() { return `blk_${++blockIdCounter}`; }
 
+const TABLE_ENV_NAMES = new Set([
+  'tabular',
+  'tabular*',
+  'tabularx',
+  'tabularx*',
+  'tabulary',
+  'tabulary*',
+  'longtable',
+  'longtable*',
+]);
+
+const TABLE_WRAPPER_ENV_NAMES = new Set([
+  'center',
+  'flushleft',
+  'flushright',
+]);
+
 /**
  * Parse LaTeX source into structured blocks with offsets.
  * @param {string} src - LaTeX source
@@ -241,6 +258,21 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
     };
   }
 
+  if (TABLE_WRAPPER_ENV_NAMES.has(envName)) {
+    const tableInfo = extractTableInfo(envBody);
+    if (tableInfo.tabular) {
+      return {
+        ...base,
+        type: 'table',
+        editable: false,
+        raw: envBody,
+        caption: tableInfo.caption,
+        label: tableInfo.label,
+        tabular: tableInfo.tabular,
+      };
+    }
+  }
+
   // ── Math environments ────────────────────────────────────────────────────
   if (['equation', 'equation*', 'align', 'align*', 'gather', 'gather*', 'multline', 'multline*', 'eqnarray', 'eqnarray*'].includes(envName)) {
     return {
@@ -302,7 +334,7 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
   }
 
   // ── Bare tabular ─────────────────────────────────────────────────────────
-  if (envName === 'tabular' || envName === 'tabular*') {
+  if (TABLE_ENV_NAMES.has(envName)) {
     const tabular = parseTabularSource(envSource);
     return {
       ...base,
@@ -548,7 +580,7 @@ function splitItems(body) {
 function extractTableInfo(body) {
   const caption = (body.match(/\\caption\{([^}]*)\}/) || [])[1] || '';
   const label = (body.match(/\\label\{([^}]*)\}/) || [])[1] || '';
-  const tabularSource = extractEnvironmentSource(body, 'tabular');
+  const tabularSource = extractFirstTableEnvironmentSource(body);
   return {
     caption,
     label,
@@ -556,32 +588,35 @@ function extractTableInfo(body) {
   };
 }
 
-function extractEnvironmentSource(source, envName) {
-  const beginRe = new RegExp(`\\\\begin\\{${envName}\\*?\\}`);
+function extractFirstTableEnvironmentSource(source) {
+  const beginRe = /\\begin\{(tabular\*?|tabularx\*?|tabulary\*?|longtable\*?)\}/g;
   const match = beginRe.exec(source);
   if (!match) return '';
-  const nameMatch = match[0].match(/\\begin\{([^}]*)\}/);
-  const actualName = nameMatch ? nameMatch[1] : envName;
-  const end = findEnvEnd(source, match.index, actualName);
+  const end = findEnvEnd(source, match.index, match[1]);
   if (end === -1) return '';
   return source.slice(match.index, end);
 }
 
 function parseTabularSource(source) {
-  const beginMatch = source.match(/^\\begin\{tabular\*?\}/);
+  const beginMatch = source.match(/^\\begin\{(tabular\*?|tabularx\*?|tabulary\*?|longtable\*?)\}/);
   if (!beginMatch) return null;
+  const envName = beginMatch[1];
 
   let cursor = beginMatch[0].length;
   const args = [];
+  const maxArgs = (envName.startsWith('tabularx') || envName.startsWith('tabulary') || envName === 'tabular*')
+    ? 2
+    : 1;
   while (source[cursor] === '{') {
     const close = findMatchingBrace(source, cursor);
     if (close === -1) break;
     args.push(source.slice(cursor + 1, close));
     cursor = close + 1;
-    if (args.length >= 2) break;
+    if (args.length >= maxArgs) break;
   }
 
-  const endMatch = source.match(/\\end\{tabular\*?\}\s*$/);
+  const endRe = new RegExp(`\\\\end\\{${envName.replace('*', '\\*')}\\}\\s*$`);
+  const endMatch = source.match(endRe);
   const bodyEnd = endMatch ? source.length - endMatch[0].length : source.length;
   return {
     columnSpec: args[args.length - 1] || '',

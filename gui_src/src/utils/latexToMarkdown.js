@@ -250,23 +250,88 @@ function convertFigures(s) {
 }
 
 function convertTables(s) {
-  // Handle \begin{table}...\end{table} wrapping a tabular
+  // Handle \begin{table}...\end{table} or simple alignment wrappers around a table.
   s = s.replace(
-    /\\begin\{table\*?\}([\s\S]*?)\\end\{table\*?\}/g,
-    (_, body) => {
-      const tabMatch = body.match(/\\begin\{tabular\*?\}(?:\{[^}]*\})?\{([^}]*)\}([\s\S]*?)\\end\{tabular\*?\}/);
-      if (!tabMatch) return '\n```latex\n' + body.trim() + '\n```\n';
+    /\\begin\{(table\*?|center|flushleft|flushright)\}([\s\S]*?)\\end\{\1\}/g,
+    (_, env, body) => {
+      const table = parseFirstTableSource(body);
+      if (!table) {
+        return env.startsWith('table')
+          ? '\n```latex\n' + body.trim() + '\n```\n'
+          : `\n\\begin{${env}}${body}\\end{${env}}\n`;
+      }
       const caption = (body.match(/\\caption\{([^}]*)\}/) || [])[1] || '';
       const label = (body.match(/\\label\{([^}]*)\}/) || [])[1] || '';
-      return '\n' + buildTabular(tabMatch[2], caption, label) + '\n';
+      return '\n' + buildTabular(table.body, caption, label) + '\n';
     }
   );
-  // Bare tabular (not wrapped in table)
-  s = s.replace(
-    /\\begin\{tabular\*?\}(?:\{[^}]*\})?\{([^}]*)\}([\s\S]*?)\\end\{tabular\*?\}/g,
-    (_, _spec, body) => '\n' + buildTabular(body, '', '') + '\n'
-  );
+  s = convertBareTables(s);
   return s;
+}
+
+function convertBareTables(s) {
+  let out = '';
+  let cursor = 0;
+  const beginRe = /\\begin\{(tabular\*?|tabularx\*?|tabulary\*?|longtable\*?)\}/g;
+  let match;
+
+  while ((match = beginRe.exec(s)) !== null) {
+    const table = parseTableSourceAt(s, match.index);
+    if (!table) continue;
+    out += s.slice(cursor, match.index);
+    out += '\n' + buildTabular(table.body, '', '') + '\n';
+    cursor = table.end;
+    beginRe.lastIndex = table.end;
+  }
+
+  return out + s.slice(cursor);
+}
+
+function parseFirstTableSource(source) {
+  const match = source.match(/\\begin\{(tabular\*?|tabularx\*?|tabulary\*?|longtable\*?)\}/);
+  return match && match.index !== undefined ? parseTableSourceAt(source, match.index) : null;
+}
+
+function parseTableSourceAt(source, start) {
+  const beginMatch = source.slice(start).match(/^\\begin\{(tabular\*?|tabularx\*?|tabulary\*?|longtable\*?)\}/);
+  if (!beginMatch) return null;
+
+  const envName = beginMatch[1];
+  let cursor = start + beginMatch[0].length;
+  const maxArgs = (envName.startsWith('tabularx') || envName.startsWith('tabulary') || envName === 'tabular*')
+    ? 2
+    : 1;
+
+  for (let arg = 0; arg < maxArgs && source[cursor] === '{'; arg++) {
+    const close = findMatchingBraceInText(source, cursor);
+    if (close === -1) return null;
+    cursor = close + 1;
+  }
+
+  const endToken = `\\end{${envName}}`;
+  const endStart = source.indexOf(endToken, cursor);
+  if (endStart === -1) return null;
+
+  return {
+    body: source.slice(cursor, endStart),
+    end: endStart + endToken.length,
+  };
+}
+
+function findMatchingBraceInText(text, openPos) {
+  let depth = 0;
+  for (let i = openPos; i < text.length; i++) {
+    if (text[i] === '\\') {
+      i++;
+      continue;
+    }
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
 }
 
 function buildTabular(body, caption, label) {
@@ -274,11 +339,13 @@ function buildTabular(body, caption, label) {
   const rows = body.split(/\\\\(?!\w)/).map(r => r.trim()).filter(Boolean);
   if (!rows.length) return '';
   const parsed = rows.map(r => {
-    // Remove \hline, \cline{x-y}
-    r = r.replace(/\\hline\b/g, '').replace(/\\cline\{[^}]*\}/g, '');
+    // Remove horizontal rule commands.
+    r = r
+      .replace(/\\(?:toprule|midrule|bottomrule|hline)\b/g, '')
+      .replace(/\\cline\{[^}]*\}/g, '');
     // Split cells on & (not \&)
     return r.split('&').map(c => c.trim());
-  });
+  }).filter(row => row.some(cell => cell));
   // First row as header, rest as body
   const header = parsed[0] || [];
   const bodyRows = parsed.slice(1);
