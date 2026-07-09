@@ -129,7 +129,7 @@ export default function App() {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [layoutMode, setLayoutMode] = useState('ide');
-  const [isChatVisible, setIsChatVisible] = useState(true);
+  const [isChatVisible, setIsChatVisible] = useState(false);
   const [activeSidebarTab, setActiveSidebarTab] = useState('explorer');
   const [contextMenu, setContextMenu] = useState(null);
   const [clipboardNode, setClipboardNode] = useState(null);
