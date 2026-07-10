@@ -1,97 +1,132 @@
 # OpalaTex
 
-**OpalaTex** is your integrated local Artificial Intelligence assistant and LaTeX editor. It is designed to accelerate academic writing and document typesetting workflows.
+OpalaTex is a free, open-source LaTeX editor with an integrated AI assistant. It combines a source editor, local PDF preview, project tools, Git integration, and optional local or cloud AI models.
 
-It provides a complete environment that combines a split-pane layout (Code Editor + PDF Preview) with an **Artificial Intelligence Assistant** that deeply understands LaTeX, helps you write complex equations, generates tables, and explains compilation errors instantly.
-
-Compilation is powered by **Tectonic**, providing fast local builds without the hassle of manually managing `.sty` packages.
-
----
+LaTeX compilation is performed locally with Tectonic. Local editor features do not require an Opala Cloud account; cloud credits and user-provided API keys are optional.
 
 ## Features
 
-🤖 **Your Personal AI Assistant**
+- Split source editor and PDF preview with SyncTeX support
+- Local LaTeX compilation with Tectonic
+- AI assistance for writing, tables, equations, TikZ, and compilation errors
+- Local models through Ollama and configurable external providers
+- Project, terminal, Git, and document-export tools
+- English and Brazilian Portuguese interface
 
-OpalaTex is more than a LaTeX editor; it is a complete assistant that understands your entire document. It helps you format complex tables, write TikZ figures, and automatically fix syntax and logic errors.
+## Install a packaged release
 
-🧠 **Local PDF Compilation (Tectonic)**
+The installer downloads the current package into the user's profile, creates application shortcuts, and does not require an administrator shell. Review a remote script before executing it if your environment requires stricter supply-chain controls.
 
-Powered by Tectonic, OpalaTex compiles your documents locally without requiring you to download style files or manage dependencies manually. You can install Tectonic directly from the application settings (`Settings > Preferences`).
+### Windows (PowerShell)
 
-🛠️ **Dynamic LaTeX Mode**
+Run PowerShell and execute:
 
-Write your source code on one side and automatically preview the resulting PDF on the other.
-
-☁️ **Local and Cloud AI Models**
-
-Connect to leading commercial models through their APIs, or securely run open-source models entirely offline with Ollama.
-
----
-
-## Getting Started
-
-### Development Installation
-
-```bash
-git clone https://github.com/opalacoderdev/OpalaTex
-cd OpalaTex
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux/macOS: source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+```powershell
+irm https://opalacoder.com/install.ps1 | iex
 ```
 
-### Running OpalaTex
+Alternatively, download `install.ps1`, inspect it, and run it locally:
 
-Start the application:
+```powershell
+Invoke-WebRequest https://opalacoder.com/install.ps1 -OutFile install.ps1
+Get-Content .\install.ps1
+.\install.ps1
+```
+
+The application is installed under `%LOCALAPPDATA%\OpalaTex`. The installer adds its executable directory to the user `PATH` and creates shortcuts on the Desktop and Start menu.
+
+### Linux (Bash)
 
 ```bash
+curl -fsSL https://opalacoder.com/install.sh | bash
+```
+
+To inspect the script first:
+
+```bash
+curl -fsSL https://opalacoder.com/install.sh -o install.sh
+less install.sh
+bash install.sh
+```
+
+The application is installed under `~/.local/share/OpalaTex`, with a command symlink in `~/.local/bin` and a desktop launcher in `~/.local/share/applications`.
+
+## Development setup
+
+Requirements: Python 3.10 or newer, Node.js/npm, and Git.
+
+### PowerShell
+
+```powershell
+git clone https://github.com/opalatexdev/OpalaTex.git
+cd OpalaTex
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+npm install --prefix .\gui_src
+npm run build --prefix .\gui_src
+python .\main.py
+```
+
+If script execution is disabled for the current PowerShell process, run `Set-ExecutionPolicy -Scope Process Bypass` before activating the virtual environment.
+
+### Bash (Linux/macOS)
+
+```bash
+git clone https://github.com/opalatexdev/OpalaTex.git
+cd OpalaTex
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+npm install --prefix ./gui_src
+npm run build --prefix ./gui_src
 python main.py
 ```
 
-*Optional: Tectonic can be installed through a script or from the application's settings menu.*
+## Build and test
 
----
-
-## Deployment and Builds
-
-After making changes to the project, follow the steps below to build and update its components.
-
-### 1. Build the Interface (Website/GUI)
-
-If you changed any file inside the `gui_src` directory (React/Vite), regenerate the static bundle so the Python backend can serve it and the WebView can display it:
+Run the test suite from the repository root:
 
 ```bash
-npm run build --prefix .\gui_src\
+python -m pytest
 ```
 
-*This command generates minified files in `opalatex/gui`, which are loaded by the backend.*
+Rebuild only the web interface with:
 
-### 2. Build the Desktop Executable (.exe)
+```bash
+npm run build --prefix gui_src
+```
 
-To generate the final Windows executable version of OpalaTex, which packages the backend and WebView browser, run:
+Create a packaged desktop build with the platform-specific script:
 
 ```powershell
 .\build_exe.ps1
 ```
 
-After the script finishes, the compiled executable will be available at `.\dist\OpalaTex\OpalaTex.exe`.
-
-### 3. Deploy the Installer to Users (VPS)
-
-To compress the final Windows build and upload it to your VPS so the installation command (`irm https://opalacoder.com/install.ps1 | iex`) downloads the new version, run:
-
-```powershell
-.\binpacking.ps1
+```bash
+bash ./build_exe.sh
 ```
 
-*The script creates a `.zip` archive of the `dist` directory and uploads it to the VPS through SCP/SSH, updating the public download link.*
+These scripts install build dependencies, build the React/Vite interface, download pinned Tectonic and Pandoc releases, and package the application with PyInstaller. Outputs are written under `dist/`.
 
-### 4. Deploy the Cloud API (Optional)
+## Release publishing
 
-If your changes affect the cloud version (OpalaTexCloud API) hosted on the VPS:
+The `binpacking.ps1` and `binpacking.sh` scripts are maintainer tools. They package an existing build and upload it over SSH. They intentionally contain no server address, username, credential, or private server path. Maintainers must provide:
 
-1. Commit the generated changes and run `git push`.
-2. On the server, run `git pull` and restart the service (`systemctl restart opalatex` or equivalent).
+- `OPALATEX_RELEASE_HOST`
+- `OPALATEX_RELEASE_USER`
+- `OPALATEX_RELEASE_DIR`
+
+Authentication is handled by the local SSH client (preferably with an SSH key or agent); credentials must never be committed to the repository.
+
+## Security and credentials
+
+- API keys configured in the application are local user data and must not be committed.
+- Environment files, private keys, credentials, databases, logs, build outputs, and local runtime data are excluded by `.gitignore`.
+- Report a suspected leaked credential privately to the maintainers. Revoke and rotate any credential that may have entered Git history; deleting it only from the latest commit is not sufficient.
+
+## License
+
+OpalaTex is available under the [MIT License](LICENSE).
