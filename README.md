@@ -1,32 +1,36 @@
 # OpalaTex
 
-**OpalaTex** é o seu assistente de Inteligência Artificial e editor LaTeX local integrado. Projetado para acelerar o seu fluxo de escrita acadêmica e tipografia de documentos.
+**OpalaTex** is your integrated local Artificial Intelligence assistant and LaTeX editor. It is designed to accelerate academic writing and document typesetting workflows.
 
-Ele fornece um ambiente completo, mesclando um layout de painéis divididos (Editor de Código + Visualização de PDF) e um **Assistente de Inteligência Artificial** que entende profundamente o LaTeX, te ajuda a escrever equações complexas, gera tabelas e explica os erros de compilação instantaneamente.
+It provides a complete environment that combines a split-pane layout (Code Editor + PDF Preview) with an **Artificial Intelligence Assistant** that deeply understands LaTeX, helps you write complex equations, generates tables, and explains compilation errors instantly.
 
-A compilação depende do **Tectonic**, garantindo um build local super-rápido, sem a dor de cabeça de gerenciar pacotes `.sty`.
-
----
-
-## Funcionalidades
-
-🤖 **Seu Assistente Pessoal de IA**
-OpalaTex não é apenas um editor LaTeX; é um assistente completo que compreende o seu documento inteiro. Ele te ajuda a formatar tabelas complexas, escrever figuras TikZ e corrigir erros de sintaxe e lógica automaticamente.
-
-🧠 **Compilação de PDF Local (Tectonic)**
-Alimentado pelo Tectonic, você pode compilar os seus documentos localmente sem se preocupar em baixar arquivos de estilos ou dependências manuais. Você inclusive pode instalar o Tectonic diretamente pelas configurações do app (Settings -> Preferences).
-
-🛠️ **Modo LaTeX Dinâmico**
-Escreva seu código-fonte de um lado e visualize a prévia em PDF automaticamente do outro.
-
-☁️ **Modelos de IA Locais e em Nuvem**
-Conecte-se a grandes modelos comerciais via API ou rode modelos Open-Source completamente offline de forma segura com Ollama.
+Compilation is powered by **Tectonic**, providing fast local builds without the hassle of manually managing `.sty` packages.
 
 ---
 
-## Primeiros Passos
+## Features
 
-### Instalação para Desenvolvimento
+🤖 **Your Personal AI Assistant**
+
+OpalaTex is more than a LaTeX editor; it is a complete assistant that understands your entire document. It helps you format complex tables, write TikZ figures, and automatically fix syntax and logic errors.
+
+🧠 **Local PDF Compilation (Tectonic)**
+
+Powered by Tectonic, OpalaTex compiles your documents locally without requiring you to download style files or manage dependencies manually. You can install Tectonic directly from the application settings (`Settings > Preferences`).
+
+🛠️ **Dynamic LaTeX Mode**
+
+Write your source code on one side and automatically preview the resulting PDF on the other.
+
+☁️ **Local and Cloud AI Models**
+
+Connect to leading commercial models through their APIs, or securely run open-source models entirely offline with Ollama.
+
+---
+
+## Getting Started
+
+### Development Installation
 
 ```bash
 git clone https://github.com/opalacoderdev/OpalaTex
@@ -35,48 +39,59 @@ python -m venv .venv
 # Windows: .venv\Scripts\activate
 # Linux/macOS: source .venv/bin/activate
 
-# Instalar dependências
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### Rodando o OpalaTex
+### Running OpalaTex
 
-Inicie a aplicação:
+Start the application:
 
 ```bash
 python main.py
 ```
 
-*Opcional: O Tectonic pode ser instalado via script ou pelo menu de configurações dentro do programa.*
+*Optional: Tectonic can be installed through a script or from the application's settings menu.*
 
 ---
 
-## Deploy e Build (Como atualizar)
+## Deployment and Builds
 
-Sempre que fizer alterações no projeto, siga os passos abaixo para construir (build) e atualizar os componentes:
+After making changes to the project, follow the steps below to build and update its components.
 
-### 1. Build da Interface (Site/GUI)
-Se você alterou qualquer arquivo dentro da pasta `gui_src` (React/Vite), você precisa regerar o pacote estático para que o backend Python possa servi-lo ou o WebView possa exibi-lo:
+### 1. Build the Interface (Website/GUI)
+
+If you changed any file inside the `gui_src` directory (React/Vite), regenerate the static bundle so the Python backend can serve it and the WebView can display it:
+
 ```bash
 npm run build --prefix .\gui_src\
 ```
-*Este comando gera os arquivos minificados na pasta `opalatex/gui`, que são lidos pelo backend.*
 
-### 2. Build do Executável Desktop (.exe)
-Para gerar a versão executável final do OpalaTex para Windows (que empacota o backend e o navegador WebView), execute:
+*This command generates minified files in `opalatex/gui`, which are loaded by the backend.*
+
+### 2. Build the Desktop Executable (.exe)
+
+To generate the final Windows executable version of OpalaTex, which packages the backend and WebView browser, run:
+
 ```powershell
 .\build_exe.ps1
 ```
-Após rodar o script, o arquivo compilado ficará disponível em `.\dist\OpalaTex\OpalaTex.exe`.
 
-### 3. Deploy do Instalador para os Usuários (VPS)
-Para compactar a versão final do Windows e enviar para o seu servidor VPS de modo que o comando de instalação (`irm https://opalacoder.com/install.ps1 | iex`) passe a baixar a nova versão, rode o script:
+After the script finishes, the compiled executable will be available at `.\dist\OpalaTex\OpalaTex.exe`.
+
+### 3. Deploy the Installer to Users (VPS)
+
+To compress the final Windows build and upload it to your VPS so the installation command (`irm https://opalacoder.com/install.ps1 | iex`) downloads the new version, run:
+
 ```powershell
 .\binpacking.ps1
 ```
-*Ele fará o `.zip` da pasta `dist` e fará o upload via SCP/SSH para a sua VPS (REDACTED_RELEASE_HOST), atualizando o link de download público.*
 
-### 4. Deploy da API/Cloud (Opcional)
-Se houver alterações que afetam a versão em nuvem (OpalaTexCloud API) hospedada na sua VPS:
-1. Faça o commit das alterações geradas e rode `git push`.
-2. No servidor, rode `git pull` e reinicie o serviço (`systemctl restart opalatex` ou similar).
+*The script creates a `.zip` archive of the `dist` directory and uploads it to the VPS through SCP/SSH, updating the public download link.*
+
+### 4. Deploy the Cloud API (Optional)
+
+If your changes affect the cloud version (OpalaTexCloud API) hosted on the VPS:
+
+1. Commit the generated changes and run `git push`.
+2. On the server, run `git pull` and restart the service (`systemctl restart opalatex` or equivalent).

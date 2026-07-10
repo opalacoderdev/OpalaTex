@@ -199,7 +199,7 @@ export default function SettingsModal({
 
               {/* Global Data Directory */}
               <div className="flex flex-col" style={{ gap: '6px' }}>
-                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Global Data Directory (OPALATEX_HOME)</label>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.globalDataDir')}</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
@@ -207,7 +207,7 @@ export default function SettingsModal({
                     onChange={(e) => setOpalaTexHome(e.target.value)}
                     className="vscode-settings-input"
                     style={{ flex: 1 }}
-                    placeholder="Leave empty for default"
+                    placeholder={t('settingsModal.globalDataDirPlaceholder')}
                   />
                   <button
                     onClick={() => {
@@ -219,18 +219,18 @@ export default function SettingsModal({
                         .then(r => r.json())
                         .then(res => {
                           if (res.requiresRestart) {
-                            alert("Directory changed! Please restart OpalaTex for changes to take effect.");
+                            alert(t('settingsModal.globalDataDirRestartAlert'));
                           } else if (res.error) {
-                            alert("Error: " + res.error);
+                            alert(t('settingsModal.globalDataDirError') + res.error);
                           }
                         });
                     }}
                     className="vscode-button"
                   >
-                    Save
+                    {t('settingsModal.save')}
                   </button>
                 </div>
-                <span style={{ fontSize: '11px', color: '#888888' }}>Requires restart. Used for sessions.db and vector DB.</span>
+                <span style={{ fontSize: '11px', color: '#888888' }}>{t('settingsModal.globalDataDirHint')}</span>
               </div>
 
 
@@ -242,13 +242,13 @@ export default function SettingsModal({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
                     <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralMaxTokens')}</label>
-                    <input type="number" min="1" className="vscode-settings-input" placeholder="unlimited"
+                    <input type="number" min="1" className="vscode-settings-input" placeholder={t('settingsModal.ephemeralUnlimited')}
                       value={ephemeralParams?.max_tokens || ''}
                       onChange={e => updateEphemeralParam('max_tokens', e.target.value ? Number(e.target.value) : undefined)} />
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
                     <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralContextWindow')}</label>
-                    <input type="number" min="1" className="vscode-settings-input" placeholder="8192"
+                    <input type="number" min="1" className="vscode-settings-input" placeholder={t('settingsModal.ephemeralContextWindowPlaceholder')}
                       value={ephemeralParams?.num_ctx || ''}
                       onChange={e => updateEphemeralParam('num_ctx', e.target.value ? Number(e.target.value) : undefined)} />
                   </div>
@@ -307,7 +307,7 @@ export default function SettingsModal({
 
               {/* Install Tectonic */}
               <div className="flex flex-col" style={{ gap: '6px', borderTop: '1px solid var(--vscode-border)', paddingTop: '12px', marginTop: '6px' }}>
-                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Compilador Tectonic (LaTeX)</label>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.installTectonicTitle')}</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     onClick={() => {
@@ -317,28 +317,28 @@ export default function SettingsModal({
                         .then(r => r.json())
                         .then(res => {
                           if (res.success) {
-                            alert("Tectonic instalado com sucesso!");
+                            alert(t('settingsModal.installTectonicSuccess'));
                           } else {
-                            alert("Erro ao instalar: " + res.error);
+                            alert(t('settingsModal.installTectonicError') + res.error);
                           }
                           if (btn) btn.disabled = false;
                         })
                         .catch(err => {
-                          alert("Erro de conexão: " + err);
+                          alert(t('settingsModal.connectionError') + err);
                           if (btn) btn.disabled = false;
                         });
                     }}
                     id="btnInstallTectonic"
                     className="vscode-button"
                   >
-                    Instalar Tectonic (Fallback)
+                    {t('settingsModal.installTectonicBtn')}
                   </button>
                 </div>
-                <span style={{ fontSize: '11px', color: '#888888' }}>Baixa o compilador Tectonic manualmente caso a compilação de LaTeX esteja falhando por falta do executável no sistema.</span>
+                <span style={{ fontSize: '11px', color: '#888888' }}>{t('settingsModal.installTectonicHint')}</span>
               </div>
 
               <div className="flex flex-col" style={{ gap: '6px', borderTop: '1px solid var(--vscode-border)', paddingTop: '12px', marginTop: '6px' }}>
-                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Pandoc (DOCX)</label>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.installPandocTitle')}</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     onClick={() => {
@@ -348,24 +348,24 @@ export default function SettingsModal({
                         .then(r => r.json())
                         .then(res => {
                           if (res.success) {
-                            alert("Pandoc instalado com sucesso!");
+                            alert(t('settingsModal.installPandocSuccess'));
                           } else {
-                            alert("Erro ao instalar Pandoc: " + res.error);
+                            alert(t('settingsModal.installPandocError') + res.error);
                           }
                           if (btn) btn.disabled = false;
                         })
                         .catch(err => {
-                          alert("Erro de conexao: " + err);
+                          alert(t('settingsModal.connectionError') + err);
                           if (btn) btn.disabled = false;
                         });
                     }}
                     id="btnInstallPandoc"
                     className="vscode-button"
                   >
-                    Instalar Pandoc (Fallback)
+                    {t('settingsModal.installPandocBtn')}
                   </button>
                 </div>
-                <span style={{ fontSize: '11px', color: '#888888' }}>Baixa o Pandoc manualmente caso a exportacao TeX para DOCX esteja falhando por falta do executavel no sistema.</span>
+                <span style={{ fontSize: '11px', color: '#888888' }}>{t('settingsModal.installPandocHint')}</span>
               </div>
 
 

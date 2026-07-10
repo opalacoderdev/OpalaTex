@@ -774,7 +774,7 @@ export default function App() {
 
   const handleSelectProject = (proj) => {
     if (proj.exists === false) {
-      alert(`A pasta do projeto não existe no disco:\n${proj.project_path}`);
+      addLog('error', t('app.projectDirMissing', { path: proj.project_path }));
       return;
     }
 
@@ -1135,7 +1135,7 @@ export default function App() {
     try {
       const res = await fetch('/api/file/write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, filePath: filename, content: '' }) });
       if (res.ok) { addLog('info', `Arquivo criado: ${filename}`); await fetchFiles(); await handleFileSelect(filename); }
-      else { const e = await res.json(); addLog('error', `Falha ao criar arquivo: ${e.error}`); alert(`Erro ao criar arquivo: ${e.error}`); }
+      else { const e = await res.json(); addLog('error', t('app.fileCreateError', { error: e.error })); }
     } catch (err) { addLog('error', `Erro na chamada de criação de arquivo: ${err.message}`); }
   };
 
@@ -1146,7 +1146,7 @@ export default function App() {
     try {
       const res = await fetch('/api/file/mkdir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, dirPath: dirname }) });
       if (res.ok) { addLog('info', `Diretório criado: ${dirname}`); await fetchFiles(); }
-      else { const e = await res.json(); addLog('error', `Falha ao criar diretório: ${e.error}`); alert(`Erro ao criar diretório: ${e.error}`); }
+      else { const e = await res.json(); addLog('error', t('app.dirCreateError', { error: e.error })); }
     } catch (err) { addLog('error', `Erro na chamada de criação de diretório: ${err.message}`); }
   };
 
@@ -1179,8 +1179,7 @@ export default function App() {
       await fetchFiles();
       if (data.filePath) await handleFileSelect(data.filePath);
     } catch (err) {
-      addLog('error', `Erro ao importar arquivo: ${err.message}`);
-      alert(`Erro ao importar arquivo: ${err.message}`);
+      addLog('error', t('app.importFileError', { error: err.message }));
     }
   };
 
@@ -1214,7 +1213,7 @@ export default function App() {
           if (isFileInsidePath(selectedFile, node.path)) setSelectedFile(prev => replaceFilePathPrefix(prev, node.path, newPath));
         }
         await fetchFiles();
-      } else { const e = await res.json(); addLog('error', `Falha ao renomear: ${e.error}`); alert(`Erro ao renomear: ${e.error}`); }
+      } else { const e = await res.json(); addLog('error', t('app.fileRenameError', { error: e.error })); }
     } catch (err) { addLog('error', `Erro ao renomear: ${err.message}`); }
   };
 
@@ -1553,7 +1552,7 @@ export default function App() {
         }
       } catch (err) {
         setImportError(`Erro: ${err.message}`);
-        addLog('error', `Erro ao importar: ${err.message}`);
+        addLog('error', t('app.importFileError', { error: err.message }));
       }
     }
     else setEditingProject(p => ({ ...p, project_path: dirPicker.current }));

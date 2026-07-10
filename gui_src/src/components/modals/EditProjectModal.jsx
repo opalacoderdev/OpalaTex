@@ -126,9 +126,9 @@ export default function EditProjectModal({
   };
 
   const tabs = [
-    { id: 'geral', label: 'Geral' },
-    { id: 'orquestrador', label: 'Orquestrador' },
-    { id: 'worker', label: 'Worker' }
+    { id: 'geral', label: t('editProjectModal.tabGeneral') },
+    { id: 'orquestrador', label: t('editProjectModal.tabOrchestrator') },
+    { id: 'worker', label: t('editProjectModal.tabWorker') }
   ];
 
   return (
@@ -211,13 +211,13 @@ export default function EditProjectModal({
 
               {/* Main File */}
               <div className="flex flex-col" style={{ gap: '4px' }}>
-                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Main File (Optional)</label>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.mainFile')}</label>
                 <input
                   type="text"
                   className="vscode-settings-input"
                   value={editingProject.main_file || ''}
                   onChange={e => setEditingProject(p => ({ ...p, main_file: e.target.value }))}
-                  placeholder="e.g. main.tex"
+                  placeholder={t('editProjectModal.mainFilePlaceholder')}
                   style={{ flex: 1 }}
                 />
               </div>
@@ -270,14 +270,14 @@ export default function EditProjectModal({
 
               {/* User Git root */}
               <div className="flex flex-col" style={{ gap: '4px' }}>
-                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Git Root (Optional)</label>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.gitRoot')}</label>
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <input
                     type="text"
                     className="vscode-settings-input"
                     value={editingProject.git_root_path || ''}
                     onChange={e => setEditingProject(p => ({ ...p, git_root_path: e.target.value }))}
-                    placeholder="Defaults to project path"
+                    placeholder={t('editProjectModal.gitRootPlaceholder')}
                     style={{ flex: 1 }}
                   />
                   <button type="button" className="vscode-button" style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}
@@ -286,7 +286,7 @@ export default function EditProjectModal({
                   </button>
                   <button type="button" className="vscode-button" style={{ padding: '4px 8px', whiteSpace: 'nowrap' }}
                     onClick={() => setEditingProject(p => ({ ...p, git_root_path: '' }))}>
-                    Clear
+                    {t('editProjectModal.clear')}
                   </button>
                 </div>
               </div>
@@ -323,7 +323,7 @@ export default function EditProjectModal({
                   style={{ cursor: 'pointer' }}
                 />
                 <label htmlFor="use-shared-memory-edit" style={{ fontSize: '12px', color: 'var(--vscode-text-fg)', cursor: 'pointer', userSelect: 'none' }}>
-                  Compartilhar Memória Core entre os Chats
+                  {t('editProjectModal.shareCoreMemory')}
                 </label>
               </div>
 
@@ -345,8 +345,8 @@ export default function EditProjectModal({
                 />
                 <label htmlFor="force-vision-edit"
                        style={{ fontSize: '12px', color: 'var(--vscode-text-fg)', cursor: 'pointer', userSelect: 'none' }}
-                       title="Enable for local Ollama vision models (llava, moondream2, etc.) that litellm does not detect automatically">
-                  Forçar suporte a visão (imagens) — necessário para modelos Ollama locais
+                       title={t('editProjectModal.forceVisionTitle')}>
+                  {t('editProjectModal.forceVision')}
                 </label>
               </div>
 
@@ -366,7 +366,7 @@ export default function EditProjectModal({
                       if (res.ok) {
                         alert(t('settingsModal.contextualSkillsLoaded'));
                       } else {
-                        alert('Error loading contextual skills');
+                        alert(t('editProjectModal.contextualSkillsLoadError'));
                       }
                     } catch (e) {
                       alert(String(e));
@@ -396,7 +396,7 @@ export default function EditProjectModal({
                 />
                 <label htmlFor="internal-monologue-edit"
                        style={{ fontSize: '12px', color: 'var(--vscode-text-fg)', cursor: 'pointer', userSelect: 'none' }}>
-                  Habilitar Internal Monologue (Ollama Tool Fix)
+                  {t('editProjectModal.enableInternalMonologue')}
                 </label>
               </div>
 
@@ -420,7 +420,7 @@ export default function EditProjectModal({
                 />
                 <label htmlFor="monologue-as-assistant-edit"
                        style={{ fontSize: '12px', color: 'var(--vscode-text-fg)', cursor: 'pointer', userSelect: 'none', opacity: (editingProject.model_params?.tool_role_workaround ?? 'user') !== '' ? 1 : 0.5 }}>
-                  Monologue as Assistant (usar "assistant" em vez de "user")
+                  {t('editProjectModal.monologueAsAssistant')}
                 </label>
               </div>
             </>
@@ -507,7 +507,7 @@ export default function EditProjectModal({
                   onClick={() => setShowAdvancedParams(!showAdvancedParams)}
                   style={{ background: 'transparent', border: 'none', color: '#007acc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 0', fontSize: '12px', fontWeight: 'bold', textAlign: 'left', width: 'fit-content' }}
                 >
-                  <span>{showAdvancedParams ? '▼' : '▶'} Parâmetros Avançados (Orquestrador)</span>
+                  <span>{showAdvancedParams ? '▼' : '▶'} {t('editProjectModal.advancedOrchestrator')}</span>
                 </button>
 
                 {showAdvancedParams && (
@@ -735,7 +735,7 @@ export default function EditProjectModal({
                   onClick={() => setShowAdvancedParams(!showAdvancedParams)}
                   style={{ background: 'transparent', border: 'none', color: '#007acc', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 0', fontSize: '12px', fontWeight: 'bold', textAlign: 'left', width: 'fit-content' }}
                 >
-                  <span>{showAdvancedParams ? '▼' : '▶'} Parâmetros Avançados (Worker)</span>
+                  <span>{showAdvancedParams ? '▼' : '▶'} {t('editProjectModal.advancedWorker')}</span>
                 </button>
 
                 {showAdvancedParams && (

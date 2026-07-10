@@ -65,9 +65,9 @@ export default function NewProjectModal({
   };
 
   const tabs = [
-    { id: 'geral', label: 'Geral' },
-    { id: 'orquestrador', label: 'Orquestrador' },
-    { id: 'worker', label: 'Worker' }
+    { id: 'geral', label: t('editProjectModal.tabGeneral') },
+    { id: 'orquestrador', label: t('editProjectModal.tabOrchestrator') },
+    { id: 'worker', label: t('editProjectModal.tabWorker') }
   ];
 
   return (
@@ -176,7 +176,7 @@ export default function NewProjectModal({
                 />
                 <label htmlFor="internal-monologue-new"
                        style={{ fontSize: '12px', color: 'var(--vscode-text-fg)', cursor: 'pointer', userSelect: 'none' }}>
-                  Habilitar Internal Monologue (Ollama Tool Fix)
+                  {t('editProjectModal.enableInternalMonologue')}
                 </label>
               </div>
 
@@ -197,7 +197,7 @@ export default function NewProjectModal({
                 />
                 <label htmlFor="monologue-as-assistant-new"
                        style={{ fontSize: '12px', color: 'var(--vscode-text-fg)', cursor: 'pointer', userSelect: 'none', opacity: (newProjModelParams?.tool_role_workaround ?? 'user') !== '' ? 1 : 0.5 }}>
-                  Monologue as Assistant (usar "assistant" em vez de "user")
+                  {t('editProjectModal.monologueAsAssistant')}
                 </label>
               </div>
             </>
@@ -285,7 +285,7 @@ export default function NewProjectModal({
 
               {/* Advanced params for Orchestrator */}
               <details style={{ background: 'var(--vscode-input-bg)', padding: '8px', borderRadius: '4px', border: '1px solid var(--vscode-border)' }}>
-                <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--vscode-text-fg)', fontWeight: 'bold' }}>Parâmetros Avançados (Orquestrador)</summary>
+                <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--vscode-text-fg)', fontWeight: 'bold' }}>{t('editProjectModal.advancedOrchestrator')}</summary>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
@@ -382,7 +382,7 @@ export default function NewProjectModal({
 
               {/* Advanced params for Worker */}
               <details style={{ background: 'var(--vscode-input-bg)', padding: '8px', borderRadius: '4px', border: '1px solid var(--vscode-border)' }}>
-                <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--vscode-text-fg)', fontWeight: 'bold' }}>Parâmetros Avançados (Worker)</summary>
+                <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--vscode-text-fg)', fontWeight: 'bold' }}>{t('editProjectModal.advancedWorker')}</summary>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>

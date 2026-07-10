@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export default function HardwareModal({ onClose }) {
+  const { t } = useTranslation();
   const [hardware, setHardware] = useState({ ram_gb: '', vram_gb: '', gpu_type: 'unknown' });
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -31,12 +33,12 @@ export default function HardwareModal({ onClose }) {
       if (res.ok) {
         const data = await res.json();
         setHardware(data);
-        setSuccessMsg('Hardware inferido com sucesso!');
+        setSuccessMsg(t('hardwareModal.detectSuccess'));
       } else {
-        setErrorMsg('Falha ao inferir hardware. Por favor, insira manualmente.');
+        setErrorMsg(t('hardwareModal.detectError'));
       }
     } catch (e) {
-      setErrorMsg('Erro de rede ao inferir hardware.');
+      setErrorMsg(t('hardwareModal.detectNetworkError'));
     } finally {
       setLoading(false);
     }
@@ -57,28 +59,28 @@ export default function HardwareModal({ onClose }) {
         })
       });
       if (res.ok) {
-        setSuccessMsg('Configurações salvas!');
+        setSuccessMsg(t('hardwareModal.saveSuccess'));
         setTimeout(onClose, 1000);
       } else {
-        setErrorMsg('Falha ao salvar hardware.');
+        setErrorMsg(t('hardwareModal.saveError'));
       }
     } catch (e) {
-      setErrorMsg('Erro de rede ao salvar hardware.');
+      setErrorMsg(t('hardwareModal.saveNetworkError'));
     } finally {
       setLoading(false);
     }
   };
 
   const vram = parseFloat(hardware.vram_gb) || 0;
-  let recommendation = "Com base no seu hardware, recomendamos: ";
+  let recommendation;
   if (vram < 4) {
-    recommendation += "Modelos de 1.5B a 3B parâmetros (Ex: Qwen 2.5 1.5B, Llama 3.2 3B).";
+    recommendation = t('hardwareModal.recommendationSmall');
   } else if (vram < 10) {
-    recommendation += "Modelos de 7B a 8B parâmetros (Ex: Llama 3.1 8B, Mistral 7B).";
+    recommendation = t('hardwareModal.recommendationMedium');
   } else if (vram < 20) {
-    recommendation += "Modelos de 12B a 14B parâmetros (Ex: Qwen 2.5 14B).";
+    recommendation = t('hardwareModal.recommendationLarge');
   } else {
-    recommendation += "Modelos grandes (Ex: Llama 3 70B quantizado ou Command R).";
+    recommendation = t('hardwareModal.recommendationVeryLarge');
   }
 
   return (
@@ -95,7 +97,7 @@ export default function HardwareModal({ onClose }) {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>💻</span> Configuração de Hardware
+            <span>💻</span> {t('hardwareModal.title')}
           </h2>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--vscode-text-fg)', cursor: 'pointer', fontSize: '18px' }}>✕</button>
         </div>
@@ -105,7 +107,7 @@ export default function HardwareModal({ onClose }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: 'var(--vscode-text-fg)' }}>
-            Memória RAM do Sistema (GB)
+            {t('hardwareModal.systemRam')}
             <input 
               type="number" step="0.1" 
               value={hardware.ram_gb} 
@@ -116,7 +118,7 @@ export default function HardwareModal({ onClose }) {
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: 'var(--vscode-text-fg)' }}>
-            Memória VRAM da GPU (GB)
+            {t('hardwareModal.gpuVram')}
             <input 
               type="number" step="0.1" 
               value={hardware.vram_gb} 
@@ -127,24 +129,24 @@ export default function HardwareModal({ onClose }) {
           </label>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: 'var(--vscode-text-fg)' }}>
-            Tipo de GPU
+            {t('hardwareModal.gpuType')}
             <select 
               value={hardware.gpu_type}
               onChange={e => setHardware({...hardware, gpu_type: e.target.value})}
               className="vscode-settings-input"
               style={{ padding: '8px', borderRadius: '6px' }}
             >
-              <option value="unknown">Desconhecida / Outra</option>
+              <option value="unknown">{t('hardwareModal.gpuUnknown')}</option>
               <option value="nvidia">NVIDIA</option>
               <option value="amd">AMD</option>
               <option value="apple_unified">Apple Silicon (M1/M2/M3/M4)</option>
-              <option value="integrated_or_amd">Integrada / Compartilhada</option>
+              <option value="integrated_or_amd">{t('hardwareModal.gpuIntegrated')}</option>
             </select>
           </label>
         </div>
 
         <div style={{ background: 'var(--vscode-input-bg)', border: '1px solid var(--vscode-border)', borderRadius: '8px', padding: '12px', fontSize: '12px', lineHeight: '1.5', color: 'var(--vscode-text-fg)' }}>
-          <strong style={{ color: 'var(--vscode-text-fg)' }}>Recomendação:</strong> {recommendation}
+          <strong style={{ color: 'var(--vscode-text-fg)' }}>{t('hardwareModal.recommendationTitle')}</strong> {recommendation}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px' }}>
@@ -154,7 +156,7 @@ export default function HardwareModal({ onClose }) {
             className="vscode-button"
             style={{ padding: '8px 16px', borderRadius: '6px', cursor: loading ? 'not-allowed' : 'pointer', background: 'transparent', color: 'var(--vscode-text-fg)', border: '1px solid var(--vscode-border)' }}
           >
-            {loading ? 'Processando...' : 'Inferir Hardware Automático'}
+            {loading ? t('hardwareModal.processing') : t('hardwareModal.detectAutomatically')}
           </button>
           
           <button 
@@ -163,7 +165,7 @@ export default function HardwareModal({ onClose }) {
             className="vscode-button"
             style={{ padding: '8px 16px', borderRadius: '6px', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}
           >
-            Salvar
+            {t('hardwareModal.save')}
           </button>
         </div>
       </div>

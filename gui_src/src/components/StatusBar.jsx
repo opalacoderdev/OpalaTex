@@ -33,7 +33,7 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
   const handleRechargeClick = async (e) => {
     e.preventDefault();
     if (!licenseData?.key) {
-      alert("Nenhuma conta Cloud registrada. Compre créditos para receber sua chave de registro.");
+      alert(t('statusBar.noCloudAccountAlert'));
       window.open('https://opalacoder.com/#products', '_blank');
       return;
     }
@@ -49,7 +49,7 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
       try {
           data = JSON.parse(text);
       } catch (e) {
-          alert(`Erro no parse da resposta: ${text.substring(0, 50)}`);
+          alert(t('statusBar.parseError', { text: text.substring(0, 50) }));
           window.open('https://opalacoder.com/#products', '_blank');
           return;
       }
@@ -57,11 +57,11 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
       if (data.token) {
         window.open(`https://opalacoder.com/?rechargeToken=${data.token}`, '_blank');
       } else {
-        alert(`Falha ao gerar sessão de recarga. Status: ${res.status}. Resposta: ${JSON.stringify(data)}`);
+        alert(t('statusBar.rechargeSessionError', { status: res.status, data: JSON.stringify(data) }));
         window.open('https://opalacoder.com/#products', '_blank');
       }
     } catch (err) {
-      alert(`Erro de rede ao contactar a API: ${err.message}`);
+      alert(t('statusBar.networkError', { message: err.message }));
       window.open('https://opalacoder.com/#products', '_blank');
     }
   };
@@ -90,10 +90,10 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
             onClick={onOpenLicense}
             className="flex items-center cursor-pointer hover:bg-white/10 px-2 py-0.5 rounded transition-colors" 
             style={{ gap: '4px', backgroundColor: 'rgba(255, 165, 0, 0.2)', border: '1px solid rgba(255,165,0,0.5)', color: '#ffb84d' }}
-            title="Conta registrada para os serviços do OpalaWebPage"
+            title={t('statusBar.cloudRegisteredTitle')}
           >
             <span style={{ fontWeight: 'bold', fontSize: '11px' }}>
-              OPALA CLOUD REGISTRADO
+              {t('statusBar.cloudRegistered')}
             </span>
           </div>
         )}
