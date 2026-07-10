@@ -623,7 +623,7 @@ class AsyncHTTPServer:
             except:
                 pass
 
-        # License Endpoints
+        # Cloud registration endpoints (never gate local application features)
         if path == '/api/license/status':
             try:
                 from opalatex.licensing import check_license_status
@@ -642,48 +642,6 @@ class AsyncHTTPServer:
                     self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
                 else:
                     self.send_response(writer, 400, json.dumps(result).encode('utf-8'), "application/json")
-            except Exception as e:
-                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
-            return
-
-        elif path == '/api/license/generate-trial' and method == 'POST':
-            try:
-                import urllib.request
-                import urllib.error
-                req = urllib.request.Request(
-                    "https://opalacoder.com/api/license/generate-trial",
-                    data=b"{}",
-                    headers={"Content-Type": "application/json"}
-                )
-                try:
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        resp_data = json.loads(resp.read().decode('utf-8'))
-                        if resp_data.get("success"):
-                            from opalatex.licensing import _load_license_data, _save_license_data, get_machine_id
-                            
-                            license_key = resp_data["licenseKey"]
-                            expires_at = resp_data["expiresAtTs"]
-                            
-                            lic_data = _load_license_data()
-                            lic_data["license_key"] = license_key
-                            lic_data["is_trial"] = True
-                            lic_data["expires_at"] = expires_at
-                            lic_data["activation_date"] = time.time()
-                            lic_data["machine_id"] = get_machine_id()
-                            _save_license_data(lic_data)
-                            
-                            self.send_response(writer, 200, json.dumps({"success": True, "licenseKey": license_key}).encode('utf-8'), "application/json")
-                        else:
-                            self.send_response(writer, 400, json.dumps({"success": False, "error": "Server failed to generate license"}).encode('utf-8'), "application/json")
-                except urllib.error.HTTPError as he:
-                    err_msg = he.read().decode('utf-8')
-                    try:
-                        err_json = json.loads(err_msg)
-                        self.send_response(writer, he.code, json.dumps({"success": False, "error": err_json.get("error", err_msg)}).encode('utf-8'), "application/json")
-                    except:
-                        self.send_response(writer, he.code, json.dumps({"success": False, "error": err_msg}).encode('utf-8'), "application/json")
-                except Exception as ex:
-                    self.send_response(writer, 500, json.dumps({"success": False, "error": str(ex)}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             return
@@ -3199,7 +3157,6 @@ class AsyncHTTPServer:
         # 7q. Token Balance — GET
         elif path == '/api/settings/token-balance' and method == 'GET':
             from opalatex.licensing import _load_license_data
-            import urllib.request
             license_data = _load_license_data()
             license_key = license_data.get("license_key")
             if not license_key:
@@ -3207,13 +3164,9 @@ class AsyncHTTPServer:
                 return
             
             try:
-                # Local proxy testing
-                # In production, point to https://www.opalacoder.com/api/get-balance
-                req = urllib.request.Request("https://opalacoder.com/api/get-balance")
-                req.add_header('Authorization', f'Bearer {license_key}')
-                with urllib.request.urlopen(req, timeout=3) as resp:
-                    resp_data = json.loads(resp.read().decode('utf-8'))
-                    self.send_response(writer, 200, json.dumps(resp_data).encode('utf-8'), "application/json")
+                from opalatex.cloud_client import get_balance
+                resp_data = get_balance(license_key)
+                self.send_response(writer, 200, json.dumps(resp_data).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 200, json.dumps({"balance": 0, "error": str(e)}).encode('utf-8'), "application/json")
 

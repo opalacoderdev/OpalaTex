@@ -291,14 +291,11 @@ export default function App() {
 
   // ── Effects ───────────────────────────────────────────────────────────────
   useEffect(() => {
-    // Check license first
+    // Registration identifies the Cloud account but never locks the local app.
     fetch('/api/license/status')
       .then(res => res.json())
       .then(licData => {
         setLicenseData(licData);
-        if (licData.status === 'TRIAL_EXPIRED') {
-          setShowLicenseModal(true);
-        }
       })
       .catch(console.error);
 
@@ -2538,7 +2535,7 @@ export default function App() {
         style={{ display: 'none' }}
         onChange={handleImportFileSelected}
       />
-      <div className={`vscode-main ${licenseData?.status === 'TRIAL_EXPIRED' ? 'pointer-events-none opacity-20' : ''}`}>
+      <div className="vscode-main">
 
         {/* Activity Bar */}
         <ActivityBar
@@ -2948,10 +2945,9 @@ export default function App() {
         isOpen={showLicenseModal}
         onClose={() => {
           setShowLicenseModal(false);
-          // Reload status to clear lock if activated
+          // Reload registration data after activation or account changes.
           fetch('/api/license/status').then(r => r.json()).then(d => {
             setLicenseData(d);
-            if (d.status === 'TRIAL_EXPIRED') setShowLicenseModal(true);
           });
         }}
       />

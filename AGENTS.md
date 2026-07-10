@@ -21,11 +21,6 @@ Key things to understand from that repo:
 - How agents communicate and dispatch events
 - Naming conventions used throughout the framework
 
-## Project Context
-
-Read `ARCH_SUMMARY.md` before making changes. It contains the current project status,
-known issues, and decisions already made. Do not re-litigate what is documented there.
-
 ## Build & Test Commands
 Run tests on tests dir after you implement a new feature.
 

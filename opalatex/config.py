@@ -337,7 +337,8 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
         license_data = _load_license_data()
         license_key = license_data.get("license_key", "")
         # Force OpenAI format to proxy through our custom server
-        merged["api_base"] = "https://opalacoder.com/api/chat-proxy"
+        from opalatex.cloud_client import CHAT_PROXY_URL
+        merged["api_base"] = CHAT_PROXY_URL
         merged["api_key"] = license_key
         # The proxy itself uses google/genai, but litellm expects openai format when using a generic proxy base
         merged["custom_llm_provider"] = "openai"

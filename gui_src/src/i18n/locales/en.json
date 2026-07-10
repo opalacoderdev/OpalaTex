@@ -10,8 +10,8 @@
     "noWorkspace": "No Workspace",
     "agentRunning": "OpalaTex Active...",
     "balance": "Balance: {{amount}}",
-    "buyCredits": "[Cloud] Buy Credits",
-    "buyCreditsTitle": "Buy more AI credits or Subscription"
+    "buyCredits": "[Cloud] Buy 5M Tokens",
+    "buyCreditsTitle": "Buy 5 million tokens for R$60 or US$11.99"
   },
   "explorerSidebar": {
     "header": "EXPLORER: PROJECTS",
@@ -273,7 +273,7 @@
     "aiProvider": "AI Provider",
     "aiProviderHint": "Choose how Artificial Intelligence will be provided.",
     "aiProviderLocal": "Own Key / Local Model",
-    "aiProviderCloud": "OpalaTex Cloud (Requires Credits/License)",
+    "aiProviderCloud": "OpalaTex Cloud (Uses Credits)",
     "languageSystem": "System (automatic)",
     "languagePtBR": "Portugues (Brasil)",
     "languageEn": "English",
@@ -310,6 +310,11 @@
     "version": "Version",
     "author": "Author",
     "license": "License",
+    "donationTitle": "Support OpalaTex",
+    "donationDescription": "Help fund maintenance, documentation, fixes, and new features for this open-source project.",
+    "donationButton": "Donate with PayPal",
+    "donationQrAlt": "QR Code to donate to the OpalaTex project through PayPal",
+    "donationScan": "Scan to support",
     "close": "Close",
     "loadContextualSkills": "Load contextual skills",
     "contextualSkillsLoaded": "Contextual skills loaded successfully"
@@ -388,11 +393,11 @@
     "apiKeyPlaceholder": "Paste your key here...",
     "skipKeyBtn": "Skip Key (I'll provide it later)",
     "createPilotBtn": "Create Pilot Project",
-    "generateTrialBtn": "Generate Trial License",
-    "trialTitle": "Registered Trial License (Optional)",
-    "trialDesc": "Generate a 14-day test license on the server to receive or purchase promotional cloud AI credits.",
-    "generating": "Generating...",
-    "activeLicense": "License Active"
+    "buyCreditsBtn": "Buy 5M tokens — R$60 or US$11.99",
+    "openSourceTitle": "Open-source software, paid Cloud credits",
+    "openSourceDesc": "OpalaTex is open-source and works without a license. Opala Cloud is optional: buy 5 million tokens for R$60 or US$11.99.",
+    "generating": "Loading...",
+    "registeredAccount": "Cloud Account Registered"
   },
   "common": {
     "noCredits": "Insufficient balance to use the cloud. Please add credits."

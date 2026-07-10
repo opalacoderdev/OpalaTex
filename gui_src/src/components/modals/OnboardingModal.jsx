@@ -14,8 +14,6 @@ export default function OnboardingModal({ onClose, onComplete }) {
   const [apiBase, setApiBase] = useState('https://ollama.com');
 
   const [licenseStatus, setLicenseStatus] = useState(null);
-  const [isGeneratingTrial, setIsGeneratingTrial] = useState(false);
-  const [generatedTrialKey, setGeneratedTrialKey] = useState('');
 
   useEffect(() => {
     fetch('/api/hardware')
@@ -33,27 +31,6 @@ export default function OnboardingModal({ onClose, onComplete }) {
       .then(data => setLicenseStatus(data))
       .catch(console.error);
   }, []);
-
-  const handleGenerateTrialLicense = async () => {
-    setIsGeneratingTrial(true);
-    try {
-      const res = await fetch('/api/license/generate-trial', { method: 'POST' });
-      const data = await res.json();
-      if (data.success && data.licenseKey) {
-        setGeneratedTrialKey(data.licenseKey);
-        const licRes = await fetch('/api/license/status');
-        const licData = await licRes.json();
-        setLicenseStatus(licData);
-      } else {
-        alert(data.error || "Failed to generate trial license.");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Error generating trial license.");
-    } finally {
-      setIsGeneratingTrial(false);
-    }
-  };
 
   const finishOnboarding = async (config, provider = 'local') => {
     try {
@@ -203,38 +180,30 @@ export default function OnboardingModal({ onClose, onComplete }) {
               </div>
             )}
 
-            {/* Trial License Section */}
-            {!licenseStatus?.key && !generatedTrialKey ? (
+            {/* Open-source and Cloud credits section */}
+            {!licenseStatus?.key ? (
               <div style={{ backgroundColor: '#2d1e2f', padding: '14px', borderRadius: '8px', border: '1px solid #4a2f4d', marginBottom: '20px' }}>
                 <h3 style={{ color: '#dca4e0', margin: '0 0 6px 0', fontSize: '15px', fontWeight: 'bold' }}>
-                  {t('onboarding.trialTitle')}
+                  {t('onboarding.openSourceTitle')}
                 </h3>
                 <p style={{ color: '#ccc', margin: '0 0 12px 0', fontSize: '13px', lineHeight: '1.4' }}>
-                  {t('onboarding.trialDesc')}
+                  {t('onboarding.openSourceDesc')}
                 </p>
                 <button 
                   className="vscode-button"
                   style={{ padding: '8px 16px', fontSize: '13px', borderRadius: '4px', backgroundColor: '#8a2be2', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                  onClick={handleGenerateTrialLicense}
-                  disabled={isGeneratingTrial}
+                  onClick={() => window.open('https://opalacoder.com/#products', '_blank')}
                 >
-                  {isGeneratingTrial ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin" />
-                      {t('onboarding.generating')}
-                    </>
-                  ) : (
-                    t('onboarding.generateTrialBtn')
-                  )}
+                  {t('onboarding.buyCreditsBtn')}
                 </button>
               </div>
             ) : (
               <div style={{ backgroundColor: '#1e282e', padding: '14px', borderRadius: '8px', border: '1px solid #2e3e48', marginBottom: '20px' }}>
                 <h3 style={{ color: '#4fc3f7', margin: '0 0 4px 0', fontSize: '15px', fontWeight: 'bold' }}>
-                  {t('onboarding.activeLicense')}
+                  {t('onboarding.registeredAccount')}
                 </h3>
                 <p style={{ color: '#ccc', margin: 0, fontSize: '13px', fontFamily: 'monospace' }}>
-                  {licenseStatus?.key || generatedTrialKey}
+                  {licenseStatus?.key}
                 </p>
               </div>
             )}

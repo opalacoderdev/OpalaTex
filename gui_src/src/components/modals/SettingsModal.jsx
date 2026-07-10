@@ -383,7 +383,43 @@ export default function SettingsModal({
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.license')}</span>
-                <span style={{ fontSize: '13px', color: 'var(--vscode-text-fg)' }}>OpalaTex License</span>
+                <span style={{ fontSize: '13px', color: 'var(--vscode-text-fg)' }}>MIT</span>
+              </div>
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '16px',
+                marginTop: '6px',
+                padding: '16px',
+                border: '1px solid var(--vscode-border)',
+                borderRadius: '8px',
+                backgroundColor: 'var(--vscode-sidebar-bg)'
+              }}>
+                <div style={{ flex: '1 1 240px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.donationTitle')}</span>
+                  <span style={{ fontSize: '12px', lineHeight: '1.5', color: 'var(--vscode-description-fg, #aaaaaa)' }}>
+                    {t('settingsModal.donationDescription')}
+                  </span>
+                  <button
+                    className="vscode-button"
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() => window.open('https://www.paypal.com/donate/?business=DKWJSCLDJG6XY&no_recurring=0&item_name=Manuten%C3%A7%C3%A3o+do+Software+Open+Source+OpalaTex&currency_code=BRL', '_blank')}
+                  >
+                    {t('settingsModal.donationButton')}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+                  <img
+                    src="/qr-code.png"
+                    alt={t('settingsModal.donationQrAlt')}
+                    style={{ width: '132px', height: '132px', objectFit: 'contain', padding: '6px', backgroundColor: '#ffffff', borderRadius: '6px' }}
+                  />
+                  <span style={{ fontSize: '10px', color: 'var(--vscode-description-fg, #aaaaaa)' }}>
+                    {t('settingsModal.donationScan')}
+                  </span>
+                </div>
               </div>
             </div>
           )}

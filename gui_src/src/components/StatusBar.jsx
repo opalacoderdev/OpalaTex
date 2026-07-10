@@ -33,7 +33,7 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
   const handleRechargeClick = async (e) => {
     e.preventDefault();
     if (!licenseData?.key) {
-      alert("Nenhuma chave de licença encontrada no app.");
+      alert("Nenhuma conta Cloud registrada. Compre créditos para receber sua chave de registro.");
       window.open('https://opalacoder.com/#products', '_blank');
       return;
     }
@@ -84,16 +84,16 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
           </span>
         )}
         
-        {/* Trial Badge */}
-        {licenseData?.status === 'TRIAL_ACTIVE' && (
+        {/* Cloud registration badge */}
+        {licenseData?.status === 'REGISTERED' && (
           <div 
             onClick={onOpenLicense}
             className="flex items-center cursor-pointer hover:bg-white/10 px-2 py-0.5 rounded transition-colors" 
             style={{ gap: '4px', backgroundColor: 'rgba(255, 165, 0, 0.2)', border: '1px solid rgba(255,165,0,0.5)', color: '#ffb84d' }}
-            title="Ativar Licença Vitalícia"
+            title="Conta registrada para os serviços do OpalaWebPage"
           >
             <span style={{ fontWeight: 'bold', fontSize: '11px' }}>
-              VERSÃO TRIAL ({licenseData.days_left} dias restantes)
+              OPALA CLOUD REGISTRADO
             </span>
           </div>
         )}

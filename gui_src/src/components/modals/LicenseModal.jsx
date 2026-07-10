@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
 
-export default function LicenseModal({ licenseData, isOpen, onClose }) {
+export default function LicenseModal({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  const isExpired = licenseData?.status === 'TRIAL_EXPIRED';
 
   const handleActivate = async () => {
     setError('');
@@ -22,12 +20,12 @@ export default function LicenseModal({ licenseData, isOpen, onClose }) {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setSuccess(data.message || 'License activated!');
+        setSuccess(data.message || 'Cloud account registered!');
         setTimeout(() => {
           onClose(); // Needs to trigger a reload or refresh of license status
         }, 1500);
       } else {
-        setError(data.message || data.error || 'Invalid license key.');
+        setError(data.message || data.error || 'Invalid registration key.');
       }
     } catch (err) {
       setError('Connection error. Could not activate.');
@@ -69,27 +67,23 @@ export default function LicenseModal({ licenseData, isOpen, onClose }) {
           alignItems: 'center'
         }}>
           <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--vscode-editor-foreground, #e8e8e8)' }}>
-            {isExpired ? 'Trial Expired' : 'Activate OpalaTex'}
+            Register Opala Cloud
           </h2>
-          {!isExpired && (
-            <button onClick={onClose} style={{
-              background: 'none', border: 'none', color: '#858585', cursor: 'pointer', fontSize: '18px'
-            }}>
-              &times;
-            </button>
-          )}
+          <button onClick={onClose} style={{
+            background: 'none', border: 'none', color: '#858585', cursor: 'pointer', fontSize: '18px'
+          }}>
+            &times;
+          </button>
         </div>
         
         <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.5', color: '#cccccc' }}>
-            {isExpired 
-              ? 'Your 14-day free trial has expired. To continue using OpalaTex, please enter a valid license key.'
-              : 'Enter your license key to activate OpalaTex and unlock all features.'}
+            Register a valid key to use OpalaWebPage cloud credits. OpalaTex itself is open-source and remains fully available without registration.
           </p>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <label style={{ fontSize: '12px', color: '#858585', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              License Key
+              Cloud Registration Key
             </label>
             <input
               type="text"
@@ -124,19 +118,17 @@ export default function LicenseModal({ licenseData, isOpen, onClose }) {
           justifyContent: 'flex-end',
           gap: '12px'
         }}>
-          {!isExpired && (
-            <button onClick={onClose} style={{
-              padding: '8px 16px',
-              fontSize: '14px',
-              backgroundColor: 'transparent',
-              color: '#cccccc',
-              border: 'none',
-              cursor: 'pointer',
-              borderRadius: '4px'
-            }}>
-              Cancel
-            </button>
-          )}
+          <button onClick={onClose} style={{
+            padding: '8px 16px',
+            fontSize: '14px',
+            backgroundColor: 'transparent',
+            color: '#cccccc',
+            border: 'none',
+            cursor: 'pointer',
+            borderRadius: '4px'
+          }}>
+            Cancel
+          </button>
           <button 
             onClick={handleActivate}
             disabled={!key.trim() || isLoading}
@@ -152,7 +144,7 @@ export default function LicenseModal({ licenseData, isOpen, onClose }) {
               opacity: (!key.trim() || isLoading) ? 0.7 : 1
             }}
           >
-            {isLoading ? 'Activating...' : 'Activate License'}
+            {isLoading ? 'Registering...' : 'Register Cloud Account'}
           </button>
         </div>
       </div>
