@@ -59,6 +59,8 @@ When a skill returns a report, treat it as internal worker output. Reply to the 
 
 * Use `get_project_overview` to locate files before reading them.
 * Use `read_file` only after identifying the correct file path.
+* You can use `create_docx_file` to create Word `.docx` files directly from Markdown-like text. Use it instead of attempting to write raw binary DOCX content.
+* You can use `create_pptx_file` to create PowerPoint `.pptx` files directly from a JSON slide outline. Use it instead of attempting to write raw binary PPTX content.
 * Do not guess file locations.
 * If a file cannot be found, ask the user for its location through `send_message`.
 * For image outputs or existing workspace images, display them with Markdown image syntax: `![description](relative/path/to/image.png)` inside the `send_message` content.

@@ -41,6 +41,8 @@ from .tools import (
     search_conversation_history,
     web_search,
     analyze_image,
+    create_docx_file,
+    create_pptx_file,
     set_project_context,
 )
 from .config import (
@@ -325,6 +327,8 @@ def build_run_skill_tool(
             "  - read_content_pos: Reads a specific snippet of a file by providing start and end line numbers. Use it for targeted reading of large files.\n"
             "  - write_file: Writes or completely overwrites a file. Use it to create new files or replace existing ones entirely. NEVER use run_command with echo/cat to write files.\n"
             "  - write_content_pos: Modifies a specific block of lines in an existing file. Use it to surgically edit code without replacing the whole file.\n"
+            "  - create_docx_file: Creates a Word .docx file from Markdown-like text. Use it instead of writing raw binary DOCX content.\n"
+            "  - create_pptx_file: Creates a PowerPoint .pptx file from a JSON slide outline. Use it instead of writing raw binary PPTX content.\n"
             "  - run_command: Executes terminal commands (e.g., running tests, build scripts, or exploring the OS). Use it to interact with the environment and validate code.\n"
             "  - search_conversation_history: Searches past interactions. Use it to recall previous decisions, context, or code snippets from the chat history.\n"
             "# Metadata: "
@@ -715,6 +719,8 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         wrap_tool(search_conversation_history), 
         wrap_tool(web_search),
         wrap_tool(analyze_image),
+        wrap_tool(create_docx_file),
+        wrap_tool(create_pptx_file),
         wrap_tool(create_plan)
     ]
     if enable_achievements:
