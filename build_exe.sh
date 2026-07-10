@@ -38,6 +38,46 @@ curl -L $TECTONIC_URL -o tectonic.tar.gz
 tar -xzf tectonic.tar.gz -C bin
 rm tectonic.tar.gz
 
+echo -e "\n[3.6/4] Baixando Pandoc para o empacotamento..."
+PANDOC_VERSION="3.10"
+if [ "$OS_NAME" = "Darwin" ]; then
+    if [ "$ARCH_NAME" = "arm64" ]; then
+        PANDOC_URL="https://github.com/jgm/pandoc/releases/download/$PANDOC_VERSION/pandoc-$PANDOC_VERSION-arm64-macOS.zip"
+    else
+        PANDOC_URL="https://github.com/jgm/pandoc/releases/download/$PANDOC_VERSION/pandoc-$PANDOC_VERSION-x86_64-macOS.zip"
+    fi
+else
+    PANDOC_URL="https://github.com/jgm/pandoc/releases/download/$PANDOC_VERSION/pandoc-$PANDOC_VERSION-linux-amd64.tar.gz"
+fi
+
+echo "Fazendo download de $PANDOC_URL"
+if [[ "$PANDOC_URL" == *.zip ]]; then
+    curl -L "$PANDOC_URL" -o pandoc.zip
+    rm -rf pandoc_extract
+    mkdir -p pandoc_extract
+    python -m zipfile -e pandoc.zip pandoc_extract
+    PANDOC_BIN=$(find pandoc_extract -type f -name pandoc | head -n 1)
+    if [ -z "$PANDOC_BIN" ]; then
+        echo "pandoc not found in downloaded archive"
+        exit 1
+    fi
+    cp "$PANDOC_BIN" bin/pandoc
+    rm -rf pandoc_extract pandoc.zip
+else
+    curl -L "$PANDOC_URL" -o pandoc.tar.gz
+    rm -rf pandoc_extract
+    mkdir -p pandoc_extract
+    tar -xzf pandoc.tar.gz -C pandoc_extract
+    PANDOC_BIN=$(find pandoc_extract -type f -name pandoc | head -n 1)
+    if [ -z "$PANDOC_BIN" ]; then
+        echo "pandoc not found in downloaded archive"
+        exit 1
+    fi
+    cp "$PANDOC_BIN" bin/pandoc
+    rm -rf pandoc_extract pandoc.tar.gz
+fi
+chmod +x bin/pandoc
+
 echo -e "\n[4/4] Empacotando com PyInstaller..."
 # A sintaxe de --add-data no Linux/macOS usa dois pontos (:)
 pyinstaller --name "OpalaTex" \
@@ -46,6 +86,7 @@ pyinstaller --name "OpalaTex" \
             --add-data="opalatex/gui:opalatex/gui" \
             --add-data="opalatex/assetstore:opalatex/assetstore" \
             --add-data="opalatex/templates:opalatex/templates" \
+            --add-data="bin:bin" \
             --add-data="config.yaml:." \
             --add-data="skills:skills" \
             --add-data="version_info.txt:." \
@@ -66,6 +107,9 @@ pyinstaller --name "OpalaTex" \
             --collect-all "clr_loader" \
             --collect-all "PyQt6" \
             --collect-all "PyQt6-WebEngine" \
+            --collect-all "docx" \
+            --collect-all "pptx" \
+            --collect-all "xlsxwriter" \
             --collect-all "pymupdf" \
             --collect-all "pymupdf4llm" \
             --collect-all "tree_sitter" \

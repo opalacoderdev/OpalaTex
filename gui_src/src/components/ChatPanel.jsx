@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
-import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles } from 'lucide-react';
+import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatMessageContent } from '../utils/formatMessage';
 import { readClipboard } from '../utils/clipboard.js';
@@ -45,8 +45,10 @@ export default function ChatPanel({
   const historyRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const chatActionsMenuRef = useRef(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [showChatActionsMenu, setShowChatActionsMenu] = useState(false);
   const { menu, onContextMenu, handleCopy, handleSelectAll, close: closeMenu } = useTextContextMenu();
 
   useLayoutEffect(() => {
@@ -61,6 +63,17 @@ export default function ChatPanel({
       chatEndRef.current.scrollIntoView();
     }
   }, [chatThoughtStream, isAgentRunning, chatEndRef]);
+
+  useEffect(() => {
+    if (!showChatActionsMenu) return;
+    const handlePointerDown = (event) => {
+      if (!chatActionsMenuRef.current?.contains(event.target)) {
+        setShowChatActionsMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [showChatActionsMenu]);
 
   const handlePaste = useCallback(() => {
     readClipboard().then((text) => {
@@ -654,27 +667,58 @@ export default function ChatPanel({
           >
             <ZoomIn size={14} />
           </button>
-          <button
-            onClick={handleExportMarkdown}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)' }}
-            title={t('chatPanel.exportMarkdown', 'Exportar como Markdown')}
-          >
-            <Download size={14} />
-          </button>
-          <button
-            onClick={handlePrintPDF}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)' }}
-            title={t('chatPanel.exportPDF', 'Exportar como PDF / Imprimir')}
-          >
-            <Printer size={14} />
-          </button>
-          <button
-            onClick={onClearChat}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)' }}
-            title={t('chatPanel.clearChat')}
-          >
-            <Eraser size={14} />
-          </button>
+          <div ref={chatActionsMenuRef} className="vscode-overflow-menu-wrap">
+            <button
+              onClick={() => setShowChatActionsMenu(prev => !prev)}
+              className="vscode-bottom-panel-clear-btn"
+              style={{ padding: '4px' }}
+              title={t('chatPanel.moreActions', 'Mais acoes')}
+              aria-label={t('chatPanel.moreActions', 'Mais acoes')}
+              aria-expanded={showChatActionsMenu}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+            {showChatActionsMenu && (
+              <div className="vscode-overflow-menu" role="menu">
+                <button
+                  type="button"
+                  className="vscode-overflow-menu-item"
+                  onClick={() => {
+                    handleExportMarkdown();
+                    setShowChatActionsMenu(false);
+                  }}
+                  role="menuitem"
+                >
+                  <Download size={14} />
+                  <span>{t('chatPanel.exportMarkdown', 'Exportar como Markdown')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="vscode-overflow-menu-item"
+                  onClick={() => {
+                    handlePrintPDF();
+                    setShowChatActionsMenu(false);
+                  }}
+                  role="menuitem"
+                >
+                  <Printer size={14} />
+                  <span>{t('chatPanel.exportPDF', 'Exportar como PDF / Imprimir')}</span>
+                </button>
+                <button
+                  type="button"
+                  className="vscode-overflow-menu-item"
+                  onClick={() => {
+                    onClearChat?.();
+                    setShowChatActionsMenu(false);
+                  }}
+                  role="menuitem"
+                >
+                  <Eraser size={14} />
+                  <span>{t('chatPanel.clearChat')}</span>
+                </button>
+              </div>
+            )}
+          </div>
           {!isChatMode && (
             <button
               onClick={() => setIsChatVisible(false)}

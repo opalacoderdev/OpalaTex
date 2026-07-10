@@ -545,8 +545,20 @@ class ProjectStore:
         if self.exists(new_name):
             return False
         with _conn(self.db_path) as conn:
-            conn.execute("UPDATE projects SET name=? WHERE name=?", (new_name, old_name))
+            row = conn.execute("SELECT * FROM projects WHERE name = ?", (old_name,)).fetchone()
+            if row is None:
+                return False
+            columns = list(row.keys())
+            placeholders = ",".join("?" for _ in columns)
+            column_sql = ",".join(columns)
+            values = [new_name if column == "name" else row[column] for column in columns]
+            conn.execute(
+                f"INSERT INTO projects ({column_sql}) VALUES ({placeholders})",
+                values,
+            )
+            conn.execute("UPDATE project_chats SET project=? WHERE project=?", (new_name, old_name))
             conn.execute("UPDATE project_history SET project=? WHERE project=?", (new_name, old_name))
+            conn.execute("DELETE FROM projects WHERE name=?", (old_name,))
         return True
 
     def load(self, name: str, chat_id: str = "main") -> Optional[ProjectData]:

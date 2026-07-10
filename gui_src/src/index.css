@@ -890,6 +890,53 @@ input:focus, select:focus, textarea:focus {
   color: #ffffff;
 }
 
+.vscode-overflow-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.vscode-overflow-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 3000;
+  min-width: 210px;
+  padding: 4px 0;
+  background-color: var(--vscode-sidebar-bg);
+  border: 1px solid var(--vscode-border);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.vscode-overflow-menu-item {
+  width: 100%;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-text-fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.vscode-overflow-menu-item:hover:not(:disabled) {
+  background-color: var(--vscode-hover-item);
+  color: var(--vscode-text-light);
+}
+
+.vscode-overflow-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 /* Thinking Indicator Animation */
 .thinking-indicator {
   display: inline-flex;

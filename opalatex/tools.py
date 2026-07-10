@@ -1,5 +1,6 @@
 """Tools for the OpalaTex Autonomous Agent (MemGPT pattern + HITL)."""
 import os
+import json
 import subprocess
 import sys
 import time
@@ -539,6 +540,137 @@ def write_file(path: str, content: str) -> str:
         raise ValueError(f"Error writing {_preview(resolved)}: {e}")
 
 
+@opalatex_tool(
+    name="export_tex_to_docx",
+    is_safe=False,
+    description=(
+        "Export a .tex file in the project to .docx using Pandoc. "
+        "Use this when the user asks to convert LaTeX/TeX source to Word. "
+        "The input and output paths are project-relative. Pandoc must be installed."
+    ),
+)
+def export_tex_to_docx(tex_path: str, output_path: str = "") -> str:
+    resolved_project = get_project_path()
+    AGENT_PROGRESS.update("export_tex_to_docx", f"path={_preview(tex_path)}")
+    try:
+        from .document_exporter import export_tex_to_docx as _export_tex_to_docx
+        result = _export_tex_to_docx(resolved_project, tex_path, output_path)
+    except Exception as e:
+        raise ValueError(f"Error exporting DOCX: {e}")
+    if not result.get("success"):
+        raise ValueError(result.get("log") or "DOCX export failed.")
+    return f"Successfully exported DOCX to {result.get('relative_output_path') or result.get('output_path')}."
+
+
+def _require_extension(path: str, allowed: set[str]) -> None:
+    ext = Path(path).suffix.lower()
+    if ext not in allowed:
+        raise ValueError(f"Output path must end with one of: {', '.join(sorted(allowed))}")
+
+
+@opalatex_tool(
+    name="create_docx_file",
+    is_safe=False,
+    description=(
+        "Create a Word .docx file directly from simple Markdown-like text. "
+        "Supports headings beginning with #, ##, ###, bullet lines beginning with '- ', "
+        "numbered lines like '1. ', and plain paragraphs. Use this instead of writing raw binary DOCX."
+    ),
+)
+def create_docx_file(path: str, markdown: str, title: str = "") -> str:
+    try:
+        resolved = _resolve_path(path)
+        _require_extension(resolved, {".docx"})
+    except Exception as e:
+        raise ValueError(f"Error resolving DOCX path: {e}")
+
+    AGENT_PROGRESS.update("create_docx_file", f"path={_preview(resolved)}")
+    try:
+        from docx import Document
+    except ImportError:
+        raise ValueError("python-docx is not installed. Install project dependencies before creating DOCX files directly.")
+
+    try:
+        Path(resolved).parent.mkdir(parents=True, exist_ok=True)
+        doc = Document()
+        if title:
+            doc.add_heading(title, level=1)
+        for raw_line in _decode_escape_sequences(markdown).splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("### "):
+                doc.add_heading(line[4:].strip(), level=3)
+            elif line.startswith("## "):
+                doc.add_heading(line[3:].strip(), level=2)
+            elif line.startswith("# "):
+                doc.add_heading(line[2:].strip(), level=1)
+            elif line.startswith("- "):
+                doc.add_paragraph(line[2:].strip(), style="List Bullet")
+            elif len(line) > 3 and line[0].isdigit() and line[1:3] == ". ":
+                doc.add_paragraph(line[3:].strip(), style="List Number")
+            else:
+                doc.add_paragraph(line)
+        doc.save(resolved)
+        return f"Successfully created DOCX file at {_preview(resolved)}."
+    except Exception as e:
+        raise ValueError(f"Error creating DOCX file {_preview(resolved)}: {e}")
+
+
+@opalatex_tool(
+    name="create_pptx_file",
+    is_safe=False,
+    description=(
+        "Create a PowerPoint .pptx file directly from a JSON slide outline. "
+        "slides_json must be an array of objects like "
+        "[{\"title\":\"Slide title\",\"bullets\":[\"Point one\",\"Point two\"]}]."
+    ),
+)
+def create_pptx_file(path: str, slides_json: str, title: str = "") -> str:
+    try:
+        resolved = _resolve_path(path)
+        _require_extension(resolved, {".pptx"})
+    except Exception as e:
+        raise ValueError(f"Error resolving PPTX path: {e}")
+
+    AGENT_PROGRESS.update("create_pptx_file", f"path={_preview(resolved)}")
+    try:
+        from pptx import Presentation
+    except ImportError:
+        raise ValueError("python-pptx is not installed. Install project dependencies before creating PPTX files directly.")
+
+    try:
+        slides = json.loads(_decode_escape_sequences(slides_json))
+        if not isinstance(slides, list):
+            raise ValueError("slides_json must be a JSON array")
+        Path(resolved).parent.mkdir(parents=True, exist_ok=True)
+        prs = Presentation()
+        if title:
+            slide = prs.slides.add_slide(prs.slide_layouts[0])
+            slide.shapes.title.text = title
+            slide.placeholders[1].text = ""
+        for item in slides:
+            if not isinstance(item, dict):
+                continue
+            slide = prs.slides.add_slide(prs.slide_layouts[1])
+            slide.shapes.title.text = str(item.get("title", "Untitled slide"))
+            body = slide.placeholders[1].text_frame
+            body.clear()
+            bullets = item.get("bullets", [])
+            if isinstance(bullets, str):
+                bullets = [line.strip() for line in bullets.splitlines() if line.strip()]
+            if not bullets:
+                bullets = [str(item.get("body", ""))] if item.get("body") else []
+            for index, bullet in enumerate(bullets):
+                paragraph = body.paragraphs[0] if index == 0 else body.add_paragraph()
+                paragraph.text = str(bullet)
+                paragraph.level = 0
+        prs.save(resolved)
+        return f"Successfully created PPTX file at {_preview(resolved)}."
+    except Exception as e:
+        raise ValueError(f"Error creating PPTX file {_preview(resolved)}: {e}")
+
+
 import platform
 from .subprocess_utils import utf8_text_kwargs
 
@@ -890,6 +1022,9 @@ def get_available_tools():
         read_file,
         read_content_pos,
         write_file,
+        export_tex_to_docx,
+        create_docx_file,
+        create_pptx_file,
         write_content_pos,
         run_command,
         run_interactive_command,

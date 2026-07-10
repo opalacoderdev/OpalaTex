@@ -866,6 +866,48 @@ class AsyncHTTPServer:
             self.send_response(writer, 200, json.dumps({"found": found}).encode('utf-8'), "application/json")
             return
 
+        elif path == '/api/latex/check-pandoc' and method == 'GET':
+            from opalatex.document_exporter import get_pandoc_path
+            pandoc = get_pandoc_path()
+            found = pandoc is not None
+            self.send_response(writer, 200, json.dumps({"found": found}).encode('utf-8'), "application/json")
+            return
+
+        elif path == '/api/latex/export-docx' and method == 'POST':
+            project_path = data.get('projectPath', '')
+            file_path = data.get('filePath', '')
+            content = data.get('content', None)
+            output_path = data.get('outputPath', '')
+
+            if not project_path or not file_path:
+                self.send_response(writer, 400, json.dumps({
+                    "success": False,
+                    "error": "projectPath and filePath are required",
+                }).encode('utf-8'), "application/json")
+                return
+
+            try:
+                if content is not None:
+                    full_path = os.path.abspath(file_path if os.path.isabs(file_path) else os.path.join(project_path, file_path))
+                    project_abs = os.path.abspath(os.path.expanduser(project_path))
+                    if not _is_path_within(full_path, project_abs):
+                        raise ValueError("filePath must stay inside the project directory")
+                    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                    with open(full_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+
+                from opalatex.document_exporter import export_tex_to_docx
+                result = export_tex_to_docx(project_path, file_path, output_path)
+                self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({
+                    "success": False,
+                    "output_path": "",
+                    "log": f"DOCX export failed: {e}",
+                    "error": str(e),
+                }).encode('utf-8'), "application/json")
+            return
+
         # 0.1 Serve Latest PDF
         if path == '/api/latex/pdf':
             if hasattr(self, 'last_pdf_path') and self.last_pdf_path and os.path.exists(self.last_pdf_path):
@@ -1704,6 +1746,29 @@ class AsyncHTTPServer:
                             tar_ref.extractall(bin_dir)
                             
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/settings/install-pandoc' and method == 'POST':
+            try:
+                import tempfile
+                import urllib.request
+
+                from opalatex.document_exporter import (
+                    get_pandoc_download,
+                    install_pandoc_from_archive,
+                )
+
+                url, filename = get_pandoc_download()
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    archive_path = os.path.join(tmpdir, filename)
+                    urllib.request.urlretrieve(url, archive_path)
+                    installed_path = install_pandoc_from_archive(archive_path)
+
+                self.send_response(writer, 200, json.dumps({
+                    "success": True,
+                    "path": installed_path,
+                }).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 

@@ -4,6 +4,7 @@ import sys
 import yaml
 import pytest
 from opalatex.project import ProjectStore
+from opalatex.skills import active_skills
 
 def test_command_line_skill_initialization(tmp_path):
     db_file = str(tmp_path / "test.db")
@@ -20,14 +21,15 @@ def test_command_line_skill_initialization(tmp_path):
         project_path=str(proj_dir),
     )
     
-    # 1. Check that skills.yaml is created and has "command-line"
+    # 1. Check that skills.yaml is created and command-line is active as a mandatory skill.
     skills_yaml_path = proj_dir / "skills.yaml"
     assert skills_yaml_path.exists()
     
     with open(skills_yaml_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     assert "skills" in data
-    assert "command-line" in data["skills"]
+    assert "command-line" not in data["skills"]
+    assert "command-line" in {skill["name"] for skill in active_skills(str(proj_dir))}
     
     # 2. Check that command-line skill files are copied under .opalatex/skills/command-line/
     skill_manifest = proj_dir / ".opalatex" / "skills" / "command-line" / "SKILL.md"

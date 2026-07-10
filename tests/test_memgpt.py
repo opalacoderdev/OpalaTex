@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import sys
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, "/home/gil/projetos/agenticblocks/src")
@@ -10,7 +11,9 @@ from opalatex.memgpt_runtime import build_chat_orchestrator
 from opalatex.project import ProjectData, ProjectStore
 from agenticblocks.blocks.llm.agent import AgentInput
 
-async def test():
+@pytest.mark.integration
+@pytest.mark.skip(reason="Manual context-inspection probe; it prints LLM messages and has no automated assertions.")
+async def test_context_probe():
     project = ProjectData(
         name="test_proj",
         project_path=os.getcwd(),

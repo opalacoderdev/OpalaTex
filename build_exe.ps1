@@ -29,6 +29,24 @@ Invoke-WebRequest -Uri $tectonicUrl -OutFile $tectonicZip
 Expand-Archive -Path $tectonicZip -DestinationPath "bin" -Force
 Remove-Item -Force $tectonicZip
 
+Write-Host "`n[3.6/4] Baixando Pandoc (Windows) para o empacotamento..."
+$pandocVersion = "3.10"
+$pandocZip = "pandoc-windows.zip"
+$pandocUrl = "https://github.com/jgm/pandoc/releases/download/$pandocVersion/pandoc-$pandocVersion-windows-x86_64.zip"
+Write-Host "Fazendo download de $pandocUrl"
+Invoke-WebRequest -Uri $pandocUrl -OutFile $pandocZip
+$pandocExtractDir = "pandoc_extract"
+if (Test-Path $pandocExtractDir) { Remove-Item -Recurse -Force $pandocExtractDir }
+Expand-Archive -Path $pandocZip -DestinationPath $pandocExtractDir -Force
+$pandocExe = Get-ChildItem -Path $pandocExtractDir -Recurse -Filter "pandoc.exe" | Select-Object -First 1
+if ($pandocExe) {
+    Copy-Item -Path $pandocExe.FullName -Destination "bin\pandoc.exe" -Force
+} else {
+    throw "pandoc.exe not found in downloaded archive"
+}
+Remove-Item -Force $pandocZip
+Remove-Item -Recurse -Force $pandocExtractDir
+
 Write-Host "`n[4/4] Empacotando com PyInstaller..."
 # Find winpty-agent.exe dynamically to avoid hardcoding .venv path
 $winptyAgentPath = python -c "import winpty, os; print(os.path.join(os.path.dirname(winpty.__file__), 'winpty-agent.exe'))"
@@ -40,6 +58,7 @@ pyinstaller --name "OpalaTex" `
             --add-data="opalatex/gui;opalatex/gui" `
             --add-data="opalatex/assetstore;opalatex/assetstore" `
             --add-data="opalatex/templates;opalatex/templates" `
+            --add-data="bin;bin" `
             --add-data="config.yaml;." `
             --add-data="skills;skills" `
             --add-data="version_info.txt;." `
@@ -61,6 +80,9 @@ pyinstaller --name "OpalaTex" `
             --collect-all "PyQt6" `
             --collect-all "PyQt6-WebEngine" `
             --collect-all "winpty" `
+            --collect-all "docx" `
+            --collect-all "pptx" `
+            --collect-all "xlsxwriter" `
             --collect-all "pymupdf" `
             --collect-all "pymupdf4llm" `
             --collect-all "tree_sitter" `

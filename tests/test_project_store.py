@@ -72,7 +72,7 @@ def test_load_roundtrips_all_fields(store):
     assert loaded.mode == "plan"
     assert loaded.model == "fake/model"
     assert loaded.project_name == "My Project"
-    assert loaded.project_path == "/home/user/myproject"
+    assert loaded.project_path == os.path.abspath("/home/user/myproject")
     assert "opalatex" in loaded.skills
     assert "python_subprocess" in loaded.skills
     assert loaded.description == "A test project"
@@ -324,8 +324,8 @@ def test_create_initializes_shadow_git(store, tmp_path):
         project_name="Shadow Git Test",
         project_path=str(proj_dir),
     )
-    # Check that .opalatex/.git directory exists
-    git_dir = proj_dir / ".opalatex" / ".git"
+    # Check that the internal shadow git directory exists.
+    git_dir = proj_dir / ".opalatex" / ".shadowgit"
     assert git_dir.exists()
     assert git_dir.is_dir()
 

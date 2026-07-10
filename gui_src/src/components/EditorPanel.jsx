@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText, HelpCircle } from 'lucide-react';
+import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText, HelpCircle, MoreHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getLanguage } from '../utils/language';
 import { safeSetLocalStorage } from '../utils/storage';
@@ -53,10 +53,12 @@ export default function EditorPanel({
   const [isPdfPreviewCollapsed, setIsPdfPreviewCollapsed] = useState(false);
   const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
   const [showLatexHelp, setShowLatexHelp] = useState(false);
+  const [showDocumentActionsMenu, setShowDocumentActionsMenu] = useState(false);
   const [editorContextMenu, setEditorContextMenu] = useState(null);
   const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
   const pendingEditorLineRef = useRef(null);
   const richTextSourceLineRef = useRef(1);
+  const documentActionsMenuRef = useRef(null);
   
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
   const isTexRelatedFile = (filename) => {
@@ -83,7 +85,10 @@ export default function EditorPanel({
   const [compileTiming, setCompileTiming] = useState(null);
   const [cleanMessage, setCleanMessage] = useState('');
   const [isTectonicAvailable, setIsTectonicAvailable] = useState(true);
+  const [isPandocAvailable, setIsPandocAvailable] = useState(true);
   const [isInstallingTectonic, setIsInstallingTectonic] = useState(false);
+  const [isInstallingPandoc, setIsInstallingPandoc] = useState(false);
+  const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isCleaningLatex, setIsCleaningLatex] = useState(false);
   const pendingPdfSyncRef = useRef(null);
 
@@ -140,10 +145,22 @@ export default function EditorPanel({
       .catch(() => {});
   };
 
+  const checkPandoc = () => {
+    fetch('/api/latex/check-pandoc')
+      .then(r => r.json())
+      .then(data => setIsPandocAvailable(data.found))
+      .catch(() => {});
+  };
+
   useEffect(() => {
     checkTectonic();
-    window.addEventListener('focus', checkTectonic);
-    return () => window.removeEventListener('focus', checkTectonic);
+    checkPandoc();
+    const checkDocumentTools = () => {
+      checkTectonic();
+      checkPandoc();
+    };
+    window.addEventListener('focus', checkDocumentTools);
+    return () => window.removeEventListener('focus', checkDocumentTools);
   }, []);
 
   // Clear PDF only when switching projects
@@ -264,6 +281,53 @@ export default function EditorPanel({
     }
   };
 
+  const handleInstallPandoc = async () => {
+    setIsInstallingPandoc(true);
+    try {
+      const res = await fetch('/api/settings/install-pandoc', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setIsPandocAvailable(true);
+      } else {
+        alert(t('editorPanel.installPandocError') + (data.error || ''));
+      }
+    } catch (err) {
+      alert(t('editorPanel.installPandocError') + err);
+    } finally {
+      setIsInstallingPandoc(false);
+    }
+  };
+
+  const handleExportDocx = async () => {
+    const saved = await saveFile({ suppressCompile: true });
+    if (!saved) return;
+    setIsExportingDocx(true);
+    setPdfErrorLog('');
+    setCleanMessage('');
+    try {
+      const res = await fetch('/api/latex/export-docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: fileContent,
+          filePath: selectedFile,
+          projectPath: activeProject?.project_path,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCleanMessage(`DOCX: ${data.relative_output_path || data.output_path}`);
+      } else {
+        if (data.pandoc_found === false) setIsPandocAvailable(false);
+        setPdfErrorLog(data.log || data.error || 'DOCX export failed.');
+      }
+    } catch (err) {
+      setPdfErrorLog('Failed to export DOCX: ' + err.message);
+    } finally {
+      setIsExportingDocx(false);
+    }
+  };
+
   const formatCompileTiming = (timing) => {
     if (!timing) return '';
     const seconds = timing.compile_seconds ?? timing.request_seconds;
@@ -276,6 +340,17 @@ export default function EditorPanel({
       handleCompile(true, triggerCompileRequest.partial === true);
     }
   }, [triggerCompileRequest]);
+
+  useEffect(() => {
+    if (!showDocumentActionsMenu) return;
+    const handlePointerDown = (event) => {
+      if (!documentActionsMenuRef.current?.contains(event.target)) {
+        setShowDocumentActionsMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [showDocumentActionsMenu]);
 
   const handlePrintPDF = () => {
     document.body.classList.add('printing-editor');
@@ -748,16 +823,67 @@ export default function EditorPanel({
               <span>{t('editorPanel.compilePartial')}</span>
             </button>
           )}
-          {isTexFile && isTectonicAvailable && (
-            <button
-              onClick={handleCleanLatex}
-              disabled={isCompiling || isSaving || isCleaningLatex}
-              className="vscode-bottom-panel-clear-btn"
-              style={{ padding: '6px' }}
-              title="Clean LaTeX artifacts"
-            >
-              {isCleaningLatex ? <RefreshCw size={12} className="animate-spin" /> : <Trash2 size={12} />}
-            </button>
+          {isTexFile && (
+            <div ref={documentActionsMenuRef} className="vscode-overflow-menu-wrap">
+              <button
+                onClick={() => setShowDocumentActionsMenu(prev => !prev)}
+                className="vscode-bottom-panel-clear-btn"
+                style={{ padding: '6px' }}
+                title={t('editorPanel.documentActions', 'Document actions')}
+                aria-label={t('editorPanel.documentActions', 'Document actions')}
+                aria-expanded={showDocumentActionsMenu}
+              >
+                <MoreHorizontal size={12} />
+              </button>
+              {showDocumentActionsMenu && (
+                <div className="vscode-overflow-menu" role="menu">
+                  {isTectonicAvailable && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCleanLatex();
+                        setShowDocumentActionsMenu(false);
+                      }}
+                      disabled={isCompiling || isSaving || isCleaningLatex}
+                      className="vscode-overflow-menu-item"
+                      role="menuitem"
+                    >
+                      {isCleaningLatex ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      <span>{t('editorPanel.cleanLatexArtifacts', 'Clean LaTeX artifacts')}</span>
+                    </button>
+                  )}
+                  {isPandocAvailable ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleExportDocx();
+                        setShowDocumentActionsMenu(false);
+                      }}
+                      disabled={isExportingDocx || isSaving}
+                      className="vscode-overflow-menu-item"
+                      role="menuitem"
+                    >
+                      {isExportingDocx ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+                      <span>{isExportingDocx ? t('editorPanel.exportingDocx') : t('editorPanel.exportDocx')}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleInstallPandoc();
+                        setShowDocumentActionsMenu(false);
+                      }}
+                      disabled={isInstallingPandoc}
+                      className="vscode-overflow-menu-item"
+                      role="menuitem"
+                    >
+                      {isInstallingPandoc ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+                      <span>{isInstallingPandoc ? t('editorPanel.installingPandoc') : t('editorPanel.installPandoc')}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           {isTexFile && compileTiming && !isCompiling && (
             <span

@@ -111,7 +111,7 @@ def test_render_graphic_falls_back_to_default_preamble(monkeypatch):
         stdout = ""
         stderr = "stop here"
 
-    def _fake_run(cmd, cwd, capture_output, encoding, errors):
+    def _fake_run(cmd, cwd, capture_output, encoding, errors, **_kwargs):
         # First positional arg is the cmd list; last .tex file path is the target.
         tex_path = cmd[-1]
         captured["cwd"] = cwd
@@ -150,7 +150,7 @@ def test_render_graphic_does_not_override_existing_documentclass(monkeypatch):
         stdout = ""
         stderr = ""
 
-    def _fake_run(cmd, cwd, capture_output, encoding, errors):
+    def _fake_run(cmd, cwd, capture_output, encoding, errors, **_kwargs):
         tex_path = cmd[-1]
         try:
             with open(tex_path, "r", encoding="utf-8") as f:
@@ -209,7 +209,7 @@ def test_render_graphic_expands_input_relative_to_source_tex(monkeypatch, tmp_pa
         stdout = ""
         stderr = "stop here"
 
-    def _fake_run(cmd, cwd, capture_output, encoding, errors):
+    def _fake_run(cmd, cwd, capture_output, encoding, errors, **_kwargs):
         tex_path = cmd[-1]
         with open(tex_path, "r", encoding="utf-8") as f:
             captured["body"] = f.read()
@@ -257,7 +257,7 @@ def test_render_graphic_collects_project_color_definitions(monkeypatch, tmp_path
         stdout = ""
         stderr = "stop here"
 
-    def _fake_run(cmd, cwd, capture_output, encoding, errors):
+    def _fake_run(cmd, cwd, capture_output, encoding, errors, **_kwargs):
         tex_path = cmd[-1]
         with open(tex_path, "r", encoding="utf-8") as f:
             captured["body"] = f.read()
@@ -306,7 +306,7 @@ def test_render_graphic_adds_common_tikz_libraries_with_project_preamble(monkeyp
         stdout = ""
         stderr = "stop here"
 
-    def _fake_run(cmd, cwd, capture_output, encoding, errors):
+    def _fake_run(cmd, cwd, capture_output, encoding, errors, **_kwargs):
         tex_path = cmd[-1]
         with open(tex_path, "r", encoding="utf-8") as f:
             captured["body"] = f.read()

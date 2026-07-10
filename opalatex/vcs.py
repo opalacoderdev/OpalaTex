@@ -1,6 +1,7 @@
 """Version Control System (VCS) strategies for OpalaTex."""
 
 import os
+import shlex
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
@@ -73,15 +74,15 @@ class VersionControlStrategy(ABC):
 
 # ─── Shadow Git Helper ────────────────────────────────────────────────────────
 
-def _run_shadow_git(command: str, project_path: str | None = None) -> subprocess.CompletedProcess:
+def _run_shadow_git(command: str | list[str], project_path: str | None = None) -> subprocess.CompletedProcess:
     """Run a Git command using the internal shadow git directory."""
     if project_path is None:
         project_path = get_project_path()
     shadow_dir = os.path.join(project_path, ".opalatex", ".shadowgit")
-    full_cmd = f'git --git-dir="{shadow_dir}" --work-tree="{project_path}" {command}'
+    command_args = command if isinstance(command, list) else shlex.split(command)
+    full_cmd = ["git", f"--git-dir={shadow_dir}", f"--work-tree={project_path}", *command_args]
     return subprocess.run(
         full_cmd,
-        shell=True,
         capture_output=True,
         **utf8_text_kwargs(),
         cwd=project_path
@@ -123,23 +124,32 @@ def _init_shadow_git(project_path: str):
 
     if not os.path.exists(shadow_dir):
         # Init repo
-        cmd = f'git --git-dir="{shadow_dir}" --work-tree="{project_path}" init'
-        subprocess.run(cmd, shell=True, capture_output=True, cwd=project_path)
+        subprocess.run(
+            ["git", f"--git-dir={shadow_dir}", f"--work-tree={project_path}", "init"],
+            capture_output=True,
+            cwd=project_path,
+        )
 
-        cmd_exclude = f'git --git-dir="{shadow_dir}" --work-tree="{project_path}" config core.excludesFile "{gitignore_path}"'
-        subprocess.run(cmd_exclude, shell=True, capture_output=True, cwd=project_path)
+        subprocess.run(
+            ["git", f"--git-dir={shadow_dir}", f"--work-tree={project_path}", "config", "core.excludesFile", gitignore_path],
+            capture_output=True,
+            cwd=project_path,
+        )
         
         # Initial commit
         _run_shadow_git("add .", project_path)
-        _run_shadow_git("commit -m 'Initial checkpoint (Auto)'", project_path)
+        _run_shadow_git(["commit", "-m", "Initial checkpoint (Auto)"], project_path)
 
-    cmd_exclude = f'git --git-dir="{shadow_dir}" --work-tree="{project_path}" config core.excludesFile "{gitignore_path}"'
-    subprocess.run(cmd_exclude, shell=True, capture_output=True, cwd=project_path)
+    subprocess.run(
+        ["git", f"--git-dir={shadow_dir}", f"--work-tree={project_path}", "config", "core.excludesFile", gitignore_path],
+        capture_output=True,
+        cwd=project_path,
+    )
 
 def _auto_checkpoint(message: str, project_path: str | None = None):
     """Automatically create a checkpoint in the shadow git."""
     _run_shadow_git("add .", project_path)
-    res = _run_shadow_git(f"commit -m '{message}'", project_path)
+    res = _run_shadow_git(["commit", "-m", message], project_path)
     return res.returncode == 0
 
 
@@ -161,7 +171,7 @@ def git_diff() -> str:
 def git_commit(message: str) -> str:
     AGENT_PROGRESS.update("git_commit", _preview(message))
     _run_shadow_git("add .")
-    res = _run_shadow_git(f'commit -m "{message}"')
+    res = _run_shadow_git(["commit", "-m", message])
     if res.returncode == 0:
         return f"Successfully committed: {message}"
     return f"Failed to commit or nothing to commit. Output: {res.stderr or res.stdout}"
@@ -187,7 +197,7 @@ class AutoGitStrategy(VersionControlStrategy):
 
     def manual_commit(self, message: str) -> tuple[bool, str]:
         _run_shadow_git("add .", self.project_path)
-        res = _run_shadow_git(f"commit -m '{message}'", self.project_path)
+        res = _run_shadow_git(["commit", "-m", message], self.project_path)
         if res.returncode == 0:
             return True, "Committed."
         err_out = res.stderr or res.stdout
@@ -243,7 +253,7 @@ class HybridGitStrategy(VersionControlStrategy):
 
     def manual_commit(self, message: str) -> tuple[bool, str]:
         _run_shadow_git("add .", self.project_path)
-        res = _run_shadow_git(f"commit -m '{message}'", self.project_path)
+        res = _run_shadow_git(["commit", "-m", message], self.project_path)
         if res.returncode == 0:
             return True, "Committed."
         err_out = res.stderr or res.stdout
@@ -298,7 +308,7 @@ class AgentDrivenGitStrategy(VersionControlStrategy):
 
     def manual_commit(self, message: str) -> tuple[bool, str]:
         _run_shadow_git("add .", self.project_path)
-        res = _run_shadow_git(f"commit -m '{message}'", self.project_path)
+        res = _run_shadow_git(["commit", "-m", message], self.project_path)
         if res.returncode == 0:
             return True, "Committed."
         err_out = res.stderr or res.stdout

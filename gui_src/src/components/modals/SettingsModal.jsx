@@ -337,6 +337,37 @@ export default function SettingsModal({
                 <span style={{ fontSize: '11px', color: '#888888' }}>Baixa o compilador Tectonic manualmente caso a compilação de LaTeX esteja falhando por falta do executável no sistema.</span>
               </div>
 
+              <div className="flex flex-col" style={{ gap: '6px', borderTop: '1px solid var(--vscode-border)', paddingTop: '12px', marginTop: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Pandoc (DOCX)</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => {
+                      const btn = document.getElementById('btnInstallPandoc');
+                      if (btn) btn.disabled = true;
+                      fetch('/api/settings/install-pandoc', { method: 'POST' })
+                        .then(r => r.json())
+                        .then(res => {
+                          if (res.success) {
+                            alert("Pandoc instalado com sucesso!");
+                          } else {
+                            alert("Erro ao instalar Pandoc: " + res.error);
+                          }
+                          if (btn) btn.disabled = false;
+                        })
+                        .catch(err => {
+                          alert("Erro de conexao: " + err);
+                          if (btn) btn.disabled = false;
+                        });
+                    }}
+                    id="btnInstallPandoc"
+                    className="vscode-button"
+                  >
+                    Instalar Pandoc (Fallback)
+                  </button>
+                </div>
+                <span style={{ fontSize: '11px', color: '#888888' }}>Baixa o Pandoc manualmente caso a exportacao TeX para DOCX esteja falhando por falta do executavel no sistema.</span>
+              </div>
+
 
             </>
           ) : (
