@@ -12,6 +12,8 @@ from __future__ import annotations
 import base64
 import io
 import json
+import asyncio
+import zipfile
 import pytest
 
 
@@ -35,6 +37,41 @@ def _tiny_png_b64() -> str:
     img = Image.new("RGB", (200, 300), color=(0, 128, 255))
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
+
+
+def _zip_b64(files: dict[str, str]) -> str:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as archive:
+        for name, content in files.items():
+            archive.writestr(name, content)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _minimal_docx_b64() -> str:
+    return _zip_b64({
+        "word/document.xml": """<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Hello DOCX</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Second paragraph</w:t></w:r></w:p>
+  </w:body>
+</w:document>""",
+    })
+
+
+def _minimal_pptx_b64() -> str:
+    return _zip_b64({
+        "ppt/slides/slide2.xml": """<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Second slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
+</p:sld>""",
+        "ppt/slides/slide1.xml": """<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Title slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
+</p:sld>""",
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -98,6 +135,47 @@ def test_build_attachment_descriptor_pdf_preserves_original(monkeypatch):
     assert desc["raw_mime"] == "application/pdf"
 
 
+def test_extract_docx_text_reads_document_xml():
+    from opalatex.attachments import extract_docx_text
+
+    text = extract_docx_text(_minimal_docx_b64())
+    assert "Hello DOCX" in text
+    assert "Second paragraph" in text
+
+
+def test_extract_pptx_text_reads_slides_in_order():
+    from opalatex.attachments import extract_pptx_text
+
+    text = extract_pptx_text(_minimal_pptx_b64())
+    assert text.index("Title slide") < text.index("Second slide")
+    assert "Slide 1:" in text
+    assert "Slide 2:" in text
+
+
+def test_build_attachment_descriptor_docx_by_extension_when_mime_missing():
+    from opalatex.attachments import DOCX_MIME, build_attachment_descriptor
+
+    raw = _minimal_docx_b64()
+    desc = build_attachment_descriptor("notes.docx", raw, "application/octet-stream")
+
+    assert desc["type"] == "pdf_text"
+    assert desc["mime"] == DOCX_MIME
+    assert desc["raw_data"] == raw
+    assert "Hello DOCX" in desc["data"]
+
+
+def test_build_attachment_descriptor_pptx_preserves_original():
+    from opalatex.attachments import PPTX_MIME, build_attachment_descriptor
+
+    raw = _minimal_pptx_b64()
+    desc = build_attachment_descriptor("deck.pptx", raw, PPTX_MIME)
+
+    assert desc["type"] == "pdf_text"
+    assert desc["raw_mime"] == PPTX_MIME
+    assert desc["raw_data"] == raw
+    assert "Title slide" in desc["data"]
+
+
 def test_build_attachment_descriptor_unknown_passes_through():
     from opalatex.attachments import build_attachment_descriptor
 
@@ -131,7 +209,10 @@ def test_read_file_extracts_recent_pdf_attachment(monkeypatch):
     import opalatex.tools as tools
 
     raw = base64.b64encode(b"%PDF-1.4 fake").decode()
-    monkeypatch.setattr("opalatex.attachments.extract_pdf_text", lambda data_b64: f"extracted:{data_b64}")
+    monkeypatch.setattr(
+        "opalatex.attachments.extract_document_text",
+        lambda data_b64, mime, filename="": f"extracted:{mime}:{filename}:{data_b64}",
+    )
 
     tools.set_recent_file_attachments({
         "input_file_0.pdf": {
@@ -143,7 +224,9 @@ def test_read_file_extracts_recent_pdf_attachment(monkeypatch):
         }
     })
 
-    assert tools.read_file("input_file_0.pdf") == f"extracted:{raw}"
+    input_model = tools.read_file.input_schema()
+    result = asyncio.run(tools.read_file.run(input_model(path="input_file_0.pdf")))
+    assert result.result == f"extracted:application/pdf:paper.pdf:{raw}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

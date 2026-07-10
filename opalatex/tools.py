@@ -391,10 +391,14 @@ def read_file(path: str) -> str:
             raw_data = attachment.get("raw_data")
             if raw_data:
                 try:
-                    from opalatex.attachments import extract_pdf_text
-                    return extract_pdf_text(raw_data)
+                    from opalatex.attachments import extract_document_text
+                    return extract_document_text(
+                        raw_data,
+                        attachment.get("raw_mime") or attachment.get("mime", ""),
+                        attachment.get("name", path),
+                    )
                 except Exception as e:
-                    raise ValueError(f"Error extracting attached PDF '{attachment.get('name', path)}': {e}")
+                    raise ValueError(f"Error extracting attached document '{attachment.get('name', path)}': {e}")
             return attachment.get("data", "")
         if att_type == "image":
             raise ValueError(

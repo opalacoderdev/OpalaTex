@@ -346,6 +346,10 @@ def _attachment_alias(index: int, att: dict) -> str:
         mime = att.get("mime", "")
         if mime == "application/pdf":
             ext = ".pdf"
+        elif mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            ext = ".docx"
+        elif mime == "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+            ext = ".pptx"
         elif mime.startswith("image/"):
             ext = "." + mime.split("/", 1)[1].replace("jpeg", "jpg")
     return f"input_file_{index}{ext or ''}"
@@ -359,7 +363,8 @@ def _attachment_summary(att: dict, alias: str) -> str:
         return f"- {alias}: image attachment '{name}' ({mime or 'image'})"
     if att_type == "pdf_text":
         chars = len(att.get("data", "") or "")
-        return f"- {alias}: PDF attachment '{name}' ({chars} extracted text chars)"
+        label = "PDF" if mime == "application/pdf" else "document"
+        return f"- {alias}: {label} attachment '{name}' ({chars} extracted text chars)"
     return f"- {alias}: attachment '{name}' ({mime or att_type or 'unknown'})"
 
 
@@ -1101,8 +1106,8 @@ async def handle_run(data: dict):
                 ]
                 prompt += (
                     f"\n\n[Attachment context from {source}. These files are attached to this LLM message. "
-                    f"Use the visual/PDF content directly when possible. If a tool asks for a file path, "
-                    f"use the listed alias exactly. For PDF aliases, read_file(alias) extracts the original attached PDF.]\n"
+                    f"Use the visual/document content directly when possible. If a tool asks for a file path, "
+                    f"use the listed alias exactly. For document aliases, read_file(alias) extracts the original attached file.]\n"
                     + "\n".join(summaries)
                 )
 

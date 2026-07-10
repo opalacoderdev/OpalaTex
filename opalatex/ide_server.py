@@ -2246,7 +2246,7 @@ class AsyncHTTPServer:
             results = store.search_chat_content(project_name, q)
             self.send_response(writer, 200, json.dumps({"results": results}).encode(), "application/json")
 
-        # 6c. Upload attachment (image or PDF) for chat
+        # 6c. Upload attachment (image or supported document) for chat
         elif path == '/api/chat/upload' and method == 'POST':
             filename = data.get("filename", "attachment")
             data_b64 = data.get("data_b64", "")
@@ -2257,9 +2257,17 @@ class AsyncHTTPServer:
             try:
                 from opalatex.attachments import build_attachment_descriptor
                 project_name = data.get("project_name")
-                # Resolve optional PDF truncation settings from project
+                document_mimes = {
+                    "application/pdf",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                }
+                document_extensions = {".pdf", ".docx", ".pptx"}
+                _, ext = os.path.splitext(filename or "")
+
+                # Resolve optional document truncation settings from project
                 max_chars = None
-                if project_name and mime == "application/pdf":
+                if project_name and (mime in document_mimes or ext.lower() in document_extensions):
                     from opalatex.config import DEFAULT_DB_PATH
                     from opalatex.project import ProjectStore
                     _store = ProjectStore(db_path=DEFAULT_DB_PATH)

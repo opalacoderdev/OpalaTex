@@ -283,6 +283,34 @@ export default function ChatPanel({
   const hasMcp = webSearchConfig?.provider === 'mcp' && !!(webSearchConfig?.mcp_url);
 
   // ---- Attachment helpers ----
+  const supportedAttachmentMimes = new Set([
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ]);
+  const supportedAttachmentExtensions = new Set(['.pdf', '.docx', '.pptx']);
+
+  const getFileExtension = (filename = '') => {
+    const dot = filename.lastIndexOf('.');
+    return dot >= 0 ? filename.slice(dot).toLowerCase() : '';
+  };
+
+  const isSupportedAttachment = (file) => {
+    const mime = file.type || '';
+    return mime.startsWith('image/')
+      || supportedAttachmentMimes.has(mime)
+      || supportedAttachmentExtensions.has(getFileExtension(file.name));
+  };
+
+  const getUploadMime = (file) => {
+    if (file.type) return file.type;
+    const ext = getFileExtension(file.name);
+    if (ext === '.pdf') return 'application/pdf';
+    if (ext === '.docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (ext === '.pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    return 'application/octet-stream';
+  };
+
   const uploadFile = async (file) => {
     const reader = new FileReader();
     return new Promise((resolve, reject) => {
@@ -296,7 +324,7 @@ export default function ChatPanel({
             body: JSON.stringify({
               filename: file.name,
               data_b64: base64,
-              mime: file.type || 'application/octet-stream',
+              mime: getUploadMime(file),
               project_name: activeProject?.name,
             }),
           });
@@ -326,8 +354,7 @@ export default function ChatPanel({
     setUploadingFiles(true);
     const results = [];
     for (const f of Array.from(files)) {
-      const mime = f.type || '';
-      if (!mime.startsWith('image/') && mime !== 'application/pdf') continue;
+      if (!isSupportedAttachment(f)) continue;
       try {
         const desc = await uploadFile(f);
         results.push(desc);
@@ -1315,7 +1342,7 @@ export default function ChatPanel({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,application/pdf"
+            accept="image/*,application/pdf,.docx,.pptx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation"
             multiple
             style={{ display: 'none' }}
             onChange={handleFileInputChange}
@@ -1326,7 +1353,7 @@ export default function ChatPanel({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={!activeProject || isAgentRunning}
-            title={t('chatPanel.attachFile', 'Attach image or PDF')}
+            title={t('chatPanel.attachFile', 'Attach image, PDF, DOCX, or PPTX')}
             style={{
               background: 'transparent', border: 'none', cursor: 'pointer',
               color: (pendingAttachments && pendingAttachments.length > 0) ? '#4ec9b0' : '#666',

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 export default function AddProviderModal({
   editingModel,
+  existingModels = [],
   onClose,
   onSave
 }) {
@@ -28,17 +29,29 @@ export default function AddProviderModal({
     e.preventDefault();
     setError('');
 
-    if (!provider || !name) {
+    const trimmedProvider = provider.trim();
+    const trimmedName = name.trim();
+
+    if (!trimmedProvider || !trimmedName) {
       setError('Provider and Model Name are required.');
       return;
     }
 
-    const id = `${provider}/${name}`;
+    const id = `${trimmedProvider}/${trimmedName}`;
+    const duplicate = existingModels.some(model =>
+      model.id === id && model.id !== editingModel?.id
+    );
+
+    if (duplicate) {
+      setError('A model with this provider and name already exists.');
+      return;
+    }
     
     onSave({
       id,
-      provider,
-      name,
+      previous_id: editingModel?.id,
+      provider: trimmedProvider,
+      name: trimmedName,
       api_key: apiKey,
       api_base: apiBase
     });
@@ -81,9 +94,7 @@ export default function AddProviderModal({
                 value={name}
                 onChange={e => setName(e.target.value)}
                 placeholder="gemma4:12b"
-                disabled={!!editingModel}
               />
-              {editingModel && <span style={{fontSize:'11px', color:'#888'}}>Model Name cannot be changed during edit.</span>}
             </div>
 
             <div className="vscode-form-group">
@@ -108,9 +119,9 @@ export default function AddProviderModal({
               />
             </div>
             
-            {(!editingModel && provider && name) && (
+            {(provider && name) && (
               <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
-                Generated ID: <strong style={{color:'#ccc'}}>{provider}/{name}</strong>
+                Generated ID: <strong style={{color:'#ccc'}}>{provider.trim()}/{name.trim()}</strong>
               </div>
             )}
           </div>

@@ -341,24 +341,27 @@ export default function App() {
 
   const handleGlobalModelSave = async (modelData) => {
     try {
+      const previousModelId = modelData.previous_id || modelData.id;
       const res = await fetch('/api/settings/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(modelData)
       });
       if (res.ok) {
-        const projectUsesMainModel = activeProject?.model === modelData.id;
-        const projectUsesWorkerModel = activeProject?.worker_model === modelData.id;
+        const projectUsesMainModel = activeProject?.model === previousModelId || activeProject?.model === modelData.id;
+        const projectUsesWorkerModel = activeProject?.worker_model === previousModelId || activeProject?.worker_model === modelData.id;
         if (activeProject && (projectUsesMainModel || projectUsesWorkerModel)) {
           const payload = {
             project_name: activeProject.name,
             chat_id: activeChatId
           };
           if (projectUsesMainModel) {
+            payload.model = modelData.id;
             payload.api_key = modelData.api_key || '';
             payload.api_base = modelData.api_base || '';
           }
           if (projectUsesWorkerModel) {
+            payload.worker_model = modelData.id;
             payload.worker_api_key = modelData.api_key || '';
             payload.worker_api_base = modelData.api_base || '';
           }
@@ -3008,6 +3011,7 @@ export default function App() {
       {showAddProviderModal && (
         <AddProviderModal
           editingModel={editingModelModalData}
+          existingModels={globalModels}
           onClose={() => setShowAddProviderModal(false)}
           onSave={handleGlobalModelSave}
         />

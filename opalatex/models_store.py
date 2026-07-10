@@ -91,16 +91,27 @@ def get_model(model_id: str) -> Dict[str, Any] | None:
     return None
 
 def add_or_update_model(model_data: Dict[str, Any]) -> None:
-    """Add a new model or update an existing one by ID."""
+    """Add a new model or update an existing one by ID.
+
+    When editing a model whose ID changed, callers can pass ``previous_id`` to
+    replace the old entry instead of appending a duplicate under the new ID.
+    """
     if "id" not in model_data:
         raise ValueError("Model data must contain an 'id' field")
         
     models = load_models()
+    model_data = dict(model_data)
+    previous_id = model_data.pop("previous_id", None)
     model_id = model_data["id"]
+
+    if previous_id and previous_id != model_id:
+        for m in models:
+            if m.get("id") == model_id:
+                raise ValueError(f"Model '{model_id}' already exists")
     
     updated = False
     for i, m in enumerate(models):
-        if m.get("id") == model_id:
+        if m.get("id") == (previous_id or model_id):
             models[i] = model_data
             updated = True
             break
