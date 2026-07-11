@@ -4,6 +4,20 @@
     "ok": "OK",
     "close": "Fechar mensagem"
   },
+  "licenseModal": {
+    "registerTitle": "Registrar Opala Cloud",
+    "replaceTitle": "Substituir serial do Opala Cloud",
+    "registerDescription": "Registre uma chave válida para usar créditos cloud do OpalaWebPage. O OpalaTex é open-source e continua totalmente disponível sem registro.",
+    "replaceDescription": "Substitua o serial registrado usado para créditos cloud do OpalaWebPage. O OpalaTex continua totalmente disponível sem registro.",
+    "keyLabel": "Chave de registro cloud",
+    "registerSuccess": "Conta Cloud registrada!",
+    "invalidKey": "Chave de registro inválida.",
+    "connectionError": "Erro de conexão. Não foi possível ativar.",
+    "cancel": "Cancelar",
+    "registering": "Registrando...",
+    "registerAction": "Registrar conta Cloud",
+    "replaceAction": "Substituir serial"
+  },
   "activityBar": {
     "explorer": "Explorer",
     "sourceControl": "Source Control",
@@ -347,6 +361,10 @@
     "version": "Versão",
     "author": "Autor",
     "license": "Licença",
+    "softwareSerial": "Serial do software",
+    "noSoftwareSerial": "Nenhum serial registrado",
+    "softwareSerialHint": "Este serial identifica a conta Opala Cloud usada para créditos e recargas.",
+    "replaceSoftwareSerial": "Substituir serial",
     "donationTitle": "Apoie o OpalaTex",
     "donationDescription": "Ajude a financiar manutenção, documentação, correções e novos recursos deste projeto open-source.",
     "donationButton": "Doar com PayPal",

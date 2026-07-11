@@ -37,33 +37,9 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
       window.open('https://opalacoder.com/#products', '_blank');
       return;
     }
-    
-    try {
-      const res = await fetch('https://opalacoder.com/api/create-recharge-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ licenseKey: licenseData.key })
-      });
-      const text = await res.text();
-      let data;
-      try {
-          data = JSON.parse(text);
-      } catch (e) {
-          alert(t('statusBar.parseError', { text: text.substring(0, 50) }));
-          window.open('https://opalacoder.com/#products', '_blank');
-          return;
-      }
 
-      if (data.token) {
-        window.open(`https://opalacoder.com/?rechargeToken=${data.token}`, '_blank');
-      } else {
-        alert(t('statusBar.rechargeSessionError', { status: res.status, data: JSON.stringify(data) }));
-        window.open('https://opalacoder.com/#products', '_blank');
-      }
-    } catch (err) {
-      alert(t('statusBar.networkError', { message: err.message }));
-      window.open('https://opalacoder.com/#products', '_blank');
-    }
+    const license = encodeURIComponent(licenseData.key.trim());
+    window.open(`https://opalacoder.com/?license=${license}&autoCheckout=true`, '_blank');
   };
 
   return (

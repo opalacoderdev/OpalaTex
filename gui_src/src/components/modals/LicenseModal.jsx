@@ -1,12 +1,23 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
-export default function LicenseModal({ isOpen, onClose }) {
-  if (!isOpen) return null;
-
+export default function LicenseModal({ isOpen, onClose, licenseData }) {
+  const { t } = useTranslation();
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const isReplacing = Boolean(licenseData?.key);
+
+  useEffect(() => {
+    if (isOpen) {
+      setKey(licenseData?.key || '');
+      setError('');
+      setSuccess('');
+    }
+  }, [isOpen, licenseData?.key]);
+
+  if (!isOpen) return null;
 
   const handleActivate = async () => {
     setError('');
@@ -20,15 +31,15 @@ export default function LicenseModal({ isOpen, onClose }) {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setSuccess(data.message || 'Cloud account registered!');
+        setSuccess(data.message || t('licenseModal.registerSuccess'));
         setTimeout(() => {
           onClose(); // Needs to trigger a reload or refresh of license status
         }, 1500);
       } else {
-        setError(data.message || data.error || 'Invalid registration key.');
+        setError(data.message || data.error || t('licenseModal.invalidKey'));
       }
     } catch (err) {
-      setError('Connection error. Could not activate.');
+      setError(t('licenseModal.connectionError'));
     } finally {
       setIsLoading(false);
     }
@@ -67,23 +78,23 @@ export default function LicenseModal({ isOpen, onClose }) {
           alignItems: 'center'
         }}>
           <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: 'var(--vscode-editor-foreground, #e8e8e8)' }}>
-            Register Opala Cloud
+            {isReplacing ? t('licenseModal.replaceTitle') : t('licenseModal.registerTitle')}
           </h2>
           <button onClick={onClose} style={{
-            background: 'none', border: 'none', color: '#858585', cursor: 'pointer', fontSize: '18px'
+            background: 'none', border: 'none', color: 'var(--vscode-description-fg, #858585)', cursor: 'pointer', fontSize: '18px'
           }}>
             &times;
           </button>
         </div>
         
         <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.5', color: '#cccccc' }}>
-            Register a valid key to use OpalaWebPage cloud credits. OpalaTex itself is open-source and remains fully available without registration.
+          <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.5', color: 'var(--vscode-editor-foreground, #cccccc)' }}>
+            {isReplacing ? t('licenseModal.replaceDescription') : t('licenseModal.registerDescription')}
           </p>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ fontSize: '12px', color: '#858585', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Cloud Registration Key
+            <label style={{ fontSize: '12px', color: 'var(--vscode-description-fg, #858585)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              {t('licenseModal.keyLabel')}
             </label>
             <input
               type="text"
@@ -122,12 +133,12 @@ export default function LicenseModal({ isOpen, onClose }) {
             padding: '8px 16px',
             fontSize: '14px',
             backgroundColor: 'transparent',
-            color: '#cccccc',
+            color: 'var(--vscode-editor-foreground, #cccccc)',
             border: 'none',
             cursor: 'pointer',
             borderRadius: '4px'
           }}>
-            Cancel
+            {t('licenseModal.cancel')}
           </button>
           <button 
             onClick={handleActivate}
@@ -144,7 +155,9 @@ export default function LicenseModal({ isOpen, onClose }) {
               opacity: (!key.trim() || isLoading) ? 0.7 : 1
             }}
           >
-            {isLoading ? 'Registering...' : 'Register Cloud Account'}
+            {isLoading
+              ? t('licenseModal.registering')
+              : (isReplacing ? t('licenseModal.replaceAction') : t('licenseModal.registerAction'))}
           </button>
         </div>
       </div>

@@ -2948,6 +2948,8 @@ export default function App() {
           setEphemeralParams={setEphemeralParams}
           panelMaxLines={panelMaxLines}
           setPanelMaxLines={(val) => { setPanelMaxLines(val); safeSetLocalStorage('panelMaxLines', val); }}
+          licenseData={licenseData}
+          onReplaceSerial={() => setShowLicenseModal(true)}
           onLanguageChange={(lang) => {
             fetch('/api/settings/language', {
               method: 'POST',
