@@ -717,6 +717,19 @@ export default function App() {
   // ── Helpers ───────────────────────────────────────────────────────────────
   const trimToLimit = (arr, limit) => arr.length > limit ? arr.slice(arr.length - limit) : arr;
 
+  const contentHasPersistedThought = (content) => {
+    const text = String(content || '');
+    return /<think>[\s\S]*?<\/think>/i.test(text)
+      || /```(?:thought|reasoning)[\s\S]*?```/i.test(text);
+  };
+
+  const withPersistedThought = (content, thoughtSnapshot) => {
+    const text = String(content || '');
+    const thought = String(thoughtSnapshot || '').trim();
+    if (!thought || contentHasPersistedThought(text)) return text;
+    return `<think>\n${thought}\n</think>\n\n${text}`.trim();
+  };
+
   const addLog = (type, message, agent) =>
     setTerminalLogs(prev => {
       let next;
@@ -1740,10 +1753,8 @@ export default function App() {
 
         setChatMessages(prev => {
           const last = prev[prev.length - 1];
-          let finalContent = data.persisted_response || responseText;
-          if (!data.persisted_response && thoughtSnapshot && thoughtSnapshot.trim()) {
-            finalContent = `<think>\n${thoughtSnapshot.trim()}\n</think>\n\n${responseText}`;
-          }
+          const baseContent = data.persisted_response || responseText;
+          const finalContent = withPersistedThought(baseContent, thoughtSnapshot);
           if (last?.role === 'assistant' && last.content === finalContent) return prev;
           return [...prev, {
             id: data.message_id,
@@ -1878,6 +1889,7 @@ export default function App() {
     setIsAgentRunning(true);
     setProblems([]);
     setAchievementsMemory('');
+    chatThoughtStreamRef.current = '';
     setChatThoughtStream('');
     addLog('info', `Iniciando: "${userText}"`);
 
@@ -2494,6 +2506,8 @@ export default function App() {
     setChatMessages(prev => [...prev, { role: 'user', content: userText, timestamp: new Date().toISOString() }]);
     setIsAgentRunning(true);
     setProblems([]);
+    chatThoughtStreamRef.current = '';
+    setChatThoughtStream('');
     addLog('info', `Iniciando: "${userText.slice(0, 80)}${userText.length > 80 ? '…' : ''}"`)
 
     // Use the captured text if provided; otherwise try reading Monaco
