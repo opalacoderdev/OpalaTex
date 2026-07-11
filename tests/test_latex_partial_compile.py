@@ -3,6 +3,76 @@ import subprocess
 from opalatex import latex_compiler
 
 
+def test_dependent_file_uses_guessed_root_document_for_dynamic_include(tmp_path):
+    root = tmp_path / "driver_document.tex"
+    fragment = tmp_path / "selected_fragment.tex"
+    root.write_text(
+        "\\documentclass{book}\n"
+        "\\begin{document}\n"
+        "\\foreach \\fragment in {intro_fragment,selected_fragment}{\\input{\\fragment}}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    fragment.write_text("\\chapter{Final chapter}\n", encoding="utf-8")
+
+    selected = latex_compiler.determine_main_file_for_compilation(
+        str(fragment),
+        fragment.read_text(encoding="utf-8"),
+        str(tmp_path),
+        "",
+    )
+
+    assert selected == "driver_document.tex"
+
+
+def test_root_document_can_receive_documentclass_from_preamble(tmp_path):
+    root = tmp_path / "driver_document.tex"
+    fragment = tmp_path / "selected_fragment.tex"
+    root.write_text(
+        "\\input{preamble}\n"
+        "\\begin{document}\n"
+        "\\input{selected_fragment}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    fragment.write_text("\\chapter{Tool Use}\n", encoding="utf-8")
+
+    selected = latex_compiler.determine_main_file_for_compilation(
+        str(fragment),
+        fragment.read_text(encoding="utf-8"),
+        str(tmp_path),
+        "",
+    )
+
+    assert selected == "driver_document.tex"
+
+
+def test_dependent_file_uses_nested_root_that_includes_it_when_project_main_is_missing(tmp_path):
+    source_dir = tmp_path / "sources"
+    source_dir.mkdir()
+    main = source_dir / "root_document.tex"
+    section = source_dir / "section_alpha.tex"
+    main.write_text(
+        "\\documentclass{book}\n"
+        "\\begin{document}\n"
+        "\\input{section_intro}\n"
+        "\\input{section_alpha}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    (source_dir / "section_intro.tex").write_text("\\chapter{First}\n", encoding="utf-8")
+    section.write_text("\\chapter{Selected}\n", encoding="utf-8")
+
+    selected = latex_compiler.determine_main_file_for_compilation(
+        str(section),
+        section.read_text(encoding="utf-8"),
+        str(tmp_path),
+        "",
+    )
+
+    assert selected == "sources/root_document.tex"
+
+
 def test_partial_compile_injects_includeonly(monkeypatch, tmp_path):
     main = tmp_path / "main.tex"
     chapter = tmp_path / "chapters" / "one.tex"
@@ -132,19 +202,20 @@ def test_partial_compile_runs_bibtex_when_no_bbl_exists(monkeypatch, tmp_path):
 
 
 def test_partial_compile_preserves_chapter_number_for_input_chapter(monkeypatch, tmp_path):
-    main = tmp_path / "main.tex"
-    for index in range(1, 5):
-        (tmp_path / f"cap{index}.tex").write_text(
+    root = tmp_path / "driver_document.tex"
+    fragment_names = ["frontmatter", "methods", "results", "discussion"]
+    for index, name in enumerate(fragment_names, start=1):
+        (tmp_path / f"{name}.tex").write_text(
             f"\\chapter{{Chapter {index}}}\nContent {index}\n",
             encoding="utf-8",
         )
-    main.write_text(
+    root.write_text(
         "\\documentclass{book}\n"
         "\\begin{document}\n"
-        "\\input{cap1}\n"
-        "\\input{cap2}\n"
-        "\\input{cap3}\n"
-        "\\input{cap4}\n"
+        "\\input{frontmatter}\n"
+        "\\input{methods}\n"
+        "\\input{results}\n"
+        "\\input{discussion}\n"
         "\\end{document}\n",
         encoding="utf-8",
     )
@@ -152,21 +223,21 @@ def test_partial_compile_preserves_chapter_number_for_input_chapter(monkeypatch,
     monkeypatch.setattr(latex_compiler, "get_tectonic_path", lambda: "tectonic")
 
     def fake_run(cmd, cwd, capture_output, encoding, errors):
-        preview_source = (tmp_path / "opalatex_partial_cap4.tex").read_text(encoding="utf-8")
-        assert "\\setcounter{chapter}{3}\n\\input{cap4}" in preview_source
-        assert "skipped \\input{cap1}" in preview_source
-        assert "skipped \\input{cap2}" in preview_source
-        assert "skipped \\input{cap3}" in preview_source
-        (tmp_path / "opalatex_partial_cap4.pdf").write_bytes(b"%PDF")
-        (tmp_path / "opalatex_partial_cap4.synctex.gz").write_bytes(b"synctex")
+        preview_source = (tmp_path / "opalatex_partial_discussion.tex").read_text(encoding="utf-8")
+        assert "\\setcounter{chapter}{3}\n\\input{discussion}" in preview_source
+        assert "skipped \\input{frontmatter}" in preview_source
+        assert "skipped \\input{methods}" in preview_source
+        assert "skipped \\input{results}" in preview_source
+        (tmp_path / "opalatex_partial_discussion.pdf").write_bytes(b"%PDF")
+        (tmp_path / "opalatex_partial_discussion.synctex.gz").write_bytes(b"synctex")
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr(latex_compiler.subprocess, "run", fake_run)
 
     result = latex_compiler.compile_latex_partial(
         "\\chapter{Chapter 4}\nUpdated content\n",
-        str(tmp_path / "cap4.tex"),
-        "main.tex",
+        str(tmp_path / "discussion.tex"),
+        "driver_document.tex",
         str(tmp_path),
         include_pdf_base64=False,
     )

@@ -96,6 +96,7 @@ def _parse_multipart_form(body: bytes, content_type: str) -> tuple[dict, dict]:
 
 OPALATEX_HIDDEN_ARTIFACT_PREFIXES = ("opalatex_partial_",)
 OPALATEX_GIT_EXCLUDE_PATTERNS = ("opalatex_partial_*",)
+LATEX_COMPILE_DEBUG_VERSION = "2026-07-10.1"
 
 
 def _is_opalatex_hidden_artifact(path: str) -> bool:
@@ -125,6 +126,63 @@ def _append_git_exclude_patterns(exclude_path: str) -> None:
         f.write("# OpalaTex generated artifacts\n")
         for pattern in missing:
             f.write(pattern + "\n")
+
+
+def _safe_relpath(path: str, root: str) -> str:
+    try:
+        return os.path.relpath(path, root).replace("\\", "/")
+    except Exception:
+        return path
+
+
+def _latex_compile_debug_path(project_path: str) -> str:
+    if not project_path:
+        return ""
+    return os.path.join(project_path, ".opalatex", "latex_compile_debug.json")
+
+
+def _write_latex_compile_debug(project_path: str, debug_payload: dict) -> str:
+    """Persist the last LaTeX compile decision for user-visible diagnostics."""
+    path = _latex_compile_debug_path(project_path)
+    if not path:
+        return ""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(debug_payload, f, indent=2, ensure_ascii=False)
+        return path
+    except Exception:
+        return ""
+
+
+def _format_latex_compile_debug(debug_payload: dict) -> str:
+    """Format the important compile-routing facts for the PDF error panel."""
+    lines = ["OpalaTex LaTeX Debug"]
+    for key in (
+        "debug_version",
+        "backend_file",
+        "compiler_file",
+        "partial",
+        "request_file_path",
+        "resolved_full_path",
+        "project_path",
+        "project_name",
+        "requested_main_file",
+        "store_main_file",
+        "selected_main_file",
+        "selected_main_exists",
+        "selected_main_reason",
+        "compile_function",
+        "partial_mode",
+        "compiler_cwd",
+        "compiler_input_tex",
+        "compiler_returncode",
+        "pdf_path",
+        "debug_file",
+    ):
+        if key in debug_payload:
+            lines.append(f"{key}: {debug_payload.get(key)}")
+    return "\n".join(lines)
 
 
 def _ensure_opalatex_git_excludes(git_ctx: dict) -> None:
@@ -672,12 +730,26 @@ class AsyncHTTPServer:
 
         # 0. Compile LaTeX
         if path == '/api/latex/compile':
+            import opalatex.latex_compiler as latex_compiler
             from opalatex.latex_compiler import compile_latex, compile_latex_partial
             request_started = time.perf_counter()
             content = data.get('content', '')
             file_path = data.get('filePath', '')
             project_path = data.get('projectPath', '')
+            project_name = str(data.get('projectName', '') or '').strip()
+            requested_main_file = str(data.get('mainFile', '') or '').strip()
             partial = bool(data.get('partial', False))
+            compile_debug = {
+                "debug_version": LATEX_COMPILE_DEBUG_VERSION,
+                "backend_file": __file__,
+                "compiler_file": getattr(latex_compiler, "__file__", ""),
+                "partial": partial,
+                "request_file_path": file_path,
+                "project_path": project_path,
+                "project_name": project_name,
+                "requested_main_file": requested_main_file,
+                "content_is_independent": latex_compiler.is_independent(content),
+            }
             
             if not content:
                 self.send_response(writer, 400, b'{"error":"content is required"}', "application/json")
@@ -692,31 +764,106 @@ class AsyncHTTPServer:
                     
             if not project_path and full_path:
                 project_path = os.path.dirname(full_path)
+                compile_debug["project_path_inferred_from_file"] = project_path
+            compile_debug["project_path"] = project_path
+            compile_debug["resolved_full_path"] = full_path
+            compile_debug["resolved_full_exists"] = bool(full_path and os.path.exists(full_path))
                 
             main_file = ""
+            store_main_file = ""
+            selected_main_reason = "unresolved"
             if project_path:
+                if requested_main_file:
+                    candidate_main = os.path.abspath(os.path.join(project_path, requested_main_file))
+                    project_root = os.path.abspath(project_path)
+                    try:
+                        inside_project = os.path.commonpath([candidate_main, project_root]) == project_root
+                    except ValueError:
+                        inside_project = False
+                    if inside_project and os.path.isfile(candidate_main):
+                        main_file = os.path.relpath(candidate_main, project_root)
+                        selected_main_reason = "request.mainFile"
+                    compile_debug["requested_main_candidate"] = candidate_main
+                    compile_debug["requested_main_exists"] = bool(os.path.isfile(candidate_main))
+
                 from opalatex.project import ProjectStore
                 from opalatex.config import DEFAULT_DB_PATH
-                store = ProjectStore(db_path=DEFAULT_DB_PATH)
-                # Find project by path
-                for p in store.list_projects():
-                    if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == os.path.normcase(os.path.abspath(os.path.expanduser(project_path))):
-                        main_file = p.get("main_file", "")
-                        break
+                if not main_file:
+                    store = ProjectStore(db_path=DEFAULT_DB_PATH)
+                    # Prefer the stable internal project name. Cloud-backed and
+                    # mapped paths may have more than one textual representation.
+                    for p in store.list_projects():
+                        same_name = bool(project_name and str(p.get("name", "")).casefold() == project_name.casefold())
+                        same_path = bool(
+                            p.get("project_path")
+                            and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"])))
+                            == os.path.normcase(os.path.abspath(os.path.expanduser(project_path)))
+                        )
+                        if same_name or same_path:
+                            store_main_file = p.get("main_file", "")
+                            main_file = store_main_file
+                            selected_main_reason = "project_store.name" if same_name else "project_store.path"
+                            break
                 
                 from opalatex.latex_compiler import determine_main_file_for_compilation
+                preselected_main_file = main_file
                 main_file = determine_main_file_for_compilation(full_path, content, project_path, main_file)
+                if main_file != preselected_main_file:
+                    selected_main_reason = "determine_main_file_for_compilation"
+                compile_debug["store_main_file"] = store_main_file
+                compile_debug["preselected_main_file"] = preselected_main_file
+                compile_debug["selected_main_file"] = main_file
+                compile_debug["selected_main_reason"] = selected_main_reason
+                selected_main_abs = os.path.abspath(os.path.join(project_path, main_file)) if main_file else ""
+                compile_debug["selected_main_abs"] = selected_main_abs
+                compile_debug["selected_main_exists"] = bool(selected_main_abs and os.path.isfile(selected_main_abs))
+                compile_debug["selected_main_rel"] = _safe_relpath(selected_main_abs, project_path) if selected_main_abs else ""
             
             # run compilation
             if partial:
+                compile_debug["compile_function"] = "compile_latex_partial"
                 result = compile_latex_partial(content, full_path, main_file, project_path, include_pdf_base64=False)
-                if not result.get("success") and "not found as a direct" in (result.get("log") or ""):
-                    result["log"] += "\nFalling back to full compilation."
+                compile_debug["partial_result_success"] = result.get("success")
+                compile_debug["partial_mode"] = result.get("partial_mode", "")
+                if not result.get("success"):
+                    partial_log = result.get("log") or "Partial compilation failed."
+                    compile_debug["partial_fallback_reason"] = partial_log[:2000]
+                    compile_debug["compile_function"] = "compile_latex_partial_then_compile_latex"
                     fallback = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False)
-                    fallback["partial_fallback_reason"] = result["log"]
+                    fallback["partial_fallback_reason"] = partial_log
+                    if not fallback.get("success"):
+                        fallback["log"] = (
+                            f"Partial compilation failed:\n{partial_log}\n\n"
+                            f"Full compilation fallback also failed:\n{fallback.get('log') or ''}"
+                        )
                     result = fallback
             else:
+                compile_debug["compile_function"] = "compile_latex"
                 result = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False)
+
+            result["compiled_main_file"] = main_file
+            compile_debug["result_success"] = result.get("success")
+            compile_debug["result_returned_pdf_path"] = result.get("pdf_path", "")
+            compile_debug["partial_mode"] = result.get("partial_mode", compile_debug.get("partial_mode", ""))
+            compile_debug["pdf_path"] = result.get("pdf_path", "")
+            compile_debug["synctex_path"] = result.get("synctex_path", "")
+            compile_debug["compiler_debug"] = result.get("compiler_debug", {})
+            compiler_debug = compile_debug["compiler_debug"]
+            compile_debug["compiler_cwd"] = compiler_debug.get("cwd", "")
+            compile_debug["compiler_input_tex"] = compiler_debug.get("input_tex", "")
+            compile_debug["compiler_returncode"] = compiler_debug.get("returncode", "")
+            compile_debug["timing"] = result.get("timing") or {}
+            debug_file = _write_latex_compile_debug(project_path, compile_debug)
+            if debug_file:
+                compile_debug["debug_file"] = debug_file
+                _write_latex_compile_debug(project_path, compile_debug)
+            result["compile_debug"] = compile_debug
+            if not result.get("success"):
+                result["log"] = (
+                    f"{_format_latex_compile_debug(compile_debug)}\n\n"
+                    f"Compilation target: {main_file or '(unresolved)'}\n\n"
+                    f"{result.get('log') or ''}"
+                )
             
             if result.get("success") and result.get("pdf_path"):
                 self.last_pdf_path = result["pdf_path"]
