@@ -7,8 +7,8 @@
   "licenseModal": {
     "registerTitle": "Registrar Opala Cloud",
     "replaceTitle": "Substituir serial do Opala Cloud",
-    "registerDescription": "Registre uma chave válida para usar créditos cloud do OpalaWebPage. O OpalaTex é open-source e continua totalmente disponível sem registro.",
-    "replaceDescription": "Substitua o serial registrado usado para créditos cloud do OpalaWebPage. O OpalaTex continua totalmente disponível sem registro.",
+    "registerDescription": "O OpalaTex cria um serial de instalação automaticamente. Registre aqui uma chave validada pelo servidor apenas se precisar recuperar ou substituir a conta Cloud usada para créditos.",
+    "replaceDescription": "Substitua o serial usado para créditos cloud do OpalaWebPage. O OpalaTex continua totalmente disponível sem registro.",
     "keyLabel": "Chave de registro cloud",
     "registerSuccess": "Conta Cloud registrada!",
     "invalidKey": "Chave de registro inválida.",
@@ -16,7 +16,10 @@
     "cancel": "Cancelar",
     "registering": "Registrando...",
     "registerAction": "Registrar conta Cloud",
-    "replaceAction": "Substituir serial"
+    "replaceAction": "Substituir serial",
+    "generateSerial": "Gerar serial de instalação",
+    "generateSuccess": "Serial de instalação pronto.",
+    "generateError": "Não foi possível gerar o serial de instalação."
   },
   "activityBar": {
     "explorer": "Explorer",
@@ -31,12 +34,12 @@
     "balance": "Saldo: {{amount}}",
     "buyCredits": "☁️ Comprar 5M Tokens",
     "buyCreditsTitle": "Comprar 5 milhões de tokens por R$ 60 ou US$ 11,99",
-    "noCloudAccountAlert": "Nenhuma conta Cloud registrada. Compre créditos para receber sua chave de registro.",
+    "noCloudAccountAlert": "Nenhum serial de instalação encontrado. Abra Configurações > Sobre para gerar um antes de comprar créditos.",
     "parseError": "Erro no parse da resposta: {{text}}",
     "rechargeSessionError": "Falha ao gerar sessão de recarga. Status: {{status}}. Resposta: {{data}}",
     "networkError": "Erro de rede ao contactar a API: {{message}}",
-    "cloudRegisteredTitle": "Conta registrada para os serviços do OpalaWebPage",
-    "cloudRegistered": "OPALA CLOUD REGISTRADO"
+    "cloudRegisteredTitle": "Serial de instalação do Opala Cloud",
+    "cloudRegistered": "SERIAL OPALA PRONTO"
   },
   "explorerSidebar": {
     "header": "EXPLORER: PROJETOS",
@@ -363,7 +366,7 @@
     "license": "Licença",
     "softwareSerial": "Serial do software",
     "noSoftwareSerial": "Nenhum serial registrado",
-    "softwareSerialHint": "Este serial identifica a conta Opala Cloud usada para créditos e recargas.",
+    "softwareSerialHint": "Este serial identifica esta instalação ao comprar ou recarregar créditos do Opala Cloud.",
     "replaceSoftwareSerial": "Substituir serial",
     "donationTitle": "Apoie o OpalaTex",
     "donationDescription": "Ajude a financiar manutenção, documentação, correções e novos recursos deste projeto open-source.",

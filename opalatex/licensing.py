@@ -4,11 +4,19 @@ import uuid
 import time
 import base64
 import itertools
+import secrets
 
 LICENSE_DIR = os.path.expanduser("~/.opalatex")
 LICENSE_FILE = os.path.join(LICENSE_DIR, "license.dat")
 OLD_LICENSE_FILE = os.path.join(LICENSE_DIR, "license.json")
 XOR_KEY = b"OPALA_TRIAL_SECURITY_KEY_v1.0.0"
+
+
+def generate_cloud_registration_key() -> str:
+    """Generate a high-entropy Opala Cloud registration serial."""
+    token = secrets.token_hex(16).upper()
+    groups = "-".join(token[i:i + 4] for i in range(0, len(token), 4))
+    return f"OPALA-{groups}"
 
 def get_machine_id() -> str:
     """Returns a basic machine ID (based on MAC address)."""
@@ -56,14 +64,32 @@ def _save_license_data(data: dict):
     with open(LICENSE_FILE, "w", encoding="utf-8") as f:
         f.write(_encrypt(json_str))
 
+def ensure_installation_serial() -> dict:
+    """Create and persist a local installation serial if one does not exist."""
+    data = _load_license_data()
+    key = str(data.get("license_key", "")).strip()
+    created = False
+    if not key:
+        key = generate_cloud_registration_key()
+        data["license_key"] = key
+        data["serial_created_at"] = time.time()
+        data["machine_id"] = get_machine_id()
+        data.setdefault("serial_source", "local_installation")
+        _save_license_data(data)
+        created = True
+    return {"key": key, "created": created}
+
 def check_license_status() -> dict:
     """Return local registration state without authorizing application use."""
+    serial = ensure_installation_serial()
     data = _load_license_data()
     machine_id = get_machine_id()
-    key = data.get("license_key", "")
+    key = serial["key"]
     result = {
         "status": "REGISTERED" if key else "UNREGISTERED",
         "machine_id": machine_id,
+        "serial_created": serial["created"],
+        "serial_source": data.get("serial_source", "imported"),
     }
     if key:
         result["key"] = key

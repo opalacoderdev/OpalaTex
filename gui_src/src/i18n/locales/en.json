@@ -7,8 +7,8 @@
   "licenseModal": {
     "registerTitle": "Register Opala Cloud",
     "replaceTitle": "Replace Opala Cloud serial",
-    "registerDescription": "Register a valid key to use OpalaWebPage cloud credits. OpalaTex itself is open-source and remains fully available without registration.",
-    "replaceDescription": "Replace the registered serial used for OpalaWebPage cloud credits. OpalaTex itself remains fully available without registration.",
+    "registerDescription": "OpalaTex creates an installation serial automatically. Register a server-validated key here only when you need to recover or replace the Cloud account used for credits.",
+    "replaceDescription": "Replace the serial used for OpalaWebPage cloud credits. OpalaTex itself remains fully available without registration.",
     "keyLabel": "Cloud registration key",
     "registerSuccess": "Cloud account registered!",
     "invalidKey": "Invalid registration key.",
@@ -16,7 +16,10 @@
     "cancel": "Cancel",
     "registering": "Registering...",
     "registerAction": "Register Cloud Account",
-    "replaceAction": "Replace serial"
+    "replaceAction": "Replace serial",
+    "generateSerial": "Generate installation serial",
+    "generateSuccess": "Installation serial is ready.",
+    "generateError": "Could not generate the installation serial."
   },
   "activityBar": {
     "explorer": "Explorer",
@@ -31,12 +34,12 @@
     "balance": "Balance: {{amount}}",
     "buyCredits": "[Cloud] Buy 5M Tokens",
     "buyCreditsTitle": "Buy 5 million tokens for R$60 or US$11.99",
-    "noCloudAccountAlert": "No Cloud account registered. Buy credits to get your registration key.",
+    "noCloudAccountAlert": "No installation serial found. Open Settings > About to generate one before buying credits.",
     "parseError": "Error parsing response: {{text}}",
     "rechargeSessionError": "Failed to generate recharge session. Status: {{status}}. Response: {{data}}",
     "networkError": "Network error while contacting API: {{message}}",
-    "cloudRegisteredTitle": "Account registered for OpalaWebPage services",
-    "cloudRegistered": "OPALA CLOUD REGISTERED"
+    "cloudRegisteredTitle": "Opala Cloud installation serial",
+    "cloudRegistered": "OPALA SERIAL READY"
   },
   "explorerSidebar": {
     "header": "EXPLORER: PROJECTS",
@@ -363,7 +366,7 @@
     "license": "License",
     "softwareSerial": "Software serial",
     "noSoftwareSerial": "No serial registered",
-    "softwareSerialHint": "This serial identifies the Opala Cloud account used for credits and recharges.",
+    "softwareSerialHint": "This serial identifies this installation when you buy or recharge Opala Cloud credits.",
     "replaceSoftwareSerial": "Replace serial",
     "donationTitle": "Support OpalaTex",
     "donationDescription": "Help fund maintenance, documentation, fixes, and new features for this open-source project.",

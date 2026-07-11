@@ -45,6 +45,26 @@ export default function LicenseModal({ isOpen, onClose, licenseData }) {
     }
   };
 
+  const handleGenerateSerial = async () => {
+    setError('');
+    setSuccess('');
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/license/generate', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.key) {
+        setKey(data.key);
+        setSuccess(t('licenseModal.generateSuccess'));
+      } else {
+        setError(data.message || data.error || t('licenseModal.generateError'));
+      }
+    } catch (err) {
+      setError(t('licenseModal.connectionError'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div style={{
       position: 'fixed',
@@ -115,6 +135,26 @@ export default function LicenseModal({ isOpen, onClose, licenseData }) {
                 boxSizing: 'border-box'
               }}
             />
+            {!licenseData?.key && (
+              <button
+                type="button"
+                onClick={handleGenerateSerial}
+                disabled={isLoading}
+                style={{
+                  alignSelf: 'flex-start',
+                  padding: '6px 10px',
+                  fontSize: '12px',
+                  backgroundColor: 'transparent',
+                  color: 'var(--vscode-textLink-foreground, #4ea1f3)',
+                  border: '1px solid var(--vscode-input-border, #444)',
+                  borderRadius: '4px',
+                  cursor: isLoading ? 'not-allowed' : 'pointer',
+                  opacity: isLoading ? 0.7 : 1
+                }}
+              >
+                {t('licenseModal.generateSerial')}
+              </button>
+            )}
           </div>
 
           {error && <div style={{ color: '#f48771', fontSize: '13px', padding: '10px', backgroundColor: 'rgba(244,135,113,0.1)', borderRadius: '4px' }}>{error}</div>}
