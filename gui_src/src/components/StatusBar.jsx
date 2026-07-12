@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 // Bottom status bar (VSCode-style footer).
 export default function StatusBar({ activeProject, isAgentRunning, licenseData, onOpenLicense }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const [tokenBalance, setTokenBalance] = React.useState(null);
   const [aiProvider, setAiProvider] = React.useState('local');
@@ -32,14 +32,15 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
 
   const handleRechargeClick = async (e) => {
     e.preventDefault();
+    const lang = i18n.language || 'en';
     if (!licenseData?.key) {
       alert(t('statusBar.noCloudAccountAlert'));
-      window.open('https://opalacoder.com/#products', '_blank');
+      window.open(`https://opalacoder.com/?lang=${lang}#products`, '_blank');
       return;
     }
 
     const license = encodeURIComponent(licenseData.key.trim());
-    window.open(`https://opalacoder.com/?license=${license}&autoCheckout=true`, '_blank');
+    window.open(`https://opalacoder.com/?license=${license}&autoCheckout=true&lang=${lang}`, '_blank');
   };
 
   return (

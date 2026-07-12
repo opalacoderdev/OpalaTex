@@ -3,7 +3,7 @@ import { Loader2, Monitor, Cloud, Terminal, CheckCircle, X, Settings2 } from 'lu
 import { useTranslation } from 'react-i18next';
 
 export default function OnboardingModal({ onClose, onComplete }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [step, setStep] = useState(1);
   const [hardware, setHardware] = useState(null);
   const [ollamaStatus, setOllamaStatus] = useState(null);
@@ -192,7 +192,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 <button 
                   className="vscode-button"
                   style={{ padding: '8px 16px', fontSize: '13px', borderRadius: '4px', backgroundColor: '#8a2be2', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                  onClick={() => window.open('https://opalacoder.com/#products', '_blank')}
+                  onClick={() => { const lang = i18n.language || 'en'; window.open(`https://opalacoder.com/?lang=${lang}#products`, '_blank'); }}
                 >
                   {t('onboarding.buyCreditsBtn')}
                 </button>

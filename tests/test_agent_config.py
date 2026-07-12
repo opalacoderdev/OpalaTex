@@ -43,21 +43,30 @@ def test_tool_call_agents_disable_thinking(agent):
 
 def test_orchestrator_has_large_num_ctx():
     """Orchestrator accumulates long tool-call histories — needs at least 16k context."""
-    kwargs = get_agent_llm_kwargs("orchestrator")
+    from unittest.mock import patch
+    with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+        with patch("opalatex.tools._PROJECT_SESSION", None):
+            kwargs = get_agent_llm_kwargs("orchestrator")
     assert kwargs.get("num_ctx", 0) >= 16384
 
 
 def test_memgpt_has_large_num_ctx():
     """The MemGPT chat-orchestrator runs multi-turn sessions with skill calls —
     it needs a generous context window so turns are not cut off."""
-    kwargs = get_agent_llm_kwargs("memgpt")
+    from unittest.mock import patch
+    with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+        with patch("opalatex.tools._PROJECT_SESSION", None):
+            kwargs = get_agent_llm_kwargs("memgpt")
     assert kwargs.get("num_ctx", 0) >= 16384
 
 
 def test_orchestrator_has_no_restrictive_max_tokens():
     """Orchestrator must not be limited to a small max_tokens — it produces
     long reasoning chains and final reports."""
-    kwargs = get_agent_llm_kwargs("orchestrator")
+    from unittest.mock import patch
+    with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+        with patch("opalatex.tools._PROJECT_SESSION", None):
+            kwargs = get_agent_llm_kwargs("orchestrator")
     max_tok = kwargs.get("max_tokens", None)
     assert max_tok is None or max_tok >= 1024
 
