@@ -1676,7 +1676,7 @@ export default function App() {
       case 'cancelled': addLog('warning', data.message || 'Execução cancelada.', data.agent); setChatMessages(prev => [...prev, { role: 'assistant', content: `⚠️ Interrompido: ${data.message || 'A execução do agente foi parada.'}`, timestamp: new Date().toISOString() }]); break;
       case 'tool_call':
         addLog('tool_call', `Chamando: ${data.tool} (${JSON.stringify(data.arguments)})`, data.agent);
-        if (['write_file', 'write_content_pos', 'edit_file'].includes(data.tool)) {
+        if (['write_file', 'write_content_pos', 'replace_content_range', 'edit_file'].includes(data.tool)) {
           const writePath = data.arguments?.path;
           console.log(`[DEBUG tool_call] ${data.tool} path="${writePath}" — currentEditorCached=${fileContents[writePath] !== undefined}`);
           if (writePath) pendingWritePathRef.current = writePath;
@@ -1688,7 +1688,7 @@ export default function App() {
         } else {
           addLog('tool_result', `Sucesso: ${data.tool}`, data.agent);
         }
-        if (['write_file', 'write_content_pos', 'edit_file'].includes(data.tool)) {
+        if (['write_file', 'write_content_pos', 'replace_content_range', 'edit_file'].includes(data.tool)) {
           console.log(`[DEBUG tool_result] ${data.tool} result="${data.result}"`);
           const writtenPath = pendingWritePathRef.current;
           pendingWritePathRef.current = null;

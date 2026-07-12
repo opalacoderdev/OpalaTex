@@ -16,6 +16,7 @@ This skill provides the sub-agent with tools to manipulate files and directories
         read_content_pos,
         write_file,
         write_content_pos,
+        replace_content_range,
         run_command,
         run_background_command,
         run_interactive_command,
@@ -27,7 +28,8 @@ This skill provides the sub-agent with tools to manipulate files and directories
 **CRITICAL: LARGE FILES & TRUNCATION PREVENTION**
 If a file is large (more than ~100-200 lines, e.g., large `.tex` files or large code files), do NOT attempt to use `write_file` to write the entire file content, as the LLM output limits will cause the JSON tool call to be cut off mid-response (`[TRUNCATED RESPONSE]`).
 Instead:
-- Use `write_content_pos` to surgically modify only the specific line ranges that need changes.
+- Use `replace_content_range` to surgically replace only the specific line ranges that need changes.
+- Use `write_content_pos` only when inserting new content before a specific line.
 - Or, write a small Python helper script that reads the file, performs the string replacements/modifications programmatically (e.g. read, replace, write), and writes it back, then run it using `run_command`.
 
 ```
@@ -60,17 +62,27 @@ read_content_pos("tictactoe.html", "1", "10")
 read_content_pos("src/utils.js", "10", "20")
 ```
 
-4. write_content_pos: write_content_pos for directly access file content at a specific line range without shell. For example:
+4. write_content_pos: use write_content_pos to insert content before a specific line number without shell. For example:
 ```
-write_content_pos("<relative_or_absolute_path>", "<start_line>", "<end_line>", "<content>")
+write_content_pos("<relative_or_absolute_path>", "<content>", <line_number>)
 ```
 Examples:
 ```
-write_content_pos("tictactoe.html", "1", "10", "<content>")
-write_content_pos("src/utils.js", "10", "20", "<content>")
+write_content_pos("tictactoe.html", "<content>", 1)
+write_content_pos("src/utils.js", "<content>", 10)
 ```
 
-5. run_command: use run_command to execute non-interactive shell commands (e.g. build, compile, list, grep, python/pip commands). For example:
+5. replace_content_range: use replace_content_range to replace or delete an inclusive line range without rewriting the whole file. Pass an empty content string to delete the selected lines. For example:
+```
+replace_content_range("<relative_or_absolute_path>", <start_line>, <end_line>, "<content>")
+```
+Examples:
+```
+replace_content_range("tictactoe.html", 1, 10, "<content>")
+replace_content_range("src/utils.js", 10, 20, "<content>")
+```
+
+6. run_command: use run_command to execute non-interactive shell commands (e.g. build, compile, list, grep, python/pip commands). For example:
 ```
 run_command("<command>")
 ```
@@ -82,25 +94,25 @@ run_command("uv pip install django")
 ```
 WARNING: Do NOT use `run_command` for commands that require user input (like `npm create`, `npm init`, etc). For those, you MUST use `run_interactive_command`. Do NOT run servers or infinite processes with this tool.
 
-6. run_interactive_command: use this specifically for commands that require human interaction, choices, or input. It will open a popup terminal for the user.
+7. run_interactive_command: use this specifically for commands that require human interaction, choices, or input. It will open a popup terminal for the user.
 ```
 run_interactive_command("npm create vite@latest app -- --template react")
 run_interactive_command("npm init")
 ```
 
-7. run_background_command: use this to start long-running servers or background processes (e.g., `npm run dev`) directly in the user's main IDE terminal. It returns immediately and does not block.
+8. run_background_command: use this to start long-running servers or background processes (e.g., `npm run dev`) directly in the user's main IDE terminal. It returns immediately and does not block.
 ```
 run_background_command("npm run dev")
 run_background_command("python manage.py runserver")
 ```
 
-8. get_project_overview: use get_project_overview for directly access project tree of files. Try with a minimum depth of 5.
+9. get_project_overview: use get_project_overview for directly access project tree of files. Try with a minimum depth of 5.
 Example:
 ```
 get_project_overview(5)
 ```
 
-9. search_conversation_history: use search_conversation_history for directly search conversation history without shell. For example:
+10. search_conversation_history: use search_conversation_history for directly search conversation history without shell. For example:
 ```
 search_conversation_history("<keyword>")
 ```

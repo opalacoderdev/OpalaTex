@@ -932,7 +932,8 @@ def get_project_overview(max_depth:int = 5) -> str:
     is_safe=False,
     description=(
         "Insert content into a file starting at a specific line number (1-indexed). "
-        "The new content will be inserted just before the specified line."
+        "The new content will be inserted just before the specified line. "
+        "Use replace_content_range when you need to replace or remove existing lines."
     )
 )
 def write_content_pos(path: str, content: str, pos: int) -> str:
@@ -952,6 +953,7 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
         raise ValueError(f"Error: invalid path argument ({e.strerror}).")
 
     try:
+        content = _decode_escape_sequences(content)
         with open(resolved, "r", encoding="utf-8") as f:
             lines = f.readlines()
         
@@ -964,10 +966,82 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
         
         with open(resolved, "w", encoding="utf-8") as f:
             f.writelines(lines)
+        try:
+            from .code_index import CODE_INDEX
+            CODE_INDEX.rebuild_file(resolved)
+        except Exception:
+            pass
             
         return f"Successfully inserted content at line {pos} in {_preview(resolved)}."
     except Exception as e:
         raise ValueError(f"Error writing to {_preview(resolved)}: {e}")
+
+
+@opalatex_tool(
+    name="replace_content_range",
+    is_safe=False,
+    description=(
+        "Replace an inclusive 1-indexed line range in an existing file. "
+        "Use this for surgical edits to large files instead of rewriting the entire file. "
+        "Pass an empty content string to delete the selected lines."
+    )
+)
+def replace_content_range(path: str, start_pos: int, end_pos: int, content: str) -> str:
+    try:
+        resolved = _resolve_path(path)
+    except Exception as e:
+        raise ValueError(f"Error resolving path: {e}")
+
+    AGENT_PROGRESS.update(
+        "replace_content_range",
+        f"path={_preview(resolved)} lines={start_pos}-{end_pos}",
+    )
+
+    try:
+        if os.path.isdir(resolved):
+            raise ValueError(f"Error: '{_preview(resolved)}' is a directory. Cannot write to a directory.")
+        if not os.path.exists(resolved):
+            raise ValueError(f"Error: file not found: {_preview(resolved)}.")
+    except OSError as e:
+        raise ValueError(f"Error: invalid path argument ({e.strerror}).")
+
+    if start_pos < 1 or end_pos < 1:
+        raise ValueError("start_pos and end_pos must be 1-indexed positive integers.")
+    if end_pos < start_pos:
+        raise ValueError("end_pos must be greater than or equal to start_pos.")
+
+    try:
+        with open(resolved, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        if start_pos > len(lines):
+            raise ValueError(f"Error: start_pos {start_pos} is beyond the end of the file (total lines: {len(lines)}).")
+
+        start_idx = start_pos - 1
+        end_idx = min(end_pos, len(lines))
+        replacement = _decode_escape_sequences(content)
+        replacement_lines = []
+        if replacement:
+            if not replacement.endswith("\n"):
+                replacement += "\n"
+            replacement_lines = replacement.splitlines(keepends=True)
+
+        lines[start_idx:end_idx] = replacement_lines
+
+        with open(resolved, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        try:
+            from .code_index import CODE_INDEX
+            CODE_INDEX.rebuild_file(resolved)
+        except Exception:
+            pass
+
+        return (
+            f"Successfully replaced lines {start_pos}-{end_pos} "
+            f"in {_preview(resolved)}."
+        )
+    except Exception as e:
+        raise ValueError(f"Error replacing content in {_preview(resolved)}: {e}")
 
 @opalatex_tool(
     name="read_content_pos",
@@ -1026,6 +1100,7 @@ def get_available_tools():
         create_docx_file,
         create_pptx_file,
         write_content_pos,
+        replace_content_range,
         run_command,
         run_background_command,
         run_interactive_command,

@@ -242,7 +242,20 @@ def _resolve_git_context(project_path: str, use_shadow: bool = False, git_root_p
     }
 
 
+def _unquote_git_path(path_str: str) -> str:
+    if path_str.startswith('"') and path_str.endswith('"'):
+        path_str = path_str[1:-1]
+        try:
+            import codecs
+            raw_bytes, _ = codecs.escape_decode(bytes(path_str, "utf-8"))
+            return raw_bytes.decode("utf-8")
+        except Exception:
+            return path_str
+    return path_str
+
+
 def _repo_path_to_project_path(repo_path: str, git_ctx: dict) -> str:
+    repo_path = _unquote_git_path(repo_path)
     clean = _normalize_rel_path(repo_path)
     prefix = git_ctx.get("repo_prefix", "")
     return _normalize_rel_path(f"{prefix}/{clean}" if prefix and clean else prefix or clean)

@@ -313,6 +313,47 @@ def test_wrap_agent_litellm_compat_repairs_history_before_run():
     assert asyncio.run(agent.run(object())) == "ok"
 
 
+def test_find_tool_for_args_returns_none_when_schema_match_is_ambiguous():
+    from agenticblocks.core.function_block import as_tool
+    from opalatex.litellm_compat import find_tool_for_args
+
+    @as_tool(name="run_command")
+    def run_command(command: str) -> str:
+        return command
+
+    @as_tool(name="run_background_command")
+    def run_background_command(command: str) -> str:
+        return command
+
+    assert find_tool_for_args(
+        {"command": "npm run dev"},
+        [run_command, run_background_command],
+    ) is None
+
+
+def test_find_tool_for_args_requires_complete_unique_schema_match():
+    from agenticblocks.core.function_block import as_tool
+    from opalatex.litellm_compat import find_tool_for_args
+
+    @as_tool(name="read_file")
+    def read_file(path: str) -> str:
+        return path
+
+    @as_tool(name="replace_content_range")
+    def replace_content_range(path: str, start_pos: int, end_pos: int, content: str) -> str:
+        return path
+
+    assert find_tool_for_args(
+        {"path": "main.tex", "start_pos": 2, "end_pos": 4, "content": "x"},
+        [read_file, replace_content_range],
+    ) == "replace_content_range"
+
+    assert find_tool_for_args(
+        {"path": "main.tex"},
+        [read_file, replace_content_range],
+    ) == "read_file"
+
+
 def test_analyze_image_resanitizes_kwargs_for_final_model(monkeypatch):
     import opalatex.tools as tools
 

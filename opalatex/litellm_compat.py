@@ -118,7 +118,12 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
                                 import uuid
                                 from litellm import ChatCompletionMessageToolCall, Function
                                 for obj in objs:
-                                    matched_name = find_tool_for_args(obj, getattr(agent, "tools", [])) or getattr(fn, "name", "unknown")
+                                    original_name = getattr(fn, "name", "") or ""
+                                    agent_tools = getattr(agent, "tools", [])
+                                    if tool_accepts_args(original_name, obj, agent_tools):
+                                        matched_name = original_name
+                                    else:
+                                        matched_name = find_tool_for_args(obj, agent_tools) or original_name or "unknown"
                                     new_tc = ChatCompletionMessageToolCall(
                                         id=str(uuid.uuid4()),
                                         type="function",
@@ -226,28 +231,61 @@ def split_concatenated_json(s: str) -> list[dict]:
 
 
 def find_tool_for_args(args_dict: dict, tools: list) -> str | None:
-    best_tool_name = None
-    max_matched_fields = -1
+    keys = set(args_dict.keys())
+    candidates = []
     for tool in tools:
         tool_name = getattr(tool, "name", None)
         if not tool_name:
             continue
-        input_schema_fn = getattr(tool, "input_schema", None)
-        if not input_schema_fn:
+        schema = _tool_schema_fields(tool)
+        if schema is None:
             continue
-        try:
-            schema_cls = input_schema_fn()
-            fields = []
-            if hasattr(schema_cls, "model_fields"):
-                fields = list(schema_cls.model_fields.keys())
-            elif hasattr(schema_cls, "__fields__"):
-                fields = list(schema_cls.__fields__.keys())
-            
-            matched = sum(1 for k in args_dict.keys() if k in fields)
-            if matched > 0 and matched > max_matched_fields:
-                max_matched_fields = matched
-                best_tool_name = tool_name
-        except Exception:
-            pass
-    return best_tool_name
+        fields, required = schema
+        if keys and keys <= fields and required <= keys:
+            candidates.append(tool_name)
+    return candidates[0] if len(candidates) == 1 else None
 
+
+def tool_accepts_args(tool_name: str, args_dict: dict, tools: list) -> bool:
+    if not tool_name:
+        return False
+    keys = set(args_dict.keys())
+    if not keys:
+        return False
+    for tool in tools:
+        if getattr(tool, "name", None) != tool_name:
+            continue
+        schema = _tool_schema_fields(tool)
+        if schema is None:
+            return False
+        fields, required = schema
+        return keys <= fields and required <= keys
+    return False
+
+
+def _tool_schema_fields(tool: Any) -> tuple[set[str], set[str]] | None:
+    input_schema_fn = getattr(tool, "input_schema", None)
+    if not input_schema_fn:
+        return None
+    try:
+        schema_cls = input_schema_fn()
+        if hasattr(schema_cls, "model_json_schema"):
+            schema = schema_cls.model_json_schema()
+            return set(schema.get("properties", {}).keys()), set(schema.get("required", []))
+        if hasattr(schema_cls, "model_fields"):
+            fields = set(schema_cls.model_fields.keys())
+            required = {
+                name for name, field in schema_cls.model_fields.items()
+                if getattr(field, "is_required", lambda: False)()
+            }
+            return fields, required
+        if hasattr(schema_cls, "__fields__"):
+            fields = set(schema_cls.__fields__.keys())
+            required = {
+                name for name, field in schema_cls.__fields__.items()
+                if getattr(field, "required", False)
+            }
+            return fields, required
+    except Exception:
+        return None
+    return None

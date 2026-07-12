@@ -181,3 +181,16 @@ def test_opalatex_partial_artifacts_are_excluded_from_user_git(tmp_path):
     (project / "opalatex_partial_main.pdf").write_text("generated", encoding="utf-8")
 
     assert _git(project, "status", "--porcelain").stdout == ""
+
+
+def test_repo_path_to_project_path_unquotes_and_unescapes():
+    ctx = {
+        "project_path": "/dummy/project",
+        "repo_root": "/dummy/project",
+        "repo_prefix": "",
+    }
+    # Standard quoted path with spaces/parentheses
+    assert _repo_path_to_project_path('"file (1).pdf"', ctx) == "file (1).pdf"
+    # Quoted path with UTF-8 octal escape sequences
+    assert _repo_path_to_project_path('"Diret\\303\\263rio/A\\303\\247\\303\\272car.pdf"', ctx) == "Diretório/Açúcar.pdf"
+
