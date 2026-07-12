@@ -1245,26 +1245,40 @@ export default function App() {
     });
   };
 
-  const handleCreateNewFile = async (parentPath) => {
+  const handleCreateNewFile = (parentPath) => {
     if (!activeProject) return;
-    const filename = window.prompt(t('app.newFilePrompt'), parentPath ? `${parentPath}/` : '');
-    if (!filename) return;
-    try {
-      const res = await fetch('/api/file/write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, filePath: filename, content: '' }) });
-      if (res.ok) { addLog('info', t('app.fileCreated', { path: filename })); await fetchFiles(); await handleFileSelect(filename); }
-      else { const e = await res.json(); addLog('error', t('app.fileCreateError', { error: e.error })); }
-    } catch (err) { addLog('error', t('app.fileCreateCallError', { error: err.message })); }
+    setConfirmRequest({
+      type: 'ask',
+      rows: 1,
+      prompt: t('app.newFilePrompt'),
+      default: parentPath ? `${parentPath}/` : '',
+      callback: async (filename) => {
+        if (!filename) return;
+        try {
+          const res = await fetch('/api/file/write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, filePath: filename, content: '' }) });
+          if (res.ok) { addLog('info', t('app.fileCreated', { path: filename })); await fetchFiles(); await handleFileSelect(filename); }
+          else { const e = await res.json(); addLog('error', t('app.fileCreateError', { error: e.error })); }
+        } catch (err) { addLog('error', t('app.fileCreateCallError', { error: err.message })); }
+      }
+    });
   };
 
-  const handleCreateNewDir = async (parentPath) => {
+  const handleCreateNewDir = (parentPath) => {
     if (!activeProject) return;
-    const dirname = window.prompt(t('app.newDirPrompt'), parentPath ? `${parentPath}/` : '');
-    if (!dirname) return;
-    try {
-      const res = await fetch('/api/file/mkdir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, dirPath: dirname }) });
-      if (res.ok) { addLog('info', t('app.dirCreated', { path: dirname })); await fetchFiles(); }
-      else { const e = await res.json(); addLog('error', t('app.dirCreateError', { error: e.error })); }
-    } catch (err) { addLog('error', t('app.dirCreateCallError', { error: err.message })); }
+    setConfirmRequest({
+      type: 'ask',
+      rows: 1,
+      prompt: t('app.newDirPrompt'),
+      default: parentPath ? `${parentPath}/` : '',
+      callback: async (dirname) => {
+        if (!dirname) return;
+        try {
+          const res = await fetch('/api/file/mkdir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, dirPath: dirname }) });
+          if (res.ok) { addLog('info', t('app.dirCreated', { path: dirname })); await fetchFiles(); }
+          else { const e = await res.json(); addLog('error', t('app.dirCreateError', { error: e.error })); }
+        } catch (err) { addLog('error', t('app.dirCreateCallError', { error: err.message })); }
+      }
+    });
   };
 
   const handleImportFile = (parentPath = '') => {
@@ -1300,38 +1314,45 @@ export default function App() {
     }
   };
 
-  const handleRenameNode = async (node) => {
+  const handleRenameNode = (node) => {
     if (!activeProject || !node) return;
-    const newPath = window.prompt(t('app.renamePrompt', { path: node.path }), node.path);
-    if (!newPath || newPath === node.path) return;
-    try {
-      const res = await fetch('/api/file/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, oldPath: node.path, newPath }) });
-      if (res.ok) {
-        addLog('info', t('app.itemRenamed', { itemType: t(node.isDirectory ? 'app.itemTypeDirectory' : 'app.itemTypeFile'), oldPath: node.path, newPath }));
-        if (!node.isDirectory) {
-          setOpenFiles(prev => dedupeOpenFileList(prev.map(f => sameFilePath(f, node.path) ? newPath : f), newPath));
-          setFileContents(prev => {
-            const n = { ...prev };
-            const oldKey = Object.keys(n).find(k => sameFilePath(k, node.path));
-            if (oldKey !== undefined) { n[newPath] = n[oldKey]; delete n[oldKey]; }
-            return n;
-          });
-          setOriginalFileContents(prev => {
-            const n = { ...prev };
-            const oldKey = Object.keys(n).find(k => sameFilePath(k, node.path));
-            if (oldKey !== undefined) { n[newPath] = n[oldKey]; delete n[oldKey]; }
-            return n;
-          });
-          if (sameFilePath(selectedFile, node.path)) setSelectedFile(newPath);
-        } else {
-          setOpenFiles(prev => dedupeOpenFileList(prev.map(f => replaceFilePathPrefix(f, node.path, newPath)), newPath));
-          setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
-          setOriginalFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
-          if (isFileInsidePath(selectedFile, node.path)) setSelectedFile(prev => replaceFilePathPrefix(prev, node.path, newPath));
-        }
-        await fetchFiles();
-      } else { const e = await res.json(); addLog('error', t('app.fileRenameError', { error: e.error })); }
-    } catch (err) { addLog('error', t('app.renameError', { error: err.message })); }
+    setConfirmRequest({
+      type: 'ask',
+      rows: 1,
+      prompt: t('app.renamePrompt', { path: node.path }),
+      default: node.path,
+      callback: async (newPath) => {
+        if (!newPath || newPath === node.path) return;
+        try {
+          const res = await fetch('/api/file/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, oldPath: node.path, newPath }) });
+          if (res.ok) {
+            addLog('info', t('app.itemRenamed', { itemType: t(node.isDirectory ? 'app.itemTypeDirectory' : 'app.itemTypeFile'), oldPath: node.path, newPath }));
+            if (!node.isDirectory) {
+              setOpenFiles(prev => dedupeOpenFileList(prev.map(f => sameFilePath(f, node.path) ? newPath : f), newPath));
+              setFileContents(prev => {
+                const n = { ...prev };
+                const oldKey = Object.keys(n).find(k => sameFilePath(k, node.path));
+                if (oldKey !== undefined) { n[newPath] = n[oldKey]; delete n[oldKey]; }
+                return n;
+              });
+              setOriginalFileContents(prev => {
+                const n = { ...prev };
+                const oldKey = Object.keys(n).find(k => sameFilePath(k, node.path));
+                if (oldKey !== undefined) { n[newPath] = n[oldKey]; delete n[oldKey]; }
+                return n;
+              });
+              if (sameFilePath(selectedFile, node.path)) setSelectedFile(newPath);
+            } else {
+              setOpenFiles(prev => dedupeOpenFileList(prev.map(f => replaceFilePathPrefix(f, node.path, newPath)), newPath));
+              setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
+              setOriginalFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
+              if (isFileInsidePath(selectedFile, node.path)) setSelectedFile(prev => replaceFilePathPrefix(prev, node.path, newPath));
+            }
+            await fetchFiles();
+          } else { const e = await res.json(); addLog('error', t('app.fileRenameError', { error: e.error })); }
+        } catch (err) { addLog('error', t('app.renameError', { error: err.message })); }
+      }
+    });
   };
 
   const handleSetMainFile = async (node) => {
@@ -1378,9 +1399,16 @@ export default function App() {
       : [node.path];
 
     const isMulti = nodesToDelete.length > 1;
-    const msg = isMulti
-      ? `Tem certeza que deseja deletar ${nodesToDelete.length} itens selecionados? Todos os arquivos internos de diretórios também serão removidos!`
-      : `Tem certeza que deseja deletar o ${node.isDirectory ? 'diretório' : 'arquivo'} "${node.path}"?${node.isDirectory ? ' Todos os arquivos internos serão removidos!' : ''}`;
+    let msg = '';
+    if (isMulti) {
+      msg = t('app.deleteMultiPrompt', 'Are you sure you want to delete {{count}} selected items? All internal files in directories will also be removed!', { count: nodesToDelete.length });
+    } else {
+      if (node.isDirectory) {
+        msg = t('app.deleteSingleDir', 'Are you sure you want to delete the directory "{{name}}"? All internal files will also be removed!', { name: node.path });
+      } else {
+        msg = t('app.deleteSingleFile', 'Are you sure you want to delete the file "{{name}}"?', { name: node.path });
+      }
+    }
 
     setConfirmRequest({
       prompt: msg,

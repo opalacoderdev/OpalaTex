@@ -299,7 +299,9 @@
     "modeEdit": "Edit (Editar)",
     "loadRefinedConfig": "Carregar Config Refinada",
     "cancel": "Cancelar",
-    "register": "Registrar"
+    "register": "Registrar",
+    "pathHintWindows": "Ex: C:\\\\Projetos",
+    "pathHintUnix": "Ex: /home/usuario/projetos"
   },
   "editProjectModal": {
     "title": "CONFIGURAÇÕES DO PROJETO",
@@ -607,6 +609,9 @@
     "deletePathFailed": "Falha ao deletar {{path}}: {{error}}",
     "itemsDeleted": "{{count}} item(s) excluido(s) com sucesso.",
     "deleteError": "Erro ao deletar: {{error}}",
+    "deleteMultiPrompt": "Tem certeza que deseja deletar {{count}} itens selecionados? Todos os arquivos internos de diretórios também serão removidos!",
+    "deleteSingleFile": "Tem certeza que deseja deletar o arquivo \"{{name}}\"?",
+    "deleteSingleDir": "Tem certeza que deseja deletar o diretório \"{{name}}\"? Todos os arquivos internos serão removidos!",
     "moveDirectoryIntoItself": "Nao e possivel mover um diretorio para dentro dele mesmo.",
     "itemMoved": "{{itemType}} movido de {{oldPath}} para {{newPath}}",
     "moveFailed": "Falha ao mover: {{error}}",
@@ -706,7 +711,9 @@
     "openSourceTitle": "Software open-source, créditos Cloud pagos",
     "openSourceDesc": "O OpalaTex é open-source e funciona sem licença. O Opala Cloud é opcional: compre 5 milhões de tokens por R$ 60 ou US$ 11,99.",
     "generating": "Carregando...",
-    "registeredAccount": "Conta Cloud registrada"
+    "registeredAccount": "Conta Cloud registrada",
+    "useCloudRecommended": "Usar Opala Cloud (Recomendado)",
+    "configThirdPartyKey": "Configurar Chave de API de Terceiros"
   },
   "common": {
     "cancel": "Cancelar",
@@ -715,5 +722,20 @@
     "edit": "Editar",
     "save": "Salvar",
     "noCredits": "Sem saldo suficiente para usar a cloud. Por favor adicione créditos."
+  },
+  "deleteProjectModal": {
+    "title": "Remover Projeto",
+    "confirmMessage": "Tem certeza que deseja remover o projeto <1>'{{projectName}}'</1>?",
+    "deleteDir": "Deletar também o diretório associado ao projeto",
+    "removeBtn": "Remover"
+  },
+  "askModal": {
+    "title": "Entrada Necessária",
+    "placeholder": "Digite sua resposta aqui...",
+    "send": "Enviar"
+  },
+  "interactiveTerminalModal": {
+    "title": "Terminal Interativo:",
+    "finish": "Concluir"
   }
 }

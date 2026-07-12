@@ -33,7 +33,7 @@ export default function NewProjectModal({
   const [activeTab, setActiveTab] = useState('geral');
 
   const isWindows = navigator.userAgent.toLowerCase().includes('windows');
-  const dynamicPathHint = isWindows ? 'Ex: C:\\Projetos' : 'Ex: /home/user/projetos';
+  const dynamicPathHint = isWindows ? t('newProjectModal.pathHintWindows', 'Ex: C:\\\\Projects') : t('newProjectModal.pathHintUnix', 'Ex: /home/user/projects');
 
   const getBorderColor = (status) => {
     if (status === 'green') return '#4ade80';

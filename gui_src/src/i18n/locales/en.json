@@ -299,7 +299,9 @@
     "modeEdit": "Edit",
     "loadRefinedConfig": "Load Refined Config",
     "cancel": "Cancel",
-    "register": "Register"
+    "register": "Register",
+    "pathHintWindows": "Ex: C:\\\\Projects",
+    "pathHintUnix": "Ex: /home/user/projects"
   },
   "editProjectModal": {
     "title": "PROJECT SETTINGS",
@@ -608,6 +610,9 @@
     "deletePathFailed": "Failed to delete {{path}}: {{error}}",
     "itemsDeleted": "{{count}} item(s) deleted successfully.",
     "deleteError": "Error deleting: {{error}}",
+    "deleteMultiPrompt": "Are you sure you want to delete {{count}} selected items? All internal files in directories will also be removed!",
+    "deleteSingleFile": "Are you sure you want to delete the file \"{{name}}\"?",
+    "deleteSingleDir": "Are you sure you want to delete the directory \"{{name}}\"? All internal files will also be removed!",
     "moveDirectoryIntoItself": "Cannot move a directory inside itself.",
     "itemMoved": "{{itemType}} moved from {{oldPath}} to {{newPath}}",
     "moveFailed": "Failed to move: {{error}}",
@@ -707,7 +712,9 @@
     "openSourceTitle": "Open-source software, paid Cloud credits",
     "openSourceDesc": "OpalaTex is open-source and works without a license. Opala Cloud is optional: buy 5 million tokens for R$60 or US$11.99.",
     "generating": "Loading...",
-    "registeredAccount": "Cloud Account Registered"
+    "registeredAccount": "Cloud Account Registered",
+    "useCloudRecommended": "Use Opala Cloud (Recommended)",
+    "configThirdPartyKey": "Configure Third-Party API Key"
   },
   "common": {
     "cancel": "Cancel",
@@ -716,5 +723,20 @@
     "edit": "Edit",
     "save": "Save",
     "noCredits": "Insufficient balance to use the cloud. Please add credits."
+  },
+  "deleteProjectModal": {
+    "title": "Remove Project",
+    "confirmMessage": "Are you sure you want to remove the project <1>'{{projectName}}'</1>?",
+    "deleteDir": "Also delete the directory associated with the project",
+    "removeBtn": "Remove"
+  },
+  "askModal": {
+    "title": "Input Required",
+    "placeholder": "Type your answer here...",
+    "send": "Send"
+  },
+  "interactiveTerminalModal": {
+    "title": "Interactive Terminal:",
+    "finish": "Finish"
   }
 }

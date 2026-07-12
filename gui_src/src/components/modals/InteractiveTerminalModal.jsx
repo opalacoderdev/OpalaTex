@@ -142,7 +142,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '18px' }}>💻</span>
             <span style={{ fontSize: '12px', fontWeight: 700, color: '#a0a0c0', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-              Terminal Interativo: {request.command}
+              {t('interactiveTerminalModal.title', 'Interactive Terminal:')} {request.command}
             </span>
           </div>
           <button
@@ -172,7 +172,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
               boxShadow: '0 4px 16px rgba(0,122,204,0.35)',
             }}
           >
-            <Check size={16} /> Concluir
+            <Check size={16} /> {t('interactiveTerminalModal.finish', 'Finish')}
           </button>
         </div>
       </div>

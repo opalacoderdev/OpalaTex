@@ -215,7 +215,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 onClick={handleOpalaCloud}
               >
                 <Cloud size={18} />
-                Usar Opala Cloud (Recomendado)
+                {t('onboarding.useCloudRecommended', 'Use Opala Cloud (Recommended)')}
               </button>
 
               <button 
@@ -234,7 +234,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 onClick={() => setStep(5)} // step 5 = API
               >
                 <Settings2 size={18} />
-                Configurar Chave de API de Terceiros
+                {t('onboarding.configThirdPartyKey', 'Configure Third-Party API Key')}
               </button>
             </div>
           </div>

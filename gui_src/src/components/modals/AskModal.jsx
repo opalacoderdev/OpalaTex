@@ -9,9 +9,14 @@ export default function AskModal({ askRequest, onConfirm }) {
 
   useEffect(() => {
     if (askRequest) {
-      setInputValue('');
+      setInputValue(askRequest.default || '');
       setTimeout(() => {
-        if (inputRef.current) inputRef.current.focus();
+        if (inputRef.current) {
+          inputRef.current.focus();
+          if (askRequest.default) {
+            inputRef.current.select();
+          }
+        }
       }, 50);
     }
   }, [askRequest]);
@@ -24,31 +29,24 @@ export default function AskModal({ askRequest, onConfirm }) {
   };
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
-      animation: 'fadeIn 0.15s ease',
-    }}>
-      <div style={{
-        background: 'linear-gradient(135deg, #1e1e2e 0%, #252537 100%)',
-        border: '1px solid #3c3c5c',
-        borderRadius: '12px',
+    <div className="vscode-modal-overlay" style={{ zIndex: 1000, backdropFilter: 'blur(4px)' }}>
+      <div className="vscode-modal" style={{
         padding: '28px 32px',
         maxWidth: '480px',
         width: '90%',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
+        borderRadius: '12px',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.3)',
       }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
           <span style={{ fontSize: '22px' }}>🔔</span>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: '#a0a0c0', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--vscode-descriptionForeground, #a0a0c0)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
             {t('askModal.title', 'Input Required')}
           </span>
         </div>
 
         {/* Prompt text */}
-        <p style={{ fontSize: '14px', color: '#e0e0f0', lineHeight: 1.6, marginBottom: '20px', margin: '0 0 20px 0' }}>
+        <p style={{ fontSize: '14px', color: 'var(--vscode-text-fg, #e0e0f0)', lineHeight: 1.6, marginBottom: '20px', margin: '0 0 20px 0' }}>
           {askRequest.prompt}
         </p>
 
@@ -64,11 +62,16 @@ export default function AskModal({ askRequest, onConfirm }) {
                 handleSubmit(e);
               }
             }}
-            placeholder="Digite sua resposta aqui..."
+            placeholder={t('askModal.placeholder', 'Type your answer here...')}
+            rows={askRequest.rows || 3}
             style={{
-              width: '100%', minHeight: '80px', padding: '12px', borderRadius: '8px',
-              border: '1px solid #4c4c6c', background: '#181824', color: '#e0e0f0',
-              fontSize: '14px', outline: 'none', resize: 'vertical'
+              width: '100%',
+              minHeight: askRequest.rows === 1 ? '40px' : '80px',
+              padding: '12px',
+              borderRadius: '8px',
+              fontSize: '14px',
+              outline: 'none',
+              resize: askRequest.rows === 1 ? 'none' : 'vertical'
             }}
           />
 
@@ -77,30 +80,29 @@ export default function AskModal({ askRequest, onConfirm }) {
             <button
               type="button"
               onClick={() => onConfirm('')}
+              className="vscode-button"
               style={{
-                padding: '8px 20px', borderRadius: '8px', border: '1px solid #4c4c6c',
-                background: 'transparent', color: '#a0a0c0', cursor: 'pointer',
-                fontSize: '13px', fontWeight: 600, transition: 'all 0.15s',
+                background: 'transparent', border: '1px solid var(--vscode-border, #4c4c6c)',
+                color: 'var(--vscode-text-fg, #a0a0c0)', cursor: 'pointer',
+                fontSize: '13px', fontWeight: 600, padding: '8px 20px', borderRadius: '8px',
+                transition: 'all 0.15s',
               }}
-              onMouseEnter={e => { e.target.style.background = '#2c2c3c'; e.target.style.color = '#e0e0f0'; }}
-              onMouseLeave={e => { e.target.style.background = 'transparent'; e.target.style.color = '#a0a0c0'; }}
             >
-              Cancelar
+              {t('common.cancel', 'Cancel')}
             </button>
             <button
               type="submit"
+              className="vscode-button"
               style={{
                 padding: '8px 24px', borderRadius: '8px', border: 'none',
-                background: 'linear-gradient(135deg, #007acc, #0062a3)',
+                background: 'var(--vscode-button-background, #007acc)',
                 color: '#fff', cursor: 'pointer',
                 fontSize: '13px', fontWeight: 700,
-                boxShadow: '0 4px 16px rgba(0,122,204,0.35)',
+                boxShadow: '0 4px 16px rgba(0,122,204,0.25)',
                 transition: 'all 0.15s',
               }}
-              onMouseEnter={e => { e.target.style.background = 'linear-gradient(135deg, #0090f0, #007acc)'; }}
-              onMouseLeave={e => { e.target.style.background = 'linear-gradient(135deg, #007acc, #0062a3)'; }}
             >
-              Enviar
+              {t('askModal.send', 'Send')}
             </button>
           </div>
         </form>
