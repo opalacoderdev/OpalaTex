@@ -92,7 +92,49 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
         kwargs = sanitize_litellm_kwargs_for_model(model, kwargs)
         kwargs.setdefault("drop_params", True)
         sanitize_agent_state(agent)
-        return await original(sanitize_tool_call_messages(messages), **kwargs)
+        
+        cleaned_messages = sanitize_tool_call_messages(messages)
+        
+        try:
+            res = await original(cleaned_messages, **kwargs)
+            # If it's a ChatCompletion object or model response
+            if hasattr(res, "choices") and res.choices:
+                choice = res.choices[0]
+                msg = getattr(choice, "message", None)
+                if msg:
+                    tcalls = getattr(msg, "tool_calls", None)
+                    if tcalls and isinstance(tcalls, list):
+                        new_tcalls = []
+                        has_split = False
+                        for tc in tcalls:
+                            fn = getattr(tc, "function", None)
+                            if not fn:
+                                new_tcalls.append(tc)
+                                continue
+                            args_str = getattr(fn, "arguments", "")
+                            objs = split_concatenated_json(args_str)
+                            if len(objs) > 1:
+                                has_split = True
+                                import uuid
+                                from litellm import ChatCompletionMessageToolCall, Function
+                                for obj in objs:
+                                    matched_name = find_tool_for_args(obj, getattr(agent, "tools", [])) or getattr(fn, "name", "unknown")
+                                    new_tc = ChatCompletionMessageToolCall(
+                                        id=str(uuid.uuid4()),
+                                        type="function",
+                                        function=Function(
+                                            name=matched_name,
+                                            arguments=json.dumps(obj)
+                                        )
+                                    )
+                                    new_tcalls.append(new_tc)
+                            else:
+                                new_tcalls.append(tc)
+                        if has_split:
+                            msg.tool_calls = new_tcalls
+            return res
+        except Exception as e:
+            raise e
 
     async def _run_with_compat(*args: Any, **kwargs: Any) -> Any:
         sanitize_agent_state(agent)
@@ -166,3 +208,46 @@ def _assistant_tool_calls_as_text(
     if content:
         recovered = f"{content}\n\n{recovered}"
     return {"role": "assistant", "content": recovered}
+
+
+def split_concatenated_json(s: str) -> list[dict]:
+    import json
+    decoder = json.JSONDecoder()
+    objs = []
+    s = s.strip()
+    while s:
+        try:
+            obj, idx = decoder.raw_decode(s)
+            objs.append(obj)
+            s = s[idx:].strip()
+        except json.JSONDecodeError:
+            break
+    return objs
+
+
+def find_tool_for_args(args_dict: dict, tools: list) -> str | None:
+    best_tool_name = None
+    max_matched_fields = -1
+    for tool in tools:
+        tool_name = getattr(tool, "name", None)
+        if not tool_name:
+            continue
+        input_schema_fn = getattr(tool, "input_schema", None)
+        if not input_schema_fn:
+            continue
+        try:
+            schema_cls = input_schema_fn()
+            fields = []
+            if hasattr(schema_cls, "model_fields"):
+                fields = list(schema_cls.model_fields.keys())
+            elif hasattr(schema_cls, "__fields__"):
+                fields = list(schema_cls.__fields__.keys())
+            
+            matched = sum(1 for k in args_dict.keys() if k in fields)
+            if matched > 0 and matched > max_matched_fields:
+                max_matched_fields = matched
+                best_tool_name = tool_name
+        except Exception:
+            pass
+    return best_tool_name
+

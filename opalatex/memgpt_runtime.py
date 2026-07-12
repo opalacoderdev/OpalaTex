@@ -214,10 +214,14 @@ def build_run_skill_tool(
     @as_tool(
         name="run_skill",
         description=(
-            "Delegate the current task to a skill. Pass the skill name (one of the "
-            "available skills shown to you) and a context string with any relevant facts "
-            "or instructions you want to give the worker. The worker will automatically "
-            "receive the recent chat history as well. The tool returns a summary of what the worker did."
+            "Delegate the current task to a registered skill. Pass the skill name (exactly matching "
+            "one of the active skills shown to you under 'Available skills') and a context string with "
+            "relevant facts or instructions. "
+            "CRITICAL: You must ONLY call run_skill with a skill name that is explicitly listed "
+            "in the 'Available skills' section of your system prompt. Do NOT invent skill names. "
+            "If the task requires terminal commands, directory manipulation, or complex file editing, "
+            "delegate to the 'command-line' skill. Do NOT try to call non-existent skills like "
+            "'search_files', 'list_files', or 'edit_file'."
         ),
     )
     async def run_skill(skill_name: str, context: str) -> str:
@@ -235,10 +239,17 @@ def build_run_skill_tool(
         
         skill_dir = find_skill_dir(skill_name, project_path)
         if skill_dir is None:
-            return f"[ERROR] skill '{skill_name}' not found."
+            active = [s["name"] for s in active_skills(project_path)]
+            return (
+                f"[ERROR] Skill '{skill_name}' was not found / is not active. "
+                f"You MUST NOT invent skill names. The only active skills you can delegate to are: {active}. "
+                "If you need to list, read, or write files directly, use your own direct tools (e.g. get_project_overview, read_file) "
+                "or delegate to the 'command-line' skill."
+            )
         meta = parse_skill_md(skill_dir)
         if meta is None:
             return f"[ERROR] skill '{skill_name}' has no valid SKILL.md."
+
 
         # >> INHERITANCE LOGIC START <<
         extends_name = meta.get("extends")
@@ -301,26 +312,54 @@ def build_run_skill_tool(
                 f"When a script needs the request, pass it as --request-file {request_file} "
                 f"(do NOT type the request text into the command — use the file).\n"
             )
-        json_formatting_instruction = (
-            "\nCRITICAL: When calling tools, you must format your response as a valid JSON block. "
-            "Ensure that all double quotes inside 'JSON string arguments are properly escaped as \\\". "
-            "Do NOT write literal backslash-n ('\\n') strings in the code; write the code structure normally.\n"
-            "WARNING: If you receive a SYSTEM ALERT about violating the tool-only rule, it means you outputted plain text instead of a JSON tool call. "
-            "To correct this, DO NOT use send_message to apologize or pretend the fix is done. You MUST re-issue the proper action tool call (e.g., write_file, run_command) in proper JSON format."
-            "within the JSON string and ensure the JSON format is valid.\n"
-            "Example of calling send_message:\n"
-            "```json\n"
-            "{\n"
-            "  \"name\": \"send_message\",\n"
-            "  \"arguments\": {\"message\": \"I have finished the task. Here is the summary...\"}\n"
-            "}\n"
-            "```\n"
+        worker_kwargs = get_agent_llm_kwargs("worker")
+        
+        from .config import resolve_model_for_thinking
+        model = resolve_model_for_thinking(model, worker_kwargs)
+        
+        model = get_agent_model("worker", model)
+        
+        # Strip /v1 from the end because Ollama native providers expect the root URL
+        if worker_kwargs.get("api_base"):
+            if model.startswith("ollama/") or model.startswith("ollama_chat/"):
+                if worker_kwargs["api_base"].endswith("/v1"):
+                    worker_kwargs["api_base"] = worker_kwargs["api_base"][:-3]
+                elif worker_kwargs["api_base"].endswith("/v1/"):
+                    worker_kwargs["api_base"] = worker_kwargs["api_base"][:-4]
+
+        # Make json_formatting_instruction conditional (only for local/Ollama models)
+        is_local_ollama = (
+            model.startswith("ollama")
+            or model.startswith("ollama_chat")
+            or "local" in model
         )
+        json_formatting_instruction = ""
+        if is_local_ollama:
+            json_formatting_instruction = (
+                "\nCRITICAL: When calling tools, you must format your response as a valid JSON block. "
+                "Ensure that all double quotes inside 'JSON string arguments are properly escaped as \\\". "
+                "Do NOT write literal backslash-n ('\\n') strings in the code; write the code structure normally.\n"
+                "WARNING: If you receive a SYSTEM ALERT about violating the tool-only rule, it means you outputted plain text instead of a JSON tool call. "
+                "To correct this, DO NOT use send_message to apologize or pretend the fix is done. You MUST re-issue the proper action tool call (e.g., write_file, run_command) in proper JSON format."
+                "within the JSON string and ensure the JSON format is valid.\n"
+                "Example of calling send_message:\n"
+                "```json\n"
+                "{\n"
+                "  \"name\": \"send_message\",\n"
+                "  \"arguments\": {\"message\": \"I have finished the task. Here is the summary...\"}\n"
+                "}\n"
+                "```\n"
+            )
 
         system = (
             "#ROLE: "
             "You are a problem-solving agent. You must use your available tools and skills "
             "to fulfill the user's request provided in your context. "
+            "\n--- CRITICAL WORKER RULE: TOOL USE ONLY ---\n"
+            "You are a PURE TOOL-USE worker. You MUST NOT respond with conversational text, explanations, or plans on your first turn.\n"
+            "You MUST call the appropriate tool (e.g. `write_file`, `run_command`, `get_project_overview`, etc.) immediately in your very first response.\n"
+            "Do NOT output any preamble, apologies, or confirmation text (like 'Sure, I will do that'). Any response containing ONLY conversational text will immediately terminate your execution, preventing you from calling any tools. ALWAYS call a tool first.\n"
+            "--------------------------------------------\n\n"
             "Your specific tools are:\n"
             "  - get_project_overview: Returns the project's folder and file structure. Use it to explore the workspace and locate files.\n"
             "  - read_file: Reads the complete contents of a file. Use it to inspect code or text files entirely.\n"
@@ -376,24 +415,6 @@ def build_run_skill_tool(
         memgpt._current_worker_messages = []
         tools.append(make_intercepted_send_message(memgpt, skill_name))
 
-        worker_kwargs = get_agent_llm_kwargs("worker")
-        
-        from .config import resolve_model_for_thinking
-        model = resolve_model_for_thinking(model, worker_kwargs)
-        
-        model = get_agent_model("worker", model)
-        
-        # Strip /v1 from the end because Ollama native providers expect the root URL
-        if worker_kwargs.get("api_base"):
-            if model.startswith("ollama/") or model.startswith("ollama_chat/"):
-                if worker_kwargs["api_base"].endswith("/v1"):
-                    worker_kwargs["api_base"] = worker_kwargs["api_base"][:-3]
-                elif worker_kwargs["api_base"].endswith("/v1/"):
-                    worker_kwargs["api_base"] = worker_kwargs["api_base"][:-4]
-        
-        #print("BEGIN SYSTEM_PROMPT::::: LLMAgentBlock ")
-        #print(">>> ", system)
-        #print("END SYSTEM_PROMPT::::::: LLMAgentBlock ")
         from .config import get_project_agent_params
         worker_agent_params = get_project_agent_params("worker")
 
@@ -595,8 +616,10 @@ def _chat_orchestrator_body(project_path: str) -> str:
         "3. You CAN and SHOULD use your tools (like read_file, write_file, web_search, get_project_overview, search_conversation_history) to investigate the user's request and diagnose the problem first.\n"
         "4. If the user asks for something that you don't know, you can use web_search to find relevant information. If the user asks for something in the project, you can use get_project_overview to explore the project structure and read_file to read files.\n"
         "5. Whenever the user asks a question involving dates, time, recent events, latest events, sports, news, public figures, APIs, or potentially anachronistic information, you must search the web for updated information.\n"
-        "6. You can call run_skill to execute tasks (content generation, file manipulation, project scaffolding, etc.). Before calling run_skill, formulate a clear execution plan in the 'context'. Instruct the worker that the plan is a SUGGESTION and they can adapt it if needed.\n"
+        "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', or 'edit_file'. If you need to list, search, or read files directly, use get_project_overview or read_file directly.\n"
         "7. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan. If the task IS complete, you MUST call 'send_message' with a non-empty final result for the user.\n"
+        "8. Every invocation of run_skill spawns a completely stateless, ephemeral sub-agent. The worker starts fresh with no memory of prior runs. You MUST NOT try to converse/coordinate with the worker across multiple turns or promise to provide details in a 'next step'. Provide all instructions and details in a single run_skill call.\n"
+        "9. If you need to edit or write a large file (more than ~100-200 lines), do NOT instruct the worker to use write_file with the entire content, as LLM output limits will truncate the tool call. Instead, instruct it to use write_content_pos to edit specific line ranges, or write a small Python search-and-replace script and run it using run_command.\n"
         "NEVER assume something didn't happen without first searching the web using the web_search tool.\n"
         "CRITICAL: If you use a <think> block to plan your actions, you MUST NOT stop generating afterwards. You MUST conclude your turn by outputting a valid JSON tool call (either another tool, run_skill, or send_message). An empty text response or a plain text reply without a JSON tool call is a critical failure.\n\n"
         "ACHIEVEMENTS MEMORY INSTRUCTION:\n"

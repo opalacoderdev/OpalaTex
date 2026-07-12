@@ -135,6 +135,7 @@ def _get_llm_defaults():
     return {
         "temperature": 0.7,
         "num_ctx": 8192,
+        "timeout": 600.0,
         **cfg.get("llm_defaults", {}),
     }
 

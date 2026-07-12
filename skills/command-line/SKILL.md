@@ -14,15 +14,21 @@ This skill provides the sub-agent with tools to manipulate files and directories
         get_project_overview,
         read_file,
         read_content_pos,
+        write_file,
         write_content_pos,
         run_command,
         run_background_command,
         run_interactive_command,
-        search_conversation_history,
-        exec
+        search_conversation_history
 
 
 1. write_file: **Use `write_file` directly to create or overwrite any file.** Do NOT use `command_executor.py` for writing file content — shell quoting breaks with multi-line, HTML, CSS, or JavaScript content.
+
+**CRITICAL: LARGE FILES & TRUNCATION PREVENTION**
+If a file is large (more than ~100-200 lines, e.g., large `.tex` files or large code files), do NOT attempt to use `write_file` to write the entire file content, as the LLM output limits will cause the JSON tool call to be cut off mid-response (`[TRUNCATED RESPONSE]`).
+Instead:
+- Use `write_content_pos` to surgically modify only the specific line ranges that need changes.
+- Or, write a small Python helper script that reads the file, performs the string replacements/modifications programmatically (e.g. read, replace, write), and writes it back, then run it using `run_command`.
 
 ```
 write_file("<relative_or_absolute_path>", "<full file content>")
@@ -32,6 +38,7 @@ Examples:
 write_file("tictactoe.html", "<!DOCTYPE html>...")
 write_file("src/utils.js", "function foo() {...}")
 ```
+
 
 2. read_file: use read_file for directly access files without shell. For example:
 ```
@@ -63,38 +70,37 @@ write_content_pos("tictactoe.html", "1", "10", "<content>")
 write_content_pos("src/utils.js", "10", "20", "<content>")
 ```
 
-6. exec: use exec for directly access shell without shell. For example:
+5. run_command: use run_command to execute non-interactive shell commands (e.g. build, compile, list, grep, python/pip commands). For example:
 ```
-exec("<command>")
+run_command("<command>")
 ```
 Examples (NON-INTERACTIVE commands only):
 ```
-exec("ls -l")
-exec("pwd")
-exec("node --version")
-exec("uv pip install django")
+run_command("python -m pytest")
+run_command("pdflatex main.tex")
+run_command("uv pip install django")
 ```
-WARNING: Do NOT use `exec` for commands that require user input (like `npm create`, `npm init`, etc). For those, you MUST use `run_interactive_command`.
+WARNING: Do NOT use `run_command` for commands that require user input (like `npm create`, `npm init`, etc). For those, you MUST use `run_interactive_command`. Do NOT run servers or infinite processes with this tool.
 
-7. run_interactive_command: use this specifically for commands that require human interaction, choices, or input. It will open a popup terminal for the user.
+6. run_interactive_command: use this specifically for commands that require human interaction, choices, or input. It will open a popup terminal for the user.
 ```
 run_interactive_command("npm create vite@latest app -- --template react")
 run_interactive_command("npm init")
 ```
 
-8. run_background_command: use this to start long-running servers or background processes in the main IDE terminal. It returns immediately and does not block.
+7. run_background_command: use this to start long-running servers or background processes (e.g., `npm run dev`) directly in the user's main IDE terminal. It returns immediately and does not block.
 ```
 run_background_command("npm run dev")
 run_background_command("python manage.py runserver")
 ```
 
-9. get_project_overview: use get_project_overview for directly access project tree of files. Try with a minimum depth of 5.
+8. get_project_overview: use get_project_overview for directly access project tree of files. Try with a minimum depth of 5.
 Example:
 ```
 get_project_overview(5)
 ```
 
-7. search_conversation_history: use search_conversation_history for directly search conversation history without shell. For example:
+9. search_conversation_history: use search_conversation_history for directly search conversation history without shell. For example:
 ```
 search_conversation_history("<keyword>")
 ```
@@ -103,6 +109,7 @@ Examples:
 search_conversation_history("tictactoe")
 search_conversation_history("src")
 ```
+
 
 ## Available Commands via command_executor.py
 

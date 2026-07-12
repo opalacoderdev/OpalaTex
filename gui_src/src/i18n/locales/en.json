@@ -460,7 +460,12 @@
     "projectDirMissing": "Project folder does not exist on disk:\n{{path}}",
     "dirCreateError": "Error creating directory: {{error}}",
     "importFileError": "Error importing file: {{error}}",
-    "error": "Error:"
+    "error": "Error:",
+    "executionCancelled": "Execution cancelled.",
+    "processingCompleted": "Processing completed.",
+    "waitingConfirmation": "🔔 Waiting for confirmation: {{prompt}}",
+    "agentError": "🔴 Agent Error: {{message}}",
+    "toolProblem": "[Problem in {{tool}}]: {{message}}"
   },
   "onboarding": {
     "welcome": "Welcome to OpalaTex! ",

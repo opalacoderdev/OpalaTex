@@ -460,7 +460,12 @@
     "projectDirMissing": "A pasta do projeto não existe no disco:\n{{path}}",
     "dirCreateError": "Erro ao criar diretório: {{error}}",
     "importFileError": "Erro ao importar arquivo: {{error}}",
-    "error": "Erro:"
+    "error": "Erro:",
+    "executionCancelled": "Execução cancelada.",
+    "processingCompleted": "Processamento concluído.",
+    "waitingConfirmation": "🔔 Aguardando confirmação: {{prompt}}",
+    "agentError": "🔴 Erro do Agente: {{message}}",
+    "toolProblem": "[Problema em {{tool}}]: {{message}}"
   },
   "onboarding": {
     "welcome": "Bem-vindo ao OpalaTex! 🚀",

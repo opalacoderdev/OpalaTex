@@ -1027,9 +1027,11 @@ def get_available_tools():
         create_pptx_file,
         write_content_pos,
         run_command,
+        run_background_command,
         run_interactive_command,
         analyze_image
     ]
+
 
 # ─── Achievements Memory ─────────────────────────────────────────────────────
 @opalatex_tool(

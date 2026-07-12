@@ -1792,17 +1792,20 @@ export default function App() {
         }
         break;
       case 'cancelled':
-        addLog('info', 'Execução cancelada.');
+        addLog('info', t('app.executionCancelled', 'Execução cancelada.'));
         setConfirmRequest(null);
         break;
-      case 'agent_finished': addLog('info', 'Processamento concluído.'); break;
+      case 'agent_finished': addLog('info', t('app.processingCompleted', 'Processamento concluído.')); break;
       case 'input_request':
         setConfirmRequest({ ...data, id: data.id, prompt: data.prompt, options: data.options || ['yes', 'no'], default: data.default || 'yes', type: data.type || 'confirm' });
-        addLog('info', `🔔 Aguardando confirmação: ${data.prompt}`);
+        addLog('info', t('app.waitingConfirmation', '🔔 Aguardando confirmação: {{prompt}}', { prompt: data.prompt }));
         break;
-      case 'error': addLog('error', data.message); setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Erro do Agente: ${data.message}`, timestamp: new Date().toISOString() }]); break;
+      case 'error':
+        addLog('error', data.message);
+        setChatMessages(prev => [...prev, { role: 'assistant', content: t('app.agentError', '🔴 Erro do Agente: {{message}}', { message: data.message }), timestamp: new Date().toISOString() }]);
+        break;
       case 'problem':
-        addLog('error', `[Problema em ${data.tool}]: ${data.message}`);
+        addLog('error', t('app.toolProblem', '[Problema em {{tool}}]: {{message}}', { tool: data.tool, message: data.message }));
         setProblems(prev => trimToLimit([...prev, { id: Math.random().toString(), tool: data.tool, message: data.message, severity: data.severity || 'error', timestamp: new Date().toLocaleTimeString() }], panelMaxLines));
         break;
       default: addLog('info', `Evento: ${event}`);
