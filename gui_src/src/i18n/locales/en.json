@@ -229,7 +229,8 @@
     "generateResponseTooltip": "Generate an assistant response from this message",
     "hideThink": "Hide <think>",
     "hideThinkTooltip": "Hide <think> blocks from chat",
-    "tryAgain": "Try Again"
+    "tryAgain": "Try Again",
+    "continue": "Continue"
   },
   "chatSidebar": {
     "newChat": "New Chat",

@@ -72,6 +72,7 @@ PARAM_KEYS = [
     ("fallback_to_model", {"model": "ollama/test-model"}),
     ("unknown_command", {"cmd": "/foo"}),
     ("session_renamed", {"name": "myproject"}),
+    ("err_insufficient_quota", {"model": "openai/gpt-5.5"}),
 ]
 
 

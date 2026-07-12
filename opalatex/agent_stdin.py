@@ -159,6 +159,9 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
     if "context" in low and ("length" in low or "window" in low or "exceed" in low):
         return _("err_context_exceeded").format(model=model)
 
+    if "insufficient_quota" in low or "insufficient quota" in low or "billing" in low or "credit" in low or "balance" in low:
+        return _("err_insufficient_quota", model=model)
+
     if "ratelimit" in low or "rate limit" in low or "429" in low or "quota exceeded" in low or "resource_exhausted" in low:
         import re
         from opalatex.ui_settings import load_ui_settings

@@ -111,6 +111,20 @@ def test_ollama_model_not_found_error_is_localized():
     assert "O modelo `gemma` não foi encontrado localmente" in pt_msg
 
 
+def test_insufficient_quota_error_is_localized():
+    from opalatex.i18n import set_lang
+    project = SimpleNamespace(model="openai/gpt-5.5")
+    exc = Exception("OpenAIException - {\"error\": {\"message\": \"You exceeded your current quota, please check your plan and billing details.\", \"type\": \"insufficient_quota\"}}")
+
+    set_lang("en")
+    en_msg = _friendly_llm_error(exc, project)
+    assert "insufficient credits" in en_msg.lower() or "billing settings" in en_msg.lower()
+
+    set_lang("pt")
+    pt_msg = _friendly_llm_error(exc, project)
+    assert "cota de uso" in pt_msg.lower() or "créditos suficientes" in pt_msg.lower()
+
+
 def test_worker_summary_response_prefers_current_worker_messages():
     clear_worker_message_buffer()
     record_worker_message("stale recorded worker message")

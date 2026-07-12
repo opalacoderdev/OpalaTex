@@ -1102,9 +1102,18 @@ export default function ChatPanel({
             displayContent = displayContent.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '');
           }
 
-          const isError = !isUser && displayContent && (displayContent.includes('🔴 Erro') || displayContent.includes('🔴 Falha') || displayContent.includes('err_connection_failed'));
+          const isError = !isUser && displayContent && (
+            displayContent.includes('🔴') ||
+            displayContent.includes('err_connection_failed')
+          );
+
+          const isInterrupted = !isUser && displayContent && (
+            displayContent.startsWith('Interrupted:') ||
+            displayContent.startsWith('Interrompido:')
+          );
+
           let lastUserMsgBeforeThis = null;
-          if (isError) {
+          if (isError || isInterrupted) {
             for (let j = i - 1; j >= 0; j--) {
               if (chatMessages[j].role === 'user') {
                 lastUserMsgBeforeThis = chatMessages[j];
@@ -1256,7 +1265,7 @@ export default function ChatPanel({
                 ) : (
                   formatMessageContent(displayContent, activeProject?.project_path)
                 )}
-                {isError && lastUserMsgBeforeThis && (
+                {isError && isLastMessage && !isAgentRunning && lastUserMsgBeforeThis && (
                   <button
                     onClick={() => handleSendMessage(null, lastUserMsgBeforeThis)}
                     style={{
@@ -1275,6 +1284,27 @@ export default function ChatPanel({
                     }}
                   >
                     <RefreshCw size={14} /> {t('chatPanel.tryAgain', 'Tentar Novamente')}
+                  </button>
+                )}
+                {isInterrupted && isLastMessage && !isAgentRunning && (
+                  <button
+                    onClick={() => handleSendMessage(null, null, { overrideText: 'continue' })}
+                    style={{
+                      marginTop: '8px',
+                      padding: '6px 10px',
+                      background: 'var(--vscode-button-background, #0e639c)',
+                      color: 'var(--vscode-button-foreground, #ffffff)',
+                      border: 'none',
+                      borderRadius: '3px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      width: 'fit-content'
+                    }}
+                  >
+                    <ArrowRight size={14} /> {t('chatPanel.continue', 'Continuar')}
                   </button>
                 )}
                 {canGenerateResponse && (
