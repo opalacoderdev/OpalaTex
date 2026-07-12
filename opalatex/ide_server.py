@@ -1299,14 +1299,36 @@ class AsyncHTTPServer:
                 # If writing an SVG file, automatically generate a PDF copy alongside it using PyMuPDF
                 if file_path.endswith('.svg'):
                     try:
-                        import fitz
+                        import subprocess
+                        import sys
                         pdf_path = os.path.splitext(full_path)[0] + '.pdf'
-                        doc = fitz.open("svg", content.encode('utf-8'))
-                        pdf_bytes = doc.convert_to_pdf()
-                        pdf_doc = fitz.open("pdf", pdf_bytes)
-                        pdf_doc.save(pdf_path)
-                        pdf_doc.close()
-                        doc.close()
+                        code = f"""
+import sys
+import fitz
+try:
+    svg_bytes = sys.stdin.buffer.read()
+    doc = fitz.open(stream=svg_bytes, filetype="svg")
+    pdf_bytes = doc.convert_to_pdf()
+    pdf_doc = fitz.open("pdf", pdf_bytes)
+    pdf_doc.save({repr(pdf_path)})
+    pdf_doc.close()
+    doc.close()
+    print("SUCCESS")
+except Exception as e:
+    print("ERROR:", e)
+"""
+                        res = subprocess.run(
+                            [sys.executable, "-c", code],
+                            input=content.encode('utf-8'),
+                            capture_output=True,
+                            timeout=5.0
+                        )
+                        stdout = res.stdout.decode('utf-8', errors='replace')
+                        if "SUCCESS" not in stdout:
+                            stderr = res.stderr.decode('utf-8', errors='replace')
+                            print(f"Error converting SVG to PDF in subprocess: {stdout.strip()} {stderr.strip()}")
+                    except subprocess.TimeoutExpired:
+                        print("Timeout converting SVG to PDF (subprocess hung)")
                     except Exception as ex:
                         print(f"Error converting SVG to PDF: {ex}")
                 
