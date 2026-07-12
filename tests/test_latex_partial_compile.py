@@ -113,6 +113,32 @@ def test_partial_compile_injects_includeonly(monkeypatch, tmp_path):
     assert chapter.read_text(encoding="utf-8") == "new content"
 
 
+def test_full_compile_preserves_crlf_without_inserting_blank_lines(monkeypatch, tmp_path):
+    main = tmp_path / "main.tex"
+    content = "\\documentclass{article}\r\n\\begin{document}\r\nHello\r\n\\end{document}\r\n"
+    main.write_bytes(content.encode("utf-8"))
+
+    monkeypatch.setattr(latex_compiler, "get_tectonic_path", lambda: "tectonic")
+
+    def fake_run(cmd, cwd, capture_output, encoding, errors):
+        (tmp_path / "main.pdf").write_bytes(b"%PDF")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(latex_compiler.subprocess, "run", fake_run)
+
+    result = latex_compiler.compile_latex(
+        content,
+        str(main),
+        "main.tex",
+        str(tmp_path),
+        include_pdf_base64=False,
+    )
+
+    assert result["success"] is True
+    assert main.read_bytes() == content.encode("utf-8")
+    assert b"\r\r\n" not in main.read_bytes()
+
+
 def test_partial_compile_reuses_main_bibliography_artifacts(monkeypatch, tmp_path):
     main = tmp_path / "main.tex"
     chapter = tmp_path / "chapters" / "one.tex"

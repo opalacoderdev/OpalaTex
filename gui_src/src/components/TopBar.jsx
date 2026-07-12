@@ -60,9 +60,9 @@ export default function TopBar({
             ))}
           </optgroup>
         ))}
-        <optgroup label="Actions">
-          <option value="refresh_models">🔄 Refresh Models</option>
-          <option value="edit_models">⚙️ Edit Models...</option>
+        <optgroup label={t('topBar.actionsGroup')}>
+          <option value="refresh_models">{t('topBar.refreshModels')}</option>
+          <option value="edit_models">{t('topBar.editModels')}</option>
         </optgroup>
       </>
     );
@@ -92,15 +92,15 @@ export default function TopBar({
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
         {/* Orchestrator Model Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Settings2 size={14} style={{ color: 'var(--vscode-descriptionForeground, #888888)' }} title="Orchestrator Model" />
-          <span style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground, #888888)' }}>Orchestrator:</span>
+          <Settings2 size={14} style={{ color: 'var(--vscode-descriptionForeground, #888888)' }} title={t('topBar.orchestratorModel')} />
+          <span style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground, #888888)' }}>{t('topBar.orchestrator')}:</span>
           {globalAiProvider === 'cloud' ? (
             <select
               className="vscode-settings-input"
               style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px', opacity: 0.8 }}
               disabled
             >
-              <option>Opala Cloud</option>
+              <option>{t('topBar.opalaCloud')}</option>
             </select>
           ) : (
             <select
@@ -110,7 +110,7 @@ export default function TopBar({
               onChange={handleOrchestratorChange}
               disabled={!activeProject}
             >
-              {!projectModel && <option value="">Select a Model...</option>}
+              {!projectModel && <option value="">{t('topBar.selectModel')}</option>}
               {renderOptions()}
             </select>
           )}
@@ -118,15 +118,15 @@ export default function TopBar({
 
         {/* Worker Model Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Cpu size={14} style={{ color: 'var(--vscode-descriptionForeground, #888888)' }} title="Worker Model" />
-          <span style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground, #888888)' }}>Worker:</span>
+          <Cpu size={14} style={{ color: 'var(--vscode-descriptionForeground, #888888)' }} title={t('topBar.workerModel')} />
+          <span style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground, #888888)' }}>{t('topBar.worker')}:</span>
           {globalAiProvider === 'cloud' ? (
             <select
               className="vscode-settings-input"
               style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px', opacity: 0.8 }}
               disabled
             >
-              <option>Opala Cloud</option>
+              <option>{t('topBar.opalaCloud')}</option>
             </select>
           ) : (
             <select
@@ -136,7 +136,7 @@ export default function TopBar({
               onChange={handleWorkerChange}
               disabled={!activeProject}
             >
-              {!projectWorkerModel && <option value="">Select a Worker...</option>}
+              {!projectWorkerModel && <option value="">{t('topBar.selectWorker')}</option>}
               {renderOptions()}
             </select>
           )}

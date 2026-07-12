@@ -143,12 +143,13 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
     if "invalid value for" in low or "invalid_request_error" in low or "badrequest" in low:
         return f"The model rejected a parameter value: {msg}"
 
+    from opalatex.i18n import _
+
     if "not found" in low or "pull" in low or "try pulling it first" in low:
         if model.startswith("ollama/"):
-            return f"O modelo `{model.replace('ollama/', '')}` não foi encontrado localmente ou ainda está sendo baixado em segundo plano pelo Ollama. Por favor, aguarde alguns instantes até o fim do download e tente enviar a mensagem novamente!"
-        return f"Model {model} not found or needs to be pulled. Please check if it exists."
+            return _("err_ollama_model_not_found", model=model.replace("ollama/", ""))
+        return _("err_model_not_found", model=model)
 
-    from opalatex.i18n import _
     if "connection" in low or "connect" in low:
         return _("err_connection_failed").format(model=model)
 

@@ -246,7 +246,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
       const uniqueErrors = [...new Set(errors)];
       
       if (uniqueErrors.length === 0 && log.trim().length > 0) {
-        uniqueErrors.push("An error occurred during compilation. Please check the full log below.");
+        uniqueErrors.push(t('pdfPreview.genericCompileError'));
       }
       return uniqueErrors;
     };
@@ -316,7 +316,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         <div className="absolute inset-0 z-10 flex items-center justify-center" style={{ background: 'var(--vscode-editorOverlay)' }}>
           <div className="flex flex-col items-center gap-4 p-6 rounded-lg shadow-xl" style={{ background: 'var(--vscode-sidebar-bg)', color: 'var(--vscode-text-fg)' }}>
             <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--vscode-active-border)' }}></div>
-            <p>Compiling...</p>
+            <p>{t('pdfPreview.compiling')}</p>
           </div>
         </div>
       )}
@@ -522,7 +522,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
           <Document
             file={pdfUrl}
             onLoadSuccess={onDocumentLoadSuccess}
-            loading={<div style={{ color: 'var(--vscode-text-fg)' }}>Loading PDF...</div>}
+            loading={<div style={{ color: 'var(--vscode-text-fg)' }}>{t('pdfPreview.loadingPdf')}</div>}
             error={<div style={{ color: 'var(--vscode-errorForeground)' }}>{t('pdfPreview.loadError')}</div>}
           >
             {Array.from(new Array(numPages || 0), (el, index) => (

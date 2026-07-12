@@ -448,9 +448,9 @@ export default function EditProjectModal({
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.mainModel')}</label>
                 {globalAiProvider === 'cloud' ? (
                   <div style={{ padding: '8px', background: 'rgba(0, 122, 204, 0.1)', border: '1px solid #007acc', borderRadius: '4px', fontSize: '12px', color: '#007acc', marginTop: '4px' }}>
-                    <strong>Opala Cloud Ativado</strong><br />
-                    O modelo, URL base e chaves de API do Orquestrador já estão configurados automaticamente para usar a nuvem Opala.<br />
-                    <em>As configurações avançadas abaixo (Temperature, Tokens, etc) continuam disponíveis e serão aplicadas na Cloud.</em>
+                    <strong>{t('editProjectModal.opalaCloudEnabled')}</strong><br />
+                    {t('editProjectModal.cloudOrchestratorNotice')}<br />
+                    <em>{t('editProjectModal.cloudAdvancedNotice')}</em>
                   </div>
                 ) : (
                   <>
@@ -474,9 +474,9 @@ export default function EditProjectModal({
                       <option value="ollama/gemma4:12b" />
                       <option value="ollama/gemma4:31b-cloud" />
                     </datalist>
-                    {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>✓ Modelo adequado.</span>}
-                    {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>⚠ Poderá ficar lento.</span>}
-                    {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>❌ Pode exceder VRAM.</span>}
+                    {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
+                    {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                    {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
                   </>
                 )}
               </div>
@@ -519,55 +519,55 @@ export default function EditProjectModal({
                         {t('editProjectModal.litellmParams')}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                        <ParamNumber label="Temperature" step="0.1" min="0" max="2" placeholder="padrão: 0.7"
+                        <ParamNumber label={t('editProjectModal.temperature')} step="0.1" min="0" max="2" placeholder={t('editProjectModal.defaultTemperature')}
                           value={editingProject.model_params?.temperature}
                           onChange={e => setParam('temperature', parseNum(e.target.value, true))} />
-                        <ParamNumber label="Max Tokens" min="1" placeholder="ilimitado"
+                        <ParamNumber label={t('editProjectModal.maxTokens')} min="1" placeholder={t('editProjectModal.unlimited')}
                           value={editingProject.model_params?.max_tokens}
                           onChange={e => setParam('max_tokens', parseNum(e.target.value))} />
-                        <ParamNumber label="Context Window (num_ctx)" min="1" placeholder="padrão: 8192"
+                        <ParamNumber label={t('editProjectModal.contextWindow')} min="1" placeholder={t('editProjectModal.defaultContextWindow')}
                           value={editingProject.model_params?.num_ctx}
                           onChange={e => setParam('num_ctx', parseNum(e.target.value))} />
-                        <ParamNumber label="Seed" min="0" placeholder="padrão: nenhum"
+                        <ParamNumber label={t('editProjectModal.seed')} min="0" placeholder={t('editProjectModal.defaultNone')}
                           value={editingProject.model_params?.seed}
                           onChange={e => setParam('seed', parseNum(e.target.value))} />
-                        <ParamNumber label="Top P" step="0.05" min="0" max="1" placeholder="padrão: 1.0"
+                        <ParamNumber label={t('editProjectModal.topP')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultOne')}
                           value={editingProject.model_params?.top_p}
                           onChange={e => setParam('top_p', parseNum(e.target.value, true))} />
-                        <ParamNumber label="Frequency Penalty" step="0.1" min="-2" max="2" placeholder="padrão: 0.0"
+                        <ParamNumber label={t('editProjectModal.frequencyPenalty')} step="0.1" min="-2" max="2" placeholder={t('editProjectModal.defaultZero')}
                           value={editingProject.model_params?.frequency_penalty}
                           onChange={e => setParam('frequency_penalty', parseNum(e.target.value, true))} />
-                        <ParamNumber label="Presence Penalty" step="0.1" min="-2" max="2" placeholder="padrão: 0.0"
+                        <ParamNumber label={t('editProjectModal.presencePenalty')} step="0.1" min="-2" max="2" placeholder={t('editProjectModal.defaultZero')}
                           value={editingProject.model_params?.presence_penalty}
                           onChange={e => setParam('presence_penalty', parseNum(e.target.value, true))} />
-                        <ParamNumber label="Top K" min="1" placeholder="padrão: 40"
+                        <ParamNumber label={t('editProjectModal.topK')} min="1" placeholder={t('editProjectModal.defaultTopK')}
                           value={editingProject.model_params?.top_k}
                           onChange={e => setParam('top_k', parseNum(e.target.value))} />
-                        <ParamNumber label="Min P" step="0.05" min="0" max="1" placeholder="padrão: 0.0"
+                        <ParamNumber label={t('editProjectModal.minP')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultZero')}
                           value={editingProject.model_params?.min_p}
                           onChange={e => setParam('min_p', parseNum(e.target.value, true))} />
-                        <ParamNumber label="Repetition Penalty" step="0.1" min="0" placeholder="padrão: 1.0"
+                        <ParamNumber label={t('editProjectModal.repetitionPenalty')} step="0.1" min="0" placeholder={t('editProjectModal.defaultOne')}
                           value={editingProject.model_params?.repetition_penalty}
                           onChange={e => setParam('repetition_penalty', parseNum(e.target.value, true))} />
 
                         <div className="flex flex-col" style={{ gap: '4px' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Reasoning Effort</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.reasoningEffort')}</label>
                           <select
                             className="vscode-settings-input"
                             value={editingProject.model_params?.reasoning_effort ?? ''}
                             onChange={e => setParam('reasoning_effort', e.target.value || undefined)}
                           >
-                            <option value="">— padrão —</option>
-                            <option value="none">none</option>
-                            <option value="low">low</option>
-                            <option value="medium">medium</option>
-                            <option value="high">high</option>
-                            <option value="xhigh">xhigh</option>
+                            <option value="">{t('editProjectModal.defaultOption')}</option>
+                            <option value="none">{t('common.optionNone')}</option>
+                            <option value="low">{t('common.optionLow')}</option>
+                            <option value="medium">{t('common.optionMedium')}</option>
+                            <option value="high">{t('common.optionHigh')}</option>
+                            <option value="xhigh">{t('common.optionXHigh')}</option>
                           </select>
                         </div>
 
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Thinking (think)</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.thinking')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
                               checked={!!editingProject.model_params?.think}
@@ -577,7 +577,7 @@ export default function EditProjectModal({
                         </div>
 
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Stream</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.stream')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
                               checked={!!editingProject.model_params?.stream}
@@ -595,35 +595,35 @@ export default function EditProjectModal({
                         {t('editProjectModal.agentParams')}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                        <ParamNumber label="Max Heartbeats (MemGPT)" min="1" placeholder="padrão: 20 (memgpt)"
+                        <ParamNumber label={t('editProjectModal.maxHeartbeats')} min="1" placeholder={t('editProjectModal.defaultMemgptHeartbeats')}
                           value={editingProject.model_params?.max_heartbeats}
                           onChange={e => setParam('max_heartbeats', parseNum(e.target.value))} />
-                        <ParamNumber label="Max Context Tokens (MemGPT)" min="1" placeholder="padrão: igual a num_ctx"
+                        <ParamNumber label={t('editProjectModal.maxContextTokens')} min="1" placeholder={t('editProjectModal.defaultSameAsNumCtx')}
                           value={editingProject.model_params?.max_context_tokens}
                           onChange={e => setParam('max_context_tokens', parseNum(e.target.value))} />
-                        <ParamNumber label="Eviction Threshold" step="0.05" min="0" max="1" placeholder="padrão: 1.0"
+                        <ParamNumber label={t('editProjectModal.evictionThreshold')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultOne')}
                           value={editingProject.model_params?.eviction_threshold}
                           onChange={e => setParam('eviction_threshold', parseNum(e.target.value, true))} />
-                        <ParamNumber label="Memory Pressure Threshold" step="0.05" min="0" max="1" placeholder="padrão: 0.7"
+                        <ParamNumber label={t('editProjectModal.memoryPressureThreshold')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultMemoryPressure')}
                           value={editingProject.model_params?.memory_pressure_threshold}
                           onChange={e => setParam('memory_pressure_threshold', parseNum(e.target.value, true))} />
-                        <ParamNumber label="Loop Detection Limit" min="1" placeholder="padrão: 3"
+                        <ParamNumber label={t('editProjectModal.loopDetectionLimit')} min="1" placeholder={t('editProjectModal.defaultLoopDetectionLimit')}
                           value={editingProject.model_params?.loop_detection_limit}
                           onChange={e => setParam('loop_detection_limit', parseNum(e.target.value))} />
                         
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Loop Detection</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.loopDetection')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
                               checked={editingProject.model_params?.loop_detection ?? true}
                               onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, loop_detection: e.target.checked } }))} />
-                            <span style={{ fontSize: '12px', color: '#cccccc' }}>Habilitado</span>
+                            <span style={{ fontSize: '12px', color: '#cccccc' }}>{t('editProjectModal.enabled')}</span>
                           </label>
                         </div>
 
 
                         <div className="flex flex-col" style={{ gap: '4px' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Response Mode (MemGPT)</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.responseMode')}</label>
                           <select
                             className="vscode-settings-input"
                             value={editingProject.model_params?.response_mode ?? 'last'}
@@ -635,7 +635,7 @@ export default function EditProjectModal({
                         </div>
 
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Debug</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.debug')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
                               checked={!!editingProject.model_params?.debug}
@@ -661,8 +661,8 @@ export default function EditProjectModal({
                 </div>
                 {globalAiProvider === 'cloud' ? (
                   <div style={{ padding: '8px', background: 'rgba(0, 122, 204, 0.1)', border: '1px solid #007acc', borderRadius: '4px', fontSize: '12px', color: '#007acc', marginTop: '4px' }}>
-                    <strong>Opala Cloud Ativado</strong><br />
-                    O modelo do Worker já está configurado automaticamente para usar a nuvem Opala. As configurações avançadas abaixo continuarão ativas.
+                    <strong>{t('editProjectModal.opalaCloudEnabled')}</strong><br />
+                    {t('editProjectModal.cloudWorkerNotice')}
                   </div>
                 ) : (
                   <div style={{ display: 'flex', gap: '6px' }}>
@@ -694,7 +694,7 @@ export default function EditProjectModal({
                         HW: {workerHardware.gpu_vram_gb}GB VRAM | {workerHardware.ram_gb}GB RAM
                       </span>
                     ) : (
-                      <span style={{ fontSize: '10px', color: '#888888' }}>Detectando hardware...</span>
+                      <span style={{ fontSize: '10px', color: '#888888' }}>{t('editProjectModal.detectingHardware')}</span>
                     )}
                   </div>
                 )}
@@ -747,55 +747,55 @@ export default function EditProjectModal({
                         {t('editProjectModal.litellmParams')}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                        <ParamNumber label="Temperature" step="0.1" min="0" max="2" placeholder="padrão: 0.7"
+                        <ParamNumber label={t('editProjectModal.temperature')} step="0.1" min="0" max="2" placeholder={t('editProjectModal.defaultTemperature')}
                           value={editingProject.worker_model_params?.temperature}
                           onChange={e => setParam('temperature', parseNum(e.target.value, true), true)} />
-                        <ParamNumber label="Max Tokens" min="1" placeholder="ilimitado"
+                        <ParamNumber label={t('editProjectModal.maxTokens')} min="1" placeholder={t('editProjectModal.unlimited')}
                           value={editingProject.worker_model_params?.max_tokens}
                           onChange={e => setParam('max_tokens', parseNum(e.target.value), true)} />
-                        <ParamNumber label="Context Window (num_ctx)" min="1" placeholder="padrão: 8192"
+                        <ParamNumber label={t('editProjectModal.contextWindow')} min="1" placeholder={t('editProjectModal.defaultContextWindow')}
                           value={editingProject.worker_model_params?.num_ctx}
                           onChange={e => setParam('num_ctx', parseNum(e.target.value), true)} />
-                        <ParamNumber label="Seed" min="0" placeholder="padrão: nenhum"
+                        <ParamNumber label={t('editProjectModal.seed')} min="0" placeholder={t('editProjectModal.defaultNone')}
                           value={editingProject.worker_model_params?.seed}
                           onChange={e => setParam('seed', parseNum(e.target.value), true)} />
-                        <ParamNumber label="Top P" step="0.05" min="0" max="1" placeholder="padrão: 1.0"
+                        <ParamNumber label={t('editProjectModal.topP')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultOne')}
                           value={editingProject.worker_model_params?.top_p}
                           onChange={e => setParam('top_p', parseNum(e.target.value, true), true)} />
-                        <ParamNumber label="Frequency Penalty" step="0.1" min="-2" max="2" placeholder="padrão: 0.0"
+                        <ParamNumber label={t('editProjectModal.frequencyPenalty')} step="0.1" min="-2" max="2" placeholder={t('editProjectModal.defaultZero')}
                           value={editingProject.worker_model_params?.frequency_penalty}
                           onChange={e => setParam('frequency_penalty', parseNum(e.target.value, true), true)} />
-                        <ParamNumber label="Presence Penalty" step="0.1" min="-2" max="2" placeholder="padrão: 0.0"
+                        <ParamNumber label={t('editProjectModal.presencePenalty')} step="0.1" min="-2" max="2" placeholder={t('editProjectModal.defaultZero')}
                           value={editingProject.worker_model_params?.presence_penalty}
                           onChange={e => setParam('presence_penalty', parseNum(e.target.value, true), true)} />
-                        <ParamNumber label="Top K" min="1" placeholder="padrão: 40"
+                        <ParamNumber label={t('editProjectModal.topK')} min="1" placeholder={t('editProjectModal.defaultTopK')}
                           value={editingProject.worker_model_params?.top_k}
                           onChange={e => setParam('top_k', parseNum(e.target.value), true)} />
-                        <ParamNumber label="Min P" step="0.05" min="0" max="1" placeholder="padrão: 0.0"
+                        <ParamNumber label={t('editProjectModal.minP')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultZero')}
                           value={editingProject.worker_model_params?.min_p}
                           onChange={e => setParam('min_p', parseNum(e.target.value, true), true)} />
-                        <ParamNumber label="Repetition Penalty" step="0.1" min="0" placeholder="padrão: 1.0"
+                        <ParamNumber label={t('editProjectModal.repetitionPenalty')} step="0.1" min="0" placeholder={t('editProjectModal.defaultOne')}
                           value={editingProject.worker_model_params?.repetition_penalty}
                           onChange={e => setParam('repetition_penalty', parseNum(e.target.value, true), true)} />
 
                         <div className="flex flex-col" style={{ gap: '4px' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Reasoning Effort</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.reasoningEffort')}</label>
                           <select
                             className="vscode-settings-input"
                             value={editingProject.worker_model_params?.reasoning_effort ?? ''}
                             onChange={e => setParam('reasoning_effort', e.target.value || undefined, true)}
                           >
-                            <option value="">— padrão —</option>
-                            <option value="none">none</option>
-                            <option value="low">low</option>
-                            <option value="medium">medium</option>
-                            <option value="high">high</option>
-                            <option value="xhigh">xhigh</option>
+                            <option value="">{t('editProjectModal.defaultOption')}</option>
+                            <option value="none">{t('common.optionNone')}</option>
+                            <option value="low">{t('common.optionLow')}</option>
+                            <option value="medium">{t('common.optionMedium')}</option>
+                            <option value="high">{t('common.optionHigh')}</option>
+                            <option value="xhigh">{t('common.optionXHigh')}</option>
                           </select>
                         </div>
 
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Thinking (think)</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.thinking')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
                               checked={!!editingProject.worker_model_params?.think}
@@ -805,7 +805,7 @@ export default function EditProjectModal({
                         </div>
 
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Stream</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.stream')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
                               checked={!!editingProject.worker_model_params?.stream}
@@ -822,28 +822,28 @@ export default function EditProjectModal({
                         {t('editProjectModal.agentParams')}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                        <ParamNumber label="Max Iterations (Worker)" min="1" placeholder="padrão: sem limite"
+                        <ParamNumber label={t('editProjectModal.maxIterationsWorker')} min="1" placeholder={t('editProjectModal.defaultUnlimited')}
                           value={editingProject.worker_model_params?.max_iterations}
                           onChange={e => setParam('max_iterations', parseNum(e.target.value), true)} />
-                        <ParamNumber label="Max Tool Calls (Worker)" min="1" placeholder="padrão: 40"
+                        <ParamNumber label={t('editProjectModal.maxToolCallsWorker')} min="1" placeholder={t('editProjectModal.defaultTopK')}
                           value={editingProject.worker_model_params?.max_tool_calls}
                           onChange={e => setParam('max_tool_calls', parseNum(e.target.value), true)} />
-                        <ParamNumber label="Loop Detection Limit" min="1" placeholder="padrão: 3"
+                        <ParamNumber label={t('editProjectModal.loopDetectionLimit')} min="1" placeholder={t('editProjectModal.defaultLoopDetectionLimit')}
                           value={editingProject.worker_model_params?.loop_detection_limit}
                           onChange={e => setParam('loop_detection_limit', parseNum(e.target.value), true)} />
                         
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Loop Detection</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.loopDetection')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
                               checked={editingProject.worker_model_params?.loop_detection ?? true}
                               onChange={e => setEditingProject(p => ({ ...p, worker_model_params: { ...p.worker_model_params, loop_detection: e.target.checked } }))} />
-                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>Habilitado</span>
+                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
                           </label>
                         </div>
 
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Debug</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.debug')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
                               checked={!!editingProject.worker_model_params?.debug}

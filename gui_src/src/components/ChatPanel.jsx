@@ -813,7 +813,7 @@ export default function ChatPanel({
               style={{ flex: 1, padding: '2px 4px', fontSize: '11px', height: '22px', opacity: 0.8 }}
               disabled
             >
-              <option>Opala Cloud</option>
+              <option>{t('topBar.opalaCloud')}</option>
             </select>
           ) : (
             <select
@@ -828,7 +828,7 @@ export default function ChatPanel({
               }}
               disabled={!activeProject}
             >
-              {(!activeProject || !activeProject.model) && <option value="">Select...</option>}
+              {(!activeProject || !activeProject.model) && <option value="">{t('chatPanel.selectModel')}</option>}
               {Object.entries((globalModels || []).reduce((acc, m) => { const p = m.provider || 'custom'; if (!acc[p]) acc[p] = []; acc[p].push(m); return acc; }, {})).map(([provider, models]) => (
                 <optgroup key={`orch-${provider}`} label={provider.toUpperCase()}>
                   {models.map(m => <option key={`orch-${m.id}`} value={m.id}>{m.name || m.id}</option>)}
@@ -850,7 +850,7 @@ export default function ChatPanel({
               style={{ flex: 1, padding: '2px 4px', fontSize: '11px', height: '22px', opacity: 0.8 }}
               disabled
             >
-              <option>Opala Cloud</option>
+              <option>{t('topBar.opalaCloud')}</option>
             </select>
           ) : (
             <select
@@ -865,7 +865,7 @@ export default function ChatPanel({
               }}
               disabled={!activeProject}
             >
-              {(!activeProject || !activeProject.worker_model) && <option value="">Select...</option>}
+              {(!activeProject || !activeProject.worker_model) && <option value="">{t('chatPanel.selectModel')}</option>}
               {Object.entries((globalModels || []).reduce((acc, m) => { const p = m.provider || 'custom'; if (!acc[p]) acc[p] = []; acc[p].push(m); return acc; }, {})).map(([provider, models]) => (
                 <optgroup key={`work-${provider}`} label={provider.toUpperCase()}>
                   {models.map(m => <option key={`work-${m.id}`} value={m.id}>{m.name || m.id}</option>)}

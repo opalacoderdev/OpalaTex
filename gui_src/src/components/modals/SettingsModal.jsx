@@ -267,11 +267,11 @@ export default function SettingsModal({
                     <select className="vscode-settings-input"
                       value={ephemeralParams?.reasoning_effort || 'none'}
                       onChange={e => updateEphemeralParam('reasoning_effort', e.target.value)}>
-                      <option value="none">none</option>
-                      <option value="low">low</option>
-                      <option value="medium">medium</option>
-                      <option value="high">high</option>
-                      <option value="xhigh">xhigh</option>
+                      <option value="none">{t('common.optionNone')}</option>
+                      <option value="low">{t('common.optionLow')}</option>
+                      <option value="medium">{t('common.optionMedium')}</option>
+                      <option value="high">{t('common.optionHigh')}</option>
+                      <option value="xhigh">{t('common.optionXHigh')}</option>
                     </select>
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
@@ -281,8 +281,8 @@ export default function SettingsModal({
                       onChange={e => {
                         updateEphemeralParam('think', e.target.value === 'true');
                       }}>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
+                      <option value="true">{t('common.optionTrue')}</option>
+                      <option value="false">{t('common.optionFalse')}</option>
                     </select>
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
@@ -291,7 +291,7 @@ export default function SettingsModal({
                       value={ephemeralParams?.response_mode || 'last'}
                       onChange={e => updateEphemeralParam('response_mode', e.target.value)}>
                       <option value="last">{t('settingsModal.ephemeralLastDefault')}</option>
-                      <option value="all">all</option>
+                      <option value="all">{t('common.optionAll')}</option>
                     </select>
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>

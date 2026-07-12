@@ -248,8 +248,8 @@ export default function GitSidebar({
           className="vscode-settings-input"
           style={{ width: '100%', padding: '4px', borderRadius: '3px', fontSize: '11px' }}
         >
-          <option value="user">👤 Meu Repositório (Git)</option>
-          <option value="shadow">🤖 Histórico do Agente (Shadow)</option>
+          <option value="user">{t('gitSidebar.userRepository')}</option>
+          <option value="shadow">{t('gitSidebar.agentHistory')}</option>
         </select>
         {!useShadowGit && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px' }}>

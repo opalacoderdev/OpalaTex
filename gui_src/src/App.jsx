@@ -57,6 +57,88 @@ const normalizeEditorPathKey = (filePath, caseInsensitive = false) => {
   return caseInsensitive ? normalized.toLowerCase() : normalized;
 };
 
+const normalizeInlineReplacementSpacing = (replacementText, originalText = '', eol = '\n') => {
+  const toLf = (value) => String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const replacement = toLf(replacementText);
+  const original = toLf(originalText);
+  const replacementLines = replacement.split('\n');
+  const originalLines = original.split('\n');
+  const isBlank = (line) => line.trim() === '';
+  const replacementNonBlank = replacementLines.filter(line => !isBlank(line));
+  const originalNonBlank = originalLines.filter(line => !isBlank(line));
+
+  if (
+    originalNonBlank.length > 0 &&
+    replacementNonBlank.length === originalNonBlank.length &&
+    replacementLines.length > originalLines.length + Math.max(4, Math.ceil(originalLines.length * 0.2))
+  ) {
+    const gapsFor = (lines) => {
+      const gaps = [];
+      let pendingBlankCount = 0;
+      let seenContent = false;
+      let leading = 0;
+      const content = [];
+
+      for (const line of lines) {
+        if (isBlank(line)) {
+          pendingBlankCount += 1;
+          continue;
+        }
+        if (!seenContent) {
+          leading = pendingBlankCount;
+        } else {
+          gaps.push(pendingBlankCount);
+        }
+        seenContent = true;
+        pendingBlankCount = 0;
+        content.push(line);
+      }
+
+      return { leading, gaps, trailing: pendingBlankCount, content };
+    };
+
+    const originalGaps = gapsFor(originalLines);
+    const replacementGaps = gapsFor(replacementLines);
+    const rebuilt = [];
+    const pushBlankLines = (count) => {
+      for (let i = 0; i < count; i += 1) rebuilt.push('');
+    };
+
+    pushBlankLines(Math.min(replacementGaps.leading, originalGaps.leading));
+    replacementGaps.content.forEach((line, index) => {
+      if (index > 0) {
+        pushBlankLines(Math.min(
+          replacementGaps.gaps[index - 1] || 0,
+          originalGaps.gaps[index - 1] || 0,
+        ));
+      }
+      rebuilt.push(line);
+    });
+    pushBlankLines(Math.min(replacementGaps.trailing, originalGaps.trailing));
+    return rebuilt.join('\n').replace(/\n/g, eol);
+  }
+
+  const originalBlankCount = originalLines.length - originalNonBlank.length;
+  const replacementBlankCount = replacementLines.length - replacementNonBlank.length;
+  if (
+    originalNonBlank.length > 0 &&
+    replacementLines.length > originalLines.length + Math.max(4, Math.ceil(originalLines.length * 0.2)) &&
+    replacementBlankCount > originalBlankCount + Math.max(4, Math.ceil(originalLines.length * 0.15))
+  ) {
+    return replacementLines
+      .filter((line, index, lines) => {
+        if (!isBlank(line)) return true;
+        const previous = lines[index - 1];
+        const next = lines[index + 1];
+        return !(previous && next && !isBlank(previous) && !isBlank(next));
+      })
+      .join('\n')
+      .replace(/\n/g, eol);
+  }
+
+  return replacement.replace(/\n/g, eol);
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // App
 // ─────────────────────────────────────────────────────────────────────────────
@@ -288,7 +370,7 @@ export default function App() {
       setFileContent(data.content);
       setFileContents(prev => ({ ...prev, [selectedFile]: data.content }));
       setOriginalFileContents(prev => ({ ...prev, [selectedFile]: data.content }));
-      addLog('info', `Reloaded from disk: ${selectedFile}`);
+      addLog('info', t('app.reloadedFromDisk', { path: selectedFile }));
     } catch {
       // Ignore transient file reads; the next refresh/focus will try again.
     }
@@ -743,6 +825,20 @@ export default function App() {
       return trimToLimit(next, panelMaxLines);
     });
 
+  const addProblem = ({ tool = t('app.agentTool', 'Agent'), message, severity = 'error' }) => {
+    if (!message) return;
+    setProblems(prev => trimToLimit([
+      ...prev,
+      {
+        id: Math.random().toString(),
+        tool,
+        message,
+        severity,
+        timestamp: new Date().toLocaleTimeString(),
+      },
+    ], panelMaxLines));
+  };
+
   // ── API calls ─────────────────────────────────────────────────────────────
   const fetchProjects = async () => {
     try {
@@ -899,7 +995,7 @@ export default function App() {
         body: JSON.stringify(gitRequestPayload({ filePath })),
       });
       if (res.ok) {
-        addLog('info', `Discarded changes: ${filePath}`);
+        addLog('info', t('app.changesDiscarded', { path: filePath }));
         setFileContents(prev => {
           const next = { ...prev };
           delete next[filePath];
@@ -929,9 +1025,9 @@ export default function App() {
         fetchFiles();
         return;
       }
-      if (res.ok) { addLog('info', `Alterações descartadas: ${filePath}`); fetchGitStatus(); fetchFiles(); }
-      else { const d = await res.json(); addLog('error', `Erro ao descartar: ${d.error}`); }
-    } catch (err) { addLog('error', `Erro ao descartar alterações: ${err.message}`); }
+      if (res.ok) { addLog('info', t('app.changesDiscarded', { path: filePath })); fetchGitStatus(); fetchFiles(); }
+      else { const d = await res.json(); addLog('error', t('app.discardFailed', { error: d.error })); }
+    } catch (err) { addLog('error', t('app.discardChangesError', { error: err.message })); }
   };
 
   const handleInstallOptionalDeps = async () => {
@@ -941,7 +1037,7 @@ export default function App() {
     setInstallDepsLog('Iniciando pip install...\n');
     try {
       const response = await fetch('/api/settings/install-dependencies', { method: 'POST' });
-      if (!response.ok) throw new Error('Falha ao iniciar instalação');
+      if (!response.ok) throw new Error(t('app.installStartFailed'));
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
@@ -1070,13 +1166,13 @@ export default function App() {
           });
       }
       else {
-        addLog('error', `Erro ao ler arquivo: ${filePath}`);
+        addLog('error', t('app.fileReadFailed', { path: filePath }));
         setSelectedFile(filePath);
         setFileContent('');
         setLayoutMode('ide');
       }
     } catch (err) {
-      addLog('error', `Erro de leitura: ${err.message}`);
+      addLog('error', t('app.readError', { error: err.message }));
       setSelectedFile(filePath);
       setFileContent('');
       setLayoutMode('ide');
@@ -1092,7 +1188,7 @@ export default function App() {
         body: JSON.stringify({ projectPath: activeProject.project_path, filePath: selectedFile, content: fileContent }),
       });
       if (res.ok) {
-        addLog('info', `Arquivo salvo: ${selectedFile}`);
+        addLog('info', t('app.fileSaved', { path: selectedFile }));
         diskFileContentsRef.current[selectedFile] = fileContent;
         setFileContents(prev => ({ ...prev, [selectedFile]: fileContent }));
 
@@ -1124,11 +1220,11 @@ export default function App() {
         return true;
       }
       else {
-        addLog('error', `Erro ao salvar arquivo: ${selectedFile}`);
+        addLog('error', t('app.fileSaveFailedPath', { path: selectedFile }));
         return false;
       }
     } catch (err) {
-      addLog('error', `Erro de escrita: ${err.message}`);
+      addLog('error', t('app.writeError', { error: err.message }));
       return false;
     }
     finally { setIsSaving(false); }
@@ -1151,24 +1247,24 @@ export default function App() {
 
   const handleCreateNewFile = async (parentPath) => {
     if (!activeProject) return;
-    const filename = window.prompt('Nome do novo arquivo (ex: src/utils.py):', parentPath ? `${parentPath}/` : '');
+    const filename = window.prompt(t('app.newFilePrompt'), parentPath ? `${parentPath}/` : '');
     if (!filename) return;
     try {
       const res = await fetch('/api/file/write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, filePath: filename, content: '' }) });
-      if (res.ok) { addLog('info', `Arquivo criado: ${filename}`); await fetchFiles(); await handleFileSelect(filename); }
+      if (res.ok) { addLog('info', t('app.fileCreated', { path: filename })); await fetchFiles(); await handleFileSelect(filename); }
       else { const e = await res.json(); addLog('error', t('app.fileCreateError', { error: e.error })); }
-    } catch (err) { addLog('error', `Erro na chamada de criação de arquivo: ${err.message}`); }
+    } catch (err) { addLog('error', t('app.fileCreateCallError', { error: err.message })); }
   };
 
   const handleCreateNewDir = async (parentPath) => {
     if (!activeProject) return;
-    const dirname = window.prompt('Nome do novo diretório (ex: src/components):', parentPath ? `${parentPath}/` : '');
+    const dirname = window.prompt(t('app.newDirPrompt'), parentPath ? `${parentPath}/` : '');
     if (!dirname) return;
     try {
       const res = await fetch('/api/file/mkdir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, dirPath: dirname }) });
-      if (res.ok) { addLog('info', `Diretório criado: ${dirname}`); await fetchFiles(); }
+      if (res.ok) { addLog('info', t('app.dirCreated', { path: dirname })); await fetchFiles(); }
       else { const e = await res.json(); addLog('error', t('app.dirCreateError', { error: e.error })); }
-    } catch (err) { addLog('error', `Erro na chamada de criação de diretório: ${err.message}`); }
+    } catch (err) { addLog('error', t('app.dirCreateCallError', { error: err.message })); }
   };
 
   const handleImportFile = (parentPath = '') => {
@@ -1195,8 +1291,8 @@ export default function App() {
         body: formData,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to import file');
-      addLog('info', `Arquivo importado: ${data.filePath || file.name}`);
+      if (!res.ok) throw new Error(data.error || t('app.importFailed'));
+      addLog('info', t('app.fileImported', { path: data.filePath || file.name }));
       await fetchFiles();
       if (data.filePath) await handleFileSelect(data.filePath);
     } catch (err) {
@@ -1206,12 +1302,12 @@ export default function App() {
 
   const handleRenameNode = async (node) => {
     if (!activeProject || !node) return;
-    const newPath = window.prompt(`Digite o novo caminho/nome para "${node.path}":`, node.path);
+    const newPath = window.prompt(t('app.renamePrompt', { path: node.path }), node.path);
     if (!newPath || newPath === node.path) return;
     try {
       const res = await fetch('/api/file/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, oldPath: node.path, newPath }) });
       if (res.ok) {
-        addLog('info', `${node.isDirectory ? 'Diretório' : 'Arquivo'} renomeado de ${node.path} para ${newPath}`);
+        addLog('info', t('app.itemRenamed', { itemType: t(node.isDirectory ? 'app.itemTypeDirectory' : 'app.itemTypeFile'), oldPath: node.path, newPath }));
         if (!node.isDirectory) {
           setOpenFiles(prev => dedupeOpenFileList(prev.map(f => sameFilePath(f, node.path) ? newPath : f), newPath));
           setFileContents(prev => {
@@ -1235,7 +1331,7 @@ export default function App() {
         }
         await fetchFiles();
       } else { const e = await res.json(); addLog('error', t('app.fileRenameError', { error: e.error })); }
-    } catch (err) { addLog('error', `Erro ao renomear: ${err.message}`); }
+    } catch (err) { addLog('error', t('app.renameError', { error: err.message })); }
   };
 
   const handleSetMainFile = async (node) => {
@@ -1263,13 +1359,13 @@ export default function App() {
         const updated = await res.json();
         setActiveProject(prev => ({ ...prev, ...updated }));
         setProjects(prev => prev.map(p => (p.name === updated.name) ? { ...p, ...updated } : p));
-        addLog('info', `Main file definido como: ${relPath}`);
+        addLog('info', t('app.mainFileSet', { path: relPath }));
       } else {
         const err = await res.json();
-        addLog('error', `Falha ao definir main file: ${err.error}`);
+        addLog('error', t('app.mainFileSetFailed', { error: err.error }));
       }
     } catch (err) {
-      addLog('error', `Erro ao definir main file: ${err.message}`);
+      addLog('error', t('app.mainFileSetError', { error: err.message }));
     }
   };
 
@@ -1306,15 +1402,15 @@ export default function App() {
                 setSelectedFile(null); setFileContent('');
               }
             } else {
-              const e = await res.json(); addLog('error', `Falha ao deletar ${pathToDelete}: ${e.error}`);
+              const e = await res.json(); addLog('error', t('app.deletePathFailed', { path: pathToDelete, error: e.error }));
             }
           }
           if (successCount > 0) {
-            addLog('info', `${successCount} item(s) excluído(s) com sucesso.`);
+            addLog('info', t('app.itemsDeleted', { count: successCount }));
             setSelectedNodes(new Set()); // clear multi-selection
             await fetchFiles();
           }
-        } catch (err) { addLog('error', `Erro ao deletar: ${err.message}`); }
+        } catch (err) { addLog('error', t('app.deleteError', { error: err.message })); }
       }
     });
   };
@@ -1324,12 +1420,12 @@ export default function App() {
     const nodeName = oldPath.replace(/\\/g, '/').split('/').pop();
     const newPath = targetDirPath ? `${targetDirPath}/${nodeName}` : nodeName;
     if (oldPath === newPath) return;
-    if (isDirectory && (newPath === oldPath || newPath.startsWith(`${oldPath}/`))) { addLog('error', 'Não é possível mover um diretório para dentro dele mesmo.'); return; }
+    if (isDirectory && (newPath === oldPath || newPath.startsWith(`${oldPath}/`))) { addLog('error', t('app.moveDirectoryIntoItself')); return; }
     try {
       const res = await fetch('/api/file/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, oldPath, newPath }) });
-      if (res.ok) { addLog('info', `${isDirectory ? 'Diretório' : 'Arquivo'} movido de ${oldPath} para ${newPath}`); await fetchFiles(); }
-      else { const e = await res.json(); addLog('error', `Falha ao mover: ${e.error}`); }
-    } catch (err) { addLog('error', `Erro ao mover: ${err.message}`); }
+      if (res.ok) { addLog('info', t('app.itemMoved', { itemType: t(isDirectory ? 'app.itemTypeDirectory' : 'app.itemTypeFile'), oldPath, newPath })); await fetchFiles(); }
+      else { const e = await res.json(); addLog('error', t('app.moveFailed', { error: e.error })); }
+    } catch (err) { addLog('error', t('app.moveError', { error: err.message })); }
   };
 
   // ── Project CRUD ──────────────────────────────────────────────────────────
@@ -1349,11 +1445,11 @@ export default function App() {
         body: JSON.stringify({ project_name: newProjName, project_path: finalProjectPath, description: newProjDesc, model: newProjModel, worker_model: newProjWorkerModel, mode: newProjMode, api_key: newProjApiKey, api_base: newProjApiBase, worker_api_key: newProjWorkerApiKey, worker_api_base: newProjWorkerApiBase, model_params: Object.keys(newProjModelParams).length ? newProjModelParams : undefined, worker_model_params: Object.keys(newProjWorkerModelParams).length ? newProjWorkerModelParams : undefined }),
       });
       if (res.ok) {
-        addLog('info', `Projeto '${newProjName}' registrado.`);
+        addLog('info', t('app.projectRegistered', { name: newProjName }));
         setShowNewProjectModal(false); setNewProjName(''); setNewProjPath(''); setNewProjDesc(''); setNewProjApiKey(''); setNewProjApiBase('http://localhost:11434/v1'); setNewProjWorkerApiKey(''); setNewProjWorkerApiBase(''); setNewProjModelParams({}); setNewProjWorkerModelParams({});
         fetchProjects();
-      } else { const err = await res.json(); setNewProjError(err.error || 'Erro ao criar projeto.'); addLog('error', `Erro ao criar projeto: ${err.error}`); }
-    } catch (err) { setNewProjError(err.message || 'Erro ao criar projeto.'); addLog('error', `Erro ao criar: ${err.message}`); }
+      } else { const err = await res.json(); setNewProjError(err.error || t('app.projectCreateError')); addLog('error', t('app.projectCreateFailed', { error: err.error })); }
+    } catch (err) { setNewProjError(err.message || t('app.projectCreateError')); addLog('error', t('app.projectCreateFailed', { error: err.message })); }
   };
 
   const handleDeleteProject = (projName) => {
@@ -1366,9 +1462,9 @@ export default function App() {
     setProjectToDelete(null);
     try {
       const res = await fetch('/api/opalatex/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_name: projName, delete_dir: deleteDir }) });
-      if (res.ok) { addLog('info', `Projeto removido: ${projName}`); if (activeProject?.name === projName) setActiveProject(null); fetchProjects(); }
-      else { const data = await res.json(); addLog('error', `Erro ao excluir: ${data.error}`); }
-    } catch (err) { addLog('error', `Erro ao excluir: ${err.message}`); }
+      if (res.ok) { addLog('info', t('app.projectRemoved', { name: projName })); if (activeProject?.name === projName) setActiveProject(null); fetchProjects(); }
+      else { const data = await res.json(); addLog('error', t('app.projectDeleteError', { error: data.error })); }
+    } catch (err) { addLog('error', t('app.projectDeleteError', { error: err.message })); }
   };
 
   const openEditModal = async (e, proj) => {
@@ -1407,12 +1503,12 @@ export default function App() {
       });
       if (res.ok) {
         const updated = await res.json();
-        addLog('info', `Projeto '${updated.project_name}' atualizado.`);
+        addLog('info', t('app.projectUpdated', { name: updated.project_name }));
         setEditingProject(null);
         await fetchProjects();
         if (activeProject?.name === updated.name) setActiveProject(prev => ({ ...prev, ...updated }));
-      } else { const err = await res.json(); setEditProjError(err.error || 'Erro ao atualizar.'); addLog('error', `Erro ao atualizar: ${err.error}`); }
-    } catch (err) { setEditProjError(err.message || 'Erro ao atualizar projeto.'); addLog('error', `Erro ao atualizar projeto: ${err.message}`); }
+      } else { const err = await res.json(); setEditProjError(err.error || t('app.projectUpdateError')); addLog('error', t('app.projectUpdateFailed', { error: err.error })); }
+    } catch (err) { setEditProjError(err.message || t('app.projectUpdateError')); addLog('error', t('app.projectUpdateFailed', { error: err.message })); }
   };
 
   // ── Model config ──────────────────────────────────────────────────────────
@@ -1533,13 +1629,13 @@ export default function App() {
       if (res.ok) {
         setActiveProject(prev => prev ? { ...prev, git_root_path: data.git_root_path || '' } : prev);
         setProjects(prev => prev.map(p => p.name === activeProject.name ? { ...p, git_root_path: data.git_root_path || '' } : p));
-        addLog('info', gitRootPath ? `Raiz Git definida: ${data.git_root_path}` : 'Raiz Git redefinida para a pasta do projeto.');
+        addLog('info', gitRootPath ? t('app.gitRootSet', { path: data.git_root_path }) : t('app.gitRootReset'));
         fetchGitStatus();
       } else {
-        addLog('error', `Erro ao definir raiz Git: ${data.error || 'erro desconhecido'}`);
+        addLog('error', t('app.gitRootSetError', { error: data.error || t('app.unknownError') }));
       }
     } catch (err) {
-      addLog('error', `Erro ao definir raiz Git: ${err.message}`);
+      addLog('error', t('app.gitRootSetError', { error: err.message }));
     }
   };
 
@@ -1564,15 +1660,15 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok) {
-          addLog('info', `Projeto importado: ${data.project_name}`);
+          addLog('info', t('app.projectImported', { name: data.project_name }));
           setImportError('');
           fetchProjects();
         } else {
-          setImportError(data.error || 'Erro ao importar projeto.');
-          addLog('error', `Erro ao importar: ${data.error}`);
+          setImportError(data.error || t('app.importProjectError'));
+          addLog('error', t('app.importProjectErrorDetail', { error: data.error }));
         }
       } catch (err) {
-        setImportError(`Erro: ${err.message}`);
+        setImportError(t('app.errorWithMessage', { error: err.message }));
         addLog('error', t('app.importFileError', { error: err.message }));
       }
     }
@@ -1606,7 +1702,7 @@ export default function App() {
       });
     } catch (err) {
       console.error('Failed to open in system:', err);
-      addLog('error', `Erro ao abrir no sistema: ${err.message}`);
+      addLog('error', t('app.openSystemError', { error: err.message }));
     }
   };
 
@@ -1632,11 +1728,11 @@ export default function App() {
       });
       if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.error || 'Failed to paste');
+        throw new Error(errorData.error || t('app.pasteFailed'));
       }
       fetchFiles();
     } catch (err) {
-      addLog('error', `Erro ao colar: ${err.message}`);
+      addLog('error', t('app.pasteError', { error: err.message }));
     }
   };
 
@@ -1645,17 +1741,17 @@ export default function App() {
     try {
       const res = await fetch('/api/opalatex/interrupt', { method: 'POST' });
       if (res.ok) {
-        addLog('info', 'Sinal de interrupção enviado ao agente.');
+        addLog('info', t('app.interruptSent'));
         setConfirmRequest(null);
-      } else addLog('error', 'Falha ao enviar sinal de interrupção.');
-    } catch (err) { addLog('error', `Erro ao interromper: ${err.message}`); }
+      } else addLog('error', t('app.interruptFailed'));
+    } catch (err) { addLog('error', t('app.interruptError', { error: err.message })); }
   };
 
   const handleAgentEvent = (eventObj) => {
     const { event, ...data } = eventObj;
     switch (event) {
-      case 'server_ready': addLog('info', 'Agente pronto.', data.agent); break;
-      case 'agent_started': addLog('info', `Agente ${data.agent} iniciado.`, data.agent); break;
+      case 'server_ready': addLog('info', t('app.agentReady'), data.agent); break;
+      case 'agent_started': addLog('info', t('app.agentStarted', { agent: data.agent }), data.agent); break;
       case 'thought':
         addLog('thought', data.content, data.agent);
         setChatThoughtStream(prev => {
@@ -1673,9 +1769,9 @@ export default function App() {
       case 'stream_chunk':
         addLog('stream_chunk', data.content, data.agent);
         break;
-      case 'cancelled': addLog('warning', data.message || 'Execução cancelada.', data.agent); setChatMessages(prev => [...prev, { role: 'assistant', content: `⚠️ Interrompido: ${data.message || 'A execução do agente foi parada.'}`, timestamp: new Date().toISOString() }]); break;
+      case 'cancelled': addLog('warning', data.message || t('app.executionCancelled'), data.agent); setChatMessages(prev => [...prev, { role: 'assistant', content: t('app.agentInterrupted', { message: data.message || t('app.agentStopped') }), timestamp: new Date().toISOString() }]); break;
       case 'tool_call':
-        addLog('tool_call', `Chamando: ${data.tool} (${JSON.stringify(data.arguments)})`, data.agent);
+        addLog('tool_call', t('app.callingTool', { tool: data.tool, arguments: JSON.stringify(data.arguments) }), data.agent);
         if (['write_file', 'write_content_pos', 'replace_content_range', 'edit_file'].includes(data.tool)) {
           const writePath = data.arguments?.path;
           console.log(`[DEBUG tool_call] ${data.tool} path="${writePath}" — currentEditorCached=${fileContents[writePath] !== undefined}`);
@@ -1684,9 +1780,9 @@ export default function App() {
         break;
       case 'tool_result':
         if (data.is_error) {
-          addLog('error', `Falha na ferramenta: ${data.tool}`, data.agent);
+          addLog('error', t('app.toolFailed', { tool: data.tool }), data.agent);
         } else {
-          addLog('tool_result', `Sucesso: ${data.tool}`, data.agent);
+          addLog('tool_result', t('app.toolSucceeded', { tool: data.tool }), data.agent);
         }
         if (['write_file', 'write_content_pos', 'replace_content_range', 'edit_file'].includes(data.tool)) {
           console.log(`[DEBUG tool_result] ${data.tool} result="${data.result}"`);
@@ -1741,7 +1837,7 @@ export default function App() {
         }
         break;
       case 'agent_response':
-        addLog('info', 'Resposta recebida.');
+        addLog('info', t('app.responseReceived'));
         const responseText = (data.response && data.response.trim() !== '')
           ? data.response
           : "⚠️ *O agente concluiu o processamento, mas não emitiu nenhuma resposta textual ou chamada de ferramenta. Isso geralmente acontece quando o modelo de IA sofre uma falha de geração (ex: esqueceu de usar o formato correto após pensar).*";
@@ -1779,15 +1875,22 @@ export default function App() {
                 range.endLineNumber,
                 range.endColumn,
               );
+              const model = editorRef.current.getModel();
+              const originalText = model ? model.getValueInRange(monacoRange) : '';
+              const normalizedCode = normalizeInlineReplacementSpacing(
+                newCode,
+                originalText,
+                model?.getEOL?.() || '\n',
+              );
               editorRef.current.executeEdits('opalatex-inline', [{
                 range: monacoRange,
-                text: newCode,
+                text: normalizedCode,
                 forceMoveMarkers: true,
               }]);
-              addLog('info', `[Inline] Substituição aplicada nas linhas ${range.startLineNumber}–${range.endLineNumber}.`);
+              addLog('info', t('app.inlineReplacementApplied', { start: range.startLineNumber, end: range.endLineNumber }));
             }
           } catch (replaceErr) {
-            addLog('error', `[Inline] Falha ao aplicar substituição: ${replaceErr.message}`);
+            addLog('error', t('app.inlineReplacementFailed', { error: replaceErr.message }));
           }
         }
         break;
@@ -1802,13 +1905,14 @@ export default function App() {
         break;
       case 'error':
         addLog('error', data.message);
+        addProblem({ tool: data.agent || t('app.agentTool', 'Agent'), message: data.message, severity: 'error' });
         setChatMessages(prev => [...prev, { role: 'assistant', content: t('app.agentError', '🔴 Erro do Agente: {{message}}', { message: data.message }), timestamp: new Date().toISOString() }]);
         break;
       case 'problem':
-        addLog('error', t('app.toolProblem', '[Problema em {{tool}}]: {{message}}', { tool: data.tool, message: data.message }));
-        setProblems(prev => trimToLimit([...prev, { id: Math.random().toString(), tool: data.tool, message: data.message, severity: data.severity || 'error', timestamp: new Date().toLocaleTimeString() }], panelMaxLines));
+        addLog('error', t('app.toolProblem', { tool: data.tool, message: data.message }));
+        addProblem({ tool: data.tool, message: data.message, severity: data.severity || 'error' });
         break;
-      default: addLog('info', `Evento: ${event}`);
+      default: addLog('info', t('app.eventReceived', { event }));
     }
   };
 
@@ -1864,10 +1968,10 @@ export default function App() {
         });
         if (!truncateRes.ok) {
           const err = await truncateRes.json().catch(() => ({}));
-          throw new Error(err.error || 'Failed to truncate chat history');
+        throw new Error(err.error || t('app.truncateChatFailed'));
         }
       } catch (err) {
-        addLog('error', `Falha ao preparar edição: ${err.message}`);
+        addLog('error', t('app.editPreparationFailed', { error: err.message }));
         return;
       }
     }
@@ -1894,7 +1998,7 @@ export default function App() {
     setAchievementsMemory('');
     chatThoughtStreamRef.current = '';
     setChatThoughtStream('');
-    addLog('info', `Iniciando: "${userText}"`);
+    addLog('info', t('app.starting', { text: userText }));
 
     if (userText.trim().startsWith('/')) {
       try {
@@ -1905,14 +2009,14 @@ export default function App() {
         const result = await res.json();
         if (result.status === 'confirm') {
           setConfirmRequest({ id: result.id, prompt: result.prompt, options: result.options || ['yes', 'no'], default: result.default || 'yes', type: result.type || 'confirm', isSlashCommand: true });
-          addLog('info', `🔔 Aguardando confirmação: ${result.prompt}`);
+          addLog('info', t('app.waitingConfirmation', { prompt: result.prompt }));
         } else if (result.status === 'done') {
           setChatMessages(prev => [...prev, { role: 'assistant', content: (result.messages || []).join('\n') || 'Comando executado.', timestamp: new Date().toISOString() }]);
         } else {
           setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Erro: ${result.error || 'desconhecido'}`, timestamp: new Date().toISOString() }]);
         }
       } catch (err) {
-        addLog('error', `Falha no comando: ${err.message}`);
+        addLog('error', t('app.commandFailed', { error: err.message }));
         setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha: ${err.message}`, timestamp: new Date().toISOString() }]);
       } finally { setIsAgentRunning(false); fetchFiles(); }
       return;
@@ -1931,11 +2035,12 @@ export default function App() {
           project_name: activeProject.name, project_path: activeProject.project_path,
           model: activeProject.model, current_file: selectedFile || '',
           editor_content: fileContent || '', selected_text: selectedText || '',
+          lang: i18n.language || 'en',
           chat_id: targetChatId,
           attachments: attachmentsSnapshot,
         }),
       });
-      if (!res.body) { addLog('error', 'ReadableStream não suportado pelo backend.'); setIsAgentRunning(false); return; }
+      if (!res.body) { addLog('error', t('app.streamUnsupportedBackend')); setIsAgentRunning(false); return; }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -1952,7 +2057,7 @@ export default function App() {
       }
       if (buffer.trim()) { try { handleAgentEvent(JSON.parse(buffer)); } catch (e) { addLog('stdout', buffer); } }
     } catch (err) {
-      addLog('error', `Falha na execução: ${err.message}`);
+      addLog('error', t('app.executionFailed', { error: err.message }));
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, timestamp: new Date().toISOString() }]);
     } finally { setIsAgentRunning(false); fetchFiles(); fetchProblems(); }
   };
@@ -2000,7 +2105,7 @@ export default function App() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Failed to create edited branch');
+        throw new Error(err.error || t('app.editedBranchCreateFailed'));
       }
       const data = await res.json();
       const branchHistory = data.history || [];
@@ -2020,7 +2125,7 @@ export default function App() {
         .then(d => { if (d?.chats) setChats(d.chats); })
         .catch(() => { });
     } catch (err) {
-      addLog('error', `Falha ao criar branch editada: ${err.message}`);
+      addLog('error', t('app.editedBranchCreateError', { error: err.message }));
     }
   };
 
@@ -2051,7 +2156,7 @@ export default function App() {
       return;
     }
 
-    addLog('info', `✅ Confirmação: "${prompt}" → ${value}`);
+    addLog('info', t('app.confirmationValue', { prompt, value }));
     try {
       if (isSlashCommand) {
         const res = await fetch('/api/opalatex/slash-command/continue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, value }) });
@@ -2064,7 +2169,7 @@ export default function App() {
       } else {
         await fetch('/api/opalatex/input_response', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, value }) });
       }
-    } catch (err) { addLog('error', `Erro ao enviar confirmação: ${err.message}`); }
+    } catch (err) { addLog('error', t('app.confirmationSendError', { error: err.message })); }
   };
 
   // ── Editor mount ──────────────────────────────────────────────────────────
@@ -2143,7 +2248,7 @@ export default function App() {
     setChatInput('');
     setIsInlineRunning(true);
     setIsInlineRunning(true);
-    addLog('info', `Iniciando edição inline: "${instruction}"`);
+    addLog('info', t('app.inlineEditStarting', { instruction }));
 
     try {
       const res = await fetch('/api/opalatex/run', {
@@ -2160,12 +2265,13 @@ export default function App() {
           current_file: selectedFile || '',
           editor_content: fileContent || '',
           selected_text: selectedText || '',
+          lang: i18n.language || 'en',
           model_params: { max_tokens: 8192, ...ephemeralParams }
         }),
       });
 
       if (!res.body) {
-        addLog('error', 'ReadableStream não suportado no background.');
+        addLog('error', t('app.streamUnsupportedBackground'));
         return;
       }
 
@@ -2173,6 +2279,19 @@ export default function App() {
       const decoder = new TextDecoder();
       let buffer = '';
       let agentResponse = '';
+      let inlineErrorMessage = '';
+      const inlineAgentTool = t('app.inlineAgentTool', 'Inline agent');
+
+      const reportInlineFailure = (message, tool = inlineAgentTool, severity = 'error') => {
+        const failureMessage = message || t('app.inlineAgentNoOutput', 'Inline agent finished without producing content.');
+        if (!inlineErrorMessage) {
+          inlineErrorMessage = failureMessage;
+          setAlertMessage(t('app.inlineAgentErrorAlert', 'OpalaTex could not generate inline content: {{message}}', { message: failureMessage }));
+        }
+        addProblem({ tool, message: failureMessage, severity });
+        setActiveBottomTab('problems');
+        setIsTerminalCollapsed(false);
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -2187,7 +2306,11 @@ export default function App() {
             if (data.event === 'agent_response' && data.response) {
               agentResponse = data.response;
             } else if (data.event === 'error') {
-              addLog('error', `Inline Agent Error: ${data.message}`);
+              addLog('error', t('app.inlineAgentErrorLog', { message: data.message }));
+              reportInlineFailure(data.message);
+            } else if (data.event === 'problem') {
+              addLog('error', t('app.toolProblem', { tool: data.tool || inlineAgentTool, message: data.message }));
+              reportInlineFailure(data.message, data.tool || inlineAgentTool, data.severity || 'error');
             } else if (data.event === 'thought' || data.event === 'reflection' || data.event === 'stream_chunk') {
               let textContent = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
               if (textContent === '{}' || !textContent.trim()) continue;
@@ -2196,9 +2319,9 @@ export default function App() {
               let typeName = data.event;
               addLog(typeName, textContent, data.agent);
             } else if (data.event === 'tool_call') {
-              addLog('tool_call', `[Inline] Chamando: ${data.tool} (${JSON.stringify(data.arguments)})`, data.agent);
+              addLog('tool_call', t('app.inlineCallingTool', { tool: data.tool, arguments: JSON.stringify(data.arguments) }), data.agent);
             } else if (data.event === 'tool_result') {
-              addLog('tool_result', `[Inline] Retorno: ${data.tool}`, data.agent);
+              addLog('tool_result', t('app.inlineToolResult', { tool: data.tool }), data.agent);
             }
           } catch (e) {
             // ignore non-json logs
@@ -2210,7 +2333,19 @@ export default function App() {
         try {
           const data = JSON.parse(buffer);
           if (data.event === 'agent_response' && data.response) agentResponse = data.response;
+          else if (data.event === 'error') {
+            addLog('error', t('app.inlineAgentErrorLog', { message: data.message }));
+            reportInlineFailure(data.message);
+          } else if (data.event === 'problem') {
+            addLog('error', t('app.toolProblem', { tool: data.tool || inlineAgentTool, message: data.message }));
+            reportInlineFailure(data.message, data.tool || inlineAgentTool, data.severity || 'error');
+          }
         } catch (e) { }
+      }
+
+      if (!agentResponse) {
+        reportInlineFailure(inlineErrorMessage || t('app.inlineAgentNoOutput', 'Inline agent finished without producing content.'));
+        return;
       }
 
       if (agentResponse && editorRef.current && monacoRef.current) {
@@ -2319,7 +2454,7 @@ export default function App() {
           }
 
           if (!svgCode.includes('<svg') || !svgCode.includes('</svg>')) {
-            throw new Error("O modelo não retornou um SVG válido.");
+            throw new Error(t('app.invalidSvgReturned'));
           }
 
           const timestamp = Math.floor(Date.now() / 1000);
@@ -2355,7 +2490,7 @@ export default function App() {
 
           console.log(`[illustration] selectedFile="${selectedFile}" → relSelectedFile="${relSelectedFile}" depth=${depth} ref="${relIllustrationPath}"`);
 
-          addLog('info', `Salvando ilustração SVG em ${filename}...`);
+          addLog('info', t('app.savingSvg', { path: filename }));
           const writeRes = await fetch('/api/file/write', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2367,7 +2502,7 @@ export default function App() {
           });
           if (!writeRes.ok) {
             const errData = await writeRes.json().catch(() => ({}));
-            throw new Error(`Falha ao salvar arquivo SVG: ${errData.error || writeRes.statusText}`);
+            throw new Error(t('app.svgSaveFailed', { error: errData.error || writeRes.statusText }));
           }
 
           const model = editorRef.current.getModel();
@@ -2418,7 +2553,7 @@ export default function App() {
             text: codeToInsert,
             forceMoveMarkers: true,
           }]);
-          addLog('info', 'Ilustração criada e referência inserida com sucesso.');
+          addLog('info', t('app.svgCreatedInserted'));
         } else {
           // ── Extraction pipeline ───────────────────────────────────────────────
           let codeToInsert;
@@ -2448,30 +2583,41 @@ export default function App() {
 
           if (mode === 'generate') {
             const range = new monacoRef.current.Range(startLine, inlinePrompt.cursorCol, startLine, inlinePrompt.cursorCol);
+            const model = editorRef.current.getModel();
             editorRef.current.executeEdits('opalatex_inline', [{
               range: range,
-              text: codeToInsert,
+              text: normalizeInlineReplacementSpacing(codeToInsert, '', model?.getEOL?.() || '\n'),
               forceMoveMarkers: true,
             }]);
-            addLog('info', 'Geração inline aplicada com sucesso.');
+            addLog('info', t('app.inlineGenerationApplied'));
           } else if (hasSelection) {
             // Calculate end column dynamically
             const model = editorRef.current.getModel();
             const endCol = model ? model.getLineMaxColumn(endLine) : 1;
 
             const range = new monacoRef.current.Range(startLine, 1, endLine, endCol);
+            const originalText = model ? model.getValueInRange(range) : selectedText;
+            const normalizedCode = normalizeInlineReplacementSpacing(
+              codeToInsert,
+              originalText,
+              model?.getEOL?.() || '\n',
+            );
             editorRef.current.executeEdits('opalatex_inline', [{
               range: range,
-              text: codeToInsert,
+              text: normalizedCode,
               forceMoveMarkers: true,
             }]);
-            addLog('info', 'Edição inline aplicada com sucesso.');
+            addLog('info', t('app.inlineEditApplied'));
           }
         }
       }
 
     } catch (err) {
-      addLog('error', `Falha na edição inline: ${err.message}`);
+      addLog('error', t('app.inlineEditFailed', { error: err.message }));
+      addProblem({ tool: t('app.inlineAgentTool', 'Inline agent'), message: err.message, severity: 'error' });
+      setActiveBottomTab('problems');
+      setIsTerminalCollapsed(false);
+      setAlertMessage(t('app.inlineAgentErrorAlert', 'OpalaTex could not generate inline content: {{message}}', { message: err.message }));
     } finally {
       setInlinePrompt(null);
       setIsInlineRunning(false);
@@ -2511,7 +2657,7 @@ export default function App() {
     setProblems([]);
     chatThoughtStreamRef.current = '';
     setChatThoughtStream('');
-    addLog('info', `Iniciando: "${userText.slice(0, 80)}${userText.length > 80 ? '…' : ''}"`)
+    addLog('info', t('app.starting', { text: `${userText.slice(0, 80)}${userText.length > 80 ? '...' : ''}` }))
 
     // Use the captured text if provided; otherwise try reading Monaco
     let selectedText = capturedSelectedText ?? '';
@@ -2526,9 +2672,9 @@ export default function App() {
     try {
       const res = await fetch('/api/opalatex/run', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'run', agent: 'chat_orchestrator', prompt: userText, project_name: activeProject.name, project_path: activeProject.project_path, model: activeProject.model, current_file: selectedFile || '', editor_content: fileContent || '', selected_text: selectedText || '', chat_id: activeChatId, model_params: ephemeralParams }),
+        body: JSON.stringify({ command: 'run', agent: 'chat_orchestrator', prompt: userText, project_name: activeProject.name, project_path: activeProject.project_path, model: activeProject.model, current_file: selectedFile || '', editor_content: fileContent || '', selected_text: selectedText || '', lang: i18n.language || 'en', chat_id: activeChatId, model_params: ephemeralParams }),
       });
-      if (!res.body) { addLog('error', 'ReadableStream não suportado pelo backend.'); setIsAgentRunning(false); return; }
+      if (!res.body) { addLog('error', t('app.streamUnsupportedBackend')); setIsAgentRunning(false); return; }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -2545,7 +2691,7 @@ export default function App() {
       }
       if (buffer.trim()) { try { handleAgentEvent(JSON.parse(buffer)); } catch (e) { addLog('stdout', buffer); } }
     } catch (err) {
-      addLog('error', `Falha na execução: ${err.message}`);
+      addLog('error', t('app.executionFailed', { error: err.message }));
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, timestamp: new Date().toISOString() }]);
     } finally { setIsAgentRunning(false); fetchFiles(); fetchProblems(); }
   };
@@ -2827,7 +2973,7 @@ export default function App() {
                 <style>{`
                 @keyframes spin { to { transform: rotate(360deg); } }
               `}</style>
-                <span>Carregando chat...</span>
+                <span>{t('app.loadingChat')}</span>
               </div>
             )}
           </>

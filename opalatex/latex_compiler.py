@@ -390,7 +390,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
 
     try:
         os.makedirs(os.path.dirname(abs_file), exist_ok=True)
-        with open(abs_file, "w", encoding="utf-8") as f:
+        with open(abs_file, "w", encoding="utf-8", newline="") as f:
             f.write(tex_content)
     except Exception:
         pass
@@ -452,7 +452,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
     preview_synctex = os.path.join(main_dir, preview_stem + ".synctex.gz")
 
     try:
-        with open(preview_tex, "w", encoding="utf-8") as f:
+        with open(preview_tex, "w", encoding="utf-8", newline="") as f:
             f.write(preview_content)
 
         copied_artifacts = _copy_partial_shared_artifacts(main_dir, main_file, preview_stem)
@@ -573,7 +573,7 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
         if file_path:
             try:
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
-                with open(file_path, "w", encoding="utf-8") as f:
+                with open(file_path, "w", encoding="utf-8", newline="") as f:
                     f.write(tex_content)
             except Exception as e:
                 pass # Ignore write errors here, might be read-only or not needed
@@ -666,7 +666,7 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
     tex_file_path = os.path.join(temp_dir, base_name)
     
     try:
-        with open(tex_file_path, "w", encoding="utf-8") as f:
+        with open(tex_file_path, "w", encoding="utf-8", newline="") as f:
             f.write(tex_content)
             
         # Run tectonic
@@ -922,7 +922,7 @@ def _graphic_disk_cache_put(key: str, svg: str) -> None:
     """Persist *svg* to the disk cache. Best-effort — never raises."""
     path = os.path.join(_graphic_cache_dir(), key + ".svg")
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        with open(path, "w", encoding="utf-8", newline="") as f:
             f.write(svg)
     except OSError:
         pass
@@ -1086,7 +1086,7 @@ def render_graphic_to_svg(graphic_source: str, project_path: str = "", preamble:
     pdf_path = os.path.join(temp_dir, "graphic.pdf")
 
     try:
-        with open(tex_path, "w", encoding="utf-8") as f:
+        with open(tex_path, "w", encoding="utf-8", newline="") as f:
             f.write(full_doc)
 
         result = subprocess.run(

@@ -33,7 +33,7 @@ export default function AddProviderModal({
     const trimmedName = name.trim();
 
     if (!trimmedProvider || !trimmedName) {
-      setError('Provider and Model Name are required.');
+      setError(t('addProviderModal.requiredError'));
       return;
     }
 
@@ -43,7 +43,7 @@ export default function AddProviderModal({
     );
 
     if (duplicate) {
-      setError('A model with this provider and name already exists.');
+      setError(t('addProviderModal.duplicateError'));
       return;
     }
     
@@ -61,7 +61,7 @@ export default function AddProviderModal({
     <div className="vscode-modal-overlay" onClick={onClose}>
       <div className="vscode-modal" style={{ width: '450px' }} onClick={e => e.stopPropagation()}>
         <div className="vscode-modal-header">
-          <h2>{editingModel ? 'Edit Model' : 'Add Model / Provider'}</h2>
+          <h2>{editingModel ? t('addProviderModal.editTitle') : t('addProviderModal.addTitle')}</h2>
           <button onClick={onClose} className="vscode-modal-close"><X size={16} /></button>
         </div>
         
@@ -74,7 +74,7 @@ export default function AddProviderModal({
             )}
             
             <div className="vscode-form-group">
-              <label>Provider (e.g., ollama, gemini, openai) *</label>
+              <label>{t('addProviderModal.providerLabel')}</label>
               <input
                 type="text"
                 className="vscode-settings-input"
@@ -83,11 +83,11 @@ export default function AddProviderModal({
                 placeholder="ollama"
                 disabled={!!editingModel}
               />
-              {editingModel && <span style={{fontSize:'11px', color:'#888'}}>Provider cannot be changed during edit.</span>}
+              {editingModel && <span style={{fontSize:'11px', color:'#888'}}>{t('addProviderModal.providerLocked')}</span>}
             </div>
 
             <div className="vscode-form-group">
-              <label>Model Name (e.g., gemma4:12b) *</label>
+              <label>{t('addProviderModal.modelNameLabel')}</label>
               <input
                 type="text"
                 className="vscode-settings-input"
@@ -98,7 +98,7 @@ export default function AddProviderModal({
             </div>
 
             <div className="vscode-form-group">
-              <label>API Key (Optional)</label>
+              <label>{t('addProviderModal.apiKeyLabel')}</label>
               <input
                 type="password"
                 className="vscode-settings-input"
@@ -109,7 +109,7 @@ export default function AddProviderModal({
             </div>
 
             <div className="vscode-form-group">
-              <label>API Base URL (Optional)</label>
+              <label>{t('addProviderModal.apiBaseLabel')}</label>
               <input
                 type="text"
                 className="vscode-settings-input"
@@ -121,7 +121,7 @@ export default function AddProviderModal({
             
             {(provider && name) && (
               <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
-                Generated ID: <strong style={{color:'#ccc'}}>{provider.trim()}/{name.trim()}</strong>
+                {t('addProviderModal.generatedId')}: <strong style={{color:'#ccc'}}>{provider.trim()}/{name.trim()}</strong>
               </div>
             )}
           </div>

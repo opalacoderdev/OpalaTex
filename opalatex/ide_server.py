@@ -1020,7 +1020,7 @@ class AsyncHTTPServer:
                     if not _is_path_within(full_path, project_abs):
                         raise ValueError("filePath must stay inside the project directory")
                     os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                    with open(full_path, "w", encoding="utf-8") as f:
+                    with open(full_path, "w", encoding="utf-8", newline="") as f:
                         f.write(content)
 
                 from opalatex.document_exporter import export_tex_to_docx
@@ -1073,7 +1073,7 @@ class AsyncHTTPServer:
                 full_path = os.path.abspath(os.path.join(project_path, file_path))
                 file_content = ""
                 try:
-                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                    with open(full_path, "r", encoding="utf-8", errors="ignore", newline="") as f:
                         file_content = f.read()
                 except Exception:
                     pass
@@ -1129,7 +1129,7 @@ class AsyncHTTPServer:
                 target_full_path = os.path.abspath(os.path.join(project_path, file_path))
                 file_content = ""
                 try:
-                    with open(target_full_path, "r", encoding="utf-8", errors="ignore") as f:
+                    with open(target_full_path, "r", encoding="utf-8", errors="ignore", newline="") as f:
                         file_content = f.read()
                 except Exception:
                     pass
@@ -1211,7 +1211,7 @@ class AsyncHTTPServer:
                 self.send_response(writer, 404, b'{"error":"File not found"}', "application/json")
                 return
             try:
-                with open(full_path, 'r', encoding='utf-8') as f:
+                with open(full_path, 'r', encoding='utf-8', newline='') as f:
                     content = f.read()
                 self.send_response(writer, 200, json.dumps({"content": content}).encode('utf-8'), "application/json")
             except Exception as e:
@@ -1306,7 +1306,7 @@ class AsyncHTTPServer:
             try:
                 dir_path = os.path.dirname(full_path)
                 os.makedirs(dir_path, exist_ok=True)
-                with open(full_path, 'w', encoding='utf-8') as f:
+                with open(full_path, 'w', encoding='utf-8', newline='') as f:
                     f.write(content)
                 
                 # If writing an SVG file, automatically generate a PDF copy alongside it using PyMuPDF
@@ -2699,8 +2699,12 @@ except Exception as e:
         elif path == '/api/opalatex/run' and method == 'POST':
             from opalatex.ui_settings import load_ui_settings
             from opalatex.licensing import _load_license_data
-            
+            from opalatex.i18n import set_lang
+
             ui_cfg = load_ui_settings()
+            request_lang = data.get("lang") or ui_cfg.get("lang", "")
+            backend_lang = "pt" if (request_lang or "").startswith("pt") else "en"
+            set_lang(backend_lang)
 
 
             headers = (

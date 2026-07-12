@@ -14,6 +14,7 @@ from opalatex.agent_stdin import (
     patched_get_available_tools,
     handle_load_project,
     _empty_response_failure_message,
+    _friendly_llm_error,
     _response_with_thought,
     _worker_summary_response,
     clear_worker_message_buffer,
@@ -92,6 +93,22 @@ def test_empty_response_failure_message_is_localized():
 
     set_lang("pt")
     assert _empty_response_failure_message() == "O agente terminou sem chamar send_message após as tentativas automáticas de correção. Nenhuma resposta fallback foi salva."
+
+
+def test_ollama_model_not_found_error_is_localized():
+    from opalatex.i18n import set_lang
+
+    project = SimpleNamespace(model="ollama/gemma")
+    exc = Exception("model not found, try pulling it first")
+
+    set_lang("en")
+    en_msg = _friendly_llm_error(exc, project)
+    assert "The model `gemma` was not found locally" in en_msg
+    assert "O modelo" not in en_msg
+
+    set_lang("pt")
+    pt_msg = _friendly_llm_error(exc, project)
+    assert "O modelo `gemma` não foi encontrado localmente" in pt_msg
 
 
 def test_worker_summary_response_prefers_current_worker_messages():

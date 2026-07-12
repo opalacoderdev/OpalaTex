@@ -344,12 +344,12 @@ export default function OnboardingModal({ onClose, onComplete }) {
               </div>
               {apiProvider.startsWith('ollama/') && (
                 <div className="flex flex-col" style={{ gap: '4px' }}>
-                  <label style={{ fontSize: '12px', color: '#ccc' }}>URL BASE DA API (Opcional para Nuvem Customizada)</label>
+                  <label style={{ fontSize: '12px', color: '#ccc' }}>{t('onboarding.apiBaseLabel')}</label>
                   <input 
                     type="text" 
                     value={apiBase} 
                     onChange={(e) => setApiBase(e.target.value)} 
-                    placeholder="Ex: https://meu-ollama.nuvem.com/v1" 
+                    placeholder={t('onboarding.apiBasePlaceholder')}
                     className="vscode-settings-input"
                     style={{ width: '100%', boxSizing: 'border-box' }}
                   />

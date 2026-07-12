@@ -16,6 +16,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 // Module-level cache so multiple GraphicPreview instances in the same page
 // share results. Bounded to keep memory in check.
@@ -36,6 +37,7 @@ export default function GraphicPreview({
   projectPath = '',
   label = 'TikZ / PGFPlots',
 }) {
+  const { t } = useTranslation();
   const [state, setState] = useState({ status: 'idle', svg: '', log: '' });
   const debounceRef = useRef(null);
   const tokenRef = useRef(0);
@@ -84,7 +86,7 @@ export default function GraphicPreview({
           }
           setState({ status: 'ok', svg: data.svg, log: '' });
         } else {
-          setState({ status: 'err', svg: '', log: (data && data.log) || 'render failed' });
+          setState({ status: 'err', svg: '', log: (data && data.log) || t('graphicPreview.renderFailed') });
         }
       } catch (err) {
         if (myToken !== tokenRef.current) return;
@@ -123,8 +125,8 @@ export default function GraphicPreview({
         }}
       >
         <span>{label}</span>
-        {state.status === 'loading' && <span>rendering…</span>}
-        {state.status === 'err' && <span style={{ color: 'var(--vscode-errorForeground, #f48771)' }}>preview failed</span>}
+        {state.status === 'loading' && <span>{t('graphicPreview.rendering')}</span>}
+        {state.status === 'err' && <span style={{ color: 'var(--vscode-errorForeground, #f48771)' }}>{t('graphicPreview.previewFailed')}</span>}
       </div>
       <div
         style={{
@@ -137,7 +139,7 @@ export default function GraphicPreview({
       >
         {state.status === 'loading' && (
           <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)' }}>
-            Rendering preview…
+            {t('graphicPreview.renderingPreview')}
           </span>
         )}
         {state.status === 'err' && (
@@ -154,7 +156,7 @@ export default function GraphicPreview({
             }}
             title={state.log}
           >
-            {`Preview unavailable — ${state.log.split('\n').slice(-3).join('\n').trim()}`}
+            {t('graphicPreview.previewUnavailable', { log: state.log.split('\n').slice(-3).join('\n').trim() })}
           </pre>
         )}
         {state.status === 'ok' && (

@@ -226,7 +226,7 @@ export default function NewProjectModal({
                     value={newProjModel || 'OpalaTexCloud'}
                     onChange={(e) => applySavedModelCredentials(e.target.value, 'main')}
                   >
-                    <option value="OpalaTexCloud">OpalaTex Cloud (Padrão)</option>
+                    <option value="OpalaTexCloud">{t('editProjectModal.opalaCloudDefault')}</option>
                     <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash</option>
                     <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
                     <option value="openai/gpt-4o">GPT-4o</option>
@@ -258,9 +258,9 @@ export default function NewProjectModal({
                 )}
                 {globalAiProvider !== 'cloud' && (
                   <>
-                    {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>✓ Modelo adequado.</span>}
-                    {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>⚠ Poderá ficar lento.</span>}
-                    {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>❌ Pode exceder VRAM.</span>}
+                    {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
+                    {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                    {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
                   </>
                 )}
               </div>
@@ -289,21 +289,21 @@ export default function NewProjectModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>Temperature</label>
+                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.temperature')}</label>
                       <input type="number" step="0.1" value={newProjModelParams?.temperature ?? ''} onChange={e => handleParamChange(setNewProjModelParams, 'temperature', e.target.value ? parseFloat(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 0.7" />
                     </div>
                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>Max Tokens</label>
+                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.maxTokens')}</label>
                       <input type="number" value={newProjModelParams?.max_tokens ?? ''} onChange={e => handleParamChange(setNewProjModelParams, 'max_tokens', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 4096" />
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '12px' }}>
                      <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                        <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>Max Heartbeats (MemGPT)</label>
+                        <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.maxHeartbeats')}</label>
                         <input type="number" value={newProjModelParams?.max_heartbeats ?? ''} onChange={e => handleParamChange(setNewProjModelParams, 'max_heartbeats', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 10" />
                      </div>
                      <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                        <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>Loop Detection Limit</label>
+                        <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.loopDetectionLimit')}</label>
                         <input type="number" value={newProjModelParams?.loop_detection_limit ?? ''} onChange={e => handleParamChange(setNewProjModelParams, 'loop_detection_limit', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 3" />
                      </div>
                   </div>
@@ -312,7 +312,7 @@ export default function NewProjectModal({
                         <input type="checkbox"
                            checked={newProjModelParams?.loop_detection ?? true}
                            onChange={e => handleParamChange(setNewProjModelParams, 'loop_detection', e.target.checked)} />
-                        <span style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>Enable Loop Detection</span>
+                         <span style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enableLoopDetection')}</span>
                      </label>
                   </div>
                 </div>
@@ -324,14 +324,14 @@ export default function NewProjectModal({
           {activeTab === 'worker' && (
             <>
               <div className="flex flex-col" style={{ gap: '4px' }}>
-                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Worker Model</label>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerModel')}</label>
                 {globalAiProvider === 'cloud' ? (
                   <select
                     className="vscode-settings-input"
                     value={newProjWorkerModel || 'OpalaTexCloud'}
                     onChange={e => applySavedModelCredentials(e.target.value, 'worker')}
                   >
-                    <option value="OpalaTexCloud">OpalaTex Cloud (Padrão)</option>
+                    <option value="OpalaTexCloud">{t('editProjectModal.opalaCloudDefault')}</option>
                     <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash</option>
                     <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
                     <option value="openai/gpt-4o">GPT-4o</option>
@@ -344,7 +344,7 @@ export default function NewProjectModal({
                       list="default-worker-models"
                       value={newProjWorkerModel}
                       onChange={e => applySavedModelCredentials(e.target.value, 'worker')}
-                      placeholder="ollama/gemma4:12b (Opcional)"
+                      placeholder={t('newProjectModal.workerModelPlaceholder')}
                       style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
                     <datalist id="default-worker-models">
@@ -360,9 +360,9 @@ export default function NewProjectModal({
                 )}
                 {globalAiProvider !== 'cloud' && (
                   <>
-                    {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>✓ Modelo adequado.</span>}
-                    {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>⚠ Poderá ficar lento.</span>}
-                    {workerModelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>❌ Pode exceder VRAM.</span>}
+                    {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
+                    {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                    {workerModelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
                   </>
                 )}
               </div>
@@ -370,11 +370,11 @@ export default function NewProjectModal({
               {globalAiProvider !== 'cloud' && (
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Worker API Key</label>
-                    <input type="password" value={newProjWorkerApiKey} onChange={e => setNewProjWorkerApiKey(e.target.value)} placeholder="API Key for Worker" />
+                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiKey')}</label>
+                    <input type="password" value={newProjWorkerApiKey} onChange={e => setNewProjWorkerApiKey(e.target.value)} placeholder={t('newProjectModal.workerApiKeyPlaceholder')} />
                   </div>
                   <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>Worker API Base</label>
+                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiBase')}</label>
                     <input type="text" value={newProjWorkerApiBase} onChange={e => setNewProjWorkerApiBase(e.target.value)} placeholder="http://localhost:11434/v1" />
                   </div>
                 </div>
@@ -386,21 +386,21 @@ export default function NewProjectModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#ccc' }}>Temperature</label>
+                      <label style={{ fontSize: '11px', color: '#ccc' }}>{t('editProjectModal.temperature')}</label>
                       <input type="number" step="0.1" value={newProjWorkerModelParams?.temperature ?? ''} onChange={e => handleParamChange(setNewProjWorkerModelParams, 'temperature', e.target.value ? parseFloat(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 0.2" />
                     </div>
                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#ccc' }}>Max Tokens</label>
+                      <label style={{ fontSize: '11px', color: '#ccc' }}>{t('editProjectModal.maxTokens')}</label>
                       <input type="number" value={newProjWorkerModelParams?.max_tokens ?? ''} onChange={e => handleParamChange(setNewProjWorkerModelParams, 'max_tokens', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 8192" />
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '12px' }}>
                      <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                        <label style={{ fontSize: '11px', color: '#ccc' }}>Max Iterations</label>
+                        <label style={{ fontSize: '11px', color: '#ccc' }}>{t('editProjectModal.maxIterations')}</label>
                         <input type="number" value={newProjWorkerModelParams?.max_iterations ?? ''} onChange={e => handleParamChange(setNewProjWorkerModelParams, 'max_iterations', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 40" />
                      </div>
                      <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                        <label style={{ fontSize: '11px', color: '#ccc' }}>Loop Detection Limit</label>
+                        <label style={{ fontSize: '11px', color: '#ccc' }}>{t('editProjectModal.loopDetectionLimit')}</label>
                         <input type="number" value={newProjWorkerModelParams?.loop_detection_limit ?? ''} onChange={e => handleParamChange(setNewProjWorkerModelParams, 'loop_detection_limit', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 3" />
                      </div>
                   </div>
@@ -409,7 +409,7 @@ export default function NewProjectModal({
                         <input type="checkbox"
                            checked={newProjWorkerModelParams?.loop_detection ?? true}
                            onChange={e => handleParamChange(setNewProjWorkerModelParams, 'loop_detection', e.target.checked)} />
-                        <span style={{ fontSize: '11px', color: '#ccc' }}>Enable Loop Detection</span>
+                        <span style={{ fontSize: '11px', color: '#ccc' }}>{t('editProjectModal.enableLoopDetection')}</span>
                      </label>
                   </div>
                 </div>

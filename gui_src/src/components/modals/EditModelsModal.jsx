@@ -22,7 +22,7 @@ export default function EditModelsModal({
     <div className="vscode-modal-overlay" onClick={onClose}>
       <div className="vscode-modal" style={{ width: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div className="vscode-modal-header">
-          <h2>Edit Models / Providers</h2>
+          <h2>{t('editModelsModal.title')}</h2>
           <button onClick={onClose} className="vscode-modal-close"><X size={16} /></button>
         </div>
         
@@ -34,30 +34,30 @@ export default function EditModelsModal({
               <input
                 type="text"
                 className="vscode-settings-input"
-                placeholder="Search models..."
+                placeholder={t('editModelsModal.searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 style={{ width: '100%', paddingLeft: '28px' }}
               />
             </div>
             <button className="vscode-button" onClick={onAddProvider}>
-              <Plus size={14} /> Add Provider/Model
+              <Plus size={14} /> {t('editModelsModal.addProviderModel')}
             </button>
           </div>
 
           <div style={{ overflowY: 'auto', flex: 1, border: '1px solid var(--vscode-widget-border)', borderRadius: '4px' }}>
             {filteredModels.length === 0 ? (
               <div style={{ padding: '20px', textAlign: 'center', color: '#888' }}>
-                No models found.
+                {t('editModelsModal.noModels')}
               </div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--vscode-widget-border)', background: 'var(--vscode-editor-inactiveSelectionBackground)' }}>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>Provider</th>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>Model Name</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('editModelsModal.provider')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('editModelsModal.modelName')}</th>
                     <th style={{ padding: '8px', textAlign: 'left' }}>ID</th>
-                    <th style={{ padding: '8px', textAlign: 'right' }}>Actions</th>
+                    <th style={{ padding: '8px', textAlign: 'right' }}>{t('editModelsModal.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -69,7 +69,7 @@ export default function EditModelsModal({
                       <td style={{ padding: '8px', textAlign: 'right' }}>
                         <button 
                           className="vscode-bottom-panel-clear-btn" 
-                          title="Edit"
+                          title={t('common.edit')}
                           onClick={() => onEditModel(model)}
                           style={{ padding: '4px', marginRight: '4px' }}
                         >
@@ -77,9 +77,9 @@ export default function EditModelsModal({
                         </button>
                         <button 
                           className="vscode-bottom-panel-clear-btn" 
-                          title="Delete"
+                          title={t('common.delete')}
                           onClick={() => {
-                            if(window.confirm(`Are you sure you want to delete ${model.id}?`)) {
+                            if(window.confirm(t('editModelsModal.deleteConfirm', { id: model.id }))) {
                               onDeleteModel(model.id);
                             }
                           }}

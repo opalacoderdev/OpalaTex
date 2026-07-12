@@ -527,7 +527,7 @@ def write_file(path: str, content: str) -> str:
 
     try:
         content = _decode_escape_sequences(content)
-        with open(resolved, "w", encoding="utf-8") as f:
+        with open(resolved, "w", encoding="utf-8", newline="") as f:
             f.write(content)
         try:
             from .code_index import CODE_INDEX
@@ -954,7 +954,7 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
 
     try:
         content = _decode_escape_sequences(content)
-        with open(resolved, "r", encoding="utf-8") as f:
+        with open(resolved, "r", encoding="utf-8", newline="") as f:
             lines = f.readlines()
         
         idx = max(0, min(pos - 1, len(lines)))
@@ -964,7 +964,7 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
             
         lines.insert(idx, content)
         
-        with open(resolved, "w", encoding="utf-8") as f:
+        with open(resolved, "w", encoding="utf-8", newline="") as f:
             f.writelines(lines)
         try:
             from .code_index import CODE_INDEX
@@ -1011,7 +1011,7 @@ def replace_content_range(path: str, start_pos: int, end_pos: int, content: str)
         raise ValueError("end_pos must be greater than or equal to start_pos.")
 
     try:
-        with open(resolved, "r", encoding="utf-8") as f:
+        with open(resolved, "r", encoding="utf-8", newline="") as f:
             lines = f.readlines()
 
         if start_pos > len(lines):
@@ -1028,7 +1028,7 @@ def replace_content_range(path: str, start_pos: int, end_pos: int, content: str)
 
         lines[start_idx:end_idx] = replacement_lines
 
-        with open(resolved, "w", encoding="utf-8") as f:
+        with open(resolved, "w", encoding="utf-8", newline="") as f:
             f.writelines(lines)
         try:
             from .code_index import CODE_INDEX
