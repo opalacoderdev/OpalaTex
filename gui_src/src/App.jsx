@@ -193,6 +193,7 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatThoughtStream, setChatThoughtStream] = useState('');
   const chatThoughtStreamRef = useRef('');
+  const agentResumeEventsRef = useRef([]);
   const [chatInput, setChatInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
@@ -810,6 +811,102 @@ export default function App() {
     const thought = String(thoughtSnapshot || '').trim();
     if (!thought || contentHasPersistedThought(text)) return text;
     return `<think>\n${thought}\n</think>\n\n${text}`.trim();
+  };
+
+  const compactTextForAgent = (value, limit = 2400) => {
+    const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+    if (text.length <= limit) return text;
+    return `${text.slice(0, limit)}\n[truncated ${text.length - limit} chars]`;
+  };
+
+  const compactAgentEventForResume = (eventObj) => {
+    const { event, ...data } = eventObj || {};
+    if (!event || !['thought', 'reflection', 'stream_chunk', 'tool_call', 'tool_result', 'problem', 'error', 'info'].includes(event)) {
+      return null;
+    }
+    if (event === 'tool_call') {
+      return {
+        event,
+        agent: data.agent || '',
+        tool: data.tool || '',
+        arguments: compactTextForAgent(data.arguments || {}, 1200),
+      };
+    }
+    if (event === 'tool_result') {
+      return {
+        event,
+        agent: data.agent || '',
+        tool: data.tool || '',
+        is_error: Boolean(data.is_error),
+        result: compactTextForAgent(data.result || data.content || '', 1600),
+      };
+    }
+    return {
+      event,
+      agent: data.agent || '',
+      content: compactTextForAgent(data.content || data.message || '', 1600),
+    };
+  };
+
+  const rememberAgentEventForResume = (eventObj) => {
+    const compact = compactAgentEventForResume(eventObj);
+    if (!compact) return;
+    agentResumeEventsRef.current = trimToLimit([...agentResumeEventsRef.current, compact], 80);
+  };
+
+  const collectRecentChatAttachments = (messages, limit = 3) => {
+    const seen = new Set();
+    const collected = [];
+    for (let i = (messages || []).length - 1; i >= 0; i--) {
+      const atts = messages[i]?._attachments || [];
+      for (let j = atts.length - 1; j >= 0; j--) {
+        const att = atts[j];
+        const key = `${att.type || ''}:${att.name || ''}:${att.mime || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        collected.push(att);
+        if (collected.length >= limit) return collected.reverse();
+      }
+    }
+    return collected.reverse();
+  };
+
+  const serializeChatHistoryForAgent = (messages, limit = 18) => (
+    (messages || [])
+      .slice(-limit)
+      .filter(msg => msg && (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system'))
+      .map(msg => ({
+        role: msg.role,
+        content: compactTextForAgent(msg.content || '', 4000),
+      }))
+  );
+
+  const buildResumePrompt = (messages, events) => {
+    const recentMessages = serializeChatHistoryForAgent(messages, 12)
+      .map((msg, index) => `${index + 1}. ${msg.role.toUpperCase()}:\n${msg.content}`)
+      .join('\n\n');
+    const recentEvents = (events || [])
+      .slice(-30)
+      .map((item, index) => `${index + 1}. ${compactTextForAgent(item, 1800)}`)
+      .join('\n\n');
+    const attachments = collectRecentChatAttachments(messages, 5)
+      .map((att, index) => `${index + 1}. ${att.name || 'attachment'} (${att.type || 'unknown'}${att.mime ? `, ${att.mime}` : ''})`)
+      .join('\n');
+
+    return [
+      'Continue the task that was interrupted. Do not restart from scratch.',
+      'Use the chat history, captured thoughts, tool activity, and referenced artifacts below as the current working context.',
+      'Prefer continuing the latest unfinished user request. If an action already appears completed in the context, do not repeat it unless verification is needed.',
+      '',
+      '## Recent chat history',
+      recentMessages || '(no recent chat history captured)',
+      '',
+      '## Captured agent activity before interruption',
+      recentEvents || '(no agent activity captured)',
+      '',
+      '## Recent referenced attachments',
+      attachments || '(no recent attachments captured)',
+    ].join('\n');
   };
 
   const addLog = (type, message, agent) =>
@@ -1777,6 +1874,7 @@ export default function App() {
 
   const handleAgentEvent = (eventObj) => {
     const { event, ...data } = eventObj;
+    rememberAgentEventForResume(eventObj);
     switch (event) {
       case 'server_ready': addLog('info', t('app.agentReady'), data.agent); break;
       case 'agent_started': addLog('info', t('app.agentStarted', { agent: data.agent }), data.agent); break;
@@ -1797,7 +1895,17 @@ export default function App() {
       case 'stream_chunk':
         addLog('stream_chunk', data.content, data.agent);
         break;
-      case 'cancelled': addLog('warning', data.message || t('app.executionCancelled'), data.agent); setChatMessages(prev => [...prev, { role: 'assistant', content: t('app.agentInterrupted', { message: data.message || t('app.agentStopped') }), timestamp: new Date().toISOString() }]); break;
+      case 'cancelled': {
+        addLog('warning', data.message || t('app.executionCancelled'), data.agent);
+        const thoughtSnapshot = chatThoughtStreamRef.current;
+        chatThoughtStreamRef.current = '';
+        setChatThoughtStream('');
+        const interruptedText = t('app.agentInterrupted', { message: data.message || t('app.agentStopped') });
+        const content = withPersistedThought(interruptedText, thoughtSnapshot);
+        setChatMessages(prev => [...prev, { role: 'assistant', content, timestamp: new Date().toISOString() }]);
+        setConfirmRequest(null);
+        break;
+      }
       case 'tool_call':
         addLog('tool_call', t('app.callingTool', { tool: data.tool, arguments: JSON.stringify(data.arguments) }), data.agent);
         if (['write_file', 'write_content_pos', 'replace_content_range', 'edit_file'].includes(data.tool)) {
@@ -1922,10 +2030,6 @@ export default function App() {
           }
         }
         break;
-      case 'cancelled':
-        addLog('info', t('app.executionCancelled', 'Execução cancelada.'));
-        setConfirmRequest(null);
-        break;
       case 'agent_finished': addLog('info', t('app.processingCompleted', 'Processamento concluído.')); break;
       case 'input_request':
         setConfirmRequest({ ...data, id: data.id, prompt: data.prompt, options: data.options || ['yes', 'no'], default: data.default || 'yes', type: data.type || 'confirm' });
@@ -1966,19 +2070,31 @@ export default function App() {
     } catch (_) { }
 
     let userText = '';
+    let displayText = '';
     let attachmentsSnapshot = [];
+    let messagesForRequest = undefined;
 
-    if (options.overrideText !== undefined) {
+    if (options.resumeInterrupted) {
+      if (!activeProject || isAgentRunning) return;
+      const historySnapshot = options.historyOverride || chatMessages;
+      userText = buildResumePrompt(historySnapshot, agentResumeEventsRef.current);
+      displayText = options.displayText || t('chatPanel.continue', 'Continue');
+      attachmentsSnapshot = options.overrideAttachments || collectRecentChatAttachments(historySnapshot, 3);
+      messagesForRequest = serializeChatHistoryForAgent(historySnapshot, 18);
+    } else if (options.overrideText !== undefined) {
       if (!activeProject || isAgentRunning) return;
       userText = options.overrideText;
+      displayText = options.displayText || userText;
       attachmentsSnapshot = options.overrideAttachments || [];
     } else if (retryMsg) {
       if (!activeProject || isAgentRunning) return;
       userText = retryMsg.content === '📎 Attachment' ? '' : retryMsg.content;
+      displayText = userText;
       attachmentsSnapshot = retryMsg._attachments || [];
     } else {
       if ((!chatInput.trim() && pendingAttachments.length === 0) || !activeProject || isAgentRunning) return;
       userText = chatInput;
+      displayText = userText;
       attachmentsSnapshot = [...pendingAttachments];
       setChatInput('');
       setPendingAttachments([]);
@@ -2003,6 +2119,8 @@ export default function App() {
         return;
       }
     }
+    const requestPrompt = userText;
+    if (displayText) userText = displayText;
     // Show attachment previews alongside the user message in the chat history
     const userMsg = { role: 'user', content: userText || '📎 Attachment', _attachments: attachmentsSnapshot, timestamp: new Date().toISOString() };
     setChatMessages(prev => {
@@ -2026,6 +2144,7 @@ export default function App() {
     setAchievementsMemory('');
     chatThoughtStreamRef.current = '';
     setChatThoughtStream('');
+    agentResumeEventsRef.current = [];
     addLog('info', t('app.starting', { text: userText }));
 
     if (userText.trim().startsWith('/')) {
@@ -2059,13 +2178,14 @@ export default function App() {
       const res = await fetch('/api/opalatex/run', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          command: 'run', agent: 'chat_orchestrator', prompt: userText,
+          command: 'run', agent: 'chat_orchestrator', prompt: requestPrompt,
           project_name: activeProject.name, project_path: activeProject.project_path,
           model: activeProject.model, current_file: selectedFile || '',
           editor_content: fileContent || '', selected_text: selectedText || '',
           lang: i18n.language || 'en',
           chat_id: targetChatId,
           attachments: attachmentsSnapshot,
+          messages: messagesForRequest,
         }),
       });
       if (!res.body) { addLog('error', t('app.streamUnsupportedBackend')); setIsAgentRunning(false); return; }

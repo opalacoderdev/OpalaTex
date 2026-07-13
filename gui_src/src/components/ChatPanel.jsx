@@ -1288,7 +1288,10 @@ export default function ChatPanel({
                 )}
                 {isInterrupted && isLastMessage && !isAgentRunning && (
                   <button
-                    onClick={() => handleSendMessage(null, null, { overrideText: 'continue' })}
+                    onClick={() => handleSendMessage(null, null, {
+                      resumeInterrupted: true,
+                      displayText: t('chatPanel.continue', 'Continuar'),
+                    })}
                     style={{
                       marginTop: '8px',
                       padding: '6px 10px',

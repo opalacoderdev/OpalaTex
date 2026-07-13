@@ -1288,6 +1288,19 @@ class AsyncHTTPServer:
                 else:
                     self.send_response(writer, 200, b'{"error":"Not found in git"}', "application/json")
                     return
+            except GitContextError as e:
+                self.send_response(
+                    writer,
+                    200,
+                    json.dumps({
+                        "content": "",
+                        "source": "none",
+                        "git_available": False,
+                        "error": str(e),
+                    }).encode('utf-8'),
+                    "application/json",
+                )
+                return
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
