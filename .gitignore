@@ -10,6 +10,9 @@ plan.md
 # --- Project runtime data ---
 .opalacoder/
 
+# --- Generated frontend build ---
+/opalatex/gui/
+
 # --- Python bytecode and caches ---
 __pycache__/
 *.py[cod]
