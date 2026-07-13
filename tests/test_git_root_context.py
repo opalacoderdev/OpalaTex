@@ -63,6 +63,43 @@ async def test_git_status_endpoint_handles_project_without_git(tmp_path):
     ]
 
 
+@pytest.mark.asyncio
+async def test_file_at_head_endpoint_handles_project_without_git(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "main.tex").write_text("hello", encoding="utf-8")
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+
+    await server.route_api(
+        "GET",
+        "/api/git/file-at-head",
+        {"projectPath": [str(project)], "shadow": ["false"], "filePath": ["main.tex"]},
+        {},
+        b"",
+        writer,
+    )
+
+    assert responses == [
+        (
+            200,
+            {
+                "content": "",
+                "source": "none",
+                "git_available": False,
+                "error": "Selected Git root does not contain a .git repository",
+            },
+            "application/json",
+        )
+    ]
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 def test_user_git_root_inside_project_maps_paths_to_project_relative(tmp_path):
     project = tmp_path / "project"
@@ -193,4 +230,3 @@ def test_repo_path_to_project_path_unquotes_and_unescapes():
     assert _repo_path_to_project_path('"file (1).pdf"', ctx) == "file (1).pdf"
     # Quoted path with UTF-8 octal escape sequences
     assert _repo_path_to_project_path('"Diret\\303\\263rio/A\\303\\247\\303\\272car.pdf"', ctx) == "Diretório/Açúcar.pdf"
-
