@@ -3,16 +3,33 @@ import os
 import json
 import sys
 
+# Ensure stdout/stderr use UTF-8 to prevent UnicodeEncodeError on accented characters under Windows
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 def main():
     parser = argparse.ArgumentParser(description="Inspect current editor state (file name, selection, full content).")
     parser.add_argument("--project-path", default=".", help="Path to the active project folder.")
-    args, _ = parser.parse_known_args()
+    args, unparsed = parser.parse_known_args()
 
-    project_path = os.path.abspath(args.project_path)
+    project_path = args.project_path
+    # Reconstruct project_path if it was split by spaces in the shell
+    if unparsed:
+        path_parts = [project_path]
+        for part in unparsed:
+            if part.startswith("-"):
+                break
+            path_parts.append(part)
+        project_path = " ".join(path_parts)
+
+    project_path = os.path.abspath(project_path)
     state_file = os.path.join(project_path, ".opalatex", "_editor_state.json")
+    state_file_normalized = state_file.replace("\\", "/")
 
     if not os.path.exists(state_file):
-        print(f"No editor state found at '{state_file}'. Check if the IDE has run any commands yet.")
+        print(f"No editor state found at '{state_file_normalized}'. Check if the IDE has run any commands yet.")
         sys.exit(0)
 
     try:
@@ -22,7 +39,7 @@ def main():
         print(f"Error reading editor state file: {e}")
         sys.exit(1)
 
-    current_file = state.get("current_file", "")
+    current_file = state.get("current_file", "").replace("\\", "/")
     selected_text = state.get("selected_text", "")
     editor_content = state.get("editor_content", "")
 
