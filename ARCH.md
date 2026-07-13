@@ -54,6 +54,15 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
 - **Compiled asset**: Vite copies the QR Code to `opalatex/gui/qr-code.png` for packaged desktop builds.
 - **Separation from credits**: Donations support project maintenance and do not create Cloud accounts or add AI tokens.
 
+### 2.4 Rich Text Editor & Math Rendering (`gui_src/src/components/RichTextEditor.jsx`)
+- **Overleaf-style Rich Text mode**: Parses LaTeX source into structured blocks; editable prose blocks (headings, paragraphs, lists, quotes) are rendered as `contentEditable` elements. Non-editable blocks (math, figures, tables, code, environments) are rendered as read-only previews with "jump to source" on click.
+- **KaTeX rendering**: Inline and display math are rendered via KaTeX running in a **persistent Worker pool** (`katexRenderWorker.js`). Workers are reused across equations to avoid per-equation module re-initialization cost.
+- **MathML output**: KaTeX uses `output: 'mathml'` for dramatically fewer DOM nodes vs. `output: 'html'` (which generates thousands of CSS-positioned spans for complex equations). The worker wraps MathML in `<span class="katex">` / `<span class="katex-display">` so `katex.min.css` font rules apply the correct KaTeX fonts.
+- **Lazy block rendering**: An `IntersectionObserver`-based `LazyBlock` wrapper mounts block content only when near the viewport (`rootMargin: 800px`), preventing all equations from rendering simultaneously on mount.
+- **Throttled scroll**: `handleScroll` uses `requestAnimationFrame` to batch scroll-driven layout reads.
+- **Precomputed line offsets**: Line-start offsets are cached via `useMemo` and `sourceLineFromOffset` uses binary search (O(log n)) instead of string slicing (O(n)) per block.
+- **KB article**: See `docs/kb/katex_equations_longtime.md` for the full diagnosis and resolution of the equation rendering freeze issue.
+
 ---
 
 ## 3. Remote Server Architecture (OpalaWebPage)

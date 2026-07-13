@@ -524,7 +524,6 @@ export default function EditorPanel({
         const currentFile = selectedFileRef.current;
         
         if (line && currentProject?.project_path && currentFile) {
-          console.log('Forward Search: editor line =', line, ', file =', currentFile);
           syncPdfToEditorLine({
             line,
             filePath: currentFile,

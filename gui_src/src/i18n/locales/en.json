@@ -176,6 +176,39 @@
     "previewFailed": "preview failed",
     "previewUnavailable": "Preview unavailable - {{log}}"
   },
+  "richTextEditor": {
+    "math": {
+      "rendering": "Rendering...",
+      "inlineIllFormed": "{{raw}} (ill-formed)",
+      "displayIllFormed": "ill-formed\n\n{{math}}",
+      "previewUnavailable": "Preview unavailable",
+      "workerUnavailable": "Math worker is unavailable",
+      "renderTimedOut": "Math render timed out",
+      "renderFailed": "Failed to render equation",
+      "workerFailed": "Math worker failed: {{message}}",
+      "renderCancelled": "Math render cancelled",
+      "empty": "Ill-formed equation: empty math block",
+      "lineBreakBeforeDelimiter": "Ill-formed equation: line break before left/right delimiter",
+      "asteriskSubscript": "Ill-formed equation: use _{...} for indexes instead of *{...}",
+      "operatorLimits": "Ill-formed equation: use _{...} for operator limits",
+      "malformedEnvironment": "Ill-formed equation: malformed environment command",
+      "unmatchedDelimiter": "Ill-formed equation: unmatched {{delimiter}}",
+      "unsupportedEnvironment": "Ill-formed equation: unsupported math environment {{name}}",
+      "unmatchedEndEnvironment": "Ill-formed equation: unmatched end environment {{name}}",
+      "unmatchedBeginEnvironment": "Ill-formed equation: unmatched begin environment {{name}}",
+      "unmatchedRightDelimiter": "Ill-formed equation: unmatched right delimiter",
+      "unmatchedLeftDelimiter": "Ill-formed equation: unmatched left delimiter"
+    },
+    "block": {
+      "readOnly": "read-only",
+      "renderingPreview": "Rendering preview...",
+      "previewUnavailable": "Preview unavailable - {{log}}",
+      "loadingImagePreview": "Loading image preview...",
+      "imagePreviewUnavailable": "Image preview unavailable - {{log}}",
+      "environment": "environment: {{name}}",
+      "preamble": "preamble"
+    }
+  },
   "chatPanel": {
     "header": "OPALATEX CHAT",
     "zoomIn": "Zoom In",

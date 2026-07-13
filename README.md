@@ -127,6 +127,12 @@ Authentication is handled by the local SSH client (preferably with an SSH key or
 - Environment files, private keys, credentials, databases, logs, build outputs, and local runtime data are excluded by `.gitignore`.
 - Report a suspected leaked credential privately to the maintainers. Revoke and rotate any credential that may have entered Git history; deleting it only from the latest commit is not sufficient.
 
+## Contributing
+
+Although OpalaTex is open-source under the MIT License, the repository does **not** accept pull requests or code contributions from third parties.
+
+If you would like to request a specific feature or report a bug, please **open an Issue** describing what you would like to see in OpalaTex. The maintainer will review and prioritize requests accordingly.
+
 ## License
 
 OpalaTex is available under the [MIT License](LICENSE).

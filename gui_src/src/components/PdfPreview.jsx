@@ -178,7 +178,6 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         const top = targetY;
         
         setHighlight({ page, y: top, h: targetH });
-        console.log('Highlight CSS:', { page, targetY, top, targetH });
         
         containerRef.current.scrollTo({
           top: Math.max(0, pageEl.offsetTop + top - 150), // offset a bit to show context

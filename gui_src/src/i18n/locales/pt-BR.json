@@ -176,6 +176,39 @@
     "previewFailed": "falha no preview",
     "previewUnavailable": "Preview indisponível - {{log}}"
   },
+  "richTextEditor": {
+    "math": {
+      "rendering": "Renderizando...",
+      "inlineIllFormed": "{{raw}} (mal-formada)",
+      "displayIllFormed": "mal-formada\n\n{{math}}",
+      "previewUnavailable": "Preview indisponivel",
+      "workerUnavailable": "Worker de equacao indisponivel",
+      "renderTimedOut": "Tempo de renderizacao da equacao esgotado",
+      "renderFailed": "Falha ao renderizar equacao",
+      "workerFailed": "Falha no worker de equacao: {{message}}",
+      "renderCancelled": "Renderizacao da equacao cancelada",
+      "empty": "Equacao mal-formada: bloco matematico vazio",
+      "lineBreakBeforeDelimiter": "Equacao mal-formada: quebra de linha antes de delimitador left/right",
+      "asteriskSubscript": "Equacao mal-formada: use _{...} para indices em vez de *{...}",
+      "operatorLimits": "Equacao mal-formada: use _{...} para limites de operadores",
+      "malformedEnvironment": "Equacao mal-formada: comando de ambiente invalido",
+      "unmatchedDelimiter": "Equacao mal-formada: delimitador {{delimiter}} sem par",
+      "unsupportedEnvironment": "Equacao mal-formada: ambiente matematico nao suportado {{name}}",
+      "unmatchedEndEnvironment": "Equacao mal-formada: ambiente de fim sem par {{name}}",
+      "unmatchedBeginEnvironment": "Equacao mal-formada: ambiente de inicio sem par {{name}}",
+      "unmatchedRightDelimiter": "Equacao mal-formada: delimitador right sem par",
+      "unmatchedLeftDelimiter": "Equacao mal-formada: delimitador left sem par"
+    },
+    "block": {
+      "readOnly": "somente leitura",
+      "renderingPreview": "Renderizando preview...",
+      "previewUnavailable": "Preview indisponivel - {{log}}",
+      "loadingImagePreview": "Carregando preview da imagem...",
+      "imagePreviewUnavailable": "Preview da imagem indisponivel - {{log}}",
+      "environment": "ambiente: {{name}}",
+      "preamble": "preambulo"
+    }
+  },
   "chatPanel": {
     "header": "OPALATEX CHAT",
     "zoomIn": "Aumentar Zoom",

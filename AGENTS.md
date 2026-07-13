@@ -9,6 +9,7 @@
 ## Language
 
 All code, comments, and documentation must be written in **English**.
+Hardcoded text in UI components, default values, error messages, and string literals must be written in **English**. User-facing strings that need localization should use the i18n framework (`useTranslation` / `t()`) with English as the default value.
 
 ## Architecture
 

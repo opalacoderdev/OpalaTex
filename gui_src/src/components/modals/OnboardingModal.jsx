@@ -92,7 +92,6 @@ export default function OnboardingModal({ onClose, onComplete }) {
         }
       };
       
-      console.log("[DEBUG ONBOARDING] Botão 'Opala Cloud' clicado. Config gerada:", config);
       finishOnboarding(config, 'cloud');
     } catch (e) {
       console.error(e);
@@ -365,7 +364,6 @@ export default function OnboardingModal({ onClose, onComplete }) {
                   mode: "plan"
                 };
                 if (apiBase) config.api_base = apiBase;
-                console.log("[DEBUG ONBOARDING] Botão 'Pular Chave' clicado. Config gerada:", config);
                 finishOnboarding(config, 'local');
               }}>
                 {t('onboarding.skipKeyBtn')}
@@ -379,7 +377,6 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 };
                 if (apiKey) config.api_key = apiKey;
                 if (apiBase) config.api_base = apiBase;
-                console.log("[DEBUG ONBOARDING] Botão 'Criar Projeto' clicado. Config gerada:", config);
                 finishOnboarding(config, 'local');
               }}>
                 {t('onboarding.createPilotBtn')}

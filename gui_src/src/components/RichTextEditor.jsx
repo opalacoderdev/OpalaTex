@@ -1,10 +1,9 @@
 import React, { useMemo, useRef, useCallback, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Lock } from 'lucide-react';
-import katex from 'katex';
 import { parseLatexBlocks } from '../utils/latexBlockParser';
 import { serializeDocument } from '../utils/latexBlockSerializer';
-import { formatMessageContent } from '../utils/formatMessage';
+import { validateRenderableMath } from '../utils/mathValidation';
 
 // ── Module-level cache: keyed by (projectPath, graphic-source-hash) ────────
 // This avoids re-compiling identical TikZ snippets on every keystroke. The
@@ -12,7 +11,28 @@ import { formatMessageContent } from '../utils/formatMessage';
 // after the first render. Both caches are bounded in size to avoid memory
 // growth on long editing sessions.
 const graphicSvgCache = new Map();
+const mathHtmlCache = new Map();
 const GRAPHIC_CACHE_MAX = 64;
+const MATH_CACHE_MAX = 256;
+// Cache version — bumped when the output format changes.
+// v1: html output, v2: mathml output (bare), v3: html output + content-vis,
+// v4: mathml output wrapped in katex classes (correct fonts)
+const MATH_CACHE_VERSION = 'v4';
+const MATH_RENDER_TIMEOUT_MS = 1200;
+const MATH_UI_IDLE_DELAY_MS = 300;
+// Keep a moderate delay between tasks to yield to the event loop without
+// creating a tight pause/requeue cycle.
+const MATH_NEXT_RENDER_DELAY_MS = 40;
+const mathRenderQueue = [];
+const mathRenderTasks = new Map();
+let activeMathTask = null;
+let mathPumpTimer = null;
+let lastMathUiActivityAt = 0;
+
+// Module-level reference to the precomputed line offsets array, set by the
+// RichTextEditor component on each source change. This avoids prop-drilling
+// it through every block renderer just for sourceLineFromOffset.
+let currentLineOffsets = null;
 
 // Lightweight 32-bit FNV-1a hash of a string, fast and good-enough for an
 // in-memory cache key. We avoid shipping crypto-js for this small concern.
@@ -58,6 +78,23 @@ export default function RichTextEditor({
   const activeLineRef = useRef(1);
   const didInitialScrollRef = useRef(false);
 
+  // Precompute line-start offsets once per source change so sourceLineFromOffset
+  // is O(log n) instead of O(n) — avoids O(n²) cost when called for every block.
+  const lineOffsets = useMemo(() => {
+    const offsets = [0];
+    for (let i = 0; i < source.length; i++) {
+      if (source[i] === '\n') offsets.push(i + 1);
+    }
+    return offsets;
+  }, [source]);
+
+  // Keep the module-level reference in sync so sourceLineFromOffset can use
+  // binary search instead of O(n) string slicing on every call.
+  useEffect(() => {
+    currentLineOffsets = lineOffsets;
+    return () => { currentLineOffsets = null; };
+  }, [lineOffsets]);
+
   // ── Handle edit in a contentEditable block ───────────────────────────────
   const handleBlockEdit = useCallback((blockId, newText) => {
     if (!onChange) return;
@@ -97,13 +134,18 @@ export default function RichTextEditor({
     if (onActiveSourceLineChange) onActiveSourceLineChange(line);
   }, [onActiveSourceLineChange]);
 
+  const scrollRafRef = useRef(null);
   const handleScroll = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const items = Array.from(container.querySelectorAll('[data-source-line]'));
-    const current = items.find((item) => item.offsetTop + item.offsetHeight >= container.scrollTop + 24) || items[0];
-    const line = Number(current?.getAttribute('data-source-line'));
-    if (line) setActiveSourceLine(line);
+    if (scrollRafRef.current) return; // already scheduled
+    scrollRafRef.current = window.requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const container = containerRef.current;
+      if (!container) return;
+      const items = Array.from(container.querySelectorAll('[data-source-line]'));
+      const current = items.find((item) => item.offsetTop + item.offsetHeight >= container.scrollTop + 24) || items[0];
+      const line = Number(current?.getAttribute('data-source-line'));
+      if (line) setActiveSourceLine(line);
+    });
   }, [setActiveSourceLine]);
 
   useEffect(() => {
@@ -150,21 +192,17 @@ export default function RichTextEditor({
       {blocks.map((block) => {
         const sourceLine = sourceLineFromOffset(source, block.start);
         return (
-          <div
+          <LazyBlock
             key={block.id}
-            data-source-line={sourceLine}
-            onMouseDown={() => setActiveSourceLine(sourceLine)}
-            onFocusCapture={() => setActiveSourceLine(sourceLine)}
-          >
-            <BlockRenderer
-              block={block}
-              activeProjectPath={activeProjectPath}
-              sourceTex={sourceTex}
-              onBlockEdit={handleBlockEdit}
-              onListItemEdit={handleListItemEdit}
-              onJumpToSource={handleJumpToSource}
-            />
-          </div>
+            block={block}
+            sourceLine={sourceLine}
+            activeProjectPath={activeProjectPath}
+            sourceTex={sourceTex}
+            onBlockEdit={handleBlockEdit}
+            onListItemEdit={handleListItemEdit}
+            onJumpToSource={handleJumpToSource}
+            setActiveSourceLine={setActiveSourceLine}
+          />
         );
       })}
       {blocks.length === 0 && (
@@ -175,6 +213,86 @@ export default function RichTextEditor({
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LazyBlock — Only mounts heavy BlockRenderer content when the block is
+// visible or near-visible. This is the key optimization that prevents the
+// editor from freezing when a document has many equations: instead of
+// mounting all MathBlock/AsyncInlineMath components at once (which would
+// spawn dozens of worker tasks simultaneously), only the blocks in the
+// viewport trigger rendering. Off-screen blocks render a lightweight
+// placeholder with a min-height to preserve scroll position.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LAZY_ROOT_MARGIN = '800px 0px 800px 0px';
+
+const LazyBlock = React.memo(function LazyBlock({
+  block,
+  sourceLine,
+  activeProjectPath,
+  sourceTex,
+  onBlockEdit,
+  onListItemEdit,
+  onJumpToSource,
+  setActiveSourceLine,
+}) {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    // If IntersectionObserver is unavailable, render everything (fallback).
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setVisible(true);
+            // Once visible, keep it mounted — unmounting would lose state
+            // (cursor position, edited text) and cause re-renders on scroll.
+          }
+        }
+      },
+      {
+        root: null,
+        rootMargin: LAZY_ROOT_MARGIN,
+        threshold: 0,
+      }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      data-source-line={sourceLine}
+      onMouseDown={() => setActiveSourceLine(sourceLine)}
+      onFocusCapture={() => setActiveSourceLine(sourceLine)}
+      style={{ minHeight: visible ? 'auto' : '24px' }}
+    >
+      {visible ? (
+        <BlockRenderer
+          block={block}
+          activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
+          onBlockEdit={onBlockEdit}
+          onListItemEdit={onListItemEdit}
+          onJumpToSource={onJumpToSource}
+        />
+      ) : (
+        <div style={{ minHeight: '24px' }} />
+      )}
+    </div>
+  );
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BlockRenderer — renders a single block based on its type
@@ -240,6 +358,25 @@ function HeadingBlock({ block, onEdit }) {
 }
 
 function sourceLineFromOffset(source, offset) {
+  // Uses the precomputed lineOffsets array if available, otherwise falls
+  // back to the O(n) method. The lineOffsets array is built once per source
+  // change and passed via a module-level variable to avoid prop drilling.
+  const offsets = currentLineOffsets;
+  if (offsets && offsets.length > 0) {
+    // Binary search: find the largest index whose offset <= target
+    let lo = 0, hi = offsets.length - 1, result = 0;
+    const target = Math.max(0, offset || 0);
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (offsets[mid] <= target) {
+        result = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return result + 1; // 1-indexed line number
+  }
   return source.slice(0, Math.max(0, offset || 0)).split('\n').length;
 }
 
@@ -491,31 +628,509 @@ function renderInlineLatex(text) {
     if (token.type === 'text') {
       return <React.Fragment key={index}>{token.value}</React.Fragment>;
     }
-    const html = renderKatexInline(token.value);
-    if (!html) {
-      return <React.Fragment key={index}>{token.raw}</React.Fragment>;
-    }
-    return (
-      <span
-        key={index}
-        className="rich-text-inline-math"
-        data-latex={token.raw}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
+    return <AsyncInlineMath key={index} math={token.value} raw={token.raw} />;
   });
 }
 
-function renderKatexInline(math) {
-  try {
-    return katex.renderToString(math, {
-      displayMode: false,
-      throwOnError: false,
-      strict: 'ignore',
-    });
-  } catch {
-    return '';
+function AsyncInlineMath({ math, raw }) {
+  const { t } = useTranslation();
+  const cacheKey = `${MATH_CACHE_VERSION}::inline::${hashSource(math || '')}`;
+  const cancelRef = useRef(null);
+  const idleApplyCancelRef = useRef(null);
+  const [state, setState] = useState(() => {
+    const validation = validateRenderableMath(math || '', { displayMode: false });
+    if (!validation.ok) return { status: 'invalid', html: '', errorKey: validation.reasonKey, errorParams: validation.reasonParams };
+    const cached = mathHtmlCache.get(cacheKey);
+    return cached
+      ? { status: 'ok', html: cached, errorKey: '', errorParams: {} }
+      : { status: 'loading', html: '', errorKey: '', errorParams: {} };
+  });
+
+  useEffect(() => {
+    if (idleApplyCancelRef.current) {
+      idleApplyCancelRef.current();
+      idleApplyCancelRef.current = null;
+    }
+
+    const cached = mathHtmlCache.get(cacheKey);
+    const validation = validateRenderableMath(math || '', { displayMode: false });
+    if (!validation.ok) {
+      setState({ status: 'invalid', html: '', errorKey: validation.reasonKey, errorParams: validation.reasonParams });
+      return undefined;
+    }
+
+    if (cached) {
+      setState({ status: 'ok', html: cached, errorKey: '', errorParams: {} });
+      return undefined;
+    }
+
+    let cancelled = false;
+    setState({ status: 'loading', html: '', errorKey: '', errorParams: {} });
+    const task = enqueueMathRender(math || '', false);
+    cancelRef.current = () => {
+      cancelled = true;
+      task.cancel();
+    };
+
+    task.promise
+      .then((html) => {
+        if (cancelled) return;
+        idleApplyCancelRef.current = scheduleMathUiIdleCallback(() => {
+          if (cancelled) return;
+          cancelRef.current = null;
+          idleApplyCancelRef.current = null;
+          if (html) {
+            rememberMathHtml(cacheKey, html);
+            setState({ status: 'ok', html, errorKey: '', errorParams: {} });
+          } else {
+            setState({ status: 'err', html: '', errorKey: 'richTextEditor.math.previewUnavailable', errorParams: {} });
+          }
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        idleApplyCancelRef.current = scheduleMathUiIdleCallback(() => {
+          if (cancelled) return;
+          cancelRef.current = null;
+          idleApplyCancelRef.current = null;
+          setState(mathErrorStateFromError(error));
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      if (idleApplyCancelRef.current) {
+        idleApplyCancelRef.current();
+        idleApplyCancelRef.current = null;
+      }
+      if (cancelRef.current) {
+        cancelRef.current();
+        cancelRef.current = null;
+      }
+    };
+  }, [cacheKey, math]);
+
+  if (state.status === 'ok' && state.html) {
+    return (
+      <span
+        className="rich-text-inline-math"
+        data-latex={raw}
+        dangerouslySetInnerHTML={{ __html: state.html }}
+      />
+    );
   }
+
+  return (
+    <span
+      className="rich-text-inline-math-pending"
+      title={state.status === 'invalid' || state.status === 'err' ? translateMathError(t, state) : raw}
+      style={{
+        color: state.status === 'invalid' || state.status === 'err'
+          ? 'var(--vscode-errorForeground, #f48771)'
+          : 'var(--vscode-descriptionForeground, #888)',
+        fontStyle: 'italic',
+      }}
+    >
+      {state.status === 'invalid'
+        ? t('richTextEditor.math.inlineIllFormed', { raw, defaultValue: defaultMathMessage('richTextEditor.math.inlineIllFormed') })
+        : state.status === 'err'
+          ? raw
+          : t('richTextEditor.math.rendering', { defaultValue: defaultMathMessage('richTextEditor.math.rendering') })}
+    </span>
+  );
+}
+
+function rememberMathHtml(key, html) {
+  mathHtmlCache.set(key, html);
+  if (mathHtmlCache.size > MATH_CACHE_MAX) {
+    const firstKey = mathHtmlCache.keys().next().value;
+    mathHtmlCache.delete(firstKey);
+  }
+}
+
+function translateMathError(t, state) {
+  const key = state.errorKey || 'richTextEditor.math.previewUnavailable';
+  return t(key, {
+    ...(state.errorParams || {}),
+    defaultValue: defaultMathMessage(key),
+  });
+}
+
+function defaultMathMessage(key) {
+  return {
+    'richTextEditor.math.rendering': 'Rendering...',
+    'richTextEditor.math.inlineIllFormed': '{{raw}} (ill-formed)',
+    'richTextEditor.math.displayIllFormed': 'ill-formed\n\n{{math}}',
+    'richTextEditor.math.previewUnavailable': 'Preview unavailable',
+    'richTextEditor.math.workerUnavailable': 'Math worker is unavailable',
+    'richTextEditor.math.renderTimedOut': 'Math render timed out',
+    'richTextEditor.math.renderFailed': 'Failed to render equation',
+    'richTextEditor.math.workerFailed': 'Math worker failed: {{message}}',
+    'richTextEditor.math.renderCancelled': 'Math render cancelled',
+    'richTextEditor.math.empty': 'Ill-formed equation: empty math block',
+    'richTextEditor.math.lineBreakBeforeDelimiter': 'Ill-formed equation: line break before left/right delimiter',
+    'richTextEditor.math.asteriskSubscript': 'Ill-formed equation: use _{...} for indexes instead of *{...}',
+    'richTextEditor.math.operatorLimits': 'Ill-formed equation: use _{...} for operator limits',
+    'richTextEditor.math.malformedEnvironment': 'Ill-formed equation: malformed environment command',
+    'richTextEditor.math.unmatchedDelimiter': 'Ill-formed equation: unmatched {{delimiter}}',
+    'richTextEditor.math.unsupportedEnvironment': 'Ill-formed equation: unsupported math environment {{name}}',
+    'richTextEditor.math.unmatchedEndEnvironment': 'Ill-formed equation: unmatched end environment {{name}}',
+    'richTextEditor.math.unmatchedBeginEnvironment': 'Ill-formed equation: unmatched begin environment {{name}}',
+    'richTextEditor.math.unmatchedRightDelimiter': 'Ill-formed equation: unmatched right delimiter',
+    'richTextEditor.math.unmatchedLeftDelimiter': 'Ill-formed equation: unmatched left delimiter',
+  }[key] || 'Preview unavailable';
+}
+
+function makeMathError(key, params = {}) {
+  const error = new Error(key);
+  error.i18nKey = key;
+  error.i18nParams = params;
+  return error;
+}
+
+function mathErrorStateFromError(error) {
+  const key = error?.i18nKey || 'richTextEditor.math.previewUnavailable';
+  return {
+    status: key.startsWith('richTextEditor.math.invalid')
+      || key === 'richTextEditor.math.empty'
+      || key === 'richTextEditor.math.lineBreakBeforeDelimiter'
+      || key === 'richTextEditor.math.asteriskSubscript'
+      || key === 'richTextEditor.math.operatorLimits'
+      || key === 'richTextEditor.math.malformedEnvironment'
+      || key === 'richTextEditor.math.unmatchedDelimiter'
+      || key === 'richTextEditor.math.unsupportedEnvironment'
+      || key === 'richTextEditor.math.unmatchedEndEnvironment'
+      || key === 'richTextEditor.math.unmatchedBeginEnvironment'
+      || key === 'richTextEditor.math.unmatchedRightDelimiter'
+      || key === 'richTextEditor.math.unmatchedLeftDelimiter'
+      ? 'invalid'
+      : 'err',
+    html: '',
+    errorKey: key,
+    errorParams: error?.i18nParams || {},
+  };
+}
+
+function nowMs() {
+  return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+}
+
+function markMathUiActivity() {
+  lastMathUiActivityAt = nowMs();
+  pauseActiveMathRender();
+}
+
+function msUntilMathUiIdle() {
+  const idleFor = nowMs() - lastMathUiActivityAt;
+  return Math.max(0, MATH_UI_IDLE_DELAY_MS - idleFor);
+}
+
+function scheduleMathRenderPump(delay = MATH_NEXT_RENDER_DELAY_MS) {
+  if (typeof window === 'undefined' || mathPumpTimer) return;
+  mathPumpTimer = window.setTimeout(() => {
+    mathPumpTimer = null;
+    pumpMathRenderQueue();
+  }, delay);
+}
+
+function pauseActiveMathRender() {
+  if (!activeMathTask || activeMathTask.paused) return;
+  activeMathTask.paused = true;
+  if (activeMathTask.currentCancel) activeMathTask.currentCancel();
+}
+
+function scheduleMathUiIdleCallback(callback, delay = MATH_NEXT_RENDER_DELAY_MS) {
+  if (typeof window === 'undefined') {
+    callback();
+    return () => {};
+  }
+
+  let cancelled = false;
+  let timerId = null;
+  let idleId = null;
+
+  const clearScheduled = () => {
+    if (timerId !== null) window.clearTimeout(timerId);
+    if (idleId !== null && typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(idleId);
+    }
+    timerId = null;
+    idleId = null;
+  };
+
+  const runWhenReady = () => {
+    timerId = null;
+    if (cancelled) return;
+
+    const wait = msUntilMathUiIdle();
+    if (wait > 0) {
+      timerId = window.setTimeout(runWhenReady, wait);
+      return;
+    }
+
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(() => {
+        idleId = null;
+        if (cancelled) return;
+        const wait = msUntilMathUiIdle();
+        if (wait > 0) {
+          timerId = window.setTimeout(runWhenReady, wait);
+          return;
+        }
+        callback();
+      }, { timeout: 800 });
+      return;
+    }
+
+    timerId = window.setTimeout(() => {
+      timerId = null;
+      if (cancelled) return;
+      const wait = msUntilMathUiIdle();
+      if (wait > 0) {
+        timerId = window.setTimeout(runWhenReady, wait);
+        return;
+      }
+      callback();
+    }, 0);
+  };
+
+  timerId = window.setTimeout(runWhenReady, delay);
+  return () => {
+    cancelled = true;
+    clearScheduled();
+  };
+}
+
+function pumpMathRenderQueue() {
+  if (typeof window === 'undefined') return;
+  if (activeMathTask) return;
+
+  const wait = msUntilMathUiIdle();
+  if (wait > 0) {
+    scheduleMathRenderPump(wait);
+    return;
+  }
+
+  while (mathRenderQueue.length) {
+    const key = mathRenderQueue.shift();
+    const task = mathRenderTasks.get(key);
+    if (!task || task.subscribers.size === 0 || task.status !== 'queued') {
+      if (task && task.subscribers.size === 0) mathRenderTasks.delete(key);
+      continue;
+    }
+
+    activeMathTask = task;
+    task.status = 'running';
+    task.paused = false;
+    const workerTask = renderMathInWorker(task.math, task.displayMode, task.timeoutMs);
+    task.currentCancel = workerTask.cancel;
+
+    workerTask.promise
+      .then((value) => {
+        if (task.paused && task.subscribers.size > 0) {
+          // Task was paused while in-flight. Re-enqueue so it gets another
+          // chance to run when the UI is idle. Don't drop the result — the
+          // next run will re-render and produce a fresh result.
+          task.paused = false;
+          task.status = 'queued';
+          mathRenderQueue.unshift(task.key);
+          return;
+        }
+        finishMathTask(task, null, value);
+      })
+      .catch((error) => {
+        if (task.paused && task.subscribers.size > 0) {
+          task.paused = false;
+          task.status = 'queued';
+          mathRenderQueue.unshift(task.key);
+          return;
+        }
+        finishMathTask(task, error, null);
+      })
+      .finally(() => {
+        if (activeMathTask === task) activeMathTask = null;
+        task.currentCancel = null;
+        // With a persistent worker, the next task can start almost
+        // immediately — no need to wait for module re-initialization.
+        scheduleMathRenderPump(MATH_NEXT_RENDER_DELAY_MS);
+      });
+    return;
+  }
+}
+
+function enqueueMathRender(math, displayMode, timeoutMs = MATH_RENDER_TIMEOUT_MS) {
+  if (typeof window === 'undefined' || typeof Worker === 'undefined') {
+    return {
+      promise: Promise.reject(makeMathError('richTextEditor.math.workerUnavailable')),
+      cancel: () => {},
+    };
+  }
+
+  const validation = validateRenderableMath(math, { displayMode });
+  if (!validation.ok) {
+    return {
+      promise: Promise.reject(makeMathError(validation.reasonKey, validation.reasonParams)),
+      cancel: () => {},
+    };
+  }
+
+  const key = `${MATH_CACHE_VERSION}::${displayMode ? 'display' : 'inline'}::${hashSource(validation.math)}`;
+  const cached = mathHtmlCache.get(key);
+  if (cached) {
+    return {
+      promise: Promise.resolve(cached),
+      cancel: () => {},
+    };
+  }
+
+  let resolveTask;
+  let rejectTask;
+  const promise = new Promise((resolve, reject) => {
+    resolveTask = resolve;
+    rejectTask = reject;
+  });
+
+  let task = mathRenderTasks.get(key);
+  if (!task) {
+    task = {
+      key,
+      math: validation.math,
+      displayMode,
+      timeoutMs,
+      status: 'queued',
+      paused: false,
+      currentCancel: null,
+      subscribers: new Set(),
+    };
+    mathRenderTasks.set(key, task);
+    mathRenderQueue.push(key);
+  } else if (task.status === 'idle') {
+    task.status = 'queued';
+    mathRenderQueue.push(key);
+  }
+
+  const subscriber = {
+    resolve: resolveTask,
+    reject: rejectTask,
+  };
+  task.subscribers.add(subscriber);
+  scheduleMathRenderPump(MATH_UI_IDLE_DELAY_MS);
+
+  return {
+    promise,
+    cancel: () => {
+      task.subscribers.delete(subscriber);
+      if (task.subscribers.size === 0) {
+        mathRenderTasks.delete(task.key);
+        if (activeMathTask === task && task.currentCancel) task.currentCancel();
+      }
+    },
+  };
+}
+
+function finishMathTask(task, error, value) {
+  if (error) {
+    for (const subscriber of task.subscribers) {
+      subscriber.reject(error);
+    }
+  } else {
+    rememberMathHtml(task.key, value);
+    for (const subscriber of task.subscribers) {
+      subscriber.resolve(value);
+    }
+  }
+  task.subscribers.clear();
+  task.status = 'done';
+  mathRenderTasks.delete(task.key);
+}
+
+// ── Persistent Worker pool ──────────────────────────────────────────────
+//
+// Creating a new Worker (which re-imports and re-initializes KaTeX) for
+// every equation was the primary cause of UI freezes: the browser must parse
+// the module, load KaTeX (~hundreds of KB), and spin up an isolate each time.
+//
+// We now reuse a small pool of persistent Workers. Each request carries a
+// unique `id`, so multiple renders can be in-flight on the same worker.
+const MATH_WORKER_POOL_SIZE = 2;
+const mathWorkerPool = [];
+let mathWorkerPoolIdx = 0;
+const pendingMathRequests = new Map(); // id -> { resolve, reject, timeoutId }
+
+function getMathWorker() {
+  if (typeof Worker === 'undefined') return null;
+
+  while (mathWorkerPool.length < MATH_WORKER_POOL_SIZE) {
+    const worker = new Worker(new URL('../workers/katexRenderWorker.js', import.meta.url), { type: 'module' });
+    worker.onmessage = (event) => {
+      const data = event.data || {};
+      const req = pendingMathRequests.get(data.id);
+      if (!req) return;
+      pendingMathRequests.delete(data.id);
+      if (req.timeoutId) window.clearTimeout(req.timeoutId);
+      if (data.errorKey) req.reject(makeMathError(data.errorKey, data.errorParams || {}));
+      else if (data.error) req.reject(makeMathError('richTextEditor.math.renderFailed', { message: data.error }));
+      else req.resolve(data.html || '');
+    };
+    worker.onerror = (event) => {
+      // Fail all pending requests for this worker on fatal errors
+      for (const [id, req] of pendingMathRequests) {
+        if (req._worker === worker) {
+          pendingMathRequests.delete(id);
+          if (req.timeoutId) window.clearTimeout(req.timeoutId);
+          req.reject(makeMathError('richTextEditor.math.workerFailed', { message: event.message || '' }));
+        }
+      }
+    };
+    mathWorkerPool.push(worker);
+  }
+
+  const worker = mathWorkerPool[mathWorkerPoolIdx % MATH_WORKER_POOL_SIZE];
+  mathWorkerPoolIdx++;
+  return worker;
+}
+
+function renderMathInWorker(math, displayMode, timeoutMs) {
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let settled = false;
+  let resolvePromise, rejectPromise;
+  const promise = new Promise((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+
+  const worker = getMathWorker();
+  if (!worker) {
+    rejectPromise(makeMathError('richTextEditor.math.workerUnavailable'));
+    return { promise, cancel: () => {} };
+  }
+
+  const timeoutId = window.setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    pendingMathRequests.delete(id);
+    rejectPromise(makeMathError('richTextEditor.math.renderTimedOut'));
+  }, timeoutMs);
+
+  pendingMathRequests.set(id, {
+    resolve: (v) => { if (!settled) { settled = true; resolvePromise(v); } },
+    reject: (e) => { if (!settled) { settled = true; rejectPromise(e); } },
+    timeoutId,
+    _worker: worker,
+  });
+
+  worker.postMessage({ id, math, displayMode });
+
+  return {
+    promise,
+    cancel: () => {
+      if (settled) return;
+      settled = true;
+      pendingMathRequests.delete(id);
+      if (timeoutId) window.clearTimeout(timeoutId);
+      rejectPromise(makeMathError('richTextEditor.math.renderCancelled'));
+    },
+  };
 }
 
 function tokenizeInlineMath(text) {
@@ -591,6 +1206,7 @@ function isEscaped(text, index) {
 }
 
 function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
+  const { t } = useTranslation();
   const [state, setState] = useState({ status: 'idle', svg: '', log: '' });
   const debounceRef = useRef(null);
   const tokenRef = useRef(0);
@@ -693,7 +1309,7 @@ function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
       >
         {state.status === 'loading' && (
           <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)' }}>
-            Rendering preview…
+            {t('richTextEditor.block.renderingPreview', { defaultValue: 'Rendering preview...' })}
           </span>
         )}
         {state.status === 'err' && (
@@ -710,7 +1326,10 @@ function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
             }}
             title={state.log}
           >
-            {`Preview unavailable — ${state.log.split('\n').slice(-3).join('\n').trim()}`}
+            {t('richTextEditor.block.previewUnavailable', {
+              log: state.log.split('\n').slice(-3).join('\n').trim(),
+              defaultValue: 'Preview unavailable - {{log}}',
+            })}
           </pre>
         )}
         {state.status === 'ok' && (
@@ -730,6 +1349,7 @@ function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
 }
 
 function NonEditableWrapper({ block, onJumpToSource, children }) {
+  const { t } = useTranslation();
   return (
     <div
       onClick={() => onJumpToSource(block)}
@@ -750,7 +1370,7 @@ function NonEditableWrapper({ block, onJumpToSource, children }) {
       <div style={{ position: 'absolute', top: '4px', right: '6px', display: 'flex', gap: '4px', alignItems: 'center' }}>
         <Lock size={10} style={{ color: 'var(--vscode-descriptionForeground, #888)' }} />
         <span style={{ fontSize: '9px', color: 'var(--vscode-descriptionForeground, #888)' }}>
-          read-only
+          {t('richTextEditor.block.readOnly', { defaultValue: 'read-only' })}
         </span>
       </div>
       {children}
@@ -759,13 +1379,124 @@ function NonEditableWrapper({ block, onJumpToSource, children }) {
 }
 
 function MathBlock({ block, onJumpToSource }) {
-  // Render math via KaTeX through formatMessageContent
-  const md = block.display ? `$$\n${block.math}\n$$` : `$${block.math}$`;
+  const { t } = useTranslation();
+  const math = block.math || '';
+  const displayMode = block.display !== false;
+  const cacheKey = `${MATH_CACHE_VERSION}::${displayMode ? 'display' : 'inline'}::${hashSource(math)}`;
+  const cancelRef = useRef(null);
+  const idleApplyCancelRef = useRef(null);
+  const [state, setState] = useState(() => {
+    const validation = validateRenderableMath(math, { displayMode });
+    if (!validation.ok) return { status: 'invalid', html: '', errorKey: validation.reasonKey, errorParams: validation.reasonParams };
+    const cached = mathHtmlCache.get(cacheKey);
+    if (cached) return { status: 'ok', html: cached, errorKey: '', errorParams: {} };
+    if (typeof window === 'undefined') {
+      return { status: 'loading', html: '', errorKey: '', errorParams: {} };
+    }
+    return { status: 'loading', html: '', errorKey: '', errorParams: {} };
+  });
+
+  useEffect(() => {
+    if (idleApplyCancelRef.current) {
+      idleApplyCancelRef.current();
+      idleApplyCancelRef.current = null;
+    }
+
+    const cached = mathHtmlCache.get(cacheKey);
+    const validation = validateRenderableMath(math, { displayMode });
+    if (!validation.ok) {
+      setState({ status: 'invalid', html: '', errorKey: validation.reasonKey, errorParams: validation.reasonParams });
+      return undefined;
+    }
+
+    if (cached) {
+      setState({ status: 'ok', html: cached, errorKey: '', errorParams: {} });
+      return undefined;
+    }
+
+    let cancelled = false;
+    setState({ status: 'loading', html: '', errorKey: '', errorParams: {} });
+    const task = enqueueMathRender(math, displayMode);
+    cancelRef.current = () => {
+      cancelled = true;
+      task.cancel();
+    };
+
+    task.promise
+      .then((html) => {
+        if (cancelled) return;
+        idleApplyCancelRef.current = scheduleMathUiIdleCallback(() => {
+          if (cancelled) return;
+          cancelRef.current = null;
+          idleApplyCancelRef.current = null;
+          if (html) {
+            rememberMathHtml(cacheKey, html);
+            setState({ status: 'ok', html, errorKey: '', errorParams: {} });
+          } else {
+            setState({ status: 'err', html: '', errorKey: 'richTextEditor.math.previewUnavailable', errorParams: {} });
+          }
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        idleApplyCancelRef.current = scheduleMathUiIdleCallback(() => {
+          if (cancelled) return;
+          cancelRef.current = null;
+          idleApplyCancelRef.current = null;
+          setState(mathErrorStateFromError(error));
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      if (idleApplyCancelRef.current) {
+        idleApplyCancelRef.current();
+        idleApplyCancelRef.current = null;
+      }
+      if (cancelRef.current) {
+        cancelRef.current();
+        cancelRef.current = null;
+      }
+    };
+  }, [cacheKey, math, displayMode]);
+
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
-      <div style={{ padding: '4px 0', overflowX: 'auto' }}>
-        {formatMessageContent(md)}
-      </div>
+      {state.status === 'ok' && state.html ? (
+        <div
+          className="rich-text-display-math"
+          style={{
+            padding: '4px 0',
+            overflowX: 'auto',
+          }}
+          dangerouslySetInnerHTML={{ __html: state.html }}
+        />
+      ) : (
+        <div
+          style={{
+            padding: '14px 10px',
+            minHeight: '48px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: state.status === 'invalid' || state.status === 'err'
+              ? 'var(--vscode-errorForeground, #f48771)'
+              : 'var(--vscode-descriptionForeground, #888)',
+            fontSize: '12px',
+            fontStyle: state.status === 'err' || state.status === 'invalid' ? 'normal' : 'italic',
+            textAlign: state.status === 'invalid' ? 'left' : 'center',
+            whiteSpace: state.status === 'invalid' ? 'pre-wrap' : 'normal',
+            wordBreak: 'break-word',
+          }}
+          title={state.errorKey ? translateMathError(t, state) : math}
+        >
+          {state.status === 'invalid'
+            ? t('richTextEditor.math.displayIllFormed', { math, defaultValue: defaultMathMessage('richTextEditor.math.displayIllFormed') })
+            : state.status === 'err'
+              ? t('richTextEditor.math.renderFailed', { defaultValue: defaultMathMessage('richTextEditor.math.renderFailed') })
+              : t('richTextEditor.math.rendering', { defaultValue: defaultMathMessage('richTextEditor.math.rendering') })}
+        </div>
+      )}
     </NonEditableWrapper>
   );
 }
@@ -781,6 +1512,7 @@ function MathBlock({ block, onJumpToSource }) {
 // the whole document, including the \includegraphics{../illustrations/x.pdf}
 // case that previously 403'd on the /api/file/raw endpoint.
 function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
+  const { t } = useTranslation();
   const [state, setState] = useState({ status: 'idle', src: '', mime: '', svg: '', log: '' });
   const tokenRef = useRef(0);
   const raw = block.src || block.graphicSource || '';
@@ -869,7 +1601,7 @@ function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
       <figure style={{ margin: 0, textAlign: 'center' }}>
         {state.status === 'loading' && (
           <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', padding: '12px' }}>
-            Loading image preview…
+            {t('richTextEditor.block.loadingImagePreview', { defaultValue: 'Loading image preview...' })}
           </div>
         )}
         {state.status === 'ok' && state.svg && (
@@ -895,7 +1627,10 @@ function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
             }}
             title={state.log}
           >
-            Image preview unavailable — {state.log}
+            {t('richTextEditor.block.imagePreviewUnavailable', {
+              log: state.log,
+              defaultValue: 'Image preview unavailable - {{log}}',
+            })}
           </div>
         )}
         {block.caption && (
@@ -1164,18 +1899,7 @@ function renderStyledLatexText(text) {
     if (token.type === 'text') {
       return <React.Fragment key={index}>{renderStyledTextOnly(token.value)}</React.Fragment>;
     }
-    const html = renderKatexInline(token.value);
-    if (!html) {
-      return <React.Fragment key={index}>{token.raw}</React.Fragment>;
-    }
-    return (
-      <span
-        key={index}
-        className="rich-text-inline-math"
-        data-latex={token.raw}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    );
+    return <AsyncInlineMath key={index} math={token.value} raw={token.raw} />;
   });
 }
 
@@ -1260,10 +1984,14 @@ function CodeBlock({ block, onJumpToSource }) {
 }
 
 function EnvironmentBlock({ block, onJumpToSource }) {
+  const { t } = useTranslation();
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
       <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '4px' }}>
-        environment: {block.envName}
+        {t('richTextEditor.block.environment', {
+          name: block.envName,
+          defaultValue: 'environment: {{name}}',
+        })}
       </div>
       <pre style={{ margin: 0, padding: '8px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', fontSize: '11px', overflowX: 'auto', borderRadius: '3px', whiteSpace: 'pre-wrap' }}>
         {block.raw || block.source}
@@ -1273,10 +2001,11 @@ function EnvironmentBlock({ block, onJumpToSource }) {
 }
 
 function PreambleBlock({ block, onJumpToSource }) {
+  const { t } = useTranslation();
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
       <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '4px' }}>
-        preamble
+        {t('richTextEditor.block.preamble', { defaultValue: 'preamble' })}
       </div>
       <pre style={{ margin: 0, padding: '8px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', fontSize: '11px', overflowX: 'auto', borderRadius: '3px', maxHeight: '120px', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
         {block.raw || block.source}

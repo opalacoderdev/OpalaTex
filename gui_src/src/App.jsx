@@ -1032,14 +1032,12 @@ export default function App() {
     if (!activeProject || !commitMessage.trim() || isCommitting) return;
     setIsCommitting(true);
     addLog('info', t('app.commitCreating', { message: commitMessage }));
-    console.log(`[DEBUG handleGitCommit] Committing to projectPath="${activeProject.project_path}" message="${commitMessage}"`);
     try {
       const res = await fetch('/api/git/commit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gitRequestPayload({ message: commitMessage })),
       });
       const data = await res.json();
-      console.log(`[DEBUG handleGitCommit] Response status=${res.status}`, data);
       if (res.ok) { addLog('info', t('app.commitSuccess')); setCommitMessage(''); fetchGitStatus(); }
       else { addLog('error', t('app.commitFailed', { error: data.error || t('app.unknownError') })); }
     } catch (err) { addLog('error', t('app.commitError', { error: err.message })); }
@@ -1224,7 +1222,6 @@ export default function App() {
     }
 
     if (fileContents[cachedFilePath] !== undefined) {
-      console.log(`[DEBUG handleFileSelect] CACHE HIT for "${filePath}" — serving cached content (${fileContents[cachedFilePath].length} chars). Disk NOT read.`);
       setFileContent(fileContents[cachedFilePath]);
       setSelectedFile(filePath);
       setLayoutMode('ide'); // Force the IDE view so the text editor is visible
@@ -1233,12 +1230,10 @@ export default function App() {
       }
       return;
     }
-    console.log(`[DEBUG handleFileSelect] CACHE MISS for "${filePath}" — fetching from disk.`);
     try {
       const res = await fetch(`/api/file/read?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(filePath)}`);
       if (res.ok) {
         const data = await res.json();
-        console.log(`[DEBUG handleFileSelect] Loaded from disk: ${data.content.length} chars`);
         diskFileContentsRef.current[filePath] = data.content;
         setFileContent(data.content);
         setFileContents(prev => ({ ...prev, [filePath]: data.content }));
@@ -1594,14 +1589,12 @@ export default function App() {
 
   const openEditModal = async (e, proj) => {
     e.stopPropagation();
-    console.log("[DEBUG APP] Abrindo Configurações para projeto:", proj.name);
     let fresh = proj;
     try {
       const res = await fetch('/api/opalatex/list-projects');
       if (res.ok) {
         const { projects: list } = await res.json();
         const found = list.find(p => p.name === proj.name);
-        console.log("[DEBUG APP] list-projects retornou para este projeto:", found);
         if (found) fresh = found;
       }
     } catch (_) { }
@@ -1612,7 +1605,6 @@ export default function App() {
     const selectedMainModel = globalModels.find(m => m.id === fresh.model);
     const selectedWorkerModel = globalModels.find(m => m.id === fresh.worker_model);
     const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', main_file: fresh.main_file || '', git_root_path: fresh.git_root_path || '', compile_on_save_partial: compileOnSavePartial, compile_on_save_full: compileOnSaveFull, model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: selectedMainModel?.api_key || fresh.api_key || '', api_base: selectedMainModel?.api_base || fresh.api_base || '', worker_api_key: selectedWorkerModel?.api_key || fresh.worker_api_key || '', worker_api_base: selectedWorkerModel?.api_base || fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
-    console.log("[DEBUG APP] Estado editingProject final que vai para a Modal:", newState);
     setEditingProject(newState);
   };
 
@@ -1910,7 +1902,6 @@ export default function App() {
         addLog('tool_call', t('app.callingTool', { tool: data.tool, arguments: JSON.stringify(data.arguments) }), data.agent);
         if (['write_file', 'write_content_pos', 'replace_content_range', 'edit_file'].includes(data.tool)) {
           const writePath = data.arguments?.path;
-          console.log(`[DEBUG tool_call] ${data.tool} path="${writePath}" — currentEditorCached=${fileContents[writePath] !== undefined}`);
           if (writePath) pendingWritePathRef.current = writePath;
         }
         break;
@@ -1921,7 +1912,6 @@ export default function App() {
           addLog('tool_result', t('app.toolSucceeded', { tool: data.tool }), data.agent);
         }
         if (['write_file', 'write_content_pos', 'replace_content_range', 'edit_file'].includes(data.tool)) {
-          console.log(`[DEBUG tool_result] ${data.tool} result="${data.result}"`);
           const writtenPath = pendingWritePathRef.current;
           pendingWritePathRef.current = null;
           if (writtenPath) {
@@ -1935,7 +1925,6 @@ export default function App() {
               const updated = { ...prev };
               for (const key of Object.keys(updated)) {
                 if (key === writtenPath || key.endsWith('/' + relPath) || key === relPath) {
-                  console.log(`[DEBUG tool_result] Invalidating editor cache for "${key}"`);
                   delete updated[key];
                 }
               }
@@ -1948,7 +1937,6 @@ export default function App() {
                   .then(r => r.ok ? r.json() : null)
                   .then(d => {
                     if (d) {
-                      console.log(`[DEBUG tool_result] Reloaded open file "${selectedFile}" from disk.`);
                       diskFileContentsRef.current[selectedFile] = d.content;
                       setFileContent(d.content);
                       setFileContents(prev => ({ ...prev, [selectedFile]: d.content }));
@@ -2635,8 +2623,6 @@ export default function App() {
           const depth = dirSegments.length;
           const relPrefix = depth > 0 ? '../'.repeat(depth) : '';
           const relIllustrationPath = `${relPrefix}illustrations/illustration_${timestamp}`;
-
-          console.log(`[illustration] selectedFile="${selectedFile}" → relSelectedFile="${relSelectedFile}" depth=${depth} ref="${relIllustrationPath}"`);
 
           addLog('info', t('app.savingSvg', { path: filename }));
           const writeRes = await fetch('/api/file/write', {
