@@ -22,6 +22,101 @@ def get_tectonic_path():
 
 import re
 
+
+LATEX_ERROR_LOCATION_RE = re.compile(
+    r'(?im)^error:\s+(.+?\.tex):(\d+):\s+(.+?)\s*$'
+)
+
+
+def _read_source_line_for_latex_error(error_file: str, line_number: int, project_dir: str) -> tuple[str, str]:
+    """Return the resolved path and source line for a compiler error location."""
+    if not error_file or line_number < 1:
+        return "", ""
+
+    candidates = []
+    if os.path.isabs(error_file):
+        candidates.append(error_file)
+    if project_dir:
+        candidates.append(os.path.join(project_dir, error_file))
+    candidates.append(error_file)
+
+    for candidate in candidates:
+        try:
+            path = os.path.abspath(candidate)
+            with open(path, "r", encoding="utf-8", errors="replace") as source:
+                for current_line, text in enumerate(source, start=1):
+                    if current_line == line_number:
+                        return path, text.rstrip("\r\n")
+        except OSError:
+            continue
+
+    return "", ""
+
+
+def _find_suspicious_control_sequence(source_line: str) -> tuple[str, int]:
+    """Pick the most likely undefined command from a source line."""
+    commands = list(re.finditer(r'\\[A-Za-z]+|\\.', source_line or ""))
+    if not commands:
+        return "", -1
+
+    mid_word = [
+        match for match in commands
+        if match.start() > 0 and source_line[match.start() - 1].isalnum()
+    ]
+    if mid_word:
+        match = mid_word[0]
+        return match.group(0), match.start()
+
+    preferred = [match for match in commands if len(match.group(0)) > 2]
+    match = preferred[0] if preferred else commands[0]
+    return match.group(0), match.start()
+
+
+def enrich_latex_error_log(log: str, project_dir: str = "") -> str:
+    """Add source context to terse Tectonic LaTeX error messages."""
+    if not log or "Undefined control sequence" not in log:
+        return log
+
+    additions = []
+    seen = set()
+    for match in LATEX_ERROR_LOCATION_RE.finditer(log):
+        error_file, line_text, message = match.groups()
+        if "Undefined control sequence" not in message:
+            continue
+
+        line_number = int(line_text)
+        key = (error_file, line_number)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        resolved_path, source_line = _read_source_line_for_latex_error(error_file, line_number, project_dir)
+        if not source_line:
+            continue
+
+        command, column = _find_suspicious_control_sequence(source_line)
+        pointer = ""
+        if column >= 0:
+            pointer = "\n" + (" " * column) + ("^" * max(1, len(command)))
+
+        location = error_file
+        if resolved_path and project_dir:
+            try:
+                location = os.path.relpath(resolved_path, project_dir).replace("\\", "/")
+            except ValueError:
+                location = resolved_path
+
+        additions.append(
+            "OpalaTex source context:\n"
+            f"{location}:{line_number}: {source_line}{pointer}\n"
+            f"Likely undefined LaTeX command: {command or '(unknown)'}"
+        )
+
+    if not additions:
+        return log
+
+    return log.rstrip() + "\n\n" + "\n\n".join(additions) + "\n"
+
 def is_independent(content: str) -> bool:
     """Check if content is a compilable root document rather than a fragment."""
     if not content: return False
@@ -492,6 +587,8 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
             log += "\nPartial compile reused auxiliary artifacts: " + ", ".join(copied_artifacts)
         if result.returncode == 0 and not os.path.exists(preview_pdf):
             log += "\nError: PDF file was not generated despite 0 exit code."
+        if not success:
+            log = enrich_latex_error_log(log, main_dir)
 
         pdf_base64 = None
         pdf_read_seconds = 0.0
@@ -617,6 +714,8 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
                 success = False
                 if result.returncode == 0:
                     log += "\nError: PDF file was not generated despite 0 exit code."
+            if not success:
+                log = enrich_latex_error_log(log, project_dir)
             
             return {
                 "success": success,
@@ -728,6 +827,8 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
                 success = False
                 if result.returncode == 0:
                     log += "\nError: PDF file was not generated despite 0 exit code."
+        if not success:
+            log = enrich_latex_error_log(log, temp_dir)
                 
         return {
             "success": success,

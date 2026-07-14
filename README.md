@@ -13,6 +13,11 @@ LaTeX compilation is performed locally with Tectonic. Local editor features do n
 - Project, terminal, Git, and document-export tools
 - English and Brazilian Portuguese interface
 
+## Minimum Software Requirements
+
+- Linux: Ubuntu 24.04 or 26.04
+- Windows: Windows 10 or 11
+
 ## Install a packaged release
 
 The installer downloads the current package into the user's profile, creates application shortcuts, and does not require an administrator shell. Review a remote script before executing it if your environment requires stricter supply-chain controls.

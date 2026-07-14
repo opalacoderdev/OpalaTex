@@ -139,6 +139,62 @@ def test_full_compile_preserves_crlf_without_inserting_blank_lines(monkeypatch, 
     assert b"\r\r\n" not in main.read_bytes()
 
 
+def test_latex_error_log_includes_undefined_command_source_context(tmp_path):
+    main = tmp_path / "artigo_gomes_2025.tex"
+    source = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "We validate the model in two 3D environments (foraging and confr\\ontation).\n"
+        "\\end{document}\n"
+    )
+    main.write_text(source, encoding="utf-8")
+
+    log = (
+        "error: artigo_gomes_2025.tex:3: Undefined control sequence\n"
+        "error: halted on potentially-recoverable error as specified\n"
+    )
+
+    enriched = latex_compiler.enrich_latex_error_log(log, str(tmp_path))
+
+    assert "OpalaTex source context:" in enriched
+    assert "confr\\ontation" in enriched
+    assert "Likely undefined LaTeX command: \\ontation" in enriched
+
+
+def test_full_compile_enriches_undefined_control_sequence_log(monkeypatch, tmp_path):
+    main = tmp_path / "artigo_gomes_2025.tex"
+    content = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "We validate the model in two 3D environments (foraging and confr\\ontation).\n"
+        "\\end{document}\n"
+    )
+    main.write_text(content, encoding="utf-8")
+    monkeypatch.setattr(latex_compiler, "get_tectonic_path", lambda: "tectonic")
+
+    def fake_run(cmd, cwd, capture_output, encoding, errors):
+        return subprocess.CompletedProcess(
+            cmd,
+            1,
+            stdout="",
+            stderr="error: artigo_gomes_2025.tex:3: Undefined control sequence\n",
+        )
+
+    monkeypatch.setattr(latex_compiler.subprocess, "run", fake_run)
+
+    result = latex_compiler.compile_latex(
+        content,
+        str(main),
+        "artigo_gomes_2025.tex",
+        str(tmp_path),
+        include_pdf_base64=False,
+    )
+
+    assert result["success"] is False
+    assert "confr\\ontation" in result["log"]
+    assert "Likely undefined LaTeX command: \\ontation" in result["log"]
+
+
 def test_partial_compile_reuses_main_bibliography_artifacts(monkeypatch, tmp_path):
     main = tmp_path / "main.tex"
     chapter = tmp_path / "chapters" / "one.tex"
