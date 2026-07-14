@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
 import { useTranslation } from 'react-i18next';
 import { Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown } from 'lucide-react';
 
@@ -533,7 +532,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
               >
                 <Page
                   pageNumber={index + 1}
-                  renderTextLayer={true}
+                  renderTextLayer={false}
                   renderAnnotationLayer={true}
                   scale={scale}
                 />

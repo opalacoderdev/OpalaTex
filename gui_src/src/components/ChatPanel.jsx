@@ -111,7 +111,6 @@ export default function ChatPanel({
   });
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [tempInput, setTempInput] = useState('');
-
   // MCP config panel state
   const [showMcpPanel, setShowMcpPanel] = useState(false);
   const [mcpUrlDraft, setMcpUrlDraft] = useState('');
@@ -257,24 +256,17 @@ export default function ChatPanel({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleFormSubmit(null);
-    } else if (e.key === 'ArrowUp') {
-      const el = e.currentTarget;
-      const onFirstLine = el.selectionStart === 0 || !el.value.slice(0, el.selectionStart).includes('\n');
-      if (!onFirstLine || inputHistory.length === 0) return;
+    } else if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === 'ArrowUp') {
+      if (inputHistory.length === 0) return;
       e.preventDefault();
-      let newIndex;
-      if (historyIndex === -1) {
-        setTempInput(chatInput);
-        newIndex = inputHistory.length - 1;
-      } else {
-        newIndex = Math.max(0, historyIndex - 1);
-      }
+      const newIndex = historyIndex === -1
+        ? inputHistory.length - 1
+        : Math.max(0, historyIndex - 1);
+      if (historyIndex === -1) setTempInput(chatInput);
       setHistoryIndex(newIndex);
       setChatInput(inputHistory[newIndex]);
-    } else if (e.key === 'ArrowDown') {
-      const el = e.currentTarget;
-      const onLastLine = el.selectionEnd === el.value.length || !el.value.slice(el.selectionEnd).includes('\n');
-      if (!onLastLine || historyIndex === -1) return;
+    } else if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === 'ArrowDown') {
+      if (historyIndex === -1) return;
       e.preventDefault();
       if (historyIndex === inputHistory.length - 1) {
         setHistoryIndex(-1);
