@@ -246,6 +246,38 @@ def _preview(value: object, max_len: int = 60) -> str:
     s = str(value).replace("\n", " ")
     return s[:max_len] + "…" if len(s) > max_len else s
 
+_TEXT_FILE_ENCODINGS = ("utf-8-sig", "utf-8", "cp1252", "latin-1")
+
+
+def _read_text_file(path: str) -> str:
+    """Read text files with common encoding fallbacks used by LaTeX tools."""
+    with open(path, "rb") as f:
+        data = f.read()
+
+    if not data:
+        return ""
+
+    encodings = list(_TEXT_FILE_ENCODINGS)
+    if data.startswith(b"\xff\xfe"):
+        encodings.insert(0, "utf-16-le")
+    elif data.startswith(b"\xfe\xff"):
+        encodings.insert(0, "utf-16-be")
+
+    tried = set()
+    for encoding in encodings:
+        if encoding in tried:
+            continue
+        tried.add(encoding)
+        try:
+            text = data.decode(encoding)
+            return text.replace("\r\n", "\n").replace("\r", "\n")
+        except UnicodeDecodeError:
+            continue
+
+    text = data.decode("utf-8", errors="replace")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _decode_escape_sequences(s: str) -> str:
     """Fix content where the model emitted literal \\n \\t \\r instead of real control chars.
 
@@ -423,8 +455,7 @@ def read_file(path: str) -> str:
         raise ValueError(f"Error: invalid path argument ({e.strerror}). 'read_file' expects a file path, not file contents.")
 
     try:
-        with open(resolved, "r", encoding="utf-8") as f:
-            return f.read()
+        return _read_text_file(resolved)
     except Exception as e:
         raise ValueError(f"Error reading {_preview(resolved)}: {e}")
 
@@ -1068,8 +1099,7 @@ def read_content_pos(path: str, start_pos: int, end_pos: int) -> str:
         raise ValueError(f"Error: invalid path argument ({e.strerror}).")
 
     try:
-        with open(resolved, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+        lines = _read_text_file(resolved).splitlines(keepends=True)
             
         start_idx = max(0, start_pos - 1)
         end_idx = min(len(lines), end_pos)

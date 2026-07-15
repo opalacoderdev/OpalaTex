@@ -75,7 +75,7 @@ litellm.drop_params = True
 litellm.route_all_chat_openai_to_responses = False
 
 # ── Register model cost for the OpalaTex Cloud proxy model ──────────────────
-# The Cloud proxy routes openai/gemini-3.1-flash-lite to Google Gemini via
+# The Cloud proxy routes approved openai/gemini-* aliases to Google Gemini via
 # opalacoder.com. LiteLLM has no built-in cost entry for this custom routing,
 # so register_model emits a DeprecationWarning about missing cache cost fields
 # on every Router deployment (once per session, per model_id hash).
@@ -91,6 +91,14 @@ litellm.route_all_chat_openai_to_responses = False
 try:
     litellm.register_model({
         "openai/gemini-3.1-flash-lite": {
+            "litellm_provider": "openai",
+            "mode": "chat",
+            "input_cost_per_token": 0.0,
+            "output_cost_per_token": 0.0,
+            "cache_creation_input_token_cost": 0.0,
+            "cache_read_input_token_cost": 0.0,
+        },
+        "openai/gemini-3.5-flash": {
             "litellm_provider": "openai",
             "mode": "chat",
             "input_cost_per_token": 0.0,

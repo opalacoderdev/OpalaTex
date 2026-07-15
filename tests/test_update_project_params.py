@@ -57,8 +57,12 @@ ALL_PARAMS = {**LITELLM_PARAMS, **AGENT_PARAMS}
 
 
 @pytest.fixture(autouse=True)
-def _reset_project_session():
-    """Restore _PROJECT_SESSION to None after each test to avoid state leakage."""
+def _reset_project_session(monkeypatch):
+    """Restore shared runtime state and avoid leaking real UI settings into tests."""
+    monkeypatch.setattr(
+        "opalatex.ui_settings.load_ui_settings",
+        lambda: {"ai_provider": "local", "cloud_model": "OpalaTexCloud"},
+    )
     yield
     import opalatex.tools as _t
     _t._PROJECT_SESSION = None

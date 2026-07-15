@@ -1089,61 +1089,16 @@ export default function EditorPanel({
           )}
 
           {isTexFile && (
-            <div style={{ position: 'relative', display: 'inline-flex' }}>
-              <button
-                onClick={() => setShowLatexHelp(prev => !prev)}
-                className="vscode-bottom-panel-clear-btn"
-                style={{ padding: '6px' }}
-                title={t('editorPanel.latexHelpTitle')}
-                aria-label={t('editorPanel.latexHelpTitle')}
-                aria-expanded={showLatexHelp}
-              >
-                <HelpCircle size={12} style={{ color: showLatexHelp ? '#4daafc' : 'inherit' }} />
-              </button>
-              {showLatexHelp && (
-                <div className="latex-help-popover" role="dialog" aria-label={t('editorPanel.latexHelpTitle')}>
-                  <div className="latex-help-header">
-                    <span>{t('editorPanel.latexHelpTitle')}</span>
-                    <button
-                      onClick={() => setShowLatexHelp(false)}
-                      className="vscode-bottom-panel-clear-btn"
-                      style={{ padding: '3px' }}
-                      title={t('editorPanel.latexHelpClose')}
-                      aria-label={t('editorPanel.latexHelpClose')}
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                  <div className="latex-help-section-title">{t('editorPanel.latexHelpShortcutsTitle')}</div>
-                  <dl className="latex-help-list">
-                    <div>
-                      <dt>Ctrl+S</dt>
-                      <dd>{t('editorPanel.latexHelpSave')}</dd>
-                    </div>
-                    <div>
-                      <dt>Ctrl+L</dt>
-                      <dd>{t('editorPanel.latexHelpInline')}</dd>
-                    </div>
-                    <div>
-                      <dt>Ctrl+J</dt>
-                      <dd>{t('editorPanel.latexHelpTerminal')}</dd>
-                    </div>
-                    <div>
-                      <dt>Ctrl/Alt+Click</dt>
-                      <dd>{t('editorPanel.latexHelpSyncTex')}</dd>
-                    </div>
-                  </dl>
-                  <div className="latex-help-section-title">{t('editorPanel.latexHelpFeaturesTitle')}</div>
-                  <ul className="latex-help-feature-list">
-                    <li>{t('editorPanel.latexHelpCompile')}</li>
-                    <li>{t('editorPanel.latexHelpPartial')}</li>
-                    <li>{t('editorPanel.latexHelpRichText')}</li>
-                    <li>{t('editorPanel.latexHelpPreview')}</li>
-                    <li>{t('editorPanel.latexHelpSnippets')}</li>
-                  </ul>
-                </div>
-              )}
-            </div>
+            <button
+              onClick={() => setShowLatexHelp(true)}
+              className="vscode-bottom-panel-clear-btn"
+              style={{ padding: '6px' }}
+              title={t('editorPanel.latexHelpTitle')}
+              aria-label={t('editorPanel.latexHelpTitle')}
+              aria-expanded={showLatexHelp}
+            >
+              <HelpCircle size={12} style={{ color: showLatexHelp ? '#4daafc' : 'inherit' }} />
+            </button>
           )}
 
           <button
@@ -1267,6 +1222,58 @@ export default function EditorPanel({
           onCancel={onInlineCancel}
           isRunning={isInlineRunning}
         />
+      )}
+
+      {showLatexHelp && (
+        <div className="latex-help-modal-backdrop" onClick={() => setShowLatexHelp(false)}>
+          <div
+            className="latex-help-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('editorPanel.latexHelpTitle')}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="latex-help-header">
+              <span>{t('editorPanel.latexHelpTitle')}</span>
+              <button
+                onClick={() => setShowLatexHelp(false)}
+                className="vscode-bottom-panel-clear-btn"
+                style={{ padding: '3px' }}
+                title={t('editorPanel.latexHelpClose')}
+                aria-label={t('editorPanel.latexHelpClose')}
+              >
+                <X size={12} />
+              </button>
+            </div>
+            <div className="latex-help-section-title">{t('editorPanel.latexHelpShortcutsTitle')}</div>
+            <dl className="latex-help-list">
+              <div>
+                <dt>Ctrl+S</dt>
+                <dd>{t('editorPanel.latexHelpSave')}</dd>
+              </div>
+              <div>
+                <dt>Ctrl+L</dt>
+                <dd>{t('editorPanel.latexHelpInline')}</dd>
+              </div>
+              <div>
+                <dt>Ctrl+J</dt>
+                <dd>{t('editorPanel.latexHelpTerminal')}</dd>
+              </div>
+              <div>
+                <dt>Ctrl/Alt+Click</dt>
+                <dd>{t('editorPanel.latexHelpSyncTex')}</dd>
+              </div>
+            </dl>
+            <div className="latex-help-section-title">{t('editorPanel.latexHelpFeaturesTitle')}</div>
+            <ul className="latex-help-feature-list">
+              <li>{t('editorPanel.latexHelpCompile')}</li>
+              <li>{t('editorPanel.latexHelpPartial')}</li>
+              <li>{t('editorPanel.latexHelpRichText')}</li>
+              <li>{t('editorPanel.latexHelpPreview')}</li>
+              <li>{t('editorPanel.latexHelpSnippets')}</li>
+            </ul>
+          </div>
+        </div>
       )}
 
       {/* Custom editor context menu (replaces Monaco's Shadow DOM menu) */}

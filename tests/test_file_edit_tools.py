@@ -41,3 +41,29 @@ def test_replace_content_range_deletes_lines_with_empty_content(tmp_path):
     asyncio.run(raw("main.tex", 2, 3, ""))
 
     assert target.read_text(encoding="utf-8") == "keep\nkeep too\n"
+
+
+def test_read_file_falls_back_to_cp1252(tmp_path):
+    from opalatex.tools import read_file, set_project_context
+
+    target = tmp_path / "latex_output.txt"
+    target.write_bytes("Introdução\nConclusão\n".encode("cp1252"))
+    set_project_context(SimpleNamespace(project_path=str(tmp_path)))
+
+    raw = getattr(read_file, "_func", None) or read_file
+    result = asyncio.run(raw("latex_output.txt"))
+
+    assert result == "Introdução\nConclusão\n"
+
+
+def test_read_content_pos_falls_back_to_cp1252(tmp_path):
+    from opalatex.tools import read_content_pos, set_project_context
+
+    target = tmp_path / "latex_output.txt"
+    target.write_bytes("Linha 1\nIntrodução\nConclusão\n".encode("cp1252"))
+    set_project_context(SimpleNamespace(project_path=str(tmp_path)))
+
+    raw = getattr(read_content_pos, "_func", None) or read_content_pos
+    result = asyncio.run(raw("latex_output.txt", 2, 3))
+
+    assert result == "Introdução\nConclusão\n"

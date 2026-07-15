@@ -25,4 +25,8 @@ def test_add_or_update_model_replaces_previous_id(tmp_path, monkeypatch):
     })
 
     saved = models_store.load_models()
-    assert [model["id"] for model in saved] == ["OpalaTexCloud", "ollama/new-model"]
+    assert [model["id"] for model in saved] == [
+        "OpalaTexCloud",
+        "OpalaTexCloudGemini35Flash",
+        "ollama/new-model",
+    ]

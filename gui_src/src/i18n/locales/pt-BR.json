@@ -396,12 +396,15 @@
     "defaultUnlimited": "padrão: sem limite",
     "unlimited": "ilimitado",
     "opalaCloudEnabled": "Opala Cloud Ativado",
+    "opalaCloudLiteOption": "Opala Cloud Lite (uso normal de creditos)",
+    "opalaCloudFlashOption": "Gemini 3.5 Flash (usa 6x mais creditos)",
     "cloudOrchestratorNotice": "O modelo, URL base e chaves de API do Orquestrador já estão configurados automaticamente para usar a nuvem Opala.",
     "cloudAdvancedNotice": "As configurações avançadas abaixo (Temperature, Tokens, etc.) continuam disponíveis e serão aplicadas na Cloud.",
     "cloudWorkerNotice": "O modelo do Worker já está configurado automaticamente para usar a nuvem Opala. As configurações avançadas abaixo continuarão ativas.",
     "modelSuitable": "✓ Modelo adequado.",
     "modelMayBeSlow": "⚠ Poderá ficar lento.",
     "modelMayExceedVram": "❌ Pode exceder VRAM.",
+    "cloudFlashCostNotice": "O Gemini 3.5 Flash consome creditos 6x mais rapido que o Lite.",
     "detectingHardware": "Detectando hardware...",
     "defaultPlaceholder": "(usa o padrão global se vazio)",
     "modeAuto": "Auto (Completo)",
@@ -450,6 +453,8 @@
     "aiProviderCloud": "OpalaTex Cloud (Usa Créditos)",
     "languageSystem": "Sistema (automático)",
     "languagePtBR": "Português (Brasil)",
+    "cloudModel": "Modelo do Opala Cloud",
+    "cloudModelHint": "O Gemini 3.5 Flash e mais capaz, mas consome creditos 6x mais rapido que o Lite.",
     "languageEn": "English",
     "colorTheme": "Tema de Cor",
     "editorFontSize": "Tamanho da Fonte do Editor",
@@ -772,3 +777,4 @@
     "finish": "Concluir"
   }
 }
+

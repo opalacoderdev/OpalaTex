@@ -1984,7 +1984,22 @@ class AsyncHTTPServer:
             worker_api_key = data.get("worker_api_key")
             worker_api_base = data.get("worker_api_base")
 
-            
+            try:
+                from opalatex.ui_settings import load_ui_settings
+                ui_cfg = load_ui_settings()
+                if ui_cfg.get("ai_provider") == "cloud":
+                    from opalatex.cloud_client import normalize_cloud_model_alias
+                    default_cloud_model = normalize_cloud_model_alias(ui_cfg.get("cloud_model"))
+                    model = normalize_cloud_model_alias(model, default_cloud_model)
+                    worker_model = normalize_cloud_model_alias(worker_model, default_cloud_model)
+                    api_key = ""
+                    api_base = ""
+                    worker_api_key = ""
+                    worker_api_base = ""
+            except Exception:
+                pass
+
+             
             if not project_name:
                 self.send_response(writer, 400, b'{"error":"project_name is required"}', "application/json")
                 return
@@ -2529,13 +2544,30 @@ class AsyncHTTPServer:
                 return
             chat_id = data.get("chat_id") or data.get("current_chat_id") or "main"
             project = store.load(project_name, chat_id=chat_id)
+            try:
+                from opalatex.ui_settings import load_ui_settings
+                ui_cfg = load_ui_settings()
+                cloud_provider_active = ui_cfg.get("ai_provider") == "cloud"
+                default_cloud_model = ui_cfg.get("cloud_model")
+            except Exception:
+                cloud_provider_active = False
+                default_cloud_model = None
+
             # Patch only supplied fields
             if "display_name" in data:
                 project.project_name = data["display_name"]
             if "model" in data and data["model"]:
-                project.model = data["model"]
+                if cloud_provider_active:
+                    from opalatex.cloud_client import normalize_cloud_model_alias
+                    project.model = normalize_cloud_model_alias(data["model"], default_cloud_model)
+                else:
+                    project.model = data["model"]
             if "worker_model" in data:
-                project.worker_model = data["worker_model"]
+                if cloud_provider_active:
+                    from opalatex.cloud_client import normalize_cloud_model_alias
+                    project.worker_model = normalize_cloud_model_alias(data["worker_model"], default_cloud_model)
+                else:
+                    project.worker_model = data["worker_model"]
             if "description" in data:
                 project.description = data["description"]
             if "mode" in data and data["mode"]:
@@ -2605,13 +2637,13 @@ class AsyncHTTPServer:
                 project.worker_model_params = sanitize_model_params(params)
 
             if "api_key" in data:
-                project.api_key = data["api_key"]
+                project.api_key = "" if cloud_provider_active else data["api_key"]
             if "api_base" in data:
-                project.api_base = data["api_base"]
+                project.api_base = "" if cloud_provider_active else data["api_base"]
             if "worker_api_key" in data:
-                project.worker_api_key = data["worker_api_key"]
+                project.worker_api_key = "" if cloud_provider_active else data["worker_api_key"]
             if "worker_api_base" in data:
-                project.worker_api_base = data["worker_api_base"]
+                project.worker_api_base = "" if cloud_provider_active else data["worker_api_base"]
 
             store.save(project)
             
@@ -3333,15 +3365,26 @@ class AsyncHTTPServer:
         # 7o. AI Provider — GET
         elif path == '/api/settings/ai-provider' and method == 'GET':
             from opalatex.ui_settings import load_ui_settings
+            from opalatex.cloud_client import DEFAULT_CLOUD_MODEL_ALIAS, normalize_cloud_model_alias
             cfg = load_ui_settings()
-            self.send_response(writer, 200, json.dumps({"provider": cfg.get("ai_provider", "local")}).encode('utf-8'), "application/json")
+            cloud_model = normalize_cloud_model_alias(cfg.get("cloud_model"), DEFAULT_CLOUD_MODEL_ALIAS)
+            self.send_response(writer, 200, json.dumps({
+                "provider": cfg.get("ai_provider", "local"),
+                "cloud_model": cloud_model,
+            }).encode('utf-8'), "application/json")
 
         # 7p. AI Provider — POST (set)
         elif path == '/api/settings/ai-provider' and method == 'POST':
             from opalatex.ui_settings import save_ui_settings
+            from opalatex.cloud_client import DEFAULT_CLOUD_MODEL_ALIAS, normalize_cloud_model_alias
             provider = data.get("provider", "local")
-            save_ui_settings({"ai_provider": provider})
-            self.send_response(writer, 200, b'{"success":true}', "application/json")
+            cloud_model = normalize_cloud_model_alias(data.get("cloud_model"), DEFAULT_CLOUD_MODEL_ALIAS)
+            save_ui_settings({"ai_provider": provider, "cloud_model": cloud_model})
+            self.send_response(writer, 200, json.dumps({
+                "success": True,
+                "provider": provider,
+                "cloud_model": cloud_model,
+            }).encode('utf-8'), "application/json")
 
         # 7q. Token Balance — GET
         elif path == '/api/settings/token-balance' and method == 'GET':

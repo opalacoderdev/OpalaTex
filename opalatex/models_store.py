@@ -4,12 +4,14 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .config import get_opalatex_home
+from .cloud_client import CLOUD_FLASH_MODEL_ALIAS, DEFAULT_CLOUD_MODEL_ALIAS
 
 _MODELS_STORE_PATH = Path(get_opalatex_home()) / "models.json"
 
 _DEFAULT_MODELS = [
     # OpalaTex Cloud Model
-    { "id": "OpalaTexCloud", "provider": "OpalaTex", "name": "OpalaTex Cloud", "api_key": "", "api_base": "" },
+    { "id": DEFAULT_CLOUD_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Cloud Lite", "api_key": "", "api_base": "" },
+    { "id": CLOUD_FLASH_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Cloud Gemini 3.5 Flash (6x credits)", "api_key": "", "api_base": "" },
 
     # OpenAI Models
     { "id": "openai/gpt-5.5", "provider": "openai", "name": "gpt-5.5", "api_key": "", "api_base": "" },
@@ -64,12 +66,19 @@ def load_models() -> List[Dict[str, Any]]:
         models = list(_DEFAULT_MODELS)
         loaded_defaults = True
         
-    # Ensure OpalaTexCloud is in the list
-    has_opala_cloud = any(m.get("id") == "OpalaTexCloud" for m in models)
-    if not has_opala_cloud:
-        opala_cloud_model = { "id": "OpalaTexCloud", "provider": "OpalaTex", "name": "OpalaTex Cloud", "api_key": "", "api_base": "" }
-        models.insert(0, opala_cloud_model)
-        loaded_defaults = True
+    # Ensure managed Opala Cloud aliases are in the list.
+    managed_cloud_models = [
+        { "id": DEFAULT_CLOUD_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Cloud Lite", "api_key": "", "api_base": "" },
+        { "id": CLOUD_FLASH_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Cloud Gemini 3.5 Flash (6x credits)", "api_key": "", "api_base": "" },
+    ]
+    existing_ids = {m.get("id") for m in models}
+    insert_at = 0
+    for cloud_model in managed_cloud_models:
+        if cloud_model["id"] not in existing_ids:
+            models.insert(insert_at, cloud_model)
+            insert_at += 1
+            existing_ids.add(cloud_model["id"])
+            loaded_defaults = True
         
     if loaded_defaults:
         save_models(models)

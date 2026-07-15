@@ -24,6 +24,7 @@ function ParamNumber({ label, value, onChange, step, min, max, placeholder }) {
 // Project settings edit modal (model params, paths, credentials, etc.).
 export default function EditProjectModal({
   globalAiProvider,
+  globalCloudModel = 'OpalaTexCloud',
   globalModels = [],
   editingProject,
   setEditingProject,
@@ -130,6 +131,15 @@ export default function EditProjectModal({
     { id: 'orquestrador', label: t('editProjectModal.tabOrchestrator') },
     { id: 'worker', label: t('editProjectModal.tabWorker') }
   ];
+  const cloudModelOptions = [
+    { value: 'OpalaTexCloud', label: t('editProjectModal.opalaCloudLiteOption', 'Opala Cloud Lite (standard credit use)') },
+    { value: 'OpalaTexCloudGemini35Flash', label: t('editProjectModal.opalaCloudFlashOption', 'Gemini 3.5 Flash (6x credit use)') }
+  ];
+  const normalizeCloudModel = (value) => {
+    if (cloudModelOptions.some(option => option.value === value)) return value;
+    if (cloudModelOptions.some(option => option.value === globalCloudModel)) return globalCloudModel;
+    return 'OpalaTexCloud';
+  };
 
   return (
     <div className="vscode-modal-overlay">
@@ -447,11 +457,23 @@ export default function EditProjectModal({
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.mainModel')}</label>
                 {globalAiProvider === 'cloud' ? (
-                  <div style={{ padding: '8px', background: 'rgba(0, 122, 204, 0.1)', border: '1px solid #007acc', borderRadius: '4px', fontSize: '12px', color: '#007acc', marginTop: '4px' }}>
-                    <strong>{t('editProjectModal.opalaCloudEnabled')}</strong><br />
-                    {t('editProjectModal.cloudOrchestratorNotice')}<br />
-                    <em>{t('editProjectModal.cloudAdvancedNotice')}</em>
-                  </div>
+                  <>
+                    <select
+                      className="vscode-settings-input"
+                      value={normalizeCloudModel(editingProject.model)}
+                      onChange={e => applySavedModelCredentials(e.target.value, 'main')}
+                    >
+                      {cloudModelOptions.map(option => (
+                        <option key={`edit-cloud-main-${option.value}`} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <div style={{ padding: '8px', background: 'rgba(0, 122, 204, 0.1)', border: '1px solid #007acc', borderRadius: '4px', fontSize: '12px', color: '#007acc', marginTop: '4px' }}>
+                      <strong>{t('editProjectModal.opalaCloudEnabled')}</strong><br />
+                      {t('editProjectModal.cloudOrchestratorNotice')}<br />
+                      <em>{t('editProjectModal.cloudAdvancedNotice')}</em><br />
+                      <strong>{t('editProjectModal.cloudFlashCostNotice', 'Gemini 3.5 Flash consumes credits 6x faster than Lite.')}</strong>
+                    </div>
+                  </>
                 ) : (
                   <>
                     <input
@@ -660,10 +682,22 @@ export default function EditProjectModal({
                   <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerModel')}</label>
                 </div>
                 {globalAiProvider === 'cloud' ? (
-                  <div style={{ padding: '8px', background: 'rgba(0, 122, 204, 0.1)', border: '1px solid #007acc', borderRadius: '4px', fontSize: '12px', color: '#007acc', marginTop: '4px' }}>
-                    <strong>{t('editProjectModal.opalaCloudEnabled')}</strong><br />
-                    {t('editProjectModal.cloudWorkerNotice')}
-                  </div>
+                  <>
+                    <select
+                      className="vscode-settings-input"
+                      value={normalizeCloudModel(editingProject.worker_model)}
+                      onChange={e => applySavedModelCredentials(e.target.value, 'worker')}
+                    >
+                      {cloudModelOptions.map(option => (
+                        <option key={`edit-cloud-worker-${option.value}`} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <div style={{ padding: '8px', background: 'rgba(0, 122, 204, 0.1)', border: '1px solid #007acc', borderRadius: '4px', fontSize: '12px', color: '#007acc', marginTop: '4px' }}>
+                      <strong>{t('editProjectModal.opalaCloudEnabled')}</strong><br />
+                      {t('editProjectModal.cloudWorkerNotice')}<br />
+                      <strong>{t('editProjectModal.cloudFlashCostNotice', 'Gemini 3.5 Flash consumes credits 6x faster than Lite.')}</strong>
+                    </div>
+                  </>
                 ) : (
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <input

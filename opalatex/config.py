@@ -257,9 +257,10 @@ def get_agent_response_mode(agent_name: str, default: str = "last") -> str:
 
 def get_agent_model(agent_name: str, default: str | None = None) -> str:
     """Return the model configured for *agent_name* in agents.yaml, or *default*."""
+    from opalatex.cloud_client import DEFAULT_CLOUD_MODEL_ALIAS, is_cloud_model_alias, resolve_cloud_model_alias
+
     override = _get_agent_overrides().get(agent_name, {}).get("model")
-    if override == "OpalaTexCloud":
-        override = "openai/gemini-3.1-flash-lite"
+    override = resolve_cloud_model_alias(override)
     if override:
         return override
     
@@ -267,14 +268,18 @@ def get_agent_model(agent_name: str, default: str | None = None) -> str:
     dyn_default = cfg.get("default", DEFAULT_MODEL)
     model = default if default is not None else dyn_default
 
-    if model == "OpalaTexCloud":
-        model = "openai/gemini-3.1-flash-lite"
+    cloud_alias_selected = is_cloud_model_alias(model)
+    model = resolve_cloud_model_alias(model)
 
     # Apply Cloud Provider Override
     from opalatex.ui_settings import load_ui_settings
     ui_cfg = load_ui_settings()
     if ui_cfg.get("ai_provider") == "cloud":
-        return "openai/gemini-3.1-flash-lite"
+        if cloud_alias_selected:
+            return model
+        from opalatex.cloud_client import normalize_cloud_model_alias
+        cloud_model = normalize_cloud_model_alias(ui_cfg.get("cloud_model"), DEFAULT_CLOUD_MODEL_ALIAS)
+        return resolve_cloud_model_alias(cloud_model)
         
     return model
 
@@ -334,11 +339,12 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
         pass
 
     resolved_model = get_agent_model(agent_name, default=session_model)
-    if ui_cfg.get("ai_provider") == "cloud" or resolved_model == "openai/gemini-3.1-flash-lite":
+    from opalatex.cloud_client import CHAT_PROXY_URL, CLOUD_MODEL_ALIASES
+    cloud_litellm_models = {meta["litellm_model"] for meta in CLOUD_MODEL_ALIASES.values()}
+    if ui_cfg.get("ai_provider") == "cloud" or resolved_model in cloud_litellm_models:
         license_data = _load_license_data()
         license_key = license_data.get("license_key", "")
         # Force OpenAI format to proxy through our custom server
-        from opalatex.cloud_client import CHAT_PROXY_URL
         merged["api_base"] = CHAT_PROXY_URL
         merged["api_key"] = license_key
         # The proxy itself uses google/genai, but litellm expects openai format when using a generic proxy base

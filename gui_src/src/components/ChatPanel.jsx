@@ -555,6 +555,34 @@ export default function ChatPanel({
     window.print();
   };
 
+  const contentWithoutThink = (content = '') => (
+    String(content).replace(/<think>[\s\S]*?(<\/think>|$)/gi, '').trim()
+  );
+
+  const modelSelectorGroupStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    flex: '1 1 260px',
+    minWidth: 0,
+    maxWidth: '100%',
+    flexWrap: 'wrap',
+  };
+  const modelSelectorLabelStyle = {
+    fontSize: '11px',
+    color: 'var(--vscode-descriptionForeground)',
+    flex: '0 0 auto',
+    whiteSpace: 'nowrap',
+  };
+  const modelSelectorInputStyle = {
+    flex: '1 1 150px',
+    minWidth: 0,
+    maxWidth: '100%',
+    padding: '2px 4px',
+    fontSize: '11px',
+    height: '22px',
+  };
+
   // Token battery calculation
   const numCtx = parseInt(activeProject?.model_params?.num_ctx || activeProject?.agent_params?.max_context_tokens || 8192, 10);
   const estimatedTokens = chatMessages.reduce((acc, msg) => acc + Math.ceil((msg.content?.length || 0) / 4), 0);
@@ -796,13 +824,13 @@ export default function ChatPanel({
 
       {/* Model selectors toolbar */}
       <div className="vscode-chat-toolbar" style={{ display: 'flex', gap: '8px', padding: '6px 10px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: '150px' }}>
+        <div style={modelSelectorGroupStyle}>
           <Settings2 size={12} style={{ color: 'var(--vscode-descriptionForeground)' }} />
-          <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('chatPanel.orchestrator', 'Orchestrator')}:</span>
+          <span style={modelSelectorLabelStyle}>{t('chatPanel.orchestrator', 'Orchestrator')}:</span>
           {globalAiProvider === 'cloud' ? (
             <select
               className="vscode-settings-input"
-              style={{ flex: 1, padding: '2px 4px', fontSize: '11px', height: '22px', opacity: 0.8 }}
+              style={{ ...modelSelectorInputStyle, opacity: 0.8 }}
               disabled
             >
               <option>{t('topBar.opalaCloud')}</option>
@@ -810,7 +838,7 @@ export default function ChatPanel({
           ) : (
             <select
               className="vscode-settings-input"
-              style={{ flex: 1, padding: '2px 4px', fontSize: '11px', height: '22px' }}
+              style={modelSelectorInputStyle}
               value={activeProject?.model || ''}
               onChange={(e) => {
                 const val = e.target.value;
@@ -833,13 +861,13 @@ export default function ChatPanel({
             </select>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: '150px' }}>
+        <div style={modelSelectorGroupStyle}>
           <Cpu size={12} style={{ color: 'var(--vscode-descriptionForeground)' }} />
-          <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('chatPanel.worker', 'Worker')}:</span>
+          <span style={modelSelectorLabelStyle}>{t('chatPanel.worker', 'Worker')}:</span>
           {globalAiProvider === 'cloud' ? (
             <select
               className="vscode-settings-input"
-              style={{ flex: 1, padding: '2px 4px', fontSize: '11px', height: '22px', opacity: 0.8 }}
+              style={{ ...modelSelectorInputStyle, opacity: 0.8 }}
               disabled
             >
               <option>{t('topBar.opalaCloud')}</option>
@@ -847,7 +875,7 @@ export default function ChatPanel({
           ) : (
             <select
               className="vscode-settings-input"
-              style={{ flex: 1, padding: '2px 4px', fontSize: '11px', height: '22px' }}
+              style={modelSelectorInputStyle}
               value={activeProject?.worker_model || ''}
               onChange={(e) => {
                 const val = e.target.value;
@@ -1099,9 +1127,10 @@ export default function ChatPanel({
             displayContent.includes('err_connection_failed')
           );
 
-          const isInterrupted = !isUser && displayContent && (
-            displayContent.startsWith('Interrupted:') ||
-            displayContent.startsWith('Interrompido:')
+          const interruptionProbe = contentWithoutThink(msg.content);
+          const isInterrupted = !isUser && interruptionProbe && (
+            interruptionProbe.startsWith('Interrupted:') ||
+            interruptionProbe.startsWith('Interrompido:')
           );
 
           let lastUserMsgBeforeThis = null;

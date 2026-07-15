@@ -27,6 +27,8 @@ export default function SettingsModal({
   setEphemeralParams,
   panelMaxLines,
   setPanelMaxLines,
+  globalCloudModel = 'OpalaTexCloud',
+  onCloudModelChange,
   onAiProviderChange,
   licenseData,
   onReplaceSerial,
@@ -35,8 +37,19 @@ export default function SettingsModal({
   const [selectedLang, setSelectedLang] = React.useState('');
   const [opalatexHome, setOpalaTexHome] = React.useState('');
   const [aiProvider, setAiProvider] = React.useState('local');
+  const [cloudModel, setCloudModel] = React.useState(globalCloudModel);
   const [tectonicInstallMessage, setTectonicInstallMessage] = React.useState('');
   const [pandocInstallMessage, setPandocInstallMessage] = React.useState('');
+
+  const cloudModelOptions = [
+    { value: 'OpalaTexCloud', label: t('editProjectModal.opalaCloudLiteOption', 'Opala Cloud Lite (standard credit use)') },
+    { value: 'OpalaTexCloudGemini35Flash', label: t('editProjectModal.opalaCloudFlashOption', 'Gemini 3.5 Flash (6x credit use)') },
+  ];
+  const normalizeCloudModel = (value) => cloudModelOptions.some(option => option.value === value) ? value : 'OpalaTexCloud';
+
+  React.useEffect(() => {
+    setCloudModel(normalizeCloudModel(globalCloudModel));
+  }, [globalCloudModel]);
 
   React.useEffect(() => {
     fetch('/api/settings/language')
@@ -51,9 +64,25 @@ export default function SettingsModal({
 
     fetch('/api/settings/ai-provider')
       .then(r => r.ok ? r.json() : null)
-      .then(cfg => { if (cfg?.provider !== undefined) setAiProvider(cfg.provider); })
+      .then(cfg => {
+        if (cfg?.provider !== undefined) setAiProvider(cfg.provider);
+        if (cfg?.cloud_model !== undefined) {
+          const normalized = normalizeCloudModel(cfg.cloud_model);
+          setCloudModel(normalized);
+          onCloudModelChange?.(normalized);
+        }
+      })
       .catch(() => { });
   }, []);
+
+  const saveAiProviderSettings = (provider, model) => {
+    const normalizedModel = normalizeCloudModel(model);
+    fetch('/api/settings/ai-provider', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, cloud_model: normalizedModel }),
+    }).catch(() => { });
+  };
 
   const updateEphemeralParam = (key, val) => {
     const updated = { ...ephemeralParams };
@@ -129,11 +158,7 @@ export default function SettingsModal({
                     const val = e.target.value;
                     setAiProvider(val);
                     onAiProviderChange?.(val);
-                    fetch('/api/settings/ai-provider', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ provider: val }),
-                    }).catch(() => { });
+                    saveAiProviderSettings(val, cloudModel);
                   }}
                   className="vscode-settings-input"
                   style={{ width: '100%' }}
@@ -145,6 +170,30 @@ export default function SettingsModal({
                   {t('settingsModal.aiProviderHint')}
                 </span>
               </div>
+
+              {aiProvider === 'cloud' && (
+                <div className="flex flex-col" style={{ gap: '6px' }}>
+                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.cloudModel')}</label>
+                  <select
+                    value={normalizeCloudModel(cloudModel)}
+                    onChange={(e) => {
+                      const val = normalizeCloudModel(e.target.value);
+                      setCloudModel(val);
+                      onCloudModelChange?.(val);
+                      saveAiProviderSettings(aiProvider, val);
+                    }}
+                    className="vscode-settings-input"
+                    style={{ width: '100%' }}
+                  >
+                    {cloudModelOptions.map(option => (
+                      <option key={`settings-cloud-model-${option.value}`} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <span style={{ fontSize: '11px', color: '#888888' }}>
+                    {t('settingsModal.cloudModelHint')}
+                  </span>
+                </div>
+              )}
 
               {/* Theme */}
               <div className="flex flex-col" style={{ gap: '6px' }}>

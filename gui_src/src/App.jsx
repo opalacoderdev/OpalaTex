@@ -38,6 +38,9 @@ import EditModelsModal from './components/modals/EditModelsModal';
 import AddProviderModal from './components/modals/AddProviderModal';
 import LicenseModal from './components/modals/LicenseModal';
 
+const CLOUD_MODEL_IDS = new Set(['OpalaTexCloud', 'OpalaTexCloudGemini35Flash']);
+const normalizeCloudModelId = (model, fallback = 'OpalaTexCloud') => CLOUD_MODEL_IDS.has(model) ? model : (CLOUD_MODEL_IDS.has(fallback) ? fallback : 'OpalaTexCloud');
+
 const normalizeEditorPathKey = (filePath, caseInsensitive = false) => {
   if (!filePath) return '';
   let normalized = String(filePath)
@@ -315,11 +318,15 @@ export default function App() {
   const [editorTabSize, setEditorTabSize] = useState(() => Number(safeGetLocalStorage('editorTabSize', 4)));
   const [editorWordWrap, setEditorWordWrap] = useState(() => safeGetLocalStorage('editorWordWrap', 'on'));
   const [globalAiProvider, setGlobalAiProvider] = useState('local');
+  const [globalCloudModel, setGlobalCloudModel] = useState('OpalaTexCloud');
 
   useEffect(() => {
     fetch('/api/settings/ai-provider')
       .then(r => r.ok ? r.json() : null)
-      .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
+      .then(cfg => {
+        if (cfg?.provider) setGlobalAiProvider(cfg.provider);
+        if (cfg?.cloud_model) setGlobalCloudModel(normalizeCloudModelId(cfg.cloud_model));
+      })
       .catch(() => { });
   }, []);
 
@@ -410,7 +417,10 @@ export default function App() {
     fetchProjects();
     fetch('/api/settings/ai-provider')
       .then(r => r.ok ? r.json() : null)
-      .then(cfg => { if (cfg?.provider) setGlobalAiProvider(cfg.provider); })
+      .then(cfg => {
+        if (cfg?.provider) setGlobalAiProvider(cfg.provider);
+        if (cfg?.cloud_model) setGlobalCloudModel(normalizeCloudModelId(cfg.cloud_model));
+      })
       .catch(() => { });
   };
 
@@ -1560,9 +1570,12 @@ export default function App() {
     const finalProjectPath = `${basePath}${sep}${newProjName}`;
 
     try {
+      const isCloudProvider = globalAiProvider === 'cloud';
+      const projectModel = isCloudProvider ? normalizeCloudModelId(newProjModel, globalCloudModel) : newProjModel;
+      const projectWorkerModel = isCloudProvider ? normalizeCloudModelId(newProjWorkerModel, globalCloudModel) : newProjWorkerModel;
       const res = await fetch('/api/opalatex/create-project', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name: newProjName, project_path: finalProjectPath, description: newProjDesc, model: newProjModel, worker_model: newProjWorkerModel, mode: newProjMode, api_key: newProjApiKey, api_base: newProjApiBase, worker_api_key: newProjWorkerApiKey, worker_api_base: newProjWorkerApiBase, model_params: Object.keys(newProjModelParams).length ? newProjModelParams : undefined, worker_model_params: Object.keys(newProjWorkerModelParams).length ? newProjWorkerModelParams : undefined }),
+        body: JSON.stringify({ project_name: newProjName, project_path: finalProjectPath, description: newProjDesc, model: projectModel, worker_model: projectWorkerModel, mode: newProjMode, api_key: isCloudProvider ? '' : newProjApiKey, api_base: isCloudProvider ? '' : newProjApiBase, worker_api_key: isCloudProvider ? '' : newProjWorkerApiKey, worker_api_base: isCloudProvider ? '' : newProjWorkerApiBase, model_params: Object.keys(newProjModelParams).length ? newProjModelParams : undefined, worker_model_params: Object.keys(newProjWorkerModelParams).length ? newProjWorkerModelParams : undefined }),
       });
       if (res.ok) {
         addLog('info', t('app.projectRegistered', { name: newProjName }));
@@ -3136,6 +3149,7 @@ export default function App() {
       {showNewProjectModal && (
         <NewProjectModal
           globalAiProvider={globalAiProvider}
+          globalCloudModel={globalCloudModel}
           globalModels={globalModels}
           onClose={() => setShowNewProjectModal(false)}
           onSubmit={handleCreateProject}
@@ -3184,6 +3198,7 @@ export default function App() {
       {editingProject && (
         <EditProjectModal
           globalAiProvider={globalAiProvider}
+          globalCloudModel={globalCloudModel}
           globalModels={globalModels}
           editingProject={editingProject}
           setEditingProject={setEditingProject}
@@ -3215,6 +3230,8 @@ export default function App() {
 
       {isSettingsOpen && (
         <SettingsModal
+          globalCloudModel={globalCloudModel}
+          onCloudModelChange={(val) => setGlobalCloudModel(normalizeCloudModelId(val))}
           onAiProviderChange={(val) => setGlobalAiProvider(val)}
           onClose={() => setIsSettingsOpen(false)}
           settingsTab={settingsTab}

@@ -110,9 +110,9 @@ When the user selects **OpalaTex Cloud** as their AI Provider:
    - Sets `custom_llm_provider = "openai"` (to trick LiteLLM into formatting requests as standard OpenAI payloads).
 2. **Account & Balance Verification**: The server extracts the registration key from the `Bearer` token header, checks `opala.db`, and verifies that `token_balance > 0`. Expiration/trial status is not used.
 3. **Format Mapping**: The server translates the OpenAI schema payload (`messages` format) into the Google GenAI Contents format (handling `systemInstruction`, nested `contents` with user/model roles, and parsing tool definitions/calls).
-4. **Google Gemini Call**: The server fires the converted payload to the Gemini API using the `@google/genai` SDK (typically using `gemini-3.1-flash-lite`).
+4. **Google Gemini Call**: The server fires the converted payload to the Gemini API using the `@google/genai` SDK. Opala Cloud only allows server-whitelisted models: `gemini-3.1-flash-lite` by default, or `gemini-3.5-flash` when selected by the user.
 5. **Streaming / Response Processing**: The response is piped back to the client as standard OpenAI-compatible chunks (`text/event-stream`).
-6. **Token Deduction**: The server calculates the consumed tokens (using Gemini's `usageMetadata` or input/output text estimation) and updates `token_balance` in `opala.db`.
+6. **Token Deduction**: The server calculates the consumed tokens (using Gemini's `usageMetadata` or input/output text estimation), applies the server-side credit multiplier for the selected model (`gemini-3.5-flash` bills 6x the lite model), and updates `token_balance` in `opala.db`.
 
 ```mermaid
 sequenceDiagram

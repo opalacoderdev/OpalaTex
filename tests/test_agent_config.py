@@ -79,6 +79,7 @@ def test_opalatex_cloud_model_mapping_and_overrides():
     # 1. Test model name mapping in get_agent_model
     assert get_agent_model("memgpt", default="OpalaTexCloud") == "openai/gemini-3.1-flash-lite"
     assert get_agent_model("worker", default="OpalaTexCloud") == "openai/gemini-3.1-flash-lite"
+    assert get_agent_model("memgpt", default="OpalaTexCloudGemini35Flash") == "openai/gemini-3.5-flash"
 
     # 2. Test get_agent_llm_kwargs overrides for OpalaTexCloud model
     class FakeSession:
@@ -95,6 +96,32 @@ def test_opalatex_cloud_model_mapping_and_overrides():
     assert kwargs["api_key"] == "OPALA-TEST-KEY"
     assert kwargs["custom_llm_provider"] == "openai"
     assert kwargs["drop_params"] is True
+
+    class FlashSession:
+        model = "OpalaTexCloudGemini35Flash"
+        model_params = {}
+        project_path = "/fake/path"
+
+    with patch("opalatex.licensing._load_license_data", return_value={"license_key": "OPALA-TEST-KEY"}):
+        with patch("opalatex.tools._PROJECT_SESSION", FlashSession()):
+            with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+                flash_kwargs = get_agent_llm_kwargs("memgpt")
+
+    assert flash_kwargs["api_base"] == "https://opalacoder.com/api/chat-proxy"
+    assert flash_kwargs["api_key"] == "OPALA-TEST-KEY"
+    assert flash_kwargs["custom_llm_provider"] == "openai"
+
+
+def test_cloud_provider_uses_global_cloud_model_setting():
+    """The Settings-level Opala Cloud model is the fallback for non-cloud project models."""
+    from opalatex.config import get_agent_model
+    from unittest.mock import patch
+
+    with patch(
+        "opalatex.ui_settings.load_ui_settings",
+        return_value={"ai_provider": "cloud", "cloud_model": "OpalaTexCloudGemini35Flash"},
+    ):
+        assert get_agent_model("memgpt", default="ollama/gemma4:12b") == "openai/gemini-3.5-flash"
 
 
 def test_internal_attachment_flags_are_not_sent_to_litellm():

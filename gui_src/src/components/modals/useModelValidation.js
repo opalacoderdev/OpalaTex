@@ -19,7 +19,7 @@ export function useModelValidation(modelName) {
 
     const validate = async () => {
       // If it's a known cloud provider, return green
-      if (modelName.startsWith('gemini/') || modelName.startsWith('openai/') || modelName.startsWith('anthropic/')) {
+      if (modelName === 'OpalaTexCloud' || modelName.startsWith('gemini/') || modelName.startsWith('openai/') || modelName.startsWith('anthropic/')) {
         setModelStatus('green');
         return;
       }
