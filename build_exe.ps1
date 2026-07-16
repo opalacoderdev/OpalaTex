@@ -54,8 +54,9 @@ $winptyAgentPath = python -c "import winpty, os; print(os.path.join(os.path.dirn
 # A sintaxe de --add-data no Windows usa ponto-e-virgula (;)
 pyinstaller --name "OpalaTex" `
             --windowed `
-            --icon="icon.png" `
+            --icon="AppIcons/OpalaTex.ico" `
             --add-data="opalatex/gui;opalatex/gui" `
+            --add-data="opalatex/icon.png;opalatex" `
             --add-data="opalatex/assetstore;opalatex/assetstore" `
             --add-data="opalatex/templates;opalatex/templates" `
             --add-data="bin;bin" `

@@ -82,7 +82,7 @@ echo -e "\n[4/4] Empacotando com PyInstaller..."
 # A sintaxe de --add-data no Linux/macOS usa dois pontos (:)
 pyinstaller --name "OpalaTex" \
             --windowed \
-            --icon="icon.png" \
+            --icon="AppIcons/OpalaTex.ico" \
             --add-data="opalatex/gui:opalatex/gui" \
             --add-data="opalatex/assetstore:opalatex/assetstore" \
             --add-data="opalatex/templates:opalatex/templates" \
