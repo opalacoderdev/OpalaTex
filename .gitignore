@@ -89,6 +89,8 @@ MANIFEST
 *.cer
 *.crt
 *.token
+snapcraft-login
+snapcraft-login*
 license.dat
 id_rsa
 id_rsa.*

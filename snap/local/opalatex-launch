@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+export PYTHONUTF8="${PYTHONUTF8:-1}"
+export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
+export PYWEBVIEW_GUI="${PYWEBVIEW_GUI:-qt}"
+export QTWEBENGINE_DISABLE_SANDBOX="${QTWEBENGINE_DISABLE_SANDBOX:-1}"
+export PATH="$SNAP/bin:$SNAP/usr/bin:$PATH"
+
+exec "$SNAP/bin/opalatex" --gui "$@"
