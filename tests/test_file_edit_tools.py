@@ -1,5 +1,9 @@
 from types import SimpleNamespace
 import asyncio
+import shutil
+import subprocess
+
+import pytest
 
 
 def test_write_content_pos_inserts_before_line(tmp_path):
@@ -43,6 +47,19 @@ def test_replace_content_range_deletes_lines_with_empty_content(tmp_path):
     assert target.read_text(encoding="utf-8") == "keep\nkeep too\n"
 
 
+def test_mutating_tool_returns_blocked_result_in_plan_mode(tmp_path):
+    from opalatex.tools import set_project_context, write_file
+
+    target = tmp_path / "main.tex"
+    set_project_context(SimpleNamespace(project_path=str(tmp_path), mode="plan"))
+
+    raw = getattr(write_file, "_func", None) or write_file
+    result = asyncio.run(raw("main.tex", "hello\n"))
+
+    assert result.startswith("Execution blocked: In 'plan' mode")
+    assert not target.exists()
+
+
 def test_read_file_falls_back_to_cp1252(tmp_path):
     from opalatex.tools import read_file, set_project_context
 
@@ -67,3 +84,62 @@ def test_read_content_pos_falls_back_to_cp1252(tmp_path):
     result = asyncio.run(raw("latex_output.txt", 2, 3))
 
     assert result == "Introdução\nConclusão\n"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_mutating_tool_creates_shadow_git_checkpoint(tmp_path):
+    from opalatex.tools import set_project_context, write_file
+
+    set_project_context(SimpleNamespace(project_path=str(tmp_path), mode="auto"))
+
+    raw = getattr(write_file, "_func", None) or write_file
+    asyncio.run(raw("main.tex", "hello\n"))
+
+    log = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "log",
+            "--oneline",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    assert "Agent tool checkpoint: write_file main.tex" in log
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_mutating_tool_keeps_preexisting_changes_in_separate_checkpoint(tmp_path):
+    from opalatex.tools import set_project_context, write_file
+    from opalatex.vcs import auto_checkpoint_if_changed
+
+    set_project_context(SimpleNamespace(project_path=str(tmp_path), mode="auto"))
+    auto_checkpoint_if_changed("baseline", str(tmp_path))
+    (tmp_path / "user.tex").write_text("user edit\n", encoding="utf-8")
+
+    raw = getattr(write_file, "_func", None) or write_file
+    asyncio.run(raw("agent.tex", "agent edit\n"))
+
+    log = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "log",
+            "--format=%s",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+
+    assert "Agent tool checkpoint: write_file agent.tex" in log
+    assert "Pre-tool checkpoint: before write_file agent.tex" in log
+    assert log.index("Agent tool checkpoint: write_file agent.tex") < log.index(
+        "Pre-tool checkpoint: before write_file agent.tex"
+    )

@@ -4,6 +4,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import threading
 from abc import ABC, abstractmethod
 from typing import List, Callable
 from agenticblocks.core.function_block import as_tool
@@ -17,8 +18,21 @@ SHADOW_GITIGNORE_PATTERNS = [
     "node_modules/",
     "__pycache__/",
     ".venv/",
+    ".opalatex/.shadowgit/",
+    ".opalatex/_editor_state.json",
     "opalatex_partial_*",
+    "*.aux",
+    "*.bbl",
+    "*.blg",
+    "*.fdb_latexmk",
+    "*.fls",
+    "*.log",
+    "*.out",
+    "*.synctex.gz",
+    "*.toc",
 ]
+
+_SHADOW_GIT_LOCK = threading.RLock()
 
 # ─── Base Strategy ────────────────────────────────────────────────────────────
 
@@ -107,6 +121,13 @@ def _ensure_shadow_gitignore(gitignore_path: str):
             f.write(pattern + "\n")
 
 
+def _untrack_shadow_internal_files(project_path: str):
+    _run_shadow_git(
+        ["rm", "--cached", "-r", "--ignore-unmatch", ".opalatex/.shadowgit", ".opalatex/_editor_state.json"],
+        project_path,
+    )
+
+
 def _init_shadow_git(project_path: str):
     """Initialize the shadow git repository if it doesn't exist."""
     shadow_base = os.path.join(project_path, ".opalatex")
@@ -135,6 +156,16 @@ def _init_shadow_git(project_path: str):
             capture_output=True,
             cwd=project_path,
         )
+        subprocess.run(
+            ["git", f"--git-dir={shadow_dir}", f"--work-tree={project_path}", "config", "user.email", "opalatex-agent@local"],
+            capture_output=True,
+            cwd=project_path,
+        )
+        subprocess.run(
+            ["git", f"--git-dir={shadow_dir}", f"--work-tree={project_path}", "config", "user.name", "OpalaTex Agent"],
+            capture_output=True,
+            cwd=project_path,
+        )
         
         # Initial commit
         _run_shadow_git("add .", project_path)
@@ -145,6 +176,17 @@ def _init_shadow_git(project_path: str):
         capture_output=True,
         cwd=project_path,
     )
+    subprocess.run(
+        ["git", f"--git-dir={shadow_dir}", f"--work-tree={project_path}", "config", "user.email", "opalatex-agent@local"],
+        capture_output=True,
+        cwd=project_path,
+    )
+    subprocess.run(
+        ["git", f"--git-dir={shadow_dir}", f"--work-tree={project_path}", "config", "user.name", "OpalaTex Agent"],
+        capture_output=True,
+        cwd=project_path,
+    )
+    _untrack_shadow_internal_files(project_path)
 
 def _auto_checkpoint(message: str, project_path: str | None = None):
     """Automatically create a checkpoint in the shadow git."""
@@ -153,7 +195,78 @@ def _auto_checkpoint(message: str, project_path: str | None = None):
     return res.returncode == 0
 
 
+def auto_checkpoint_if_changed(message: str, project_path: str | None = None) -> bool:
+    """Create a shadow-git checkpoint only when the work tree has changes."""
+    if project_path is None:
+        project_path = get_project_path()
+    project_path = os.path.abspath(project_path)
+    if not project_path or not os.path.isdir(project_path):
+        return False
+
+    with _SHADOW_GIT_LOCK:
+        try:
+            _init_shadow_git(project_path)
+            status = _run_shadow_git("status --porcelain", project_path)
+            if status.returncode != 0 or not status.stdout.strip():
+                return False
+            _run_shadow_git("add .", project_path)
+            staged_status = _run_shadow_git("status --porcelain", project_path)
+            if staged_status.returncode != 0 or not staged_status.stdout.strip():
+                return False
+            res = _run_shadow_git(["commit", "-m", message], project_path)
+            return res.returncode == 0
+        except Exception:
+            return False
+
+
 # ─── Agent Git Tools ──────────────────────────────────────────────────────────
+
+def begin_agent_turn_checkpoint(project_path: str | None = None) -> str | None:
+    """Create a deterministic start checkpoint for an agent turn."""
+    if project_path is None:
+        project_path = get_project_path()
+    project_path = os.path.abspath(project_path)
+    if not project_path or not os.path.isdir(project_path):
+        return None
+
+    with _SHADOW_GIT_LOCK:
+        try:
+            _init_shadow_git(project_path)
+            _run_shadow_git("add .", project_path)
+            res = _run_shadow_git(
+                ["commit", "--allow-empty", "-m", "Agent turn start checkpoint"],
+                project_path,
+            )
+            if res.returncode != 0:
+                return None
+            head = _run_shadow_git("rev-parse HEAD", project_path)
+            if head.returncode != 0:
+                return None
+            return head.stdout.strip()
+        except Exception:
+            return None
+
+
+def finalize_agent_turn_checkpoint(project_path: str | None = None) -> bool:
+    """Create a deterministic end checkpoint for an agent turn."""
+    if project_path is None:
+        project_path = get_project_path()
+    project_path = os.path.abspath(project_path)
+    if not project_path or not os.path.isdir(project_path):
+        return False
+
+    with _SHADOW_GIT_LOCK:
+        try:
+            _init_shadow_git(project_path)
+            _run_shadow_git("add .", project_path)
+            res = _run_shadow_git(
+                ["commit", "--allow-empty", "-m", "Agent turn end checkpoint"],
+                project_path,
+            )
+            return res.returncode == 0
+        except Exception:
+            return False
+
 
 @as_tool(name="git_status", description="Get the status of the internal version control. Shows modified/added files.")
 def git_status() -> str:

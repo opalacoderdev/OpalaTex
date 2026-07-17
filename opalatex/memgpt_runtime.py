@@ -230,6 +230,14 @@ def build_run_skill_tool(
         if _project_ref is not None:
             from .tools import set_project_context as _spc
             _spc(_project_ref, _store_ref)
+
+        if getattr(_project_ref, "mode", "auto") == "plan":
+            return (
+                "[BLOCKED] run_skill is not available while the project is in plan mode. "
+                "Do not delegate to a worker or edit files yet. Gather any remaining context "
+                "with safe read-only tools, then call create_plan with the proposed plan. "
+                "Only after the user approves the plan may you execute it."
+            )
             
         # import json
         # print(json.dumps({
@@ -683,6 +691,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
             "\n🚨 **SYSTEM ALERT: You are currently in 'plan' mode.**\n"
             "INSTRUCTIONS: Your goal is to gather context and propose a plan. "
             "You MUST NOT execute modifying tools (like editing files or running terminal commands). "
+            "You MUST NOT call run_skill in plan mode because workers can modify files. "
             "Once you have enough context, you MUST use the `create_plan` tool to present your plan for user approval.\n"
         )
     elif project_mode == "edit":

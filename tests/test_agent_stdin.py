@@ -4,6 +4,8 @@ import json
 import io
 import sys
 import asyncio
+import shutil
+import subprocess
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 from types import SimpleNamespace
@@ -518,6 +520,149 @@ async def test_handle_run_persists_auxiliary_thought_events(monkeypatch, tmp_pat
     assert agent_responses == ["The file was saved."]
     persisted_responses = [payload["persisted_response"] for payload in events if payload["event"] == "agent_response"]
     assert persisted_responses == assistant_messages
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.asyncio
+async def test_handle_run_checkpoints_direct_file_writes(monkeypatch, tmp_path):
+    import opalatex.agent_stdin as stdin_mod
+
+    events = []
+    saved_messages = []
+
+    class FakeProject:
+        name = "proj"
+        mode = "auto"
+        project_path = str(tmp_path)
+        model = "fake/model"
+        current_chat_id = "main"
+
+    class FakeStore:
+        def append_message(self, _project, role, content, attachments=None):
+            saved_messages.append((role, content))
+
+        def save(self, _project):
+            pass
+
+    class FakeMemGPT:
+        model = "fake/model"
+        model_kargs = {}
+        internal_history = []
+        _current_worker_messages = []
+        _last_worker_summary = ""
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, _agent_input):
+            (tmp_path / "script_created.tex").write_text("created outside tools\n", encoding="utf-8")
+            return SimpleNamespace(response="Created the file.")
+
+    monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(stdin_mod, "current_memgpt", FakeMemGPT())
+    monkeypatch.setattr(stdin_mod, "current_project", FakeProject())
+    monkeypatch.setattr(stdin_mod, "current_store", FakeStore())
+
+    await stdin_mod.handle_run({
+        "agent": "chat_orchestrator",
+        "prompt": "create file through python",
+    })
+
+    log = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "log",
+            "--format=%s",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+
+    status = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "status",
+            "--porcelain",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    assert "Agent turn start checkpoint" in log
+    assert "Agent turn end checkpoint" in log
+    assert status == ""
+    assert (tmp_path / "script_created.tex").read_text(encoding="utf-8") == "created outside tools\n"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.asyncio
+async def test_handle_run_creates_end_checkpoint_without_file_changes(monkeypatch, tmp_path):
+    import opalatex.agent_stdin as stdin_mod
+
+    events = []
+    saved_messages = []
+
+    class FakeProject:
+        name = "proj"
+        mode = "auto"
+        project_path = str(tmp_path)
+        model = "fake/model"
+        current_chat_id = "main"
+
+    class FakeStore:
+        def append_message(self, _project, role, content, attachments=None):
+            saved_messages.append((role, content))
+
+        def save(self, _project):
+            pass
+
+    class FakeMemGPT:
+        model = "fake/model"
+        model_kargs = {}
+        internal_history = []
+        _current_worker_messages = []
+        _last_worker_summary = ""
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, _agent_input):
+            return SimpleNamespace(response="No file changes were needed.")
+
+    monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(stdin_mod, "current_memgpt", FakeMemGPT())
+    monkeypatch.setattr(stdin_mod, "current_project", FakeProject())
+    monkeypatch.setattr(stdin_mod, "current_store", FakeStore())
+
+    await stdin_mod.handle_run({
+        "agent": "chat_orchestrator",
+        "prompt": "explain only",
+    })
+
+    log = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "log",
+            "--format=%s",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+
+    assert "Agent turn start checkpoint" in log
+    assert "Agent turn end checkpoint" in log
 
 
 @pytest.mark.asyncio

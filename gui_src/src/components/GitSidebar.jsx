@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, ChevronDown, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 function buildStatusMeta(t) {
@@ -13,13 +13,19 @@ function buildStatusMeta(t) {
   };
 }
 
-function DiffViewer({ diff }) {
+function DiffViewer({ diff, wrapLines = false }) {
   const { t } = useTranslation();
   if (!diff || !diff.trim()) return (
     <div style={{ padding: '8px', fontSize: '11px', color: '#808080', fontStyle: 'italic' }}>{t('gitSidebar.noDiff')}</div>
   );
+  const lineStyle = {
+    lineHeight: '1.5',
+    whiteSpace: wrapLines ? 'pre-wrap' : 'pre',
+    overflowWrap: wrapLines ? 'anywhere' : 'normal',
+    wordBreak: wrapLines ? 'break-word' : 'normal',
+  };
   return (
-    <div style={{ fontFamily: 'monospace', fontSize: '11px', overflowX: 'auto', background: 'var(--vscode-input-bg)', borderRadius: '4px', padding: '6px', border: '1px solid var(--vscode-border)' }}>
+    <div style={{ fontFamily: 'monospace', fontSize: '11px', overflowX: wrapLines ? 'hidden' : 'auto', background: 'var(--vscode-input-bg)', borderRadius: '4px', padding: '6px', border: '1px solid var(--vscode-border)' }}>
       {diff.split('\n').map((line, i) => {
         let bg = 'transparent';
         let color = '#cccccc';
@@ -28,7 +34,7 @@ function DiffViewer({ diff }) {
         else if (line.startsWith('@@')) { color = '#9cdcfe'; }
         else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) { color = '#808080'; }
         return (
-          <div key={i} style={{ background: bg, color, whiteSpace: 'pre', lineHeight: '1.5' }}>{line || ' '}</div>
+          <div key={i} style={{ ...lineStyle, background: bg, color }}>{line || ' '}</div>
         );
       })}
     </div>
@@ -111,54 +117,64 @@ export default function GitSidebar({
   gitRootPath,
   onPickGitRoot,
   onClearGitRoot,
+  reviewMode = false,
+  onAfterRestore,
 }) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('changes'); // 'changes' | 'log'
   const [expandedDiffs, setExpandedDiffs] = useState({});
   const [diffs, setDiffs] = useState({});
   const [loadingDiffs, setLoadingDiffs] = useState({});
+  const [expandedCommitDiffs, setExpandedCommitDiffs] = useState({});
+  const [commitDiffs, setCommitDiffs] = useState({});
+  const [loadingCommitDiffs, setLoadingCommitDiffs] = useState({});
+  const [restoringCommit, setRestoringCommit] = useState('');
   const [commits, setCommits] = useState([]);
   const [loadingLog, setLoadingLog] = useState(false);
 
   const projectPath = activeProject?.project_path;
+  const effectiveUseShadowGit = reviewMode ? true : useShadowGit;
   const effectiveGitRoot = gitRootPath || projectPath;
   const gitQuery = useCallback((extra = {}) => {
     const params = new URLSearchParams({
       projectPath,
-      shadow: String(useShadowGit),
+      shadow: String(effectiveUseShadowGit),
       ...extra,
     });
-    if (!useShadowGit && gitRootPath) params.set('gitRootPath', gitRootPath);
+    if (!effectiveUseShadowGit && gitRootPath) params.set('gitRootPath', gitRootPath);
     return params.toString();
-  }, [projectPath, useShadowGit, gitRootPath]);
+  }, [projectPath, effectiveUseShadowGit, gitRootPath]);
   const gitBody = useCallback((extra = {}) => ({
     projectPath,
-    shadow: useShadowGit,
-    ...(!useShadowGit && gitRootPath ? { gitRootPath } : {}),
+    shadow: effectiveUseShadowGit,
+    ...(!effectiveUseShadowGit && gitRootPath ? { gitRootPath } : {}),
     ...extra,
-  }), [projectPath, useShadowGit, gitRootPath]);
+  }), [projectPath, effectiveUseShadowGit, gitRootPath]);
 
   const fetchLog = useCallback(async () => {
     if (!projectPath) return;
     setLoadingLog(true);
     try {
-      const res = await fetch(`/api/git/log?${gitQuery({ limit: '30' })}`);
+      const res = await fetch(`/api/git/log?${gitQuery({ limit: reviewMode ? '80' : '30' })}`);
       if (res.ok) { const d = await res.json(); setCommits(d.commits || []); }
     } catch { /* ignore */ }
     finally { setLoadingLog(false); }
-  }, [projectPath, gitQuery]);
+  }, [projectPath, gitQuery, reviewMode]);
 
   useEffect(() => {
-    if (activeTab === 'log' && projectPath) fetchLog();
-  }, [activeTab, projectPath, fetchLog, useShadowGit, gitRootPath]);
+    if ((reviewMode || activeTab === 'log') && projectPath) fetchLog();
+  }, [activeTab, projectPath, fetchLog, effectiveUseShadowGit, gitRootPath, reviewMode]);
 
   useEffect(() => {
+    if (reviewMode) return;
     fetchGitStatus();
-  }, [useShadowGit, gitRootPath]);
+  }, [effectiveUseShadowGit, gitRootPath, reviewMode]);
 
   useEffect(() => {
     setExpandedDiffs({});
     setDiffs({});
+    setExpandedCommitDiffs({});
+    setCommitDiffs({});
   }, [projectPath, gitRootPath]);
 
   const toggleDiff = async (filePath) => {
@@ -207,6 +223,47 @@ export default function GitSidebar({
     if (!hadFailure) fetchGitStatus();
   };
 
+  const toggleCommitDiff = async (commitHash) => {
+    const next = !expandedCommitDiffs[commitHash];
+    setExpandedCommitDiffs(prev => ({ ...prev, [commitHash]: next }));
+    if (next && !commitDiffs[commitHash]) {
+      setLoadingCommitDiffs(prev => ({ ...prev, [commitHash]: true }));
+      try {
+        const res = await fetch(`/api/git/diff?${gitQuery({ commit: commitHash })}`);
+        if (res.ok) {
+          const d = await res.json();
+          setCommitDiffs(prev => ({ ...prev, [commitHash]: d.diff || '' }));
+        }
+      } catch { /* ignore */ }
+      finally { setLoadingCommitDiffs(prev => ({ ...prev, [commitHash]: false })); }
+    }
+  };
+
+  const restoreCommit = async (commit) => {
+    if (!projectPath || restoringCommit) return;
+    const confirmed = window.confirm(t('gitSidebar.restoreConfirm', { short: commit.short, message: commit.message }));
+    if (!confirmed) return;
+    setRestoringCommit(commit.hash);
+    try {
+      const res = await fetch('/api/git/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(gitBody({ commit: commit.hash })),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || t('gitSidebar.restoreFailed'));
+      }
+      await fetchLog();
+      fetchGitStatus();
+      onAfterRestore?.(commit);
+    } catch (err) {
+      window.alert(t('gitSidebar.restoreError', { error: err.message }));
+    } finally {
+      setRestoringCommit('');
+    }
+  };
+
   const hasUnstagedChanges = gitChanges.some(f => !f.staged);
 
   const tabStyle = (tab) => ({
@@ -217,11 +274,72 @@ export default function GitSidebar({
   });
 
   if (!activeProject) return (
-    <div className="vscode-sidebar-content" style={{ padding: '12px' }}>
-      <div className="vscode-sidebar-title">{t('gitSidebar.header')}</div>
+    <div className="vscode-sidebar-content" style={{ padding: reviewMode ? '20px' : '12px' }}>
+      <div className="vscode-sidebar-title">{reviewMode ? t('gitSidebar.reviewHeader') : t('gitSidebar.header')}</div>
       <div style={{ fontSize: '12px', color: '#808080', fontStyle: 'italic', marginTop: '12px' }}>
         {t('gitSidebar.selectProjectForVcs')}
       </div>
+    </div>
+  );
+
+  const renderHistory = () => (
+    <div style={{ flex: 1, overflowY: 'auto', padding: reviewMode ? '16px 20px 24px' : '12px' }}>
+      {loadingLog ? (
+        <div style={{ fontSize: '12px', color: '#808080' }}>{t('gitSidebar.loadingHistory')}</div>
+      ) : commits.length === 0 ? (
+        <div style={{ fontSize: '12px', color: '#808080', fontStyle: 'italic' }}>{t('gitSidebar.noCommits')}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: reviewMode ? '8px' : '2px' }}>
+          {commits.map((c, i) => (
+            <div key={c.hash || i} className={reviewMode ? 'git-review-row' : 'git-commit-row'}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <div style={{ minWidth: reviewMode ? '130px' : 'auto', color: 'var(--vscode-descriptionForeground)', fontSize: reviewMode ? '12px' : '11px' }}>
+                  <div style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{c.short}</div>
+                  <div>{c.date}</div>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: 'var(--vscode-text-fg)', fontWeight: reviewMode ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: reviewMode ? 'normal' : 'nowrap' }} title={c.message}>
+                    {c.message}
+                  </div>
+                  <div style={{ color: 'var(--vscode-descriptionForeground)', marginTop: '3px' }}>{c.author}</div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    className={reviewMode ? 'vscode-button secondary' : 'git-icon-button'}
+                    title={t('gitSidebar.showCommitDiff')}
+                    onClick={() => toggleCommitDiff(c.hash)}
+                    style={reviewMode ? { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' } : undefined}
+                  >
+                    <Eye size={12} /> {reviewMode && t('gitSidebar.diff')}
+                  </button>
+                  {(reviewMode || effectiveUseShadowGit) && (
+                    <button
+                      type="button"
+                      className={reviewMode ? 'vscode-button' : 'git-icon-button'}
+                      title={t('gitSidebar.restoreCheckpoint')}
+                      onClick={() => restoreCommit(c)}
+                      disabled={!!restoringCommit}
+                      style={reviewMode ? { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' } : undefined}
+                    >
+                      <RotateCcw size={12} /> {reviewMode && (restoringCommit === c.hash ? t('gitSidebar.restoring') : t('gitSidebar.restore'))}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {expandedCommitDiffs[c.hash] && (
+                <div style={{ marginTop: '8px', paddingLeft: reviewMode ? '0' : '12px' }}>
+                  {loadingCommitDiffs[c.hash] ? (
+                    <div style={{ fontSize: '11px', color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
+                  ) : (
+                    <DiffViewer diff={commitDiffs[c.hash]} wrapLines={reviewMode} />
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -229,9 +347,9 @@ export default function GitSidebar({
     <div className="vscode-sidebar-content" style={{ padding: '0', display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
       <div style={{ padding: '8px 12px 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div className="vscode-sidebar-title" style={{ margin: 0 }}>{t('gitSidebar.header')}</div>
+        <div className="vscode-sidebar-title" style={{ margin: 0 }}>{reviewMode ? t('gitSidebar.reviewHeader') : t('gitSidebar.header')}</div>
         <button
-          onClick={() => { fetchGitStatus(); if (activeTab === 'log') fetchLog(); }}
+          onClick={() => { if (!reviewMode) fetchGitStatus(); if (reviewMode || activeTab === 'log') fetchLog(); }}
           title={t('gitSidebar.refresh')}
           className="git-icon-button"
         >
@@ -239,6 +357,7 @@ export default function GitSidebar({
         </button>
       </div>
 
+      {!reviewMode && (
       <div style={{ padding: '0 12px 8px' }}>
         <select
           value={useShadowGit ? "shadow" : "user"}
@@ -281,8 +400,16 @@ export default function GitSidebar({
           </div>
         )}
       </div>
+      )}
+
+      {reviewMode && (
+        <div style={{ padding: '0 20px 10px', color: 'var(--vscode-descriptionForeground)', fontSize: '12px' }}>
+          {t('gitSidebar.reviewSubtitle')}
+        </div>
+      )}
 
       {/* Tabs */}
+      {!reviewMode && (
       <div style={{ display: 'flex', borderBottom: '1px solid var(--vscode-border)', padding: '0 12px' }}>
         <button style={tabStyle('changes')} onClick={() => setActiveTab('changes')}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}>
@@ -295,9 +422,10 @@ export default function GitSidebar({
           </span>
         </button>
       </div>
+      )}
 
       {/* Tab: Changes */}
-      {activeTab === 'changes' && (
+      {!reviewMode && activeTab === 'changes' && (
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '12px', gap: '12px' }}>
           {/* Commit form */}
           <form onSubmit={handleGitCommit} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -362,32 +490,7 @@ export default function GitSidebar({
       )}
 
       {/* Tab: Log */}
-      {activeTab === 'log' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-          {loadingLog ? (
-            <div style={{ fontSize: '12px', color: '#808080' }}>{t('gitSidebar.loadingHistory')}</div>
-          ) : commits.length === 0 ? (
-            <div style={{ fontSize: '12px', color: '#808080', fontStyle: 'italic' }}>{t('gitSidebar.noCommits')}</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-              {commits.map((c, i) => (
-                <div key={i} className="git-commit-row">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                    <span style={{ fontFamily: 'monospace', color: '#9cdcfe', flexShrink: 0 }}>{c.short}</span>
-                    <span style={{ color: 'var(--vscode-text-fg)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.message}>
-                      {c.message}
-                    </span>
-                  </div>
-                  <div style={{ color: 'var(--vscode-descriptionForeground)', display: 'flex', gap: '8px' }}>
-                    <span>{c.author}</span>
-                    <span>{c.date}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {(reviewMode || activeTab === 'log') && renderHistory()}
     </div>
   );
 }

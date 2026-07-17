@@ -1135,6 +1135,20 @@ export default function App() {
     } catch (err) { addLog('error', t('app.discardChangesError', { error: err.message })); }
   };
 
+  const handleCheckpointRestored = async (commit) => {
+    diskFileContentsRef.current = {};
+    setOpenFiles([]);
+    setSelectedFile(null);
+    setSelectedNodes(new Set());
+    setFileContent('');
+    setFileContents({});
+    setOriginalFileContents({});
+    setJumpToLine(null);
+    await fetchFiles();
+    await fetchGitStatus();
+    addLog('info', t('app.checkpointRestored', { short: commit.short }));
+  };
+
   const handleInstallOptionalDeps = async () => {
     if (isInstallingDeps) return;
     setIsInstallingDeps(true);
@@ -1204,33 +1218,6 @@ export default function App() {
         prev[cachedFilePath] === undefined ? prev : { ...prev, [filePath]: prev[cachedFilePath] }
       ));
     }
-    // Auto-switch to edit mode (IDE mode) when a file is opened
-    if (activeProject.mode !== 'edit') {
-      const updatedProject = { ...activeProject, mode: 'edit' };
-      setActiveProject(updatedProject);
-      fetch('/api/opalatex/update-project', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project_name: activeProject.name,
-          display_name: activeProject.project_name,
-          project_path: activeProject.project_path,
-          model: activeProject.model,
-          worker_model: activeProject.worker_model,
-          mode: 'edit',
-          description: activeProject.description,
-          model_params: activeProject.model_params,
-          worker_model_params: activeProject.worker_model_params,
-          api_key: activeProject.api_key,
-          api_base: activeProject.api_base,
-          worker_api_key: activeProject.worker_api_key,
-          worker_api_base: activeProject.worker_api_base,
-          use_shared_memory: activeProject.use_shared_memory,
-          chat_id: activeChatId
-        })
-      }).catch(err => console.error("Failed to auto-switch to edit mode:", err));
-    }
-
     if (fileContents[cachedFilePath] !== undefined) {
       setFileContent(fileContents[cachedFilePath]);
       setSelectedFile(filePath);
@@ -2982,6 +2969,28 @@ export default function App() {
 
         {/* Center — Editor + Bottom Panel */}
         <main className="vscode-editor-panel" style={{ flex: layoutMode === 'chat' ? 0 : 1, display: layoutMode === 'chat' ? 'none' : 'flex' }}>
+          {!isBottomMaximized && layoutMode === 'review' && (
+            <GitSidebar
+              activeProject={activeProject}
+              gitChanges={gitChanges}
+              fetchGitStatus={fetchGitStatus}
+              commitMessage={commitMessage}
+              setCommitMessage={setCommitMessage}
+              isCommitting={isCommitting}
+              handleGitCommit={handleGitCommit}
+              onStageFile={handleStageFile}
+              onUnstageFile={handleUnstageFile}
+              onDiscardFile={handleDiscardFile}
+              useShadowGit={true}
+              setUseShadowGit={() => {}}
+              gitRootPath=""
+              onPickGitRoot={() => {}}
+              onClearGitRoot={() => {}}
+              reviewMode
+              onAfterRestore={handleCheckpointRestored}
+            />
+          )}
+
           {!isBottomMaximized && layoutMode === 'ide' && (
             <EditorPanel
               selectedFile={selectedFile}
@@ -3034,7 +3043,7 @@ export default function App() {
             />
           )}
 
-          <div style={{ display: isEditorMaximized ? 'none' : 'contents' }}>
+          <div style={{ display: isEditorMaximized || layoutMode !== 'ide' ? 'none' : 'contents' }}>
             <BottomPanel
               activeBottomTab={activeBottomTab}
               setActiveBottomTab={setActiveBottomTab}
@@ -3064,7 +3073,7 @@ export default function App() {
         )}
 
         {/* Chat Panel */}
-        {(!isEditorMaximized && (isChatVisible || layoutMode === 'chat')) && (
+        {(!isEditorMaximized && layoutMode !== 'review' && (isChatVisible || layoutMode === 'chat')) && (
           <>
             <ChatPanel
               isChatMode={layoutMode === 'chat'}

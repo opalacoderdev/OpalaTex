@@ -1,5 +1,5 @@
 import React from 'react';
-import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, Terminal } from 'lucide-react';
+import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, Terminal, History } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Left-side vertical activity bar (VSCode-style icon strip).
@@ -22,9 +22,9 @@ export default function ActivityBar({
     <div className="vscode-activitybar">
       <div className="vscode-activitybar-top">
         <button
-          onClick={() => setLayoutMode(layoutMode === 'ide' ? 'chat' : 'ide')}
+          onClick={() => setLayoutMode(layoutMode === 'chat' ? 'ide' : 'chat')}
           className={`vscode-activitybar-btn ${layoutMode === 'chat' ? 'active' : ''}`}
-          title="Alternar Modo Chat / LaTeX"
+          title={layoutMode === 'chat' ? t('activityBar.editMode') : t('activityBar.chatMode')}
         >
           <LayoutTemplate size={22} />
         </button>
@@ -38,6 +38,17 @@ export default function ActivityBar({
           title={t('activityBar.explorer')}
         >
           <Files size={22} />
+        </button>
+
+        <button
+          onClick={() => {
+            setLayoutMode('review');
+            setActiveSidebarTab(null);
+          }}
+          className={`vscode-activitybar-btn ${layoutMode === 'review' ? 'active' : ''}`}
+          title={t('activityBar.reviewMode')}
+        >
+          <History size={22} />
         </button>
 
         <button

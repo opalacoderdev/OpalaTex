@@ -294,7 +294,8 @@
 
 /* Source control */
 .git-file-row,
-.git-commit-row {
+.git-commit-row,
+.git-review-row {
   border-radius: 3px;
   background: var(--vscode-list-hoverBg);
 }
@@ -302,12 +303,18 @@
   margin-bottom: 2px;
 }
 .git-file-row:hover,
-.git-commit-row:hover {
+.git-commit-row:hover,
+.git-review-row:hover {
   background: var(--vscode-hover-item);
 }
 .git-commit-row {
   padding: 6px 8px;
   font-size: 11px;
+}
+.git-review-row {
+  padding: 12px;
+  font-size: 12px;
+  border: 1px solid var(--vscode-border);
 }
 .git-icon-button {
   padding: 2px;

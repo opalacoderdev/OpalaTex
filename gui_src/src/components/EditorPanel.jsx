@@ -724,6 +724,8 @@ export default function EditorPanel({
           modified={fileContent}
           originalModelPath={`original-${selectedFile}`}
           modifiedModelPath={`modified-${selectedFile}`}
+          keepCurrentOriginalModel
+          keepCurrentModifiedModel
           beforeMount={handleBeforeMount}
           onMount={handleMount}
           options={{
@@ -1173,6 +1175,8 @@ export default function EditorPanel({
                 modified={fileContent}
                 originalModelPath={`original-${selectedFile}`}
                 modifiedModelPath={`modified-${selectedFile}`}
+                keepCurrentOriginalModel
+                keepCurrentModifiedModel
                 beforeMount={handleBeforeMount}
                 onMount={handleMount}
                 options={{

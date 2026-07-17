@@ -127,6 +127,19 @@ def test_run_skill_unknown_skill_returns_error(tmp_path):
     assert "not found" in result
 
 
+def test_run_skill_returns_blocked_result_in_plan_mode(tmp_path):
+    project = _project(tmp_path)
+    project.mode = "plan"
+    m = build_chat_orchestrator(project, None)
+    run_skill = build_run_skill_tool(m, str(tmp_path), "ollama/proj", _project_ref=project)
+    raw = getattr(run_skill, "_func", None) or run_skill
+
+    result = asyncio.run(raw("command-line", "write a file"))
+
+    assert result.startswith("[BLOCKED] run_skill is not available")
+    assert "create_plan" in result
+
+
 
 def test_build_chat_orchestrator_scopes_project_path(tmp_path):
     """Regression: building the MemGPT must set the global project context so the

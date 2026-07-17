@@ -3081,6 +3081,7 @@ class AsyncHTTPServer:
         elif path == '/api/git/diff':
             project_path = query.get('projectPath', [None])[0]
             file_path_param = query.get('filePath', [None])[0]
+            commit_hash = query.get('commit', [None])[0]
             is_shadow = query.get('shadow', ['false'])[0].lower() == 'true'
             git_root_path = query.get('gitRootPath', [None])[0]
             if not project_path or not os.path.exists(project_path):
@@ -3091,7 +3092,38 @@ class AsyncHTTPServer:
                 git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 git_cmd = git_ctx["git_cmd"]
                 diff = ""
-                if file_path_param:
+                if commit_hash:
+                    verify = subprocess.run(
+                        git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
+                        cwd=git_ctx["cwd"],
+                        capture_output=True,
+                        **utf8_text_kwargs(),
+                    )
+                    if verify.returncode != 0:
+                        self.send_response(writer, 400, b'{"error":"Invalid commit"}', "application/json")
+                        return
+                    parent = subprocess.run(
+                        git_cmd + ["rev-parse", "--verify", f"{commit_hash}^"],
+                        cwd=git_ctx["cwd"],
+                        capture_output=True,
+                        **utf8_text_kwargs(),
+                    )
+                    if parent.returncode == 0:
+                        res = subprocess.run(
+                            git_cmd + ["diff", f"{commit_hash}^", commit_hash],
+                            cwd=git_ctx["cwd"],
+                            capture_output=True,
+                            **utf8_text_kwargs(),
+                        )
+                    else:
+                        res = subprocess.run(
+                            git_cmd + ["show", "--format=", "--find-renames", commit_hash],
+                            cwd=git_ctx["cwd"],
+                            capture_output=True,
+                            **utf8_text_kwargs(),
+                        )
+                    diff = res.stdout
+                elif file_path_param:
                     repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
                     # Check if file is untracked
                     ls = subprocess.run(
@@ -3117,6 +3149,51 @@ class AsyncHTTPServer:
                     res_staged = subprocess.run(git_cmd + ["diff", "--cached"], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
                     diff = res.stdout + res_staged.stdout
                 self.send_response(writer, 200, json.dumps({"diff": diff}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7g.1 Git restore checkpoint
+        elif path == '/api/git/restore' and method == 'POST':
+            project_path = data.get("projectPath")
+            commit_hash = data.get("commit")
+            is_shadow = data.get("shadow", False)
+            git_root_path = data.get("gitRootPath")
+            if not project_path or not os.path.exists(project_path):
+                self.send_response(writer, 400, b'{"error":"Invalid project path"}', "application/json")
+                return
+            if not commit_hash:
+                self.send_response(writer, 400, b'{"error":"commit is required"}', "application/json")
+                return
+            import subprocess
+            try:
+                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                git_cmd = git_ctx["git_cmd"]
+                verify = subprocess.run(
+                    git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
+                    cwd=git_ctx["cwd"],
+                    capture_output=True,
+                    **utf8_text_kwargs(),
+                )
+                if verify.returncode != 0:
+                    self.send_response(writer, 400, b'{"error":"Invalid commit"}', "application/json")
+                    return
+                reset = subprocess.run(
+                    git_cmd + ["reset", "--hard", commit_hash],
+                    cwd=git_ctx["cwd"],
+                    capture_output=True,
+                    **utf8_text_kwargs(),
+                )
+                if reset.returncode != 0:
+                    raise Exception(reset.stderr or reset.stdout or "Git restore failed")
+                clean = subprocess.run(
+                    git_cmd + ["clean", "-fd"],
+                    cwd=git_ctx["cwd"],
+                    capture_output=True,
+                    **utf8_text_kwargs(),
+                )
+                if clean.returncode != 0:
+                    raise Exception(clean.stderr or clean.stdout or "Git clean failed")
+                self.send_response(writer, 200, b'{"success":true}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 

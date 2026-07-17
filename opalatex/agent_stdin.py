@@ -988,6 +988,18 @@ async def handle_run(data: dict):
     if agent_type == "chat_orchestrator":
         tools_mod.TURN_ACHIEVEMENTS = ""
 
+    turn_checkpoint_project_path = None
+    turn_checkpoint_started = False
+    if agent_type in ("orchestrator", "chat_orchestrator") and current_project and current_project.project_path:
+        try:
+            from opalatex.config import get_git_strategy
+            if get_git_strategy().lower() != "none":
+                from opalatex.vcs import begin_agent_turn_checkpoint
+                turn_checkpoint_project_path = current_project.project_path
+                turn_checkpoint_started = bool(begin_agent_turn_checkpoint(turn_checkpoint_project_path))
+        except Exception:
+            turn_checkpoint_started = False
+
     import opalatex.terminal as T
     orig_async_confirm_hook = getattr(T, "_async_confirm_hook", None)
     orig_async_ask_hook = getattr(T, "_async_ask_hook", None)
@@ -1197,6 +1209,12 @@ async def handle_run(data: dict):
             user_msg = _friendly_llm_error(e, current_project)
             print_event("error", {"message": user_msg, "trace": err_msg})
     finally:
+        if turn_checkpoint_started and turn_checkpoint_project_path:
+            try:
+                from opalatex.vcs import finalize_agent_turn_checkpoint
+                finalize_agent_turn_checkpoint(turn_checkpoint_project_path)
+            except Exception:
+                pass
         T._async_confirm_hook = orig_async_confirm_hook
         T._async_ask_hook = orig_async_ask_hook
         _ACTIVE_THOUGHT_CHUNKS = None
