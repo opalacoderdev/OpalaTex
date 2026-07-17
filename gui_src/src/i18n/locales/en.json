@@ -180,7 +180,13 @@
     "genericCompileError": "An error occurred during compilation. Please check the full log below.",
     "compiling": "Compiling...",
     "loadingPdf": "Loading PDF...",
-    "loadError": "Failed to load PDF viewer."
+    "loadError": "Failed to load PDF viewer.",
+    "searchPdf": "Search PDF",
+    "searchPlaceholder": "Search PDF...",
+    "previousMatch": "Previous match",
+    "nextMatch": "Next match",
+    "clearSearch": "Clear search",
+    "noSearchResults": "No results"
   },
   "graphicPreview": {
     "rendering": "rendering...",

@@ -180,7 +180,13 @@
     "genericCompileError": "Ocorreu um erro durante a compilação. Verifique o log completo abaixo.",
     "compiling": "Compilando...",
     "loadingPdf": "Carregando PDF...",
-    "loadError": "Falha ao carregar o visualizador de PDF."
+    "loadError": "Falha ao carregar o visualizador de PDF.",
+    "searchPdf": "Buscar no PDF",
+    "searchPlaceholder": "Buscar no PDF...",
+    "previousMatch": "Resultado anterior",
+    "nextMatch": "Proximo resultado",
+    "clearSearch": "Limpar busca",
+    "noSearchResults": "Sem resultados"
   },
   "graphicPreview": {
     "rendering": "renderizando...",

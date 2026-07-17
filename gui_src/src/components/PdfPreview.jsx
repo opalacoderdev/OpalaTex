@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
 import { useTranslation } from 'react-i18next';
-import { Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown } from 'lucide-react';
+import { Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X } from 'lucide-react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -17,11 +18,31 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const [scale, setScale] = useState(1.2);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
+  const [pdfTextPages, setPdfTextPages] = useState([]);
   const containerRef = useRef(null);
   const scrollPosRef = useRef(0);
   const restoreScrollPosRef = useRef(0);
   const isReloadingPdfRef = useRef(false);
   const pageNavRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const pdfDocumentRef = useRef(null);
+
+  const searchNeedle = searchQuery.trim().toLowerCase();
+
+  const countMatches = (text, needle) => {
+    if (!text || !needle) return 0;
+    let count = 0;
+    let index = text.toLowerCase().indexOf(needle);
+    while (index !== -1) {
+      count += 1;
+      index = text.toLowerCase().indexOf(needle, index + needle.length);
+    }
+    return count;
+  };
 
   const handleScroll = () => {
     if (isReloadingPdfRef.current) return;
@@ -40,6 +61,91 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
 
   const handleResetZoom = () => {
     setScale(1.2);
+  };
+
+  const focusSearchInput = () => {
+    setTimeout(() => {
+      if (searchInputRef.current) {
+        searchInputRef.current.focus();
+        searchInputRef.current.select();
+      }
+    }, 0);
+  };
+
+  const handleSearchToggle = () => {
+    setIsSearchOpen((prev) => {
+      const next = !prev;
+      if (next) focusSearchInput();
+      if (!next) clearSearch(false);
+      return next;
+    });
+  };
+
+  const clearSearch = (shouldFocus = true) => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setActiveSearchIndex(-1);
+    if (shouldFocus) focusSearchInput();
+  };
+
+  const goToSearchResult = (index) => {
+    if (!searchResults.length) return;
+    const nextIndex = ((index % searchResults.length) + searchResults.length) % searchResults.length;
+    setActiveSearchIndex(nextIndex);
+    scrollToPage(searchResults[nextIndex].page);
+  };
+
+  const handleSearchSubmit = () => {
+    if (!searchResults.length) return;
+    goToSearchResult(activeSearchIndex >= 0 ? activeSearchIndex : 0);
+  };
+
+  const handleSearchPrev = () => {
+    goToSearchResult((activeSearchIndex >= 0 ? activeSearchIndex : 0) - 1);
+  };
+
+  const handleSearchNext = () => {
+    goToSearchResult((activeSearchIndex >= 0 ? activeSearchIndex : -1) + 1);
+  };
+
+  const renderSearchHighlights = (text) => {
+    if (!searchNeedle || !text) return text;
+
+    const lowerText = text.toLowerCase();
+    const parts = [];
+    let cursor = 0;
+    let matchIndex = lowerText.indexOf(searchNeedle);
+
+    while (matchIndex !== -1) {
+      if (matchIndex > cursor) {
+        parts.push(text.slice(cursor, matchIndex));
+      }
+      const matchText = text.slice(matchIndex, matchIndex + searchNeedle.length);
+      parts.push(
+        <mark
+          key={`${matchIndex}-${parts.length}`}
+          style={{
+            backgroundColor: '#facc15',
+            boxShadow: '0 0 0 2px rgba(245, 158, 11, 0.9)',
+            borderRadius: '2px',
+            color: 'transparent',
+            padding: '0 1px',
+            WebkitBoxDecorationBreak: 'clone',
+            boxDecorationBreak: 'clone',
+          }}
+        >
+          {matchText}
+        </mark>
+      );
+      cursor = matchIndex + searchNeedle.length;
+      matchIndex = lowerText.indexOf(searchNeedle, cursor);
+    }
+
+    if (cursor < text.length) {
+      parts.push(text.slice(cursor));
+    }
+
+    return parts;
   };
 
   // ── Page navigation ────────────────────────────────────────────────────
@@ -108,6 +214,60 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     return () => observer.disconnect();
   }, [numPages, scale]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPageText = async () => {
+      const pdfDocument = pdfDocumentRef.current;
+      if (!pdfDocument || !numPages || (!isSearchOpen && !searchNeedle)) {
+        setPdfTextPages([]);
+        return;
+      }
+
+      try {
+        const pages = [];
+        for (let pageNumber = 1; pageNumber <= numPages; pageNumber += 1) {
+          const page = await pdfDocument.getPage(pageNumber);
+          const textContent = await page.getTextContent();
+          pages.push(textContent.items.map((item) => item.str || '').join(' '));
+        }
+        if (!cancelled) {
+          setPdfTextPages(pages);
+        }
+      } catch (err) {
+        console.error('PDF text extraction failed:', err);
+        if (!cancelled) {
+          setPdfTextPages([]);
+        }
+      }
+    };
+
+    loadPageText();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [numPages, pdfUrl, isSearchOpen, searchNeedle]);
+
+  useEffect(() => {
+    if (!searchNeedle || !pdfTextPages.length) {
+      setSearchResults([]);
+      setActiveSearchIndex(-1);
+      return;
+    }
+
+    const results = [];
+    pdfTextPages.forEach((pageText, pageIndex) => {
+      const matches = countMatches(pageText, searchNeedle);
+      for (let i = 0; i < matches; i += 1) {
+        results.push({ page: pageIndex + 1 });
+      }
+    });
+
+    setSearchResults(results);
+    setActiveSearchIndex(results.length ? 0 : -1);
+  }, [searchNeedle, pdfTextPages]);
+
   const handleSavePdf = () => {
     if (!pdfUrl) return;
 
@@ -141,10 +301,15 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
       setPdfUrl('');
       isReloadingPdfRef.current = false;
     }
+    setPdfTextPages([]);
+    setSearchResults([]);
+    setActiveSearchIndex(-1);
+    pdfDocumentRef.current = null;
   }, [base64Pdf, sourceUrl, directUrl]);
 
-  function onDocumentLoadSuccess({ numPages }) {
-    setNumPages(numPages);
+  function onDocumentLoadSuccess(pdfDocument) {
+    pdfDocumentRef.current = pdfDocument;
+    setNumPages(pdfDocument.numPages);
     setCurrentPage(1);
     setTimeout(() => {
       if (containerRef.current) {
@@ -196,6 +361,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   }));
 
   const handlePageDoubleClick = async (e, pageIndex) => {
+    if (!e.ctrlKey && !e.metaKey) return;
     if (!activeProject?.project_path || !selectedFile) return;
     
     const rect = e.currentTarget.getBoundingClientRect();
@@ -343,6 +509,133 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         >
           <Download size={18} />
         </button>
+        <button
+          onClick={handleSearchToggle}
+          className="flex items-center justify-center rounded-md transition-colors"
+          style={{
+            width: '32px',
+            height: '32px',
+            background: isSearchOpen ? 'var(--vscode-button-bg)' : 'var(--vscode-input-bg)',
+            border: `1px solid ${isSearchOpen ? 'var(--vscode-button-bg)' : 'var(--vscode-border)'}`,
+            color: isSearchOpen ? '#ffffff' : 'var(--vscode-text-fg)',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = isSearchOpen ? 'var(--vscode-button-bg)' : 'var(--vscode-input-bg)'; e.currentTarget.style.color = isSearchOpen ? '#ffffff' : 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = isSearchOpen ? 'var(--vscode-button-bg)' : 'var(--vscode-border)'; }}
+          title={t('pdfPreview.searchPdf')}
+        >
+          <Search size={18} />
+        </button>
+        {isSearchOpen && (
+          <div
+            className="flex items-center rounded-md"
+            style={{
+              background: 'var(--vscode-input-bg)',
+              border: '1px solid var(--vscode-border)',
+              height: '32px',
+              maxWidth: '260px',
+            }}
+          >
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.shiftKey) handleSearchPrev();
+                else if (e.key === 'Enter') handleSearchSubmit();
+                else if (e.key === 'Escape') clearSearch();
+              }}
+              placeholder={t('pdfPreview.searchPlaceholder')}
+              style={{
+                width: '118px',
+                height: '100%',
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: 'var(--vscode-text-fg)',
+                fontSize: '12px',
+                padding: '0 8px',
+              }}
+            />
+            <span
+              className="text-xs flex items-center px-1.5"
+              style={{
+                color: 'var(--vscode-descriptionForeground)',
+                fontSize: '11px',
+                whiteSpace: 'nowrap',
+                borderLeft: '1px solid var(--vscode-border)',
+                height: '100%',
+              }}
+            >
+              {searchResults.length
+                ? `${activeSearchIndex + 1}/${searchResults.length}`
+                : searchNeedle
+                  ? t('pdfPreview.noSearchResults')
+                  : '0/0'}
+            </span>
+            <button
+              type="button"
+              onClick={handleSearchPrev}
+              disabled={!searchResults.length}
+              className="flex items-center justify-center transition-colors"
+              style={{
+                width: '28px',
+                height: '100%',
+                appearance: 'none',
+                background: 'transparent',
+                border: 'none',
+                borderLeft: '1px solid var(--vscode-border)',
+                color: searchResults.length ? 'var(--vscode-text-fg)' : 'var(--vscode-descriptionForeground)',
+                cursor: searchResults.length ? 'pointer' : 'default',
+                opacity: searchResults.length ? 1 : 0.5,
+                padding: 0,
+              }}
+              title={t('pdfPreview.previousMatch')}
+            >
+              <ChevronUp size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={handleSearchNext}
+              disabled={!searchResults.length}
+              className="flex items-center justify-center transition-colors"
+              style={{
+                width: '28px',
+                height: '100%',
+                appearance: 'none',
+                background: 'transparent',
+                border: 'none',
+                borderLeft: '1px solid var(--vscode-border)',
+                color: searchResults.length ? 'var(--vscode-text-fg)' : 'var(--vscode-descriptionForeground)',
+                cursor: searchResults.length ? 'pointer' : 'default',
+                opacity: searchResults.length ? 1 : 0.5,
+                padding: 0,
+              }}
+              title={t('pdfPreview.nextMatch')}
+            >
+              <ChevronDown size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={clearSearch}
+              className="flex items-center justify-center transition-colors"
+              style={{
+                width: '28px',
+                height: '100%',
+                appearance: 'none',
+                background: 'transparent',
+                border: 'none',
+                borderLeft: '1px solid var(--vscode-border)',
+                color: 'var(--vscode-text-fg)',
+                cursor: 'pointer',
+                padding: 0,
+              }}
+              title={t('pdfPreview.clearSearch')}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
         {onCollapse && (
           <button
             onClick={onCollapse}
@@ -532,8 +825,9 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
               >
                 <Page
                   pageNumber={index + 1}
-                  renderTextLayer={false}
+                  renderTextLayer={true}
                   renderAnnotationLayer={true}
+                  customTextRenderer={({ str }) => renderSearchHighlights(str)}
                   scale={scale}
                 />
                 
