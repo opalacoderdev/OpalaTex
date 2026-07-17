@@ -95,6 +95,8 @@ def test_opalatex_cloud_model_mapping_and_overrides():
     assert kwargs["api_base"] == "https://opalacoder.com/api/chat-proxy"
     assert kwargs["api_key"] == "OPALA-TEST-KEY"
     assert kwargs["custom_llm_provider"] == "openai"
+    assert kwargs["timeout"] == 600.0
+    assert kwargs["request_timeout"] == 600.0
     assert kwargs["drop_params"] is True
 
     class FlashSession:
@@ -110,6 +112,8 @@ def test_opalatex_cloud_model_mapping_and_overrides():
     assert flash_kwargs["api_base"] == "https://opalacoder.com/api/chat-proxy"
     assert flash_kwargs["api_key"] == "OPALA-TEST-KEY"
     assert flash_kwargs["custom_llm_provider"] == "openai"
+    assert flash_kwargs["timeout"] == 600.0
+    assert flash_kwargs["request_timeout"] == 600.0
 
 
 def test_cloud_provider_uses_global_cloud_model_setting():

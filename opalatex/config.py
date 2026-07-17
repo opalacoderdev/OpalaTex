@@ -129,13 +129,15 @@ def _get_agents_config() -> dict:
 _initial_cfg = _get_agents_config()
 DEFAULT_MODEL = _initial_cfg.get("default", os.getenv("OPALATEX_MODEL", "ollama/gemma4:12b"))
 WORKER_MODEL = _initial_cfg.get("worker", _initial_cfg.get("alternative", "gemini/gemini-3.1-flash-lite"))
+DEFAULT_LITELLM_TIMEOUT_SECONDS = 600.0
 
 def _get_llm_defaults():
     cfg = _get_agents_config()
     return {
         "temperature": 0.7,
         "num_ctx": 8192,
-        "timeout": 600.0,
+        "timeout": DEFAULT_LITELLM_TIMEOUT_SECONDS,
+        "request_timeout": DEFAULT_LITELLM_TIMEOUT_SECONDS,
         **cfg.get("llm_defaults", {}),
     }
 
@@ -392,6 +394,8 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
         merged["api_key"] = license_key
         # The proxy itself uses google/genai, but litellm expects openai format when using a generic proxy base
         merged["custom_llm_provider"] = "openai"
+        merged.setdefault("timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
+        merged.setdefault("request_timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
 
     for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
         merged.pop(field, None)
