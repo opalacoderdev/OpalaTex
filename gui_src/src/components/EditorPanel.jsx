@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { Suspense, lazy, useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText, HelpCircle, MoreHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -12,6 +12,8 @@ import PdfPreview from './PdfPreview';
 import LatexPreview from './LatexPreview';
 import LatexSnippetsPanel from './LatexSnippetsPanel';
 import RichTextEditor from './RichTextEditor';
+
+const DocxEditorPanel = lazy(() => import('./DocxEditorPanel'));
 
 // Center panel: file tabs + Monaco editor (or empty state when no file is open).
 export default function EditorPanel({
@@ -44,6 +46,7 @@ export default function EditorPanel({
   jumpToLine,
   setJumpToLine,
   triggerCompileRequest,
+  onBinaryFileSaved,
 }) {
   const { t } = useTranslation();
   const [isDiffMode, setIsDiffMode] = useState(false);
@@ -61,6 +64,7 @@ export default function EditorPanel({
   const documentActionsMenuRef = useRef(null);
   
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
+  const isDocxFile = selectedFile && selectedFile.toLowerCase().endsWith('.docx');
   const isTexRelatedFile = (filename) => {
     if (!filename) return false;
     const ext = filename.split('.').pop().toLowerCase();
@@ -1129,6 +1133,22 @@ export default function EditorPanel({
               onSyncTexNavigate={handleSyncTexNavigate}
             />
           </div>
+        ) : isDocxFile ? (
+          <Suspense
+            fallback={(
+              <div className="docx-editor-host docx-editor-empty">
+                <RefreshCw size={18} className="animate-spin" />
+                <span>{t('docxEditor.loading')}</span>
+              </div>
+            )}
+          >
+            <DocxEditorPanel
+              activeProject={activeProject}
+              selectedFile={selectedFile}
+              theme={theme}
+              onSaved={onBinaryFileSaved}
+            />
+          </Suspense>
         ) : isTexFile && isPdfPreviewCollapsed ? (
           renderTexEditorSurface()
         ) : isTexFile ? (

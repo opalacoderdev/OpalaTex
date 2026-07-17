@@ -188,6 +188,15 @@
     "clearSearch": "Clear search",
     "noSearchResults": "No results"
   },
+  "docxEditor": {
+    "loading": "Loading DOCX...",
+    "saving": "Saving DOCX...",
+    "saved": "DOCX saved.",
+    "save": "Save DOCX",
+    "saveFailed": "DOCX save failed: {{error}}",
+    "loadFailed": "Could not load DOCX: {{error}}",
+    "editorError": "DOCX editor error: {{error}}"
+  },
   "graphicPreview": {
     "rendering": "rendering...",
     "renderingPreview": "Rendering preview...",

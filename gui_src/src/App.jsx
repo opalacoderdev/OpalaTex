@@ -142,6 +142,11 @@ const normalizeInlineReplacementSpacing = (replacementText, originalText = '', e
   return replacement.replace(/\n/g, eol);
 };
 
+const isBinaryEditorFile = (filePath) => {
+  if (!filePath) return false;
+  return String(filePath).toLowerCase().endsWith('.docx');
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // App
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1204,6 +1209,18 @@ export default function App() {
     if (!activeProject) return;
     setIsBottomMaximized(false);
     if (selectedFile) setFileContents(prev => ({ ...prev, [selectedFile]: fileContent }));
+    if (isBinaryEditorFile(filePath)) {
+      setOpenFiles(prev => {
+        const deduped = dedupeOpenFileList(prev, filePath);
+        return deduped.some(openFile => sameFilePath(openFile, filePath))
+          ? deduped.map(openFile => sameFilePath(openFile, filePath) ? filePath : openFile)
+          : [...deduped, filePath];
+      });
+      setFileContent('');
+      setSelectedFile(filePath);
+      setLayoutMode('ide');
+      return;
+    }
     const cachedFilePath = Object.keys(fileContents).find(path => sameFilePath(path, filePath)) || filePath;
     setOpenFiles(prev => {
       const deduped = dedupeOpenFileList(prev, filePath);
@@ -1269,6 +1286,10 @@ export default function App() {
 
   const saveFile = async ({ suppressCompile = false } = {}) => {
     if (!activeProject || !selectedFile) return false;
+    if (isBinaryEditorFile(selectedFile)) {
+      addLog('info', t('app.binaryFileSaveHandledByEditor', { path: selectedFile, defaultValue: 'Binary file save is handled by its editor: {{path}}' }));
+      return true;
+    }
     setIsSaving(true);
     try {
       const res = await fetch('/api/file/write', {
@@ -1326,7 +1347,11 @@ export default function App() {
     setOpenFiles(prev => {
       const remaining = prev.filter(f => !sameFilePath(f, filePath));
       if (sameFilePath(selectedFile, filePath)) {
-        if (remaining.length > 0) { const next = remaining[remaining.length - 1]; setSelectedFile(next); setFileContent(fileContents[next] || ''); }
+        if (remaining.length > 0) {
+          const next = remaining[remaining.length - 1];
+          setSelectedFile(next);
+          setFileContent(isBinaryEditorFile(next) ? '' : (fileContents[next] || ''));
+        }
         else { setSelectedFile(null); setFileContent(''); }
       }
       return remaining;
@@ -2951,6 +2976,11 @@ export default function App() {
               }}
               activeProject={activeProject}
               triggerCompileRequest={triggerCompileRequest}
+              onBinaryFileSaved={(filePath) => {
+                addLog('info', t('app.fileSaved', { path: filePath }));
+                fetchGitStatus();
+                fetchProblems();
+              }}
             />
           )}
 

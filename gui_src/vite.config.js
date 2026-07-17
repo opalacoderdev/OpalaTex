@@ -8,6 +8,62 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: [
+      {
+        find: /^stream$/,
+        replacement: path.resolve(__dirname, 'src/shims/nodeStream.js'),
+      },
+      {
+        find: /^@docx-editor\.dev\/react$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/react/opalatex-entry.ts'),
+      },
+      {
+        find: /^@docx-editor\.dev\/react\/ui$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/react/ui.ts'),
+      },
+      {
+        find: /^@docx-editor\.dev\/react\/dialogs$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/react/components/dialogs/index.ts'),
+      },
+      {
+        find: /^@docx-editor\.dev\/react\/hooks$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/react/hooks/index.ts'),
+      },
+      {
+        find: /^@docx-editor\.dev\/react\/plugin-api$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/react/plugin-api/index.ts'),
+      },
+      {
+        find: /^@docx-editor\.dev\/react\/styles$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/react/styles/index.ts'),
+      },
+      {
+        find: /^@docx-editor\.dev\/core$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/core/opalatex-core.ts'),
+      },
+      {
+        find: /^@docx-editor\.dev\/core\/utils$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/core/opalatex-utils.ts'),
+      },
+      {
+        find: /^@docx-editor\.dev\/core\/agent$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/core/opalatex-agent.ts'),
+      },
+      {
+        find: /^@docx-editor\.dev\/core\/(.*)$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/core/$1'),
+      },
+      {
+        find: /^@docx-editor\.dev\/i18n$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/i18n/index.ts'),
+      },
+      {
+        find: /^@docx-editor\.dev\/i18n\/(.*)$/,
+        replacement: path.resolve(__dirname, 'vendor/docx-editor/i18n/$1.ts'),
+      },
+    ],
+  },
   server: {
     port: 5173,
     proxy: {

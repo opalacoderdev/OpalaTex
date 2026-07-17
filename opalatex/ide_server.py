@@ -1343,6 +1343,31 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        elif path == '/api/file/write-binary' and method == 'POST':
+            try:
+                content_type = headers.get("content-type", "")
+                form_fields, form_files = _parse_multipart_form(body, content_type)
+                project_path = form_fields.get("projectPath")
+                file_path = form_fields.get("filePath")
+                upload = form_files.get("file")
+                if not project_path or not file_path or not upload:
+                    self.send_response(writer, 400, b'{"error":"projectPath, filePath and file are required"}', "application/json")
+                    return
+
+                project_abs = os.path.abspath(project_path)
+                full_path = os.path.abspath(os.path.join(project_abs, file_path))
+                if not _is_path_within(full_path, project_abs):
+                    self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
+                    return
+
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                with open(full_path, "wb") as f:
+                    f.write(upload.get("content") or b"")
+
+                self.send_response(writer, 200, b'{"success":true}', "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
         # 3.2. Create Directory
         elif path == '/api/file/mkdir' and method == 'POST':
             project_path = data.get('projectPath')

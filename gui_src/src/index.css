@@ -292,6 +292,43 @@
   border-color: #005fb8;
 }
 
+.docx-editor-host {
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--vscode-editor-bg);
+  color: var(--vscode-text-fg);
+}
+
+.docx-editor-host .ep-root {
+  height: 100%;
+}
+
+.docx-editor-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.docx-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.docx-editor-status {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
 /* Source control */
 .git-file-row,
 .git-commit-row,
@@ -382,6 +419,20 @@ input, select, textarea {
 select option {
   background-color: var(--vscode-input-bg);
   color: var(--vscode-text-fg);
+}
+
+.docx-editor-host .ep-root input,
+.docx-editor-host .ep-root select,
+.docx-editor-host .ep-root textarea {
+  font-family: inherit;
+}
+
+.docx-editor-host .ep-root select {
+  appearance: auto;
+  -webkit-appearance: auto;
+  -moz-appearance: auto;
+  background-image: none;
+  padding-right: inherit;
 }
 
 input:focus, select:focus, textarea:focus {
