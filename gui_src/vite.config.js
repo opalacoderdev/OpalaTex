@@ -62,6 +62,15 @@ export default defineConfig({
         find: /^@docx-editor\.dev\/i18n\/(.*)$/,
         replacement: path.resolve(__dirname, 'vendor/docx-editor/i18n/$1.ts'),
       },
+      // ── PPTX Editor (vendored) ──
+      {
+        find: /^@pptx-editor\/react$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-editor/react/index.ts'),
+      },
+      {
+        find: /^@pptx-editor\/core$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-editor/core/index.ts'),
+      },
     ],
   },
   server: {

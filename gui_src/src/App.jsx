@@ -144,7 +144,7 @@ const normalizeInlineReplacementSpacing = (replacementText, originalText = '', e
 
 const isBinaryEditorFile = (filePath) => {
   if (!filePath) return false;
-  return String(filePath).toLowerCase().endsWith('.docx');
+  return /\.(docx|pptx)$/i.test(String(filePath));
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -371,6 +371,7 @@ export default function App() {
 
   async function refreshSelectedFileFromDiskIfUnmodified() {
     if (!activeProject?.project_path || !selectedFile) return;
+    if (isBinaryEditorFile(selectedFile)) return;
     const lastDiskContent = diskFileContentsRef.current[selectedFile];
     if (lastDiskContent === undefined || fileContent !== lastDiskContent) return;
     try {
@@ -712,6 +713,10 @@ export default function App() {
 
   useEffect(() => {
     if (!activeProject || !selectedFile) return;
+    if (isBinaryEditorFile(selectedFile)) {
+      setOriginalFileContents(prev => ({ ...prev, [selectedFile]: '' }));
+      return;
+    }
     fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)
       .then(r => r.ok ? r.json() : null)
       .then(gitData => {
@@ -1867,7 +1872,7 @@ export default function App() {
               return updated;
             });
             // If this file is currently open in the editor, reload it from disk now.
-            if (selectedFile && (selectedFile === writtenPath || selectedFile.endsWith('/' + relPath) || selectedFile === relPath)) {
+            if (selectedFile && !isBinaryEditorFile(selectedFile) && (selectedFile === writtenPath || selectedFile.endsWith('/' + relPath) || selectedFile === relPath)) {
               if (activeProject) {
                 fetch(`/api/file/read?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(selectedFile)}`)
                   .then(r => r.ok ? r.json() : null)

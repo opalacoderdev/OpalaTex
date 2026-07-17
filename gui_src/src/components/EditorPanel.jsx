@@ -14,6 +14,7 @@ import LatexSnippetsPanel from './LatexSnippetsPanel';
 import RichTextEditor from './RichTextEditor';
 
 const DocxEditorPanel = lazy(() => import('./DocxEditorPanel'));
+const PptxEditorPanel = lazy(() => import('./PptxEditorPanel'));
 
 // Center panel: file tabs + Monaco editor (or empty state when no file is open).
 export default function EditorPanel({
@@ -65,6 +66,7 @@ export default function EditorPanel({
   
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
   const isDocxFile = selectedFile && selectedFile.toLowerCase().endsWith('.docx');
+  const isPptxFile = selectedFile && selectedFile.toLowerCase().endsWith('.pptx');
   const isTexRelatedFile = (filename) => {
     if (!filename) return false;
     const ext = filename.split('.').pop().toLowerCase();
@@ -1143,6 +1145,22 @@ export default function EditorPanel({
             )}
           >
             <DocxEditorPanel
+              activeProject={activeProject}
+              selectedFile={selectedFile}
+              theme={theme}
+              onSaved={onBinaryFileSaved}
+            />
+          </Suspense>
+        ) : isPptxFile ? (
+          <Suspense
+            fallback={(
+              <div className="pptx-editor-host pptx-editor-loading">
+                <RefreshCw size={18} className="animate-spin" />
+                <span>{t('pptxEditor.loading', 'Loading presentation...')}</span>
+              </div>
+            )}
+          >
+            <PptxEditorPanel
               activeProject={activeProject}
               selectedFile={selectedFile}
               theme={theme}
