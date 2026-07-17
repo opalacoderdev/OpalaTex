@@ -1,4 +1,0 @@
-desc: Exported modelconfig for ollama/gemma4:12b
-id: gemma
-model: ollama/gemma
-type: modelconfig

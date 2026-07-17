@@ -540,13 +540,6 @@ def analyze_image(file_path: str, prompt: str = "Describe this image in detail")
                 
         kwargs.pop("stream", None)
         
-        try:
-            from .memgpt_runtime import _apply_modelconfig_provider
-            if _PROJECT_SESSION:
-                model = _apply_modelconfig_provider(model, _PROJECT_SESSION)
-        except Exception:
-            pass
-            
         if kwargs.get("api_base"):
             if model.startswith("ollama/") or model.startswith("ollama_chat/"):
                 if kwargs["api_base"].endswith("/v1"):

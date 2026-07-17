@@ -58,6 +58,82 @@ def test_create_does_not_duplicate_opalatex(store):
     assert p.skills.count("opalatex") == 1
 
 
+def test_create_local_model_defaults_num_ctx_to_8192(store, tmp_path):
+    project_dir = tmp_path / "local_ctx"
+    p = store.create(
+        **_base_args(
+            name="local_ctx",
+            model="ollama/gemma4:12b",
+            project_path=str(project_dir),
+        )
+    )
+
+    assert p.model_params["num_ctx"] == 8192
+    assert p.worker_model_params == {}
+    assert "max_tokens" not in p.model_params
+    assert "max_context_tokens" not in p.model_params
+
+
+def test_create_cloud_model_defaults_num_ctx_to_65536(store, tmp_path):
+    project_dir = tmp_path / "cloud_ctx"
+    p = store.create(
+        **_base_args(
+            name="cloud_ctx",
+            model="gemini/gemini-3.1-flash-lite",
+            project_path=str(project_dir),
+        )
+    )
+
+    assert p.model_params["num_ctx"] == 65536
+    assert p.worker_model_params == {}
+    assert "max_tokens" not in p.model_params
+    assert "max_context_tokens" not in p.model_params
+
+
+def test_create_remote_ollama_model_uses_cloud_context_default(store, tmp_path):
+    project_dir = tmp_path / "remote_ollama_ctx"
+    p = store.create(
+        **_base_args(
+            name="remote_ollama_ctx",
+            model="ollama/gemma4:31b-cloud",
+            project_path=str(project_dir),
+            api_base="https://ollama.com",
+        )
+    )
+
+    assert p.model_params["num_ctx"] == 65536
+
+
+def test_create_preserves_explicit_num_ctx(store, tmp_path):
+    project_dir = tmp_path / "explicit_ctx"
+    p = store.create(
+        **_base_args(
+            name="explicit_ctx",
+            model="gemini/gemini-3.1-flash-lite",
+            project_path=str(project_dir),
+            model_params={"num_ctx": 32768},
+        )
+    )
+
+    assert p.model_params["num_ctx"] == 32768
+    assert p.worker_model_params == {}
+
+
+def test_create_explicit_worker_model_gets_own_context_default(store, tmp_path):
+    project_dir = tmp_path / "worker_ctx"
+    p = store.create(
+        **_base_args(
+            name="worker_ctx",
+            model="ollama/gemma4:12b",
+            worker_model="gemini/gemini-3.1-flash-lite",
+            project_path=str(project_dir),
+        )
+    )
+
+    assert p.model_params["num_ctx"] == 8192
+    assert p.worker_model_params["num_ctx"] == 65536
+
+
 # ---------------------------------------------------------------------------
 # 2. load round-trips all fields
 # ---------------------------------------------------------------------------

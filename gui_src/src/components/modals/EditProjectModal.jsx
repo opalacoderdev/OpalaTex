@@ -33,8 +33,6 @@ export default function EditProjectModal({
   editProjError,
   showAdvancedParams,
   setShowAdvancedParams,
-  modelConfigMsg,
-  onLoadModelConfig,
   onOpenDirPicker,
 }) {
   const { t } = useTranslation();
@@ -439,21 +437,6 @@ export default function EditProjectModal({
           {/* ORQUESTRADOR TAB */}
           {activeTab === 'orquestrador' && (
             <>
-              {/* Load refined config */}
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button type="button" className="vscode-button" style={{ background: 'transparent', color: 'var(--vscode-text-fg)', border: '1px solid var(--vscode-border)', fontSize: '12px' }} onClick={() => onLoadModelConfig(false)}>
-                  {t('editProjectModal.loadRefinedConfig')}
-                </button>
-                <button type="button" className="vscode-button" style={{ background: 'transparent', color: 'var(--vscode-text-fg)', border: '1px solid var(--vscode-border)', fontSize: '12px' }} onClick={() => onOpenDirPicker('export-modelconfig', editingProject.project_path || '~')}>
-                  Exportar Modelconfig
-                </button>
-                {modelConfigMsg && (
-                  <span style={{ fontSize: '11px', color: modelConfigMsg.startsWith('✅') ? '#4ec9b0' : '#f48771' }}>
-                    {modelConfigMsg}
-                  </span>
-                )}
-              </div>
-
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.mainModel')}</label>
                 {globalAiProvider === 'cloud' ? (
@@ -481,7 +464,6 @@ export default function EditProjectModal({
                       list="edit-models"
                       value={editingProject.model}
                       onChange={e => applySavedModelCredentials(e.target.value, 'main')}
-                      onBlur={() => onLoadModelConfig(true)}
                       placeholder="gemini/gemini-2.5-flash"
                       style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                     />

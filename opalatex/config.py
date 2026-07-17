@@ -209,6 +209,49 @@ _AGENT_PARAM_KEYS = _NON_LITELLM_FIELDS - {"model", "strategy"}
 
 from typing import Union
 
+LOCAL_MODEL_CONTEXT_TOKENS = 8192
+CLOUD_MODEL_CONTEXT_TOKENS = 65536
+
+
+def is_local_model(model: str | None, api_base: str | None = "") -> bool:
+    """Return True when a model should use local-model context defaults."""
+    model_id = str(model or "")
+    api_base_value = str(api_base or "").strip().lower()
+
+    try:
+        from opalatex.cloud_client import is_cloud_model_alias, resolve_cloud_model_alias
+        if is_cloud_model_alias(model_id):
+            return False
+        model_id = resolve_cloud_model_alias(model_id)
+    except Exception:
+        pass
+
+    provider = model_id.split("/", 1)[0].lower() if "/" in model_id else ""
+    if provider not in {"ollama", "ollama_chat"}:
+        return False
+
+    if not api_base_value:
+        return True
+    if "localhost" in api_base_value or "127.0.0.1" in api_base_value or "[::1]" in api_base_value:
+        return True
+    if api_base_value.startswith("http://0.0.0.0") or api_base_value.startswith("http://::1"):
+        return True
+    return False
+
+
+def default_num_ctx_for_model(model: str | None, api_base: str | None = "") -> int:
+    """Return the predictable default context window for a model selection."""
+    return LOCAL_MODEL_CONTEXT_TOKENS if is_local_model(model, api_base) else CLOUD_MODEL_CONTEXT_TOKENS
+
+
+def apply_default_num_ctx(params: dict | None, model: str | None, api_base: str | None = "") -> dict:
+    """Return params with a default num_ctx when the user did not set one."""
+    result = dict(params or {})
+    if result.get("num_ctx") in (None, ""):
+        result["num_ctx"] = default_num_ctx_for_model(model, api_base)
+    return result
+
+
 def get_git_strategy() -> str:
     """Return the git strategy from config.yaml (falls back to agents.yaml for back-compat)."""
     return _APP_CONFIG.get("git_strategy", _get_agents_config().get("git_strategy", "hybrid"))

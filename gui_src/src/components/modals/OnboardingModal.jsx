@@ -83,13 +83,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
         project_name: "Projeto Piloto (Opala Cloud)",
         project_path: "~/OpalaTexPilot",
         model: "OpalaTexCloud",
-        mode: "plan",
-        model_params: {
-          num_ctx: 128000
-        },
-        worker_model_params: {
-          num_ctx: 128000
-        }
+        mode: "plan"
       };
       
       finishOnboarding(config, 'cloud');

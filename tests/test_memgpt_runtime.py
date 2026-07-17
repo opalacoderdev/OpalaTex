@@ -60,6 +60,14 @@ def test_chat_orchestrator_exposes_document_creation_tools(tmp_path):
     assert "You can use `create_pptx_file`" in m.system_prompt
 
 
+def test_chat_orchestrator_context_limit_defaults_to_project_num_ctx(tmp_path):
+    project = _project(tmp_path)
+    project.model_params = {"num_ctx": 65536}
+    m = build_chat_orchestrator(project, None)
+
+    assert m.max_context_tokens == 65536
+
+
 def test_chat_orchestrator_system_prompt_embeds_skill_metadata(tmp_path):
     m = build_chat_orchestrator(_project(tmp_path), None)
     # Bundled skills must surface as Level-1 metadata for routing.

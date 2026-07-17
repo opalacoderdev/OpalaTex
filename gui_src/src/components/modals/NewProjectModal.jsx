@@ -23,8 +23,6 @@ export default function NewProjectModal({
   newProjModelParams, setNewProjModelParams,
   newProjWorkerModelParams, setNewProjWorkerModelParams,
   newProjError,
-  modelConfigMsg,
-  onLoadModelConfig,
   onOpenDirPicker,
 }) {
   const { t } = useTranslation();
@@ -227,18 +225,6 @@ export default function NewProjectModal({
           {/* ORQUESTRADOR TAB */}
           {activeTab === 'orquestrador' && (
             <>
-              {/* Load refined config */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                <button type="button" className="vscode-button" style={{ background: 'transparent', color: 'var(--vscode-text-fg)', border: '1px solid var(--vscode-border)', fontSize: '12px' }} onClick={onLoadModelConfig}>
-                  {t('newProjectModal.loadRefinedConfig')}
-                </button>
-                {modelConfigMsg && (
-                  <span style={{ fontSize: '11px', color: modelConfigMsg.startsWith('✅') ? '#4ec9b0' : '#f48771' }}>
-                    {modelConfigMsg}
-                  </span>
-                )}
-              </div>
-
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.aiModel')}</label>
                 {globalAiProvider === 'cloud' ? (
@@ -266,7 +252,6 @@ export default function NewProjectModal({
                       list="default-models"
                       value={newProjModel}
                       onChange={(e) => applySavedModelCredentials(e.target.value, 'main')}
-                      onBlur={() => onLoadModelConfig(true)}
                       placeholder={t('newProjectModal.modelPlaceholder')}
                       style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                     />

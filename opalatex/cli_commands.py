@@ -376,7 +376,7 @@ async def cmd_set_model_param(state: REPLState, args: list[str]) -> str | None:
 @_registry.register(
     "/load_asset",
     usage="<type> <desc|id|*>",
-    description="Install an asset from the AssetStore into the active project. type=skill|modelconfig, desc=id/description or * for all.",
+    description="Install an asset from the AssetStore into the active project. type=skill, desc=id/description or * for all.",
 )
 async def cmd_load_asset(state: REPLState, args: list[str]) -> str | None:
     from .assetstore import find_assets, install_asset, VALID_TYPES
@@ -429,7 +429,7 @@ async def cmd_load_asset(state: REPLState, args: list[str]) -> str | None:
 
 @_registry.register("/list_assets",
     usage="[type]",
-    description="List available assets in the AssetStore. type=skill|modelconfig (optional).")
+    description="List available assets in the AssetStore. type=skill (optional).")
 async def cmd_list_assets(_state: REPLState, args: list[str]) -> str | None:
     from .assetstore import list_assets, VALID_TYPES
 

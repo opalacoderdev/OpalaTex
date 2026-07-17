@@ -1,19 +1,15 @@
-"""AssetStore — local repository of reusable assets (skills and model configs).
+"""AssetStore: local repository of reusable skill assets.
 
 Structure
 ---------
 opalatex/assetstore/
     skills/
-        <ID>.zip        — full skill directory tree
-        <ID>.metadata   — YAML: id, type, name, desc
-    modelconfigs/
-        <ID>.zip        — single YAML file for the model config
-        <ID>.metadata   — YAML: id, type, desc, model
+        <ID>.zip        - full skill directory tree
+        <ID>.metadata   - YAML: id, type, name, desc
 
 Installation targets (relative to project root)
 ---------
-skill       → <project>/.opalatex/skills/<name>/
-modelconfig → <project>/.opalatex/modelsconfig/<provider>/<model_file>.yaml
+skill -> <project>/.opalatex/skills/<name>/
 """
 
 import os
@@ -23,18 +19,13 @@ from typing import Optional
 
 import yaml
 
-# Root of the assetstore bundled with the package
 _STORE_ROOT = Path(__file__).parent / "assetstore"
 
-VALID_TYPES = {"skill", "modelconfig"}
+VALID_TYPES = {"skill"}
 
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 def _store_dir(asset_type: str) -> Path:
-    return _STORE_ROOT / (asset_type + "s")  # skills/ or modelconfigs/
+    return _STORE_ROOT / (asset_type + "s")
 
 
 def _parse_metadata(path: Path) -> dict:
@@ -43,7 +34,7 @@ def _parse_metadata(path: Path) -> dict:
 
 
 def _iter_assets(asset_type: str) -> list[dict]:
-    """Return list of metadata dicts for all assets of the given type."""
+    """Return metadata dictionaries for all assets of the given type."""
     d = _store_dir(asset_type)
     if not d.exists():
         return []
@@ -60,7 +51,7 @@ def _iter_assets(asset_type: str) -> list[dict]:
 
 
 def _match(meta: dict, desc: str) -> bool:
-    """True if desc matches the asset's id or desc field (case-insensitive)."""
+    """Return True if desc matches the asset id or description."""
     desc_l = desc.lower()
     return (
         meta.get("id", "").lower() == desc_l
@@ -68,44 +59,26 @@ def _match(meta: dict, desc: str) -> bool:
     )
 
 
-def _model_to_path(model: str) -> tuple[str, str]:
-    """'ollama/gpt-oss:latest' → ('ollama', 'gpt-oss__latest.yaml')"""
-    _ALIASES = {"ollama_chat": "ollama"}
-    if "/" in model:
-        raw_provider, model_name = model.split("/", 1)
-    else:
-        raw_provider, model_name = "", model
-    provider = _ALIASES.get(raw_provider, raw_provider)
-    filename = model_name.replace(":", "__") + ".yaml"
-    return provider, filename
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def list_assets(asset_type: Optional[str] = None) -> list[dict]:
     """Return all assets, optionally filtered by type."""
     types = [asset_type] if asset_type else list(VALID_TYPES)
     result = []
     for t in types:
-        result.extend(_iter_assets(t))
+        if t in VALID_TYPES:
+            result.extend(_iter_assets(t))
     return result
 
 
 def find_assets(asset_type: str, desc: str) -> list[dict]:
-    """Return matching assets. desc='*' returns all of the type."""
-    assets = _iter_assets(asset_type)
+    """Return matching assets. desc='*' returns all assets of the type."""
+    assets = _iter_assets(asset_type) if asset_type in VALID_TYPES else []
     if desc == "*":
         return assets
     return [a for a in assets if _match(a, desc)]
 
 
 def install_asset(meta: dict, project_path: str) -> str:
-    """Extract asset zip into the correct location inside project_path.
-
-    Returns a human-readable summary of what was installed.
-    """
+    """Extract a skill asset into project_path and return a summary."""
     zip_path: Path = meta["_zip"]
     if not zip_path.exists():
         raise FileNotFoundError(f"Zip not found: {zip_path}")
@@ -121,36 +94,11 @@ def install_asset(meta: dict, project_path: str) -> str:
         skill_name = meta.get("name", zip_path.stem)
         return f"skill '{skill_name}' installed at {dest / skill_name}"
 
-    elif asset_type == "modelconfig":
-        model = meta.get("model", "")
-        if not model:
-            raise ValueError(f"Asset {meta.get('id')} has no 'model' field in metadata")
-        provider, filename = _model_to_path(model)
-        dest_dir = project / ".opalatex" / "modelsconfig" / provider
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            yaml_files = [n for n in zf.namelist() if n.endswith('.yaml')]
-            if len(yaml_files) != 1:
-                raise ValueError(f"modelconfig zip must contain exactly one .yaml file, got: {yaml_files}")
-            
-            yaml_name = yaml_files[0]
-            target = dest_dir / filename
-            with zf.open(yaml_name) as source, open(target, "wb") as dest:
-                import shutil
-                shutil.copyfileobj(source, dest)
-        return f"modelconfig for '{model}' installed at {target}"
-
-    else:
-        raise ValueError(f"Unknown asset type '{asset_type}'")
+    raise ValueError(f"Unknown asset type '{asset_type}'")
 
 
 def register_asset(asset_type: str, source_path: str, metadata: dict) -> Path:
-    """Package a local directory/file as an asset and register it in the store.
-
-    source_path: directory (for skill) or .yaml file (for modelconfig)
-    metadata: dict with at least id, type, desc, and name or model
-    Returns the path of the created zip.
-    """
+    """Package a local skill directory as an asset and register it in the store."""
     if asset_type not in VALID_TYPES:
         raise ValueError(f"type must be one of {VALID_TYPES}")
 

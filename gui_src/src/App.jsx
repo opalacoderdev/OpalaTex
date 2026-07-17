@@ -222,7 +222,6 @@ export default function App() {
   const [clipboardNode, setClipboardNode] = useState(null);
   const [jumpToLine, setJumpToLine] = useState(null);
   const [showAdvancedParams, setShowAdvancedParams] = useState(false);
-  const [modelConfigMsg, setModelConfigMsg] = useState('');
   const [dirPicker, setDirPicker] = useState(null);
   const [alertMessage, setAlertMessage] = useState('');
 
@@ -1598,7 +1597,6 @@ export default function App() {
         if (found) fresh = found;
       }
     } catch (_) { }
-    setModelConfigMsg('');
     setEditProjError('');
     const compileOnSaveFull = fresh.compile_on_save_full === true;
     const compileOnSavePartial = !compileOnSaveFull && fresh.compile_on_save_partial !== false;
@@ -1628,42 +1626,6 @@ export default function App() {
     } catch (err) { setEditProjError(err.message || t('app.projectUpdateError')); addLog('error', t('app.projectUpdateFailed', { error: err.message })); }
   };
 
-  // ── Model config ──────────────────────────────────────────────────────────
-  const loadModelConfig = async (projectPath, model, applyFn, silent = false) => {
-    if (!silent) setModelConfigMsg('');
-    if (!projectPath || !model) {
-      if (!silent) setModelConfigMsg('⚠️ Defina o caminho do projeto e o modelo antes de carregar.');
-      return;
-    }
-    try {
-      const res = await fetch('/api/opalatex/model-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath, model }) });
-      const data = await res.json();
-      if (!data.found) {
-        if (!silent) setModelConfigMsg(data.message);
-        return;
-      }
-      if (silent) {
-        setConfirmRequest({
-          id: 'local-confirm',
-          prompt: `OpalaTex encontrou configurações pré-definidas para o modelo "${data.model || model}". Deseja aplicar os parâmetros automaticamente?`,
-          callback: (value) => {
-            if (value === 'yes') {
-              applyFn(data);
-              setModelConfigMsg('✅ Configuração refinada aplicada automaticamente.');
-            } else {
-              setModelConfigMsg('❌ Configuração automática recusada.');
-            }
-          }
-        });
-        return; // Execution continues in the callback
-      }
-      applyFn(data);
-      if (!silent) setModelConfigMsg('✅ Configuração refinada carregada.');
-    } catch (e) {
-      if (!silent) setModelConfigMsg(`⚠️ Erro ao carregar: ${e.message}`);
-    }
-  };
-
   // ── Dir picker ────────────────────────────────────────────────────────────
   const openDirPicker = async (target, startPath) => {
     const path = startPath || '~';
@@ -1680,54 +1642,6 @@ export default function App() {
       const data = await res.json();
       setDirPicker(prev => ({ ...prev, current: data.current, dirs: data.dirs || [] }));
     } catch (e) { }
-  };
-
-  const exportModelConfig = async (destPath) => {
-    if (!editingProject) return;
-    setModelConfigMsg('Exportando...');
-    try {
-      const payloadParams = { ...(editingProject.model_params || {}) };
-
-      const ADVANCED_PARAMS = [
-        'temperature', 'max_tokens', 'num_ctx', 'seed', 'top_p',
-        'frequency_penalty', 'presence_penalty', 'top_k', 'min_p',
-        'repetition_penalty', 'reasoning_effort', 'response_mode',
-        'think', 'stream'
-      ];
-
-      for (const param of ADVANCED_PARAMS) {
-        if (payloadParams[param] === undefined) {
-          payloadParams[param] = null;
-        }
-      }
-
-      if (editingProject.api_base) payloadParams.api_base = editingProject.api_base;
-      if (editingProject.worker_model) payloadParams.worker_model = editingProject.worker_model;
-
-      if (editingProject.model && editingProject.model.includes('/')) {
-        const [provider] = editingProject.model.split('/');
-        payloadParams.provider = provider;
-      }
-
-      const res = await fetch('/api/opalatex/export-modelconfig', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectPath: editingProject.project_path,
-          model: editingProject.model,
-          modelParams: payloadParams,
-          destPath
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setModelConfigMsg(`✅ Exportado para: ${data.dest}`);
-      } else {
-        setModelConfigMsg(`⚠️ Erro na exportação: ${data.error}`);
-      }
-    } catch (err) {
-      setModelConfigMsg(`⚠️ Erro: ${err.message}`);
-    }
   };
 
   const updateActiveGitRoot = async (gitRootPath) => {
@@ -1759,9 +1673,6 @@ export default function App() {
   const confirmDirPicker = async () => {
     if (!dirPicker) return;
     if (dirPicker.target === 'new') setNewProjPath(dirPicker.current);
-    else if (dirPicker.target === 'export-modelconfig') {
-      exportModelConfig(dirPicker.current);
-    }
     else if (dirPicker.target === 'git-root') {
       await updateActiveGitRoot(dirPicker.current);
     }
@@ -2870,7 +2781,7 @@ export default function App() {
                 projects={projects}
                 activeProject={activeProject}
                 handleSelectProject={handleSelectProject}
-                onNewProject={() => { setShowNewProjectModal(true); setModelConfigMsg(''); setNewProjModelParams({}); }}
+                onNewProject={() => { setShowNewProjectModal(true); setNewProjModelParams({}); }}
                 onImportProject={() => { setImportError(''); openDirPicker('import', '~'); }}
                 importError={importError}
                 onClearImportError={() => setImportError('')}
@@ -2936,7 +2847,7 @@ export default function App() {
                 projects={projects}
                 activeProject={activeProject}
                 handleSelectProject={handleSelectProject}
-                onNewProject={() => { setShowNewProjectModal(true); setModelConfigMsg(''); setNewProjModelParams({}); }}
+                onNewProject={() => { setShowNewProjectModal(true); setNewProjModelParams({}); }}
                 onImportProject={() => { setImportError(''); openDirPicker('import', '~'); }}
                 importError={importError}
                 onClearImportError={() => setImportError('')}
@@ -3175,31 +3086,6 @@ export default function App() {
           newProjModelParams={newProjModelParams} setNewProjModelParams={setNewProjModelParams}
           newProjWorkerModelParams={newProjWorkerModelParams} setNewProjWorkerModelParams={setNewProjWorkerModelParams}
           newProjError={newProjError}
-          modelConfigMsg={modelConfigMsg}
-          onLoadModelConfig={() => loadModelConfig(newProjPath, newProjModel, (cfg) => {
-            if (!cfg) return;
-            if (cfg.model_params) {
-              const loaded = { ...cfg.model_params };
-              if (loaded.api_base !== undefined) {
-                setNewProjApiBase(loaded.api_base);
-                delete loaded.api_base;
-              }
-              delete loaded.api_key;
-              setNewProjModelParams(loaded);
-            }
-            if (cfg.worker_model_params) {
-              const loadedWorker = { ...cfg.worker_model_params };
-              setNewProjWorkerModelParams(loadedWorker);
-            } else if (cfg.model_params) {
-              // Fallback if missing
-              const loadedFallback = { ...cfg.model_params };
-              delete loadedFallback.api_base;
-              delete loadedFallback.api_key;
-              setNewProjWorkerModelParams(loadedFallback);
-            }
-            if (cfg.model) setNewProjModel(cfg.model);
-            if (cfg.worker_model) setNewProjWorkerModel(cfg.worker_model);
-          })}
           onOpenDirPicker={openDirPicker}
         />
       )}
@@ -3216,23 +3102,6 @@ export default function App() {
           editProjError={editProjError}
           showAdvancedParams={showAdvancedParams}
           setShowAdvancedParams={setShowAdvancedParams}
-          modelConfigMsg={modelConfigMsg}
-          onLoadModelConfig={(silent = false) => loadModelConfig(editingProject.project_path, editingProject.model, (cfg) => setEditingProject(p => {
-            if (!p || !cfg) return p;
-            const loaded = cfg.model_params || {};
-            const { api_base, api_key, worker_model, worker_api_base, worker_api_key, ...restParams } = loaded;
-            const cleanRestParams = Object.fromEntries(Object.entries(restParams).filter(([_, v]) => v !== null && v !== undefined));
-            return {
-              ...p,
-              model_params: Object.keys(cleanRestParams).length > 0 ? { ...(p.model_params || {}), ...cleanRestParams } : p.model_params,
-              model: cfg.model || p.model,
-              api_base: (api_base !== undefined && api_base !== "") ? api_base : p.api_base,
-              api_key: (api_key !== undefined && api_key !== "") ? api_key : p.api_key,
-              worker_model: worker_model !== undefined ? worker_model : p.worker_model,
-              worker_api_base: worker_api_base !== undefined ? worker_api_base : p.worker_api_base,
-              worker_api_key: worker_api_key !== undefined ? worker_api_key : p.worker_api_key
-            };
-          }), silent)}
           onOpenDirPicker={openDirPicker}
         />
       )}

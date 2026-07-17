@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .config import DEFAULT_DB_PATH
+from .config import DEFAULT_DB_PATH, apply_default_num_ctx
 from .api_keys import get_env_var_for_model
 
 
@@ -314,13 +314,28 @@ class ProjectStore:
                 res.append(d)
             return res
 
-    def create(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, apply_modelconfig: bool = True, git_root_path: str = "") -> ProjectData:
+    def create(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, git_root_path: str = "") -> ProjectData:
         now = datetime.now(timezone.utc).isoformat()
         _skills = skills if skills is not None else ["opalatex"]
         if "opalatex" not in _skills:
             _skills = ["opalatex"] + _skills
-        _model_params = model_params if model_params is not None else {}
-        _worker_model_params = worker_model_params if worker_model_params is not None else _model_params.copy()
+        _model_params = apply_default_num_ctx(model_params, model, api_base)
+        effective_worker_model = worker_model or model
+        effective_worker_api_base = worker_api_base or api_base
+        if worker_model_params is not None:
+            _worker_model_params = apply_default_num_ctx(
+                worker_model_params,
+                effective_worker_model,
+                effective_worker_api_base,
+            )
+        elif worker_model:
+            _worker_model_params = apply_default_num_ctx(
+                {},
+                effective_worker_model,
+                effective_worker_api_base,
+            )
+        else:
+            _worker_model_params = {}
 
         # Ensure the project path is absolute and exists
         abs_proj_path = os.path.abspath(project_path) if project_path else os.getcwd()
@@ -412,89 +427,6 @@ class ProjectStore:
             vcs = get_vcs_strategy(get_git_strategy(), abs_proj_path)
             vcs.setup()
             
-            # 5. Pre-install all available modelconfigs from the asset store
-            try:
-                from .assetstore import list_assets, install_asset
-                modelconfigs = list_assets(asset_type="modelconfig")
-                for mcfg in modelconfigs:
-                    try:
-                        install_asset(mcfg, abs_proj_path)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-            # 6. Apply modelconfig for the selected model
-            if apply_modelconfig:
-                try:
-                    from .assetstore import _model_to_path
-                    import yaml
-                    import re
-    
-                    def normalize_for_match(n: str) -> str:
-                        return re.sub(r'[-:_\s]+', '_', n).lower()
-    
-                    provider_dir, filename = _model_to_path(model)
-                    provider_dir_path = os.path.join(abs_proj_path, '.opalatex', 'modelsconfig', provider_dir)
-                    config_path = os.path.join(provider_dir_path, filename)
-                    
-                    if not os.path.isfile(config_path):
-                        target_norm = normalize_for_match(filename[:-5])
-                        best_match = None
-                        best_len = 0
-                        if os.path.isdir(provider_dir_path):
-                            for f in os.listdir(provider_dir_path):
-                                if not f.endswith('.yaml'): continue
-                                cand_norm = normalize_for_match(f[:-5])
-                                if target_norm.startswith(cand_norm):
-                                    if len(cand_norm) > best_len:
-                                        best_len = len(cand_norm)
-                                        best_match = f
-                        if best_match:
-                            config_path = os.path.join(provider_dir_path, best_match)
-    
-                    if os.path.isfile(config_path):
-                        with open(config_path, 'r', encoding='utf-8') as f:
-                            config = yaml.safe_load(f) or {}
-                        
-                        if 'provider' in config:
-                            new_provider = config.pop('provider')
-                            if '/' in model:
-                                _, m_name = model.split('/', 1)
-                            else:
-                                m_name = model
-                            model = f"{new_provider}/{m_name}"
-                        
-                        if 'api_base' in config:
-                            config_api_base = config.pop('api_base')
-                            if not api_base: 
-                                api_base = config_api_base
-                                api_key_var, api_base_var = _api_credential_names(model)
-                                upsert_env(api_base_var or "OPENAI_API_BASE", api_base)
-                                
-                        if 'api_key' in config:
-                            config_api_key = config.pop('api_key')
-                            if not api_key: 
-                                api_key = config_api_key
-                                api_key_var, api_base_var = _api_credential_names(model)
-                                upsert_env(api_key_var or "OPENAI_API_KEY", api_key)
-                                
-                        if 'worker_model' in config:
-                            alt_model = config.pop('worker_model')
-                            if not worker_model:
-                                worker_model = alt_model
-                                
-                        for k, v in config.items():
-                            if v is not None:
-                                # Only set if it's missing or if the current value is empty/None
-                                if k not in _model_params or _model_params[k] in (None, ""):
-                                    _model_params[k] = v
-                                if k not in _worker_model_params or _worker_model_params[k] in (None, ""):
-                                    _worker_model_params[k] = v
-                                
-                except Exception:
-                    pass
-
             final_api_key_var, final_api_base_var = _api_credential_names(model)
             if api_key:
                 upsert_env(final_api_key_var or "OPENAI_API_KEY", api_key)
@@ -526,7 +458,7 @@ class ProjectStore:
 
     def overwrite(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, use_shared_memory: bool = False) -> ProjectData:
         self.delete(name)
-        new_proj = self.create(name, mode, model, project_name, project_path, skills, description, worker_model, api_key=api_key, api_base=api_base, worker_api_key=worker_api_key, worker_api_base=worker_api_base, model_params=model_params, worker_model_params=worker_model_params, apply_modelconfig=False)
+        new_proj = self.create(name, mode, model, project_name, project_path, skills, description, worker_model, api_key=api_key, api_base=api_base, worker_api_key=worker_api_key, worker_api_base=worker_api_base, model_params=model_params, worker_model_params=worker_model_params)
         new_proj.use_shared_memory = use_shared_memory
         self.save(new_proj)
         return new_proj
