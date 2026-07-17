@@ -186,6 +186,20 @@ export interface Slide {
   relsPath: string;
   /** Layout relationship ID. */
   layoutRId?: string;
+  /** Internal XML path of the slide layout. */
+  layoutPath?: string;
+  /** Master relationship ID. */
+  masterRId?: string;
+  /** Internal XML path of the slide master. */
+  masterPath?: string;
+  /** Visual elements from the slide layout (rendered behind slide elements). */
+  layoutElements?: SlideElement[];
+  /** Visual elements from the slide master (rendered behind layout elements). */
+  masterElements?: SlideElement[];
+  /** Background inherited from the layout. */
+  layoutBackground?: SlideBackground;
+  /** Background inherited from the master. */
+  masterBackground?: SlideBackground;
   elements: SlideElement[];
   background?: SlideBackground;
   /** Speaker notes text (plain text extraction). */
@@ -213,10 +227,26 @@ export interface Presentation {
   slides: Slide[];
   /** Map of image paths to base64 data URIs for rendering. */
   mediaCache: Record<string, string>;
+  /** Available slide layouts extracted from the template. */
+  availableLayouts?: SlideLayoutInfo[];
   /**
    * The full JSZip instance, kept alive so that unmodified entries
    * (layouts, masters, themes, media) can be carried through
    * to serialization without data loss.
    */
   zipInstance?: unknown;
+}
+
+/** Information about a slide layout available in the template. */
+export interface SlideLayoutInfo {
+  /** Layout path inside the ZIP, e.g. "ppt/slideLayouts/slideLayout1.xml". */
+  path: string;
+  /** Display name extracted from the layout's cNvPr name attribute. */
+  name: string;
+  /** Visual elements from this layout (for preview rendering). */
+  elements: SlideElement[];
+  /** Background from this layout. */
+  background?: SlideBackground;
+  /** Master path this layout belongs to. */
+  masterPath?: string;
 }

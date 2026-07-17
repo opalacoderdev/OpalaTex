@@ -7,6 +7,23 @@ import ptBRDocxLocale from '../../vendor/docx-editor/i18n/pt-BR';
 import '../../vendor/docx-editor/react/styles/editor.compiled.css';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const DOCX_BROWSER_IMAGE_MIMES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+]);
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
 
 export default function DocxEditorPanel({
   activeProject,
@@ -79,6 +96,27 @@ export default function DocxEditorPanel({
     return true;
   }, [activeProject?.project_path, selectedFile]);
 
+  const resolveDocxMedia = useCallback(async (file) => {
+    const mimeType = String(file?.mimeType || '').toLowerCase();
+    if (!mimeType || DOCX_BROWSER_IMAGE_MIMES.has(mimeType)) return undefined;
+    if (!mimeType.startsWith('image/')) return undefined;
+    if (!file?.data) return undefined;
+
+    const response = await fetch('/api/docx/render-media', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mimeType,
+        filename: file.filename || file.path || 'image',
+        dataBase64: arrayBufferToBase64(file.data),
+      }),
+    });
+    if (!response.ok) return undefined;
+    const payload = await response.json().catch(() => null);
+    if (!payload?.success || !payload.data_base64 || !payload.mime) return undefined;
+    return `data:${payload.mime};base64,${payload.data_base64}`;
+  }, []);
+
   const handleSave = useCallback(async (bufferFromEditor = null) => {
     if (!editorRef.current && !bufferFromEditor) return;
     setIsSaving(true);
@@ -128,6 +166,7 @@ export default function DocxEditorPanel({
         key={docVersion}
         ref={editorRef}
         documentBuffer={documentBuffer}
+        mediaResolver={resolveDocxMedia}
         author="OpalaTex"
         colorMode={colorMode}
         documentName={fileName}

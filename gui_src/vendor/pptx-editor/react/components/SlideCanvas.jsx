@@ -344,6 +344,12 @@ function ElementRenderer({
   return null;
 }
 
+function isRenderableInheritedElement(element) {
+  if (!element) return false;
+  if (element.type === 'shape' && element.placeholderType) return false;
+  return true;
+}
+
 // ── Selection Handles ────────────────────────────────────────────────────────
 
 function SelectionHandles({ element, onResizeStart }) {
@@ -502,7 +508,18 @@ export default function SlideCanvas({
 
   const bgCss = slide.background?.fill
     ? fillToCss(slide.background.fill)
-    : '#FFFFFF';
+    : slide.layoutBackground?.fill
+      ? fillToCss(slide.layoutBackground.fill)
+      : slide.masterBackground?.fill
+        ? fillToCss(slide.masterBackground.fill)
+        : '#FFFFFF';
+
+  // Render inherited (master + layout) elements behind the slide's own elements.
+  // These are decorative/template shapes that give the slide its visual identity.
+  const inheritedElements = [
+    ...(slide.masterElements || []),
+    ...(slide.layoutElements || []),
+  ].filter(isRenderableInheritedElement);
 
   return (
     <div
@@ -521,6 +538,23 @@ export default function SlideCanvas({
           overflow: 'hidden',
         }}
       >
+        {/* Inherited template elements (master + layout) — rendered behind */}
+        {inheritedElements.map((el, i) => (
+          <ElementRenderer
+            key={`inh_${el.id || i}`}
+            element={el}
+            scale={scale}
+            mediaCache={mediaCache}
+            isSelected={false}
+            isEditing={false}
+            onSelect={() => {}}
+            onDoubleClick={() => {}}
+            onDragStart={() => {}}
+            onResizeStart={() => {}}
+            onTextChange={undefined}
+          />
+        ))}
+        {/* Slide's own elements — rendered on top */}
         {slide.elements.map((el, i) => (
           <ElementRenderer
             key={el.id || i}

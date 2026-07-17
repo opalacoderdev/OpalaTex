@@ -197,6 +197,17 @@
     "loadFailed": "Could not load DOCX: {{error}}",
     "editorError": "DOCX editor error: {{error}}"
   },
+  "pptxEditor": {
+    "loading": "Loading presentation...",
+    "saving": "Saving presentation...",
+    "saved": "Presentation saved.",
+    "save": "Save presentation",
+    "saveFailed": "Could not save presentation: {{error}}",
+    "loadFailed": "Could not load presentation: {{error}}",
+    "editorError": "Presentation editor error: {{error}}",
+    "enableEditing": "Enable editing",
+    "unsavedChanges": "Unsaved changes"
+  },
   "graphicPreview": {
     "rendering": "rendering...",
     "renderingPreview": "Rendering preview...",

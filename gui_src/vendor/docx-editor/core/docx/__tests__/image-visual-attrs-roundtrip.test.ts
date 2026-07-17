@@ -3,7 +3,7 @@ import { parseDrawing } from '../imageParser';
 import { serializeRun } from '../serializer/runSerializer';
 import { parseXml } from '../xmlParser';
 import type { XmlElement } from '../xmlParser';
-import type { Image, Run } from '../../types/document';
+import type { Image, Run, RelationshipMap, MediaFile } from '../../types/document';
 
 const NS = [
   'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"',
@@ -24,6 +24,16 @@ function serializeImage(image: Image): string {
   return serializeRun(run);
 }
 
+function parseDrawingWithMedia(
+  innerXml: string,
+  rels: RelationshipMap,
+  media: Map<string, MediaFile>
+): Image | null {
+  const doc = parseXml(`<w:drawing ${NS}>${innerXml}</w:drawing>`);
+  const drawing = (doc.elements as XmlElement[])[0];
+  return parseDrawing(drawing, rels, media);
+}
+
 /** Parse the `<w:drawing>` payload out of a serialized `<w:r>...</w:r>` blob. */
 function reparseSerializedImage(xml: string): Image | null {
   const wrapped = `<root ${NS}>${xml}</root>`;
@@ -35,6 +45,52 @@ function reparseSerializedImage(xml: string): Image | null {
 }
 
 describe('wp:srcRect crop round-trip', () => {
+  test('resolves relationship targets with dot segments to word/media entries', () => {
+    const rels: RelationshipMap = new Map([
+      [
+        'rId1',
+        {
+          id: 'rId1',
+          type: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
+          target: '../media/logo.png',
+        },
+      ],
+    ]);
+    const media: Map<string, MediaFile> = new Map([
+      [
+        'word/media/logo.png',
+        {
+          path: 'word/media/logo.png',
+          filename: 'logo.png',
+          mimeType: 'image/png',
+          data: new ArrayBuffer(0),
+          dataUrl: 'data:image/png;base64,AAA',
+        },
+      ],
+    ]);
+
+    const img = parseDrawingWithMedia(
+      `
+      <wp:inline>
+        <wp:extent cx="1000000" cy="500000"/>
+        <wp:docPr id="1" name="Picture 1"/>
+        <a:graphic>
+          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+            <pic:pic>
+              <pic:nvPicPr><pic:cNvPr id="1" name="img"/><pic:cNvPicPr/></pic:nvPicPr>
+              <pic:blipFill><a:blip r:embed="rId1"/></pic:blipFill>
+              <pic:spPr><a:xfrm><a:ext cx="1000000" cy="500000"/></a:xfrm></pic:spPr>
+            </pic:pic>
+          </a:graphicData>
+        </a:graphic>
+      </wp:inline>`,
+      rels,
+      media
+    );
+
+    expect(img?.src).toBe('data:image/png;base64,AAA');
+  });
+
   test('parse a:srcRect with all four sides', () => {
     const img = parseDrawingFromXml(`
       <wp:inline distT="0" distB="0" distL="0" distR="0">

@@ -94,6 +94,26 @@ def _parse_multipart_form(body: bytes, content_type: str) -> tuple[dict, dict]:
     return fields, files
 
 
+def _rasterize_docx_media_to_png(data: bytes, mime_type: str = "", filename: str = "") -> bytes:
+    """Convert a DOCX image payload that Chromium cannot render into PNG bytes."""
+    if not data:
+        raise ValueError("image data is required")
+
+    try:
+        from PIL import Image, ImageSequence  # type: ignore
+    except Exception as exc:
+        raise RuntimeError("Pillow is required to render this DOCX image") from exc
+
+    with Image.open(io.BytesIO(data)) as img:
+        frame = next(ImageSequence.Iterator(img), img)
+        if frame.mode not in ("RGB", "RGBA"):
+            frame = frame.convert("RGBA" if "A" in frame.getbands() else "RGB")
+
+        output = io.BytesIO()
+        frame.save(output, format="PNG")
+        return output.getvalue()
+
+
 OPALATEX_HIDDEN_ARTIFACT_PREFIXES = ("opalatex_partial_",)
 OPALATEX_GIT_EXCLUDE_PATTERNS = ("opalatex_partial_*",)
 LATEX_COMPILE_DEBUG_VERSION = "2026-07-10.1"
@@ -724,6 +744,30 @@ class AsyncHTTPServer:
                     self.send_response(writer, 400, json.dumps(result).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            return
+
+        elif path == '/api/docx/render-media' and method == 'POST':
+            data_b64 = data.get('dataBase64') or data.get('data_base64') or ''
+            mime_type = data.get('mimeType') or data.get('mime') or ''
+            filename = data.get('filename') or 'image'
+            if not data_b64:
+                self.send_response(writer, 400, json.dumps({
+                    "success": False, "error": "dataBase64 is required"
+                }).encode('utf-8'), "application/json")
+                return
+            try:
+                raw = base64.b64decode(data_b64, validate=True)
+                png = _rasterize_docx_media_to_png(raw, str(mime_type), str(filename))
+                self.send_response(writer, 200, json.dumps({
+                    "success": True,
+                    "mime": "image/png",
+                    "data_base64": base64.b64encode(png).decode("utf-8"),
+                }).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 200, json.dumps({
+                    "success": False,
+                    "error": f"Could not render DOCX image '{filename}': {e}",
+                }).encode('utf-8'), "application/json")
             return
 
 

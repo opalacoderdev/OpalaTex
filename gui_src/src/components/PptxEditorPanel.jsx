@@ -1,20 +1,37 @@
 /**
  * PptxEditorPanel
  *
- * Bridge component between the OpalaTex IDE shell (EditorPanel) and the
- * vendored PPTX editor.  Handles fetching the binary file from the server,
- * mounting the editor, and writing saved buffers back.
- *
- * This mirrors DocxEditorPanel.jsx.
+ * Thin bridge between the OpalaTex IDE shell and pptx-react-viewer. The viewer
+ * owns presentation navigation, thumbnails, presentation mode, and editing UI;
+ * this component only loads and saves the binary file through the local server.
  */
-import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Save } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { PptxEditor } from '@pptx-editor/react';
-import '../../vendor/pptx-editor/react/styles/editor.css';
+import { PowerPointViewer, vermilionDarkTheme, vermilionLightTheme } from 'pptx-react-viewer';
+import 'pptx-react-viewer/styles';
 
 const PPTX_MIME =
   'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+const HIDDEN_VIEWER_ACTIONS = [
+  'file',
+  'share',
+  'broadcast',
+  'record',
+  'export',
+  'notes',
+  'fullscreen',
+  'help',
+  'insert',
+  'draw',
+  'design',
+  'transitions',
+  'animations',
+  'slideShow',
+  'review',
+  'view',
+];
 
 export default function PptxEditorPanel({
   activeProject,
@@ -27,8 +44,10 @@ export default function PptxEditorPanel({
   const [loadError, setLoadError] = useState('');
   const [status, setStatus] = useState('');
   const [docVersion, setDocVersion] = useState(0);
+  const viewerRef = useRef(null);
+  const saveTimerRef = useRef(null);
+  const latestContentRef = useRef(null);
 
-  // ── Load the PPTX binary ────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     setDocumentBuffer(undefined);
@@ -66,16 +85,33 @@ export default function PptxEditorPanel({
     };
   }, [activeProject?.project_path, selectedFile, t]);
 
-  // ── Save handler ────────────────────────────────────────────────────────
-  const handleSave = useCallback(
-    async (buffer) => {
-      if (!activeProject?.project_path || !selectedFile || !buffer) return;
+  useEffect(() => {
+    if (!documentBuffer) return undefined;
+    let cancelled = false;
 
-      const blob =
-        buffer instanceof Blob
-          ? buffer
-          : new Blob([buffer], { type: PPTX_MIME });
+    const settleViewer = () => {
+      if (cancelled) return;
+      viewerRef.current?.setMode?.('edit');
+      viewerRef.current?.goTo?.(0);
+    };
 
+    const timer = window.setTimeout(settleViewer, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [documentBuffer, docVersion]);
+
+  const handleSave = useCallback(async (bufferOverride) => {
+    if (!activeProject?.project_path || !selectedFile) return;
+
+    setStatus(t('pptxEditor.saving', 'Saving presentation...'));
+
+    try {
+      const buffer = bufferOverride || await viewerRef.current?.getContent?.();
+      if (!buffer) throw new Error('The presentation viewer did not return file content.');
+
+      const blob = new Blob([buffer], { type: PPTX_MIME });
       const form = new FormData();
       form.append('projectPath', activeProject.project_path);
       form.append('filePath', selectedFile);
@@ -93,27 +129,43 @@ export default function PptxEditorPanel({
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || `HTTP ${response.status}`);
       }
-      onSaved?.(selectedFile);
-    },
-    [activeProject?.project_path, selectedFile, onSaved],
-  );
 
-  // ── Error handler ───────────────────────────────────────────────────────
-  const handleError = useCallback(
-    (error) => {
-      const msg = error instanceof Error ? error.message : String(error);
-      setStatus(
-        t('pptxEditor.editorError', 'Presentation editor error: {{error}}', {
-          error: msg,
-        }),
-      );
-    },
-    [t],
-  );
+      setStatus(t('pptxEditor.saved', 'Presentation saved.'));
+      setTimeout(() => setStatus(''), 2000);
+      onSaved?.(selectedFile);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus(t('pptxEditor.saveFailed', 'Could not save presentation: {{error}}', { error: message }));
+    }
+  }, [activeProject?.project_path, selectedFile, onSaved, t]);
+
+  const scheduleSave = useCallback((content) => {
+    if (!(content instanceof Uint8Array)) return;
+    latestContentRef.current = content;
+
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      handleSave(latestContentRef.current);
+    }, 900);
+  }, [handleSave]);
+
+  useEffect(() => () => {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+  }, []);
 
   const colorMode = theme === 'light' ? 'light' : 'dark';
+  const fileName = selectedFile?.replace(/\\/g, '/').split('/').pop() || 'presentation.pptx';
+  const viewerTheme = colorMode === 'light' ? vermilionLightTheme : vermilionDarkTheme;
+  const viewerContent = useMemo(() => (
+    documentBuffer ? new Uint8Array(documentBuffer) : null
+  ), [documentBuffer]);
 
-  // ── Render states ───────────────────────────────────────────────────────
   if (loadError) {
     return (
       <div className="pptx-editor-host pptx-editor-error">
@@ -130,20 +182,28 @@ export default function PptxEditorPanel({
     return (
       <div className="pptx-editor-host pptx-editor-loading">
         <RefreshCw size={18} className="animate-spin" />
-        <span>
-          {status || t('pptxEditor.loading', 'Loading presentation...')}
-        </span>
+        <span>{status || t('pptxEditor.loading', 'Loading presentation...')}</span>
       </div>
     );
   }
 
   return (
-    <PptxEditor
-      key={docVersion}
-      documentBuffer={documentBuffer}
-      colorMode={colorMode}
-      onSave={handleSave}
-      onError={handleError}
-    />
+    <div className={`opalatex-pptx-viewer-host ${colorMode}`}>
+      <div className="opalatex-pptx-viewer-frame">
+        <PowerPointViewer
+          key={docVersion}
+          ref={viewerRef}
+          content={viewerContent}
+          filePath={selectedFile}
+          fileName={fileName}
+          canEdit
+          theme={viewerTheme}
+          onDirtyChange={() => {}}
+          onContentChange={scheduleSave}
+          onOpenFile={() => {}}
+          hiddenActions={HIDDEN_VIEWER_ACTIONS}
+        />
+      </div>
+    </div>
   );
 }

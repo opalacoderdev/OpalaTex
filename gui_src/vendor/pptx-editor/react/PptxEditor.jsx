@@ -12,6 +12,7 @@ import { parsePptx, serializePptx, createBlankSlide } from '@pptx-editor/core';
 import SlideCanvas from './components/SlideCanvas';
 import SlideThumbnailSidebar from './components/SlideThumbnailSidebar';
 import SlideToolbar from './components/SlideToolbar';
+import LayoutsPanel from './components/LayoutsPanel';
 
 // Maximum number of undo snapshots to keep
 const MAX_UNDO_HISTORY = 50;
@@ -62,6 +63,7 @@ export default function PptxEditor({
   const [status, setStatus] = useState('');
   const [zoom, setZoom] = useState(1);
   const [isPresenting, setIsPresenting] = useState(false);
+  const [layoutsPanelVisible, setLayoutsPanelVisible] = useState(false);
 
   // Undo/redo
   const [undoStack, setUndoStack] = useState([]);
@@ -508,6 +510,52 @@ export default function PptxEditor({
     }
   }, []);
 
+  // ── Layout Management ───────────────────────────────────────────────────
+  const applyLayout = useCallback((layout) => {
+    if (!presentation || !currentSlide) return;
+    pushUndo();
+
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[selectedSlideIndex] = {
+      ...currentSlide,
+      layoutPath: layout.path,
+      layoutElements: JSON.parse(JSON.stringify(layout.elements || [])),
+      layoutBackground: layout.background,
+      rawXml: undefined,
+    };
+
+    setPresentation((prev) => ({ ...prev, slides: updatedSlides }));
+    setModifiedSlides((prev) => new Set([...prev, selectedSlideIndex]));
+    setStatus(`Layout applied: ${layout.name}`);
+    setTimeout(() => setStatus(''), 2000);
+  }, [presentation, currentSlide, selectedSlideIndex, pushUndo]);
+
+  const insertSlideFromLayout = useCallback((layout) => {
+    if (!presentation) return;
+    pushUndo();
+    const idx = selectedSlideIndex + 1;
+    const newSlide = {
+      number: idx + 1,
+      xmlPath: `ppt/slides/slide${idx + 1}.xml`,
+      relsPath: `ppt/slides/_rels/slide${idx + 1}.xml.rels`,
+      layoutPath: layout.path,
+      layoutElements: JSON.parse(JSON.stringify(layout.elements || [])),
+      layoutBackground: layout.background,
+      elements: [],
+      rawXml: undefined,
+    };
+    const updatedSlides = [...presentation.slides];
+    updatedSlides.splice(idx, 0, newSlide);
+    updatedSlides.forEach((s, i) => { s.number = i + 1; });
+    setPresentation((prev) => ({ ...prev, slides: updatedSlides }));
+    setSelectedSlideIndex(idx);
+    setSelectedElementId(null);
+    setEditingElementId(null);
+    setModifiedSlides((prev) => new Set([...prev, idx]));
+    setStatus(`New slide from layout: ${layout.name}`);
+    setTimeout(() => setStatus(''), 2000);
+  }, [presentation, selectedSlideIndex, pushUndo]);
+
   // ── Save ─────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!presentation || !onSave) return;
@@ -625,6 +673,7 @@ export default function PptxEditor({
         onAlignRight={() => setParagraphAlignment('right')}
         onZoomIn={zoomIn}
         onZoomOut={zoomOut}
+        onToggleLayouts={() => setLayoutsPanelVisible((v) => !v)}
         onPresenterMode={startPresenterMode}
         status={status}
       />
@@ -654,6 +703,17 @@ export default function PptxEditor({
           onTextChange={handleTextChange}
           onElementResize={handleElementResize}
           zoom={zoom}
+        />
+
+        <LayoutsPanel
+          layouts={presentation.availableLayouts || []}
+          presentationSize={presentation.size}
+          mediaCache={presentation.mediaCache}
+          currentLayoutPath={currentSlide?.layoutPath}
+          onApplyLayout={applyLayout}
+          onInsertSlideFromLayout={insertSlideFromLayout}
+          visible={layoutsPanelVisible}
+          onToggle={() => setLayoutsPanelVisible((v) => !v)}
         />
       </div>
 

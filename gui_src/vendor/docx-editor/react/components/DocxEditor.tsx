@@ -57,6 +57,7 @@ import { type InlineHeaderFooterEditorRef } from './InlineHeaderFooterEditor';
 import { DocumentAgent } from '@docx-editor.dev/core/agent';
 import { DefaultLoadingIndicator, DefaultPlaceholder, ParseError } from './DocxEditorHelpers';
 import { type DocxInput } from '@docx-editor.dev/core/utils';
+import type { MediaResolver } from '@docx-editor.dev/core/docx';
 import type { FontDefinition, ScrollToParaIdOptions } from '@docx-editor.dev/core/utils';
 import { useFontLifecycle } from '../hooks/useFontLifecycle';
 import { useTableSelection } from '../hooks/useTableSelection';
@@ -111,6 +112,8 @@ export interface DocxEditorProps {
   documentBuffer?: DocxInput | null;
   /** Pre-parsed document (alternative to documentBuffer) */
   document?: Document | null;
+  /** Optional host hook for converting non-browser-renderable DOCX media. */
+  mediaResolver?: MediaResolver;
   /** Callback when document is saved */
   onSave?: (buffer: ArrayBuffer) => void;
   /**
@@ -591,6 +594,7 @@ export const DocxEditor = forwardRef<DocxEditorRef, DocxEditorProps>(function Do
   {
     documentBuffer,
     document: initialDocument,
+    mediaResolver,
     onSave,
     onOpen,
     author = 'User',
@@ -908,6 +912,7 @@ export const DocxEditor = forwardRef<DocxEditorRef, DocxEditorProps>(function Do
     commentsLoadedRef,
     commentIdAllocator: commentIdAllocatorRef.current,
     setDocumentFonts,
+    mediaResolver,
   });
 
   const initialSectionProperties = getInitialSectionProperties(history.state);

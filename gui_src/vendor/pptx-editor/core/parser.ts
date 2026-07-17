@@ -28,6 +28,7 @@ import type {
   Slide,
   SlideBackground,
   SlideElement,
+  SlideLayoutInfo,
   SlideRelationship,
   TableCell,
   TableElement,
@@ -838,6 +839,8 @@ async function resolveMediaCache(
 
   for (const slide of slides) {
     collectMediaPaths(slide.elements, pathsNeeded);
+    if (slide.layoutElements) collectMediaPaths(slide.layoutElements, pathsNeeded);
+    if (slide.masterElements) collectMediaPaths(slide.masterElements, pathsNeeded);
   }
 
   await Promise.all(
@@ -960,12 +963,96 @@ export async function parsePptx(buffer: ArrayBuffer): Promise<Presentation> {
     }
 
     let layoutPlaceholders: Map<string, PlaceholderLayout> | undefined;
-    const layoutTarget = Array.from(relsMap.values()).find((target) => target.includes('slideLayout'));
-    if (layoutTarget) {
-      const layoutPath = normalizeZipPath(xmlPath, layoutTarget);
+    let layoutPath: string | undefined;
+    let layoutRId: string | undefined;
+    let layoutElements: SlideElement[] | undefined;
+    let layoutBackground: SlideBackground | undefined;
+    let layoutRelsMap: Map<string, string> = new Map();
+
+    // Find the layout relationship entry (type slideLayout)
+    for (const [rId, target] of relsMap) {
+      if (target.includes('slideLayout')) {
+        layoutRId = rId;
+        layoutPath = normalizeZipPath(xmlPath, target);
+        break;
+      }
+    }
+
+    if (layoutPath) {
       const layoutFile = zip.file(layoutPath);
       if (layoutFile) {
-        layoutPlaceholders = collectLayoutPlaceholders(parseXml(await layoutFile.async('string')));
+        const layoutXml = await layoutFile.async('string');
+        const layoutDoc = parseXml(layoutXml);
+        layoutPlaceholders = collectLayoutPlaceholders(layoutDoc);
+
+        // Read layout relationships for image resolution
+        const layoutRelsPath = layoutPath.replace(
+          /^(ppt\/slideLayouts\/)(slideLayout\d+\.xml)$/,
+          '$1_rels/$2.rels',
+        );
+        const layoutRelsFile = zip.file(layoutRelsPath);
+        if (layoutRelsFile) {
+          layoutRelsMap = parseRelationships(await layoutRelsFile.async('string'));
+        }
+
+        // Parse visual elements (non-placeholder shapes, pictures, groups) from layout
+        const layoutSpTree = qFirst(layoutDoc, 'spTree');
+        if (layoutSpTree) {
+          layoutElements = parseSlideElements(layoutSpTree, layoutRelsMap, undefined, size);
+        }
+        layoutBackground = parseSlideBackground(layoutDoc);
+      }
+    }
+
+    // Parse slide master for additional visual elements and background
+    let masterPath: string | undefined;
+    let masterRId: string | undefined;
+    let masterElements: SlideElement[] | undefined;
+    let masterBackground: SlideBackground | undefined;
+    let masterRelsMap: Map<string, string> = new Map();
+
+    if (layoutPath) {
+      const layoutRelsFile = zip.file(
+        layoutPath.replace(
+          /^(ppt\/slideLayouts\/)(slideLayout\d+\.xml)$/,
+          '$1_rels/$2.rels',
+        ),
+      );
+      if (layoutRelsFile) {
+        const layoutRelsXml = await layoutRelsFile.async('string');
+        const layoutRelsParsed = parseRelationships(layoutRelsXml);
+        for (const [rId, target] of layoutRelsParsed) {
+          if (target.includes('slideMaster')) {
+            masterRId = rId;
+            masterPath = normalizeZipPath(layoutPath, target);
+            break;
+          }
+        }
+      }
+    }
+
+    if (masterPath) {
+      const masterFile = zip.file(masterPath);
+      if (masterFile) {
+        const masterXml = await masterFile.async('string');
+        const masterDoc = parseXml(masterXml);
+
+        // Read master relationships for image resolution
+        const masterRelsPath = masterPath.replace(
+          /^(ppt\/slideMasters\/)(slideMaster\d+\.xml)$/,
+          '$1_rels/$2.rels',
+        );
+        const masterRelsFile = zip.file(masterRelsPath);
+        if (masterRelsFile) {
+          masterRelsMap = parseRelationships(await masterRelsFile.async('string'));
+        }
+
+        // Parse visual elements from master (background shapes, images, etc.)
+        const masterSpTree = qFirst(masterDoc, 'spTree');
+        if (masterSpTree) {
+          masterElements = parseSlideElements(masterSpTree, masterRelsMap, undefined, size);
+        }
+        masterBackground = parseSlideBackground(masterDoc);
       }
     }
 
@@ -982,6 +1069,14 @@ export async function parsePptx(buffer: ArrayBuffer): Promise<Presentation> {
       number: i + 1,
       xmlPath,
       relsPath,
+      layoutRId,
+      layoutPath,
+      masterRId,
+      masterPath,
+      layoutElements,
+      masterElements,
+      layoutBackground,
+      masterBackground,
       elements: normalizedElements,
       background,
       rawXml: slideXml,
@@ -994,12 +1089,18 @@ export async function parsePptx(buffer: ArrayBuffer): Promise<Presentation> {
   // Assign data URIs to picture elements
   for (const slide of slides) {
     assignDataUris(slide.elements, mediaCache);
+    if (slide.layoutElements) assignDataUris(slide.layoutElements, mediaCache);
+    if (slide.masterElements) assignDataUris(slide.masterElements, mediaCache);
   }
+
+  // 6. Collect all available slide layouts for the layouts panel
+  const availableLayouts = await collectAvailableLayouts(zip, size, mediaCache);
 
   return {
     size,
     slides,
     mediaCache,
+    availableLayouts,
     zipInstance: zip,
   };
 }
@@ -1015,4 +1116,92 @@ function assignDataUris(
       assignDataUris(el.children, mediaCache);
     }
   }
+}
+
+// ── Available Layouts Collection ─────────────────────────────────────────────
+
+/**
+ * Scan the ZIP for all slideLayout*.xml files and parse their visual elements
+ * so the editor can show a "Layouts" panel (like Google Slides' layout picker).
+ */
+async function collectAvailableLayouts(
+  zip: JSZip,
+  presentationSize: PresentationSize,
+  mediaCache: Record<string, string>,
+): Promise<SlideLayoutInfo[]> {
+  const layoutPaths = Object.keys(zip.files)
+    .filter((f) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(f))
+    .sort((a, b) => {
+      const numA = parseInt(a.match(/slideLayout(\d+)/)?.[1] ?? '0', 10);
+      const numB = parseInt(b.match(/slideLayout(\d+)/)?.[1] ?? '0', 10);
+      return numA - numB;
+    });
+
+  const layouts: SlideLayoutInfo[] = [];
+
+  for (const layoutPath of layoutPaths) {
+    const layoutFile = zip.file(layoutPath);
+    if (!layoutFile) continue;
+
+    const layoutXml = await layoutFile.async('string');
+    const layoutDoc = parseXml(layoutXml);
+
+    // Extract display name from cNvPr
+    const spTree = qFirst(layoutDoc, 'spTree');
+    const cNvPr = spTree ? qFirst(spTree, 'cNvPr') : null;
+    const name = cNvPr ? (attr(cNvPr, 'name') ?? 'Layout') : 'Layout';
+
+    // Read layout relationships for image resolution
+    const layoutRelsPath = layoutPath.replace(
+      /^(ppt\/slideLayouts\/)(slideLayout\d+\.xml)$/,
+      '$1_rels/$2.rels',
+    );
+    const layoutRelsFile = zip.file(layoutRelsPath);
+    let layoutRelsMap = new Map<string, string>();
+    if (layoutRelsFile) {
+      layoutRelsMap = parseRelationships(await layoutRelsFile.async('string'));
+    }
+
+    // Parse visual elements from the layout
+    let elements: SlideElement[] = [];
+    if (spTree) {
+      elements = parseSlideElements(spTree, layoutRelsMap, undefined, presentationSize);
+    }
+
+    // Find the master path for this layout
+    let masterPath: string | undefined;
+    for (const [, target] of layoutRelsMap) {
+      if (target.includes('slideMaster')) {
+        masterPath = normalizeZipPath(layoutPath, target);
+        break;
+      }
+    }
+
+    // Resolve media for layout elements
+    const layoutMediaPaths = new Set<string>();
+    collectMediaPaths(elements, layoutMediaPaths);
+    for (const mediaPath of layoutMediaPaths) {
+      if (!mediaCache[mediaPath]) {
+        const file = zip.file(mediaPath);
+        if (file) {
+          const blob = await file.async('blob');
+          const mime = guessMimeType(mediaPath);
+          mediaCache[mediaPath] = await blobToDataUri(blob, mime);
+        }
+      }
+    }
+    assignDataUris(elements, mediaCache);
+
+    const background = parseSlideBackground(layoutDoc);
+
+    layouts.push({
+      path: layoutPath,
+      name,
+      elements,
+      background,
+      masterPath,
+    });
+  }
+
+  return layouts;
 }

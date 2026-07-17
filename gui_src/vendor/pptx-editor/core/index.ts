@@ -19,6 +19,7 @@ export type {
   Slide,
   SlideBackground,
   SlideElement,
+  SlideLayoutInfo,
   SlideRelationship,
   SolidFill,
   TableCell,

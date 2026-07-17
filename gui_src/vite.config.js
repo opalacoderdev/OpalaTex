@@ -90,6 +90,14 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            if (
+              id.includes('pptx-react-viewer')
+              || id.includes('pptx-viewer')
+              || id.includes('html2canvas-pro')
+              || id.includes('jspdf')
+            ) {
+              return 'vendor-pptx-viewer';
+            }
             if (id.includes('react') || id.includes('react-dom')) {
               return 'vendor-react';
             }

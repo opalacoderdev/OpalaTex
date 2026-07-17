@@ -24,6 +24,7 @@ import {
   Redo2,
   Minus,
   Plus,
+  LayoutTemplate,
 } from 'lucide-react';
 
 export default function SlideToolbar({
@@ -49,6 +50,7 @@ export default function SlideToolbar({
   onPresenterMode,
   onZoomIn,
   onZoomOut,
+  onToggleLayouts,
   status,
 }) {
   const fileInputRef = useRef(null);
@@ -181,6 +183,15 @@ export default function SlideToolbar({
         </button>
         <button className="pptx-toolbar-btn" onClick={onZoomIn} title="Zoom In">
           <Plus size={16} />
+        </button>
+      </div>
+
+      <div className="pptx-toolbar-separator" />
+
+      {/* Layouts */}
+      <div className="pptx-toolbar-group">
+        <button className="pptx-toolbar-btn" onClick={onToggleLayouts} title="Toggle Layouts Panel">
+          <LayoutTemplate size={16} />
         </button>
       </div>
 

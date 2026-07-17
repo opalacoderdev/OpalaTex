@@ -336,8 +336,16 @@ function findPictureTransform(container: XmlElement): XmlElement | null {
 function normalizeMediaPath(targetPath: string): string {
   if (!targetPath) return targetPath;
 
-  // Remove leading slashes
-  let normalized = targetPath.replace(/^\/+/, '');
+  // Relationship targets are relative paths. Some producers emit
+  // "../media/foo.png" or "./media/foo.png"; normalize those into the package's
+  // canonical media folder so we can match the ZIP entries.
+  let normalized = targetPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  while (normalized.startsWith('./')) {
+    normalized = normalized.slice(2);
+  }
+  while (normalized.startsWith('../')) {
+    normalized = normalized.slice(3);
+  }
 
   // Ensure word/ prefix for media files
   if (normalized.startsWith('media/')) {
@@ -431,7 +439,7 @@ export function resolveImageData(
     }
 
     // Try without word/ prefix
-    const altPath = targetPath.replace(/^\/+/, '');
+    const altPath = normalizedPath.replace(/^word\//, '');
     const altMediaFile = findMediaCaseInsensitive(media, altPath);
     if (altMediaFile) {
       return {
@@ -442,7 +450,7 @@ export function resolveImageData(
     }
 
     // Try with word/ prefix added
-    const withWordPrefix = `word/${altPath}`;
+    const withWordPrefix = altPath.startsWith('word/') ? altPath : `word/${altPath}`;
     const prefixedMediaFile = findMediaCaseInsensitive(media, withWordPrefix);
     if (prefixedMediaFile) {
       return {
