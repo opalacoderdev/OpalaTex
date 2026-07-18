@@ -253,6 +253,8 @@ export interface PowerPointViewerProps {
 	onContentChange?: (content: Uint8Array) => void;
 	/** Callback invoked when built-in autosave serializes recovery bytes. */
 	onAutosaveContent?: (content: Uint8Array) => void | Promise<void>;
+	/** Host override for the title-bar quick Save action. */
+	onSave?: () => void | Promise<void>;
 	/** Callback when active slide changes */
 	onActiveSlideChange?: (slideIndex: number) => void;
 	/** Callback when the viewer mode changes (e.g. edit to present). */

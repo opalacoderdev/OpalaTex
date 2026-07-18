@@ -141,6 +141,7 @@ export interface ViewerToolbarSectionProps {
 	autosaveStatus?: AutosaveStatus;
 	autosaveEnabled?: boolean;
 	onToggleAutosave?: () => void;
+	onSave?: () => void | Promise<void>;
 	/** Host-supplied list of toolbar buttons/ribbon tabs to hide. */
 	hiddenActions?: ToolbarActionId[];
 }
@@ -180,6 +181,7 @@ export function ViewerToolbarSection(props: ViewerToolbarSectionProps) {
 		autosaveStatus,
 		autosaveEnabled = true,
 		onToggleAutosave,
+		onSave,
 		hiddenActions,
 	} = props;
 
@@ -390,7 +392,7 @@ export function ViewerToolbarSection(props: ViewerToolbarSectionProps) {
 					redoLabel={history.redoLabel}
 					onUndo={history.handleUndo}
 					onRedo={history.handleRedo}
-					onSave={exportHandlers.handleSaveAsPptx}
+					onSave={onSave ?? exportHandlers.handleSaveAsPptx}
 					findReplaceOpen={findReplace.findReplaceOpen}
 					onToggleFindReplace={() => findReplace.setFindReplaceOpen(!findReplace.findReplaceOpen)}
 					onCommandSearch={handleCommandSearch}

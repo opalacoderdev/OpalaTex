@@ -29,8 +29,8 @@ export interface TitleBarProps {
 	redoLabel?: string | null;
 	onUndo: () => void;
 	onRedo: () => void;
-	/** Quick-access save (downloads the .pptx). */
-	onSave?: () => void;
+	/** Quick-access save. */
+	onSave?: () => void | Promise<void>;
 	findReplaceOpen: boolean;
 	onToggleFindReplace: () => void;
 	/** Dispatch a command from the search palette. */
@@ -134,7 +134,7 @@ export function TitleBar(p: TitleBarProps): React.ReactElement {
 
 					<div className={TB.separator} />
 
-					{p.onSave && (
+					{p.onSave && !isHidden('save') && (
 						<button
 							type='button'
 							onClick={p.onSave}

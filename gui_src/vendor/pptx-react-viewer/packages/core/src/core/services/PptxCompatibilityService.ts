@@ -102,6 +102,10 @@ export class PptxCompatibilityService implements IPptxCompatibilityService {
 
 		this.warnings.push(normalizedWarning);
 
+		if (normalizedWarning.code === 'SAVE_IMAGE_PAYLOAD_UNSUPPORTED') {
+			return;
+		}
+
 		const scopeToken = normalizedWarning.slideId
 			? `slide=${normalizedWarning.slideId}`
 			: 'presentation';

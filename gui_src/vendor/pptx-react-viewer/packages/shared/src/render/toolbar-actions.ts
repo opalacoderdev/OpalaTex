@@ -20,6 +20,7 @@
  * in it, matching how hosts actually want to hide/keep them as a unit.
  */
 export type ToolbarButtonId =
+	| 'save'
 	| 'share'
 	| 'broadcast'
 	| 'export'

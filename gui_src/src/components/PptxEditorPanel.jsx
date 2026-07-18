@@ -206,6 +206,7 @@ const PptxEditorPanel = forwardRef(function PptxEditorPanel({
           theme={viewerTheme}
           onDirtyChange={() => {}}
           onAutosaveContent={handleAutosaveContent}
+          onSave={() => handleSave()}
           autosaveEnabled={autosaveEnabled}
           autosaveIntervalSeconds={5}
           onAutosaveEnabledChange={setAutosaveEnabled}

@@ -91,6 +91,7 @@ export const PowerPointViewer = forwardRef<PowerPointViewerHandle, PowerPointVie
 			canEdit = false,
 			onContentChange,
 			onAutosaveContent,
+			onSave: hostSave,
 			onDirtyChange,
 			onActiveSlideChange,
 			onModeChange,
@@ -513,6 +514,7 @@ export const PowerPointViewer = forwardRef<PowerPointViewerHandle, PowerPointVie
 									autosaveStatus={autosaveStatus}
 									autosaveEnabled={autosaveEnabled}
 									onToggleAutosave={handleToggleAutosave}
+									onSave={hostSave}
 									hiddenActions={hiddenActions}
 								/>
 							)}

@@ -943,15 +943,17 @@ export default function EditorPanel({
               {isInstallingTectonic ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
             </button>
           )}
-          <button
-            onClick={saveFile}
-            disabled={isSaving}
-            className="vscode-button"
-            title={t('editorPanel.save')}
-            aria-label={t('editorPanel.save')}
-          >
-            {isSaving ? <Save size={12} className="save-pulse" /> : <Save size={12} />}
-          </button>
+          {!isPptxFile && (
+            <button
+              onClick={saveFile}
+              disabled={isSaving}
+              className="vscode-editor-action-btn"
+              title={t('editorPanel.save')}
+              aria-label={t('editorPanel.save')}
+            >
+              {isSaving ? <Save size={12} className="save-pulse" /> : <Save size={12} />}
+            </button>
+          )}
 
           <button
             onClick={() => setIsDiffMode(!isDiffMode)}
