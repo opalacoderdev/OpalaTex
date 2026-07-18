@@ -38,6 +38,15 @@ eggs/
 .eggs/
 lib/
 lib64/
+!/gui_src/vendor/docx-editor/react/lib/
+/gui_src/vendor/docx-editor/react/lib/*
+!/gui_src/vendor/docx-editor/react/lib/utils.ts
+!/gui_src/vendor/pptx-react-viewer/packages/react/src/lib/
+/gui_src/vendor/pptx-react-viewer/packages/react/src/lib/*
+!/gui_src/vendor/pptx-react-viewer/packages/react/src/lib/canvas-export.ts
+!/gui_src/vendor/pptx-react-viewer/packages/react/dist/
+/gui_src/vendor/pptx-react-viewer/packages/react/dist/*
+!/gui_src/vendor/pptx-react-viewer/packages/react/dist/pptx-viewer.css
 parts/
 sdist/
 var/
