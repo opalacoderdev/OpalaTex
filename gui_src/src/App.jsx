@@ -365,6 +365,7 @@ export default function App() {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const saveFileRef = useRef(null);
+  const binarySaveHandlerRef = useRef(null);
   const diskFileContentsRef = useRef({});
   const importFileInputRef = useRef(null);
   const importTargetPathRef = useRef('');
@@ -1292,8 +1293,10 @@ export default function App() {
   const saveFile = async ({ suppressCompile = false } = {}) => {
     if (!activeProject || !selectedFile) return false;
     if (isBinaryEditorFile(selectedFile)) {
-      addLog('info', t('app.binaryFileSaveHandledByEditor', { path: selectedFile, defaultValue: 'Binary file save is handled by its editor: {{path}}' }));
-      return true;
+      const saved = await binarySaveHandlerRef.current?.();
+      if (saved) return true;
+      addLog('error', t('app.fileSaveFailedPath', { path: selectedFile }));
+      return false;
     }
     setIsSaving(true);
     try {
@@ -2985,6 +2988,9 @@ export default function App() {
                 addLog('info', t('app.fileSaved', { path: filePath }));
                 fetchGitStatus();
                 fetchProblems();
+              }}
+              onRegisterBinarySave={(handler) => {
+                binarySaveHandlerRef.current = handler;
               }}
             />
           )}

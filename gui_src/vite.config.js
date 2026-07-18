@@ -6,6 +6,18 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function packageNameFromId(id) {
+  const normalized = id.replace(/\\/g, '/');
+  const marker = '/node_modules/';
+  const index = normalized.lastIndexOf(marker);
+  if (index === -1) return '';
+  const parts = normalized.slice(index + marker.length).split('/');
+  if (parts[0]?.startsWith('@')) {
+    return `${parts[0]}/${parts[1] || ''}`;
+  }
+  return parts[0] || '';
+}
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -64,12 +76,56 @@ export default defineConfig({
       },
       // ── PPTX Editor (vendored) ──
       {
-        find: /^@pptx-editor\/react$/,
-        replacement: path.resolve(__dirname, 'vendor/pptx-editor/react/index.ts'),
+        find: /^pptx-react-viewer$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/react/src/index.ts'),
       },
       {
-        find: /^@pptx-editor\/core$/,
-        replacement: path.resolve(__dirname, 'vendor/pptx-editor/core/index.ts'),
+        find: /^pptx-react-viewer\/i18n$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/react/src/i18n.ts'),
+      },
+      {
+        find: /^pptx-react-viewer\/styles$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/react/dist/pptx-viewer.css'),
+      },
+      {
+        find: /^pptx-react-viewer\/styles\.css$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/react/dist/pptx-viewer.css'),
+      },
+      {
+        find: /^pptx-react-viewer\/theme\.css$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/react/src/styles/theme.css'),
+      },
+      {
+        find: /^pptx-viewer-core$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/core/src/index.ts'),
+      },
+      {
+        find: /^pptx-viewer-core\/converter$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/core/src/converter/index.ts'),
+      },
+      {
+        find: /^pptx-viewer-core\/signature-node$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/core/src/signature-node/index.ts'),
+      },
+      {
+        find: /^pptx-viewer-shared$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/shared/src/index.ts'),
+      },
+      {
+        find: /^pptx-viewer-shared\/i18n$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/shared/src/i18n/index.ts'),
+      },
+      {
+        find: /^pptx-viewer-shared\/theme$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/shared/src/theme/index.ts'),
+      },
+      {
+        find: /^pptx-viewer-shared\/loader$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/shared/src/loader/index.ts'),
+      },
+      {
+        find: /^pptx-viewer-shared\/smartart-3d$/,
+        replacement: path.resolve(__dirname, 'vendor/pptx-react-viewer/packages/shared/src/smartart-3d/index.ts'),
       },
     ],
   },
@@ -85,18 +141,44 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, '../opalatex/gui'),
     emptyOutDir: true,
-    chunkSizeWarningLimit: 1500,
+    chunkSizeWarningLimit: 2200,
     rollupOptions: {
       output: {
         manualChunks(id) {
+          const normalized = id.replace(/\\/g, '/');
+
+          if (normalized.includes('/vendor/pptx-react-viewer/packages/react/src/')) {
+            return 'vendor-pptx-viewer-source';
+          }
+          if (normalized.includes('/vendor/pptx-react-viewer/packages/core/src/')) {
+            return 'vendor-pptx-core-source';
+          }
+          if (normalized.includes('/vendor/pptx-react-viewer/packages/shared/src/')) {
+            return 'vendor-pptx-shared-source';
+          }
+
           if (id.includes('node_modules')) {
+            const packageName = packageNameFromId(id);
+
             if (
-              id.includes('pptx-react-viewer')
-              || id.includes('pptx-viewer')
-              || id.includes('html2canvas-pro')
-              || id.includes('jspdf')
+              packageName === 'html2canvas-pro'
+              || packageName === 'jspdf'
             ) {
-              return 'vendor-pptx-viewer';
+              return 'vendor-pptx-export';
+            }
+            if (
+              packageName === 'jszip'
+              || packageName === 'fast-xml-parser'
+            ) {
+              return 'vendor-pptx-io';
+            }
+            if (
+              packageName === 'yjs'
+              || packageName === 'y-webrtc'
+              || packageName === 'y-websocket'
+              || packageName === 'lib0'
+            ) {
+              return 'vendor-pptx-collaboration';
             }
             if (id.includes('react') || id.includes('react-dom')) {
               return 'vendor-react';

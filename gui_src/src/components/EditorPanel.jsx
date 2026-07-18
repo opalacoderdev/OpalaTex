@@ -48,6 +48,7 @@ export default function EditorPanel({
   setJumpToLine,
   triggerCompileRequest,
   onBinaryFileSaved,
+  onRegisterBinarySave,
 }) {
   const { t } = useTranslation();
   const [isDiffMode, setIsDiffMode] = useState(false);
@@ -63,6 +64,8 @@ export default function EditorPanel({
   const pendingEditorLineRef = useRef(null);
   const richTextSourceLineRef = useRef(1);
   const documentActionsMenuRef = useRef(null);
+  const docxEditorRef = useRef(null);
+  const pptxEditorRef = useRef(null);
   
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
   const isDocxFile = selectedFile && selectedFile.toLowerCase().endsWith('.docx');
@@ -74,6 +77,21 @@ export default function EditorPanel({
   };
   const isTexFile = isTexRelatedFile(selectedFile);
   const isNormalLatexEditor = isTexFile && !isRichTextMode && !isLatexPreviewMode && !isPreviewMode;
+
+  const saveBinaryEditor = useCallback(() => {
+    if (isDocxFile) return docxEditorRef.current?.save?.() || false;
+    if (isPptxFile) return pptxEditorRef.current?.save?.() || false;
+    return false;
+  }, [isDocxFile, isPptxFile]);
+
+  useEffect(() => {
+    if (isDocxFile || isPptxFile) {
+      onRegisterBinarySave?.(saveBinaryEditor);
+      return () => onRegisterBinarySave?.(null);
+    }
+    onRegisterBinarySave?.(null);
+    return undefined;
+  }, [isDocxFile, isPptxFile, onRegisterBinarySave, saveBinaryEditor, selectedFile]);
 
   const updateEditorFontSize = useCallback((updater) => {
     if (!setEditorFontSize) return;
@@ -1145,6 +1163,7 @@ export default function EditorPanel({
             )}
           >
             <DocxEditorPanel
+              ref={docxEditorRef}
               activeProject={activeProject}
               selectedFile={selectedFile}
               theme={theme}
@@ -1161,6 +1180,7 @@ export default function EditorPanel({
             )}
           >
             <PptxEditorPanel
+              ref={pptxEditorRef}
               activeProject={activeProject}
               selectedFile={selectedFile}
               theme={theme}

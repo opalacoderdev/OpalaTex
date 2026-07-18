@@ -1,0 +1,115 @@
+{
+	"name": "pptx-react-viewer",
+	"version": "1.21.0",
+	"description": "React PowerPoint viewer and editor component: render, edit, and export PPTX slides in the browser.",
+	"keywords": [
+		"editor",
+		"export",
+		"office",
+		"openxml",
+		"powerpoint",
+		"ppt",
+		"pptx",
+		"presentation",
+		"react",
+		"react-component",
+		"slides",
+		"slideshow",
+		"viewer"
+	],
+	"homepage": "https://github.com/ChristopherVR/pptx-viewer",
+	"bugs": {
+		"url": "https://github.com/ChristopherVR/pptx-viewer/issues"
+	},
+	"license": "Apache-2.0",
+	"author": "ChristopherVR",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/ChristopherVR/pptx-viewer.git",
+		"directory": "packages/react"
+	},
+	"files": [
+		"dist/",
+		"CHANGELOG.md",
+		"LICENSE",
+		"NOTICE",
+		"README.md"
+	],
+	"main": "dist/index.mjs",
+	"module": "dist/index.mjs",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.mjs",
+			"require": "./dist/index.js"
+		},
+		"./viewer": {
+			"types": "./dist/viewer/index.d.ts",
+			"import": "./dist/viewer/index.mjs",
+			"require": "./dist/viewer/index.js"
+		},
+		"./i18n": {
+			"types": "./dist/i18n.d.ts",
+			"import": "./dist/i18n.mjs",
+			"require": "./dist/i18n.js"
+		},
+		"./hooks-unstable": {
+			"types": "./dist/hooks-unstable.d.ts",
+			"import": "./dist/hooks-unstable.mjs",
+			"require": "./dist/hooks-unstable.js"
+		},
+		"./styles": "./dist/pptx-viewer.css",
+		"./styles.css": "./dist/pptx-viewer.css",
+		"./theme.css": "./src/styles/theme.css"
+	},
+	"scripts": {
+		"build": "tsup && tsdown && node ../../scripts/merge-declarations.mjs && node ../../scripts/bundle-declarations.mjs index viewer/index i18n hooks-unstable && node ../../scripts/merge-declarations.mjs .types-bundle && npx @tailwindcss/cli -i src/styles/pptx-viewer.css -o dist/pptx-viewer.css --minify && node ../../scripts/compress-dist.mjs dist",
+		"build:css": "npx @tailwindcss/cli -i src/styles/pptx-viewer.css -o dist/pptx-viewer.css --minify",
+		"dev": "tsup --watch",
+		"typecheck": "tsc --noEmit --pretty",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"pack": "bun run build && bun pm pack"
+	},
+	"dependencies": {
+		"clsx": "^2.1.1",
+		"dompurify": "^3.4.12",
+		"html2canvas-pro": "^2.2.4",
+		"tailwind-merge": "^3.6.0"
+	},
+	"devDependencies": {
+		"@tailwindcss/cli": "^4.3.3",
+		"@types/dompurify": "^3.2.0",
+		"@types/react": "^19.2.17",
+		"@types/react-dom": "^19.2.3",
+		"pptx-viewer-core": "workspace:*",
+		"pptx-viewer-shared": "workspace:*",
+		"tailwindcss": "^4.3.3",
+		"tsdown": "^0.22.9",
+		"tsup": "^8.5.1",
+		"typescript": "^7.0.2",
+		"vitest": "^4.1.10",
+		"y-webrtc": "^10.3.0",
+		"y-websocket": "^3.0.0",
+		"yjs": "^13.6.31"
+	},
+	"peerDependencies": {
+		"fast-xml-parser": "^5.10.1",
+		"framer-motion": "^12.42.2",
+		"i18next": "^26.3.6",
+		"jspdf": "^4.2.1",
+		"jszip": "^3.10.1",
+		"lucide-react": "^1.24.0",
+		"react": "^19.2.7",
+		"react-dom": "^19.2.7",
+		"react-i18next": "^17.0.9",
+		"react-icons": "^5.7.0"
+	},
+	"optionalDependencies": {
+		"three": "^0.185.1",
+		"y-webrtc": "^10.3.0",
+		"y-websocket": "^3.0.0",
+		"yjs": "^13.6.31"
+	}
+}

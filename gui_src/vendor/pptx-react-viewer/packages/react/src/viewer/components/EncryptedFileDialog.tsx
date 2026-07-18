@@ -1,0 +1,103 @@
+import React from 'react';
+import { useTranslation } from 'react-i18next';
+import { LuLock, LuX, LuInfo } from 'react-icons/lu';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/**
+ * Props for the {@link EncryptedFileDialog} component.
+ */
+export interface EncryptedFileDialogProps {
+	/** Whether the dialog is visible. */
+	isOpen: boolean;
+	/** Callback invoked when the user dismisses the dialog. */
+	onClose: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+/**
+ * Modal dialog shown when the viewer detects an encrypted PPTX file.
+ *
+ * Displays a prominent warning explaining that the file is encrypted
+ * and cannot be opened, along with instructions for the user.
+ *
+ * @param props - {@link EncryptedFileDialogProps}
+ * @returns The dialog element, or `null` when `isOpen` is `false`.
+ */
+export function EncryptedFileDialog({
+	isOpen,
+	onClose,
+}: EncryptedFileDialogProps): React.ReactElement | null {
+	const { t } = useTranslation();
+
+	if (!isOpen) {
+		return null;
+	}
+
+	return (
+		<>
+			{/* Backdrop */}
+			<button
+				type='button'
+				style={{ zIndex: 1200 }}
+				className='fixed inset-0 bg-black/60'
+				aria-label={t('common.close')}
+				onClick={onClose}
+			/>
+			{/* Dialog */}
+			<div
+				style={{ zIndex: 1201 }}
+				className='fixed inset-0 flex items-center justify-center pointer-events-none'
+			>
+				<div className='pointer-events-auto w-[420px] rounded-xl border border-border bg-popover backdrop-blur-xl shadow-2xl max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:w-full max-md:max-h-[88dvh] max-md:overflow-y-auto max-md:rounded-t-2xl max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:pb-[max(env(safe-area-inset-bottom),0px)]'>
+					{/* Header */}
+					<div className='flex items-center justify-between px-5 py-4 border-b border-border/60'>
+						<div className='flex items-center gap-2'>
+							<LuLock className='w-5 h-5 text-red-400' />
+							<h2 className='text-sm font-semibold text-foreground'>
+								{t('pptx.encryptedFile.title')}
+							</h2>
+						</div>
+						<button
+							type='button'
+							onClick={onClose}
+							className='p-1 rounded hover:bg-accent transition-colors'
+							aria-label={t('common.close')}
+						>
+							<LuX className='w-4 h-4 text-muted-foreground' />
+						</button>
+					</div>
+
+					{/* Body */}
+					<div className='px-5 py-6 space-y-4'>
+						<div className='flex items-start gap-3 rounded-lg bg-red-900/20 border border-red-700/30 px-4 py-3'>
+							<LuInfo className='w-5 h-5 text-red-400 shrink-0 mt-0.5' />
+							<div className='space-y-2'>
+								<p className='text-xs text-red-200'>{t('pptx.encryptedFile.message')}</p>
+								<p className='text-[11px] text-red-300/70'>
+									{t('pptx.encryptedFile.instructions')}
+								</p>
+							</div>
+						</div>
+					</div>
+
+					{/* Footer */}
+					<div className='flex items-center justify-end px-5 py-3 border-t border-border/60'>
+						<button
+							type='button'
+							onClick={onClose}
+							className='px-3 py-1.5 text-xs rounded-lg bg-accent text-foreground hover:bg-accent/80 transition-colors'
+						>
+							{t('common.close')}
+						</button>
+					</div>
+				</div>
+			</div>
+		</>
+	);
+}

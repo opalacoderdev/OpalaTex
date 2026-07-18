@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
  *
  * A floating panel that appears anchored near the Monaco cursor/selection.
  * Props:
- *   inlinePrompt  — { x, y, startLine, endLine, cursorCol, selectedText, mode }
+ *   inlinePrompt  — { x, y, startLine, endLine, cursorCol, selectedText, mode, locationLabel? }
  *                   mode: 'free' | 'refine' | 'fix' | 'createIllustration'
  *   onSubmit(instruction: string) — called when user confirms
  *   onClose()                     — called when user dismisses
@@ -31,7 +31,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
   useEffect(() => {
     if (!inlinePrompt) return;
     const defaults = {
-      refine: t('editorPanel.inlinePromptRefineDefault'),
+      refine: inlinePrompt.defaultInstruction || t('editorPanel.inlinePromptRefineDefault'),
       generate: t('editorPanel.inlinePromptGenerateDefault', 'Generate code here...'),
       createIllustration: '',
       free: '',
@@ -60,9 +60,9 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
   }[mode] ?? '';
 
   const hasSelection = selectedText && selectedText.trim().length > 0;
-  const lineInfo = hasSelection
+  const lineInfo = inlinePrompt.locationLabel || (hasSelection
     ? `Lines ${startLine}–${endLine}`
-    : `Line ${startLine}, col ${inlinePrompt.cursorCol}`;
+    : `Line ${startLine}, col ${inlinePrompt.cursorCol}`);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -97,7 +97,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
     <>
       <style>{`
         @keyframes opc-pulse-border {
-          0%, 100% { border-left-color: #007acc; opacity: 1; }
+          0%, 100% { border-left-color: var(--vscode-active-border, #007acc); opacity: 1; }
           50% { border-left-color: #4ec9b0; opacity: 0.7; }
         }
         .opc-thinking-block {
@@ -110,8 +110,8 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
           display: inline-block;
           width: 10px;
           height: 10px;
-          border: 1.5px solid #555;
-          border-top-color: #007acc;
+          border: 1.5px solid var(--vscode-border, #555);
+          border-top-color: var(--vscode-active-border, #007acc);
           border-radius: 50%;
           animation: opc-spin 0.7s linear infinite;
           vertical-align: middle;
@@ -137,13 +137,12 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
           left: `${safeX}px`,
           zIndex: 9999,
           width: `${overlayWidth}px`,
-          background: 'rgba(30, 30, 35, 0.92)',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          background: 'var(--vscode-panel-bg, #1e1e1e)',
+          border: '1px solid var(--vscode-border, rgba(255,255,255,0.12))',
           borderRadius: '8px',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
+          boxShadow: '0 8px 28px rgba(0,0,0,0.24)',
           padding: '10px 12px',
+          color: 'var(--vscode-text-fg, #cccccc)',
           display: 'flex',
           flexDirection: 'column',
           gap: '8px',
@@ -155,10 +154,10 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             {modeIcon}
-            <span style={{ fontSize: '11px', fontWeight: 600, color: '#ccc', letterSpacing: '0.03em' }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-text-fg, #cccccc)', letterSpacing: 0 }}>
               {modeLabel}
             </span>
-            <span style={{ fontSize: '10px', color: '#555', marginLeft: '4px' }}>
+            <span style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #858585)', marginLeft: '4px' }}>
               {lineInfo}
             </span>
           </div>
@@ -169,14 +168,14 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
               background: 'transparent',
               border: 'none',
               cursor: isRunning ? 'not-allowed' : 'pointer',
-              color: isRunning ? '#444' : '#666',
+              color: 'var(--vscode-descriptionForeground, #858585)',
               padding: '2px',
               display: 'flex',
               alignItems: 'center',
               borderRadius: '3px',
             }}
-            onMouseEnter={(e) => { if (!isRunning) e.currentTarget.style.color = '#aaa'; }}
-            onMouseLeave={(e) => { if (!isRunning) e.currentTarget.style.color = '#666'; }}
+            onMouseEnter={(e) => { if (!isRunning) e.currentTarget.style.color = 'var(--vscode-text-fg, #cccccc)'; }}
+            onMouseLeave={(e) => { if (!isRunning) e.currentTarget.style.color = 'var(--vscode-descriptionForeground, #858585)'; }}
           >
             <X size={13} />
           </button>
@@ -187,15 +186,16 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
           <div
             style={{
               fontSize: '10px',
-              color: '#888',
-              background: 'rgba(255,255,255,0.04)',
+              color: 'var(--vscode-descriptionForeground, #858585)',
+              background: 'var(--vscode-input-bg, rgba(255,255,255,0.04))',
               borderRadius: '4px',
               padding: '4px 6px',
-              maxHeight: '40px',
+              maxHeight: '52px',
               overflow: 'hidden',
-              whiteSpace: 'pre',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
               fontFamily: 'monospace',
-              borderLeft: '2px solid #3c3c5c',
+              borderLeft: '2px solid var(--vscode-active-border, #007acc)',
             }}
           >
             {selectedText.length > 120 ? selectedText.slice(0, 120) + '…' : selectedText}
@@ -216,25 +216,25 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
               flex: 1,
               fontSize: '12px',
               padding: '5px 8px',
-              background: isRunning ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.07)',
-              border: '1px solid rgba(255,255,255,0.15)',
+              background: isRunning ? 'var(--vscode-active-item, #37373d)' : 'var(--vscode-input-bg, #2d2d2d)',
+              border: '1px solid var(--vscode-input-border, #3c3c3c)',
               borderRadius: '5px',
-              color: isRunning ? '#888' : '#e0e0e0',
+              color: isRunning ? 'var(--vscode-descriptionForeground, #858585)' : 'var(--vscode-input-fg, #cccccc)',
               outline: 'none',
               fontFamily: 'inherit',
               transition: 'border-color 0.15s',
             }}
-            onFocus={(e) => { if (!isRunning) { e.currentTarget.style.borderColor = '#007acc'; e.currentTarget.select(); } }}
-            onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)'; }}
+            onFocus={(e) => { if (!isRunning) { e.currentTarget.style.borderColor = 'var(--vscode-active-border, #007acc)'; e.currentTarget.select(); } }}
+            onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--vscode-input-border, #3c3c3c)'; }}
           />
           <button
             onClick={handleSubmit}
             disabled={(!value.trim() && mode !== 'createIllustration') || isRunning}
             style={{
-              background: (value.trim() || mode === 'createIllustration') && !isRunning ? '#007acc' : '#2a2a2a',
+              background: (value.trim() || mode === 'createIllustration') && !isRunning ? 'var(--vscode-button-bg, #007acc)' : 'var(--vscode-active-item, #2a2a2a)',
               border: 'none',
               borderRadius: '5px',
-              color: (value.trim() || mode === 'createIllustration') && !isRunning ? '#fff' : '#555',
+              color: (value.trim() || mode === 'createIllustration') && !isRunning ? 'var(--vscode-statusbar-fg, #ffffff)' : 'var(--vscode-descriptionForeground, #858585)',
               cursor: (value.trim() || mode === 'createIllustration') && !isRunning ? 'pointer' : 'not-allowed',
               padding: '5px 9px',
               display: 'flex',
@@ -243,8 +243,8 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
               fontSize: '11px',
               transition: 'background 0.15s',
             }}
-            onMouseEnter={(e) => { if (value.trim() && !isRunning) e.currentTarget.style.background = '#1177bb'; }}
-            onMouseLeave={(e) => { if (value.trim() && !isRunning) e.currentTarget.style.background = '#007acc'; }}
+            onMouseEnter={(e) => { if (value.trim() && !isRunning) e.currentTarget.style.background = 'var(--vscode-button-hover, #1177bb)'; }}
+            onMouseLeave={(e) => { if (value.trim() && !isRunning) e.currentTarget.style.background = 'var(--vscode-button-bg, #007acc)'; }}
           >
             {isRunning ? (
               <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -267,10 +267,10 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
             <button
               onClick={onCancel}
               style={{
-                background: '#442222',
-                border: '1px solid #ff4444',
+                background: 'var(--vscode-errorBackground, rgba(244, 135, 113, 0.08))',
+                border: '1px solid var(--vscode-errorForeground, #f48771)',
                 borderRadius: '5px',
-                color: '#ff8888',
+                color: 'var(--vscode-errorForeground, #f48771)',
                 cursor: 'pointer',
                 padding: '5px 9px',
                 display: 'flex',
@@ -279,8 +279,8 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
                 fontSize: '11px',
                 transition: 'background 0.15s',
               }}
-              onMouseEnter={(e) => e.currentTarget.style.background = '#662222'}
-              onMouseLeave={(e) => e.currentTarget.style.background = '#442222'}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--vscode-list-hoverBg, rgba(255, 255, 255, 0.04))'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'var(--vscode-errorBackground, rgba(244, 135, 113, 0.08))'}
             >
               <X size={12} />
               <span>{t('editorPanel.inlinePromptCancel', 'Cancel')}</span>
@@ -289,7 +289,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
         </div>
 
         {/* Hint */}
-        <span style={{ fontSize: '10px', color: isRunning ? '#888' : '#444', userSelect: 'none', display: 'flex', alignItems: 'center' }}>
+        <span style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #858585)', userSelect: 'none', display: 'flex', alignItems: 'center' }}>
           {isRunning
             ? <><span className="opc-spinner" />{`OpalaTex is working${animatedDots}`}</>
             : `Enter ${t('editorPanel.inlinePromptSend').toLowerCase()} · Esc ${t('editorPanel.inlinePromptCancel').toLowerCase()}`

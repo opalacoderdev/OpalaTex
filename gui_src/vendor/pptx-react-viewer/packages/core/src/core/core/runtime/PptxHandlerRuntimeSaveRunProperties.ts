@@ -1,0 +1,334 @@
+import { XmlObject, TextStyle } from '../../types';
+import { serializeColorChoice } from '../../utils/color-xml-preservation';
+import { PptxHandlerRuntime as PptxHandlerRuntimeBase } from './PptxHandlerRuntimeSaveSlideUtils';
+import { buildTextRunEffectListXml } from './text-run-effect-xml-builder';
+
+/**
+ * Augment a CT_TextFont node (`a:latin` / `a:ea` / `a:cs` / `a:sym`) with
+ * optional `@panose`, `@pitchFamily`, `@charset` attributes when the parsed
+ * model captured them. Mutates and returns the same node so the caller can
+ * use it inline at the OOXML-prescribed insertion point.
+ */
+function applyFontMetadata(
+	fontNode: XmlObject,
+	panose: string | undefined,
+	pitchFamily: number | undefined,
+	charset: number | undefined,
+): XmlObject {
+	if (panose && panose.length > 0) {
+		fontNode['@_panose'] = panose;
+	}
+	if (typeof pitchFamily === 'number' && Number.isFinite(pitchFamily)) {
+		fontNode['@_pitchFamily'] = String(pitchFamily);
+	}
+	if (typeof charset === 'number' && Number.isFinite(charset)) {
+		fontNode['@_charset'] = String(charset);
+	}
+	return fontNode;
+}
+
+export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
+	protected createRunPropertiesFromTextStyle(
+		style: TextStyle | undefined,
+		resolveHyperlinkRelationshipId?: (target: string) => string | undefined,
+	): XmlObject {
+		const runProps: XmlObject = {
+			'@_lang': style?.language || 'en-US',
+			'@_dirty': '0',
+		};
+		if (!style) {
+			return runProps;
+		}
+
+		if (typeof style.fontSize === 'number' && Number.isFinite(style.fontSize)) {
+			runProps['@_sz'] = String(Math.round(style.fontSize * (72 / 96) * 100));
+		}
+		if (style.bold !== undefined) {
+			runProps['@_b'] = style.bold ? '1' : '0';
+		}
+		if (style.italic !== undefined) {
+			runProps['@_i'] = style.italic ? '1' : '0';
+		}
+		if (style.underline) {
+			runProps['@_u'] = style.underlineStyle || 'sng';
+		}
+		if (style.strikethrough !== undefined) {
+			runProps['@_strike'] = style.strikethrough ? style.strikeType || 'sngStrike' : 'noStrike';
+		}
+		// Superscript / subscript baseline
+		if (typeof style.baseline === 'number' && style.baseline !== 0) {
+			runProps['@_baseline'] = String(style.baseline);
+		}
+		// Character spacing
+		if (typeof style.characterSpacing === 'number' && style.characterSpacing !== 0) {
+			runProps['@_spc'] = String(style.characterSpacing);
+		}
+		// Kerning
+		if (typeof style.kerning === 'number' && style.kerning !== 0) {
+			runProps['@_kern'] = String(style.kerning);
+		}
+		// Text caps
+		if (style.textCaps && style.textCaps !== 'none') {
+			runProps['@_cap'] = style.textCaps;
+		}
+		// NOTE: `rtl` is only valid on CT_TextParagraphProperties (a:pPr), not
+		// CT_TextCharacterProperties (a:rPr). Emitting it here produces a
+		// Sch_UndeclaredAttribute violation and triggers PowerPoint's file-
+		// corruption/repair dialog. Paragraph-level rtl is emitted by
+		// buildParagraphPropertiesXml.
+		// Run metadata
+		if (style.kumimoji !== undefined) {
+			runProps['@_kumimoji'] = style.kumimoji ? '1' : '0';
+		}
+		if (style.normalizeHeight !== undefined) {
+			runProps['@_normalizeH'] = style.normalizeHeight ? '1' : '0';
+		}
+		if (style.noProof !== undefined) {
+			runProps['@_noProof'] = style.noProof ? '1' : '0';
+		}
+		if (style.dirty !== undefined) {
+			runProps['@_dirty'] = style.dirty ? '1' : '0';
+		}
+		if (style.spellingError !== undefined) {
+			runProps['@_err'] = style.spellingError ? '1' : '0';
+		}
+		if (style.smartTagClean !== undefined) {
+			runProps['@_smtClean'] = style.smartTagClean ? '1' : '0';
+		}
+		if (style.bookmark) {
+			runProps['@_bmk'] = style.bookmark;
+		}
+		// Alternative language and SmartTag id (CT_TextCharacterProperties).
+		if (style.altLanguage) {
+			runProps['@_altLang'] = style.altLanguage;
+		}
+		if (typeof style.smartTagId === 'number' && Number.isFinite(style.smartTagId)) {
+			runProps['@_smtId'] = String(style.smartTagId);
+		}
+		// OOXML CT_TextCharacterProperties child element order (fast-xml-parser
+		// serialises keys in insertion order, so every child must be assigned
+		// in this exact sequence — any reversal triggers
+		// Sch_UnexpectedElementContentExpectingComplex and PowerPoint's
+		// file-corruption/repair dialog):
+		//   ln, (solidFill | gradFill | pattFill), effectLst, highlight,
+		//   uFill, latin, ea, cs, sym, hlinkClick, hlinkMouseOver.
+
+		// 1. a:ln (text outline)
+		if (style.textOutlineWidth || style.textOutlineColor) {
+			const lnObj: XmlObject = {};
+			if (typeof style.textOutlineWidth === 'number' && style.textOutlineWidth > 0) {
+				lnObj['@_w'] = String(Math.round(style.textOutlineWidth * PptxHandlerRuntime.EMU_PER_PX));
+			}
+			if (style.textOutlineColor) {
+				lnObj['a:solidFill'] = {
+					'a:srgbClr': {
+						'@_val': style.textOutlineColor.replace('#', ''),
+					},
+				};
+			}
+			runProps['a:ln'] = lnObj;
+		}
+
+		// 2. fill (solidFill | gradFill | pattFill — schema allows at most one)
+		if (style.color) {
+			const resolvedOriginalColor = style.colorXml ? this.parseColor(style.colorXml) : undefined;
+			runProps['a:solidFill'] = serializeColorChoice(
+				style.colorXml,
+				resolvedOriginalColor,
+				style.color,
+			);
+		} else if (style.textFillGradientStops && style.textFillGradientStops.length > 0) {
+			const gradStops = style.textFillGradientStops
+				.filter((stop) => Boolean(stop?.color))
+				.map((stop) => {
+					const rawPos = (stop.position ?? 0) / 100;
+					const posVal = Math.round(Math.max(0, Math.min(1, rawPos)) * 100000);
+					const stopXml: XmlObject = {
+						'@_pos': String(posVal),
+						'a:srgbClr': {
+							'@_val': String(stop.color || '').replace('#', ''),
+						},
+					};
+					if (
+						typeof stop.opacity === 'number' &&
+						Number.isFinite(stop.opacity) &&
+						stop.opacity < 1
+					) {
+						(stopXml['a:srgbClr'] as XmlObject)['a:alpha'] = {
+							'@_val': String(Math.round(stop.opacity * 100000)),
+						};
+					}
+					return stopXml;
+				});
+			if (gradStops.length > 0) {
+				const gradFillXml: XmlObject = {
+					'a:gsLst': { 'a:gs': gradStops },
+				};
+				const gradType = style.textFillGradientType || 'linear';
+				if (gradType === 'linear') {
+					const angle =
+						typeof style.textFillGradientAngle === 'number' &&
+						Number.isFinite(style.textFillGradientAngle)
+							? style.textFillGradientAngle
+							: 0;
+					gradFillXml['a:lin'] = {
+						'@_ang': String(Math.round(angle * 60000)),
+						'@_scaled': '1',
+					};
+				} else {
+					gradFillXml['a:path'] = { '@_path': 'circle' };
+				}
+				runProps['a:gradFill'] = gradFillXml;
+			}
+		} else if (style.textFillPattern) {
+			const pattFill: XmlObject = { '@_prst': style.textFillPattern };
+			if (style.textFillPatternForeground) {
+				pattFill['a:fgClr'] = {
+					'a:srgbClr': {
+						'@_val': style.textFillPatternForeground.replace('#', ''),
+					},
+				};
+			}
+			if (style.textFillPatternBackground) {
+				pattFill['a:bgClr'] = {
+					'a:srgbClr': {
+						'@_val': style.textFillPatternBackground.replace('#', ''),
+					},
+				};
+			}
+			runProps['a:pattFill'] = pattFill;
+		}
+
+		// 3. a:effectLst (text run effects)
+		const textEffectLst = buildTextRunEffectListXml(style);
+		if (textEffectLst) {
+			runProps['a:effectLst'] = textEffectLst;
+		}
+
+		// 3b. a:effectDag (run-level effect graph). Per ECMA-376 §21.1.2.3.6
+		// `effectDag` is the choice-alternative to `effectLst` on
+		// CT_TextCharacterProperties. We round-trip it from the raw XML
+		// captured at parse time. The typed tree is held in parallel for
+		// downstream consumers; the raw blob is authoritative on save.
+		if (style.textEffectDagXml) {
+			runProps['a:effectDag'] = style.textEffectDagXml;
+		}
+
+		// 4. a:highlight
+		if (style.highlightColor) {
+			runProps['a:highlight'] = {
+				'a:srgbClr': {
+					'@_val': style.highlightColor.replace('#', ''),
+				},
+			};
+		}
+
+		// 5. a:uFill (underline fill)
+		if (style.underline && style.underlineColor) {
+			runProps['a:uFill'] = {
+				'a:solidFill': {
+					'a:srgbClr': {
+						'@_val': style.underlineColor.replace('#', ''),
+					},
+				},
+			};
+		}
+
+		// 6. typefaces: latin, ea, cs, sym (CT_TextFont — typeface plus
+		// optional @panose, @pitchFamily, @charset metadata).
+		if (style.fontFamily) {
+			runProps['a:latin'] = applyFontMetadata(
+				{ '@_typeface': style.fontFamily },
+				style.latinFontPanose,
+				style.latinFontPitchFamily,
+				style.latinFontCharset,
+			);
+			runProps['a:ea'] = applyFontMetadata(
+				{ '@_typeface': style.eastAsiaFont || style.fontFamily },
+				style.eastAsiaFontPanose,
+				style.eastAsiaFontPitchFamily,
+				style.eastAsiaFontCharset,
+			);
+			runProps['a:cs'] = applyFontMetadata(
+				{ '@_typeface': style.complexScriptFont || style.fontFamily },
+				style.complexScriptFontPanose,
+				style.complexScriptFontPitchFamily,
+				style.complexScriptFontCharset,
+			);
+		}
+		if (style.symbolFont) {
+			runProps['a:sym'] = applyFontMetadata(
+				{ '@_typeface': style.symbolFont },
+				style.symbolFontPanose,
+				style.symbolFontPitchFamily,
+				style.symbolFontCharset,
+			);
+		}
+
+		// 7. hlinkClick / hlinkMouseOver
+		if (style.hyperlink && resolveHyperlinkRelationshipId) {
+			const hyperlinkTarget = String(style.hyperlink).trim();
+			// Action hyperlinks (ppaction:// verbs) don't need relationship IDs
+			if (hyperlinkTarget.startsWith('ppaction://')) {
+				const hlinkNode: XmlObject = {
+					'@_action': hyperlinkTarget,
+				};
+				if (style.hyperlinkTooltip) {
+					hlinkNode['@_tooltip'] = style.hyperlinkTooltip;
+				}
+				// Some action links (e.g. hlinksldjump) still need an rId
+				if (style.hyperlinkRId) {
+					hlinkNode['@_r:id'] = style.hyperlinkRId;
+				}
+				this.applyHyperlinkExtraAttrs(hlinkNode, style);
+				runProps['a:hlinkClick'] = hlinkNode;
+			} else if (hyperlinkTarget.length > 0) {
+				const hyperlinkRelationshipId = resolveHyperlinkRelationshipId(hyperlinkTarget);
+				if (hyperlinkRelationshipId) {
+					const hlinkNode: XmlObject = {
+						'@_r:id': hyperlinkRelationshipId,
+					};
+					if (style.hyperlinkTooltip) {
+						hlinkNode['@_tooltip'] = style.hyperlinkTooltip;
+					}
+					if (style.hyperlinkAction) {
+						hlinkNode['@_action'] = style.hyperlinkAction;
+					}
+					this.applyHyperlinkExtraAttrs(hlinkNode, style);
+					runProps['a:hlinkClick'] = hlinkNode;
+				}
+			}
+		}
+		if (style.hyperlinkMouseOver && resolveHyperlinkRelationshipId) {
+			const mouseOverTarget = String(style.hyperlinkMouseOver).trim();
+			if (mouseOverTarget.length > 0) {
+				const mouseOverRelId = resolveHyperlinkRelationshipId(mouseOverTarget);
+				if (mouseOverRelId) {
+					runProps['a:hlinkMouseOver'] = {
+						'@_r:id': mouseOverRelId,
+					};
+				}
+			}
+		}
+
+		return runProps;
+	}
+
+	private applyHyperlinkExtraAttrs(hlinkNode: XmlObject, style: TextStyle): void {
+		if (style.hyperlinkInvalidUrl) {
+			hlinkNode['@_invalidUrl'] = style.hyperlinkInvalidUrl;
+		}
+		if (style.hyperlinkTargetFrame) {
+			hlinkNode['@_tgtFrame'] = style.hyperlinkTargetFrame;
+		}
+		if (style.hyperlinkHistory !== undefined) {
+			hlinkNode['@_history'] = style.hyperlinkHistory ? '1' : '0';
+		}
+		if (style.hyperlinkHighlightClick !== undefined) {
+			hlinkNode['@_highlightClick'] = style.hyperlinkHighlightClick ? '1' : '0';
+		}
+		if (style.hyperlinkEndSound !== undefined) {
+			hlinkNode['@_endSnd'] = style.hyperlinkEndSound ? '1' : '0';
+		}
+	}
+}

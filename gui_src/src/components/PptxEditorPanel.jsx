@@ -5,7 +5,7 @@
  * owns presentation navigation, thumbnails, presentation mode, and editing UI;
  * this component only loads and saves the binary file through the local server.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { PowerPointViewer, vermilionDarkTheme, vermilionLightTheme } from 'pptx-react-viewer';
@@ -33,20 +33,43 @@ const HIDDEN_VIEWER_ACTIONS = [
   'view',
 ];
 
-export default function PptxEditorPanel({
+const PptxEditorPanel = forwardRef(function PptxEditorPanel({
   activeProject,
   selectedFile,
   theme,
   onSaved,
-}) {
+}, ref) {
   const { t } = useTranslation();
   const [documentBuffer, setDocumentBuffer] = useState(undefined);
   const [loadError, setLoadError] = useState('');
   const [status, setStatus] = useState('');
   const [docVersion, setDocVersion] = useState(0);
+  const [autosaveEnabled, setAutosaveEnabled] = useState(true);
   const viewerRef = useRef(null);
-  const saveTimerRef = useRef(null);
-  const latestContentRef = useRef(null);
+
+  const saveBuffer = useCallback(async (buffer) => {
+    if (!activeProject?.project_path || !selectedFile || !buffer) return false;
+
+    const blob = new Blob([buffer], { type: PPTX_MIME });
+    const form = new FormData();
+    form.append('projectPath', activeProject.project_path);
+    form.append('filePath', selectedFile);
+    form.append(
+      'file',
+      blob,
+      selectedFile.replace(/\\/g, '/').split('/').pop() || 'presentation.pptx',
+    );
+
+    const response = await fetch('/api/file/write-binary', {
+      method: 'POST',
+      body: form,
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return true;
+  }, [activeProject?.project_path, selectedFile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,61 +126,44 @@ export default function PptxEditorPanel({
   }, [documentBuffer, docVersion]);
 
   const handleSave = useCallback(async (bufferOverride) => {
-    if (!activeProject?.project_path || !selectedFile) return;
+    if (!activeProject?.project_path || !selectedFile) return false;
 
     setStatus(t('pptxEditor.saving', 'Saving presentation...'));
 
     try {
       const buffer = bufferOverride || await viewerRef.current?.getContent?.();
       if (!buffer) throw new Error('The presentation viewer did not return file content.');
+      await saveBuffer(buffer);
 
-      const blob = new Blob([buffer], { type: PPTX_MIME });
-      const form = new FormData();
-      form.append('projectPath', activeProject.project_path);
-      form.append('filePath', selectedFile);
-      form.append(
-        'file',
-        blob,
-        selectedFile.replace(/\\/g, '/').split('/').pop() || 'presentation.pptx',
-      );
+      setStatus(t('pptxEditor.saved', 'Presentation saved.'));
+      setTimeout(() => setStatus(''), 2000);
+      onSaved?.(selectedFile);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus(t('pptxEditor.saveFailed', 'Could not save presentation: {{error}}', { error: message }));
+      return false;
+    }
+  }, [activeProject?.project_path, selectedFile, onSaved, saveBuffer, t]);
 
-      const response = await fetch('/api/file/write-binary', {
-        method: 'POST',
-        body: form,
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-
+  const handleAutosaveContent = useCallback(async (buffer) => {
+    if (!autosaveEnabled) return;
+    setStatus(t('pptxEditor.saving', 'Saving presentation...'));
+    try {
+      await saveBuffer(buffer);
       setStatus(t('pptxEditor.saved', 'Presentation saved.'));
       setTimeout(() => setStatus(''), 2000);
       onSaved?.(selectedFile);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setStatus(t('pptxEditor.saveFailed', 'Could not save presentation: {{error}}', { error: message }));
+      throw error;
     }
-  }, [activeProject?.project_path, selectedFile, onSaved, t]);
+  }, [autosaveEnabled, onSaved, saveBuffer, selectedFile, t]);
 
-  const scheduleSave = useCallback((content) => {
-    if (!(content instanceof Uint8Array)) return;
-    latestContentRef.current = content;
-
-    if (saveTimerRef.current) {
-      window.clearTimeout(saveTimerRef.current);
-    }
-    saveTimerRef.current = window.setTimeout(() => {
-      saveTimerRef.current = null;
-      handleSave(latestContentRef.current);
-    }, 900);
-  }, [handleSave]);
-
-  useEffect(() => () => {
-    if (saveTimerRef.current) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-  }, []);
+  useImperativeHandle(ref, () => ({
+    save: () => handleSave(),
+  }), [handleSave]);
 
   const colorMode = theme === 'light' ? 'light' : 'dark';
   const fileName = selectedFile?.replace(/\\/g, '/').split('/').pop() || 'presentation.pptx';
@@ -199,11 +205,16 @@ export default function PptxEditorPanel({
           canEdit
           theme={viewerTheme}
           onDirtyChange={() => {}}
-          onContentChange={scheduleSave}
+          onAutosaveContent={handleAutosaveContent}
+          autosaveEnabled={autosaveEnabled}
+          autosaveIntervalSeconds={5}
+          onAutosaveEnabledChange={setAutosaveEnabled}
           onOpenFile={() => {}}
           hiddenActions={HIDDEN_VIEWER_ACTIONS}
         />
       </div>
     </div>
   );
-}
+});
+
+export default PptxEditorPanel;
