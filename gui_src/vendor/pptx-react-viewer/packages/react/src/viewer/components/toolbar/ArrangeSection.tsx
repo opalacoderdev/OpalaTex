@@ -165,15 +165,17 @@ export function ArrangeSection(p: ArrangeSectionProps): React.ReactElement {
 				<LuCopy className={ic} />
 				{t('pptx.arrange.duplicate')}
 			</button>
-			<button
-				onClick={p.onDelete}
-				disabled={!canMut}
-				className='inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-red-700/80 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-xs transition-colors'
-				title={t('pptx.arrange.delete')}
-			>
-				<LuTrash2 className={ic} />
-				{t('pptx.arrange.delete')}
-			</button>
+			{hasSel && (
+				<button
+					onClick={p.onDelete}
+					disabled={!canMut}
+					className='inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-red-700/80 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-xs transition-colors'
+					title={t('pptx.arrange.delete')}
+				>
+					<LuTrash2 className={ic} />
+					{t('pptx.arrange.delete')}
+				</button>
+			)}
 		</>
 	);
 }

@@ -22,6 +22,8 @@ export interface HomeSectionProps {
 	onInsertSlideFromLayout: (path: string, name?: string) => void;
 	onApplyLayout?: (path: string) => void;
 	onResetSlide?: () => void;
+	onDeleteActiveSlide?: () => void;
+	canDeleteActiveSlide?: boolean;
 	onAddSection?: () => void;
 	selectedElement?: PptxElement | null;
 	onUpdateTextStyle?: (style: Record<string, unknown>) => void;
@@ -175,6 +177,8 @@ export function HomeSection(p: HomeSectionProps): React.ReactElement {
 				onInsertSlideFromLayout={p.onInsertSlideFromLayout}
 				onApplyLayout={p.onApplyLayout}
 				onResetSlide={p.onResetSlide}
+				onDeleteActiveSlide={p.onDeleteActiveSlide}
+				canDeleteActiveSlide={p.canDeleteActiveSlide}
 				onAddSection={p.onAddSection}
 			/>
 

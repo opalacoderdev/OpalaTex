@@ -68,7 +68,7 @@ export function Toolbar(p: ToolbarProps): React.ReactElement {
 			{showRibbon && (
 				<div
 					role='tablist'
-					className='flex items-center border-b border-border/60 px-1 max-md:overflow-x-auto max-md:scrollbar-none'
+					className='flex flex-wrap items-center gap-1 border-b border-border/60 px-1.5 py-1 max-md:overflow-x-auto max-md:scrollbar-none'
 				>
 					{TOOLBAR_SECTIONS.filter((s) => isTabVisible(s.id)).map((s) => (
 						<button
@@ -78,11 +78,11 @@ export function Toolbar(p: ToolbarProps): React.ReactElement {
 							aria-selected={toolbarSection === s.id}
 							onClick={() => onSetToolbarSection(s.id)}
 							className={cn(
-								'relative px-3.5 py-2 text-[12px] font-medium whitespace-nowrap transition-colors max-md:min-h-[36px] max-md:px-3',
+								'relative rounded-sm border border-transparent px-3 py-1.5 text-[12px] font-medium leading-none whitespace-nowrap transition-colors max-md:min-h-[36px] max-md:px-3',
 								toolbarSection === s.id
 									? s.id === 'file'
 										? 'text-white bg-primary/80 rounded-sm'
-										: 'text-foreground after:absolute after:-bottom-px after:left-0 after:right-0 after:h-[2.5px] after:bg-primary'
+										: 'border-border/60 bg-accent/40 text-foreground after:absolute after:-bottom-[5px] after:left-1 after:right-1 after:h-[2.5px] after:bg-primary'
 									: s.id === 'file'
 										? 'text-primary hover:bg-primary/15 rounded-sm'
 										: 'text-muted-foreground hover:text-foreground hover:bg-accent/30',
@@ -122,7 +122,7 @@ export function Toolbar(p: ToolbarProps): React.ReactElement {
 			{showRibbon && (
 				<div
 					className={cn(
-						'flex min-h-[82px] items-stretch gap-0 overflow-visible px-1 py-0.5 max-md:min-h-0 max-md:px-1 max-md:py-0.5 flex-nowrap',
+						'flex min-h-[82px] flex-wrap content-start items-start gap-x-2 gap-y-1.5 overflow-visible px-1.5 py-1 max-md:min-h-0 max-md:px-1 max-md:py-0.5',
 						isNarrowViewport && !isCompactToolbarOpen && 'hidden',
 					)}
 				>
@@ -166,6 +166,8 @@ export function Toolbar(p: ToolbarProps): React.ReactElement {
 							onToggleFormatPainter={p.onToggleFormatPainter}
 							layoutOptions={p.layoutOptions}
 							onInsertSlideFromLayout={p.onInsertSlideFromLayout}
+							onDeleteActiveSlide={p.onDeleteActiveSlide}
+							canDeleteActiveSlide={p.canDeleteActiveSlide}
 							selectedElement={p.selectedElement}
 							onUpdateTextStyle={p.onUpdateTextStyle}
 						/>

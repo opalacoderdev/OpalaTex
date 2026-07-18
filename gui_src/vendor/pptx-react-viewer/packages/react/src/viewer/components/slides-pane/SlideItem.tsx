@@ -30,6 +30,7 @@ export interface SlideItemProps {
 	presenceUsers?: SlidePresenceUser[];
 	onSelectSlide: (index: number) => void;
 	onSlideContextMenu: (e: React.MouseEvent, index: number) => void;
+	onDeleteSlide: (index: number) => void;
 	onAddSection?: (name: string, afterSlideIndex: number) => void;
 	onOpenSlideCtxMenu: (x: number, y: number, slideIndex: number) => void;
 	onDragStart: (e: React.DragEvent, slideIndex: number) => void;
@@ -53,6 +54,7 @@ function SlideItemInner({
 	presenceUsers,
 	onSelectSlide,
 	onSlideContextMenu,
+	onDeleteSlide,
 	onAddSection,
 	onOpenSlideCtxMenu,
 	onDragStart,
@@ -75,6 +77,18 @@ function SlideItemInner({
 		[canEdit, onAddSection, onOpenSlideCtxMenu, onSlideContextMenu, slideIndex],
 	);
 
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLButtonElement>) => {
+			if (!canEdit || (e.key !== 'Delete' && e.key !== 'Backspace')) {
+				return;
+			}
+			e.preventDefault();
+			e.stopPropagation();
+			onDeleteSlide(slideIndex);
+		},
+		[canEdit, onDeleteSlide, slideIndex],
+	);
+
 	// Pre-compute the thumbnail height for the placeholder
 	const safeCanvasWidth = Math.max(canvasSize.width, 1);
 	const safeCanvasHeight = Math.max(canvasSize.height, 1);
@@ -95,6 +109,7 @@ function SlideItemInner({
 			)}
 			draggable={canEdit}
 			onClick={() => onSelectSlide(slideIndex)}
+			onKeyDown={handleKeyDown}
 			onContextMenu={handleContextMenu}
 			onDragStart={(e) => onDragStart(e, slideIndex)}
 			onDragOver={onDragOver}

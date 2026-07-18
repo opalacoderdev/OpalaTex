@@ -23,14 +23,6 @@ const HIDDEN_VIEWER_ACTIONS = [
   'notes',
   'fullscreen',
   'help',
-  'insert',
-  'draw',
-  'design',
-  'transitions',
-  'animations',
-  'slideShow',
-  'review',
-  'view',
 ];
 
 const PptxEditorPanel = forwardRef(function PptxEditorPanel({

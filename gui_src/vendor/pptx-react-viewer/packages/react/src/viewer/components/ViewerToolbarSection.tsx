@@ -108,6 +108,8 @@ export interface ViewerToolbarSectionProps {
 	};
 	selectedElement: PptxElement | null;
 	activeSlide: PptxSlide | undefined;
+	activeSlideIndex: number;
+	slideCount: number;
 	zoom: {
 		scale: number;
 		handleZoomIn: () => void;
@@ -157,6 +159,8 @@ export function ViewerToolbarSection(props: ViewerToolbarSectionProps) {
 		state: s,
 		selectedElement,
 		activeSlide,
+		activeSlideIndex,
+		slideCount,
 		zoom,
 		history,
 		findReplace,
@@ -513,6 +517,8 @@ export function ViewerToolbarSection(props: ViewerToolbarSectionProps) {
 				onSetOverflowMenuOpen={s.setIsOverflowMenuOpen}
 				layoutOptions={scopedLayoutOptions}
 				onInsertSlideFromLayout={slideOps.handleInsertSlideFromLayout}
+				onDeleteActiveSlide={() => slideOps.handleDeleteSlides([activeSlideIndex])}
+				canDeleteActiveSlide={slideCount > 1}
 				customShows={s.customShows}
 				activeCustomShowId={s.activeCustomShowId}
 				onSetActiveCustomShowId={s.setActiveCustomShowId}

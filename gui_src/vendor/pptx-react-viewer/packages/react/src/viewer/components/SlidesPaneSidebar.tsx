@@ -40,6 +40,7 @@ export function SlidesPaneSidebar({
 	onSelectSlide,
 	onSlideContextMenu,
 	onMoveSlide,
+	onDeleteSlides,
 	onAddSlide,
 	onCollapse: _onCollapse,
 	onAddSection,
@@ -158,6 +159,16 @@ export function SlidesPaneSidebar({
 		[],
 	);
 
+	const handleDeleteSlide = useCallback(
+		(index: number) => {
+			if (!canEdit || slides.length <= 1) {
+				return;
+			}
+			onDeleteSlides([index]);
+		},
+		[canEdit, onDeleteSlides, slides.length],
+	);
+
 	if (!isOpen) {
 		return null;
 	}
@@ -229,6 +240,7 @@ export function SlidesPaneSidebar({
 										presenceUsers={slidePresenceMap?.get(item.slideIndex)}
 										onSelectSlide={onSelectSlide}
 										onSlideContextMenu={onSlideContextMenu}
+										onDeleteSlide={handleDeleteSlide}
 										onAddSection={onAddSection}
 										onOpenSlideCtxMenu={handleOpenSlideCtxMenu}
 										onDragStart={handleDragStart}
@@ -295,6 +307,7 @@ export function SlidesPaneSidebar({
 										presenceUsers={slidePresenceMap?.get(idx)}
 										onSelectSlide={onSelectSlide}
 										onSlideContextMenu={onSlideContextMenu}
+										onDeleteSlide={handleDeleteSlide}
 										onAddSection={onAddSection}
 										onOpenSlideCtxMenu={handleOpenSlideCtxMenu}
 										onDragStart={handleDragStart}

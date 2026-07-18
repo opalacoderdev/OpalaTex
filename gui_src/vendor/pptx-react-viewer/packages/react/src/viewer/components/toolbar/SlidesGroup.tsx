@@ -1,6 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LuChevronDown, LuFolderPlus, LuPlus, LuRotateCcw, LuLayoutGrid } from 'react-icons/lu';
+import {
+	LuChevronDown,
+	LuFolderPlus,
+	LuLayoutGrid,
+	LuPlus,
+	LuRotateCcw,
+	LuTrash2,
+} from 'react-icons/lu';
 
 import { cn } from '../../utils';
 import { ic, pill, sep } from './toolbar-constants';
@@ -11,6 +18,8 @@ export interface SlidesGroupProps {
 	onInsertSlideFromLayout: (path: string, name?: string) => void;
 	onApplyLayout?: (path: string) => void;
 	onResetSlide?: () => void;
+	onDeleteActiveSlide?: () => void;
+	canDeleteActiveSlide?: boolean;
 	onAddSection?: () => void;
 }
 
@@ -149,6 +158,18 @@ export function SlidesGroup(p: SlidesGroupProps): React.ReactElement {
 					>
 						<LuRotateCcw className={ic} />
 						{t('pptx.animations.reset')}
+					</button>
+
+					{/* Delete the active slide, not the selected element inside a slide. */}
+					<button
+						type='button'
+						disabled={!p.canEdit || !p.canDeleteActiveSlide || !p.onDeleteActiveSlide}
+						className='inline-flex items-center gap-1.5 px-2.5 py-1.5 max-md:min-h-[44px] rounded bg-red-700/80 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-xs transition-colors active:scale-95 active:opacity-80'
+						title={t('pptx.slidesPanel.deleteSlide')}
+						onClick={p.onDeleteActiveSlide}
+					>
+						<LuTrash2 className={ic} />
+						{t('pptx.arrange.delete')}
 					</button>
 
 					{/* Section button */}

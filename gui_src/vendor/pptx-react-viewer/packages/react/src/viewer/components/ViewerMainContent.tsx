@@ -133,6 +133,7 @@ export function ViewerMainContent(props: ViewerMainContentProps) {
 							onSelectSlide={state.setActiveSlideIndex}
 							onSlideContextMenu={slideOps.handleSlideContextMenu}
 							onMoveSlide={slideOps.handleMoveSlide}
+							onDeleteSlides={slideOps.handleDeleteSlides}
 							onAddSlide={slideOps.handleAddSlide}
 							onCollapse={() => state.setIsSlidesPaneOpen(false)}
 							onAddSection={sectionOps.addSection}
