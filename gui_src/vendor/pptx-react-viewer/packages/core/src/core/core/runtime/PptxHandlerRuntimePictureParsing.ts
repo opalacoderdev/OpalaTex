@@ -56,10 +56,10 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 				return null;
 			}
 
-			const x = Math.round(parseEmuInt(xmlAttr(off, 'x')) / PptxHandlerRuntime.EMU_PER_PX);
-			const y = Math.round(parseEmuInt(xmlAttr(off, 'y')) / PptxHandlerRuntime.EMU_PER_PX);
-			const width = Math.round(parseEmuInt(xmlAttr(ext, 'cx')) / PptxHandlerRuntime.EMU_PER_PX);
-			const height = Math.round(parseEmuInt(xmlAttr(ext, 'cy')) / PptxHandlerRuntime.EMU_PER_PX);
+			const x = Math.round(parseEmuInt(xmlAttr(off, 'x')) / this.coordinateDivisor);
+			const y = Math.round(parseEmuInt(xmlAttr(off, 'y')) / this.coordinateDivisor);
+			const width = Math.round(parseEmuInt(xmlAttr(ext, 'cx')) / this.coordinateDivisor);
+			const height = Math.round(parseEmuInt(xmlAttr(ext, 'cy')) / this.coordinateDivisor);
 			const rotation = xfrm['@_rot'] ? parseEmuInt(xfrm['@_rot']) / 60000 : undefined;
 			const skewX = xfrm['@_skewX'] ? parseEmuInt(xfrm['@_skewX']) / 60000 : undefined;
 			const skewY = xfrm['@_skewY'] ? parseEmuInt(xfrm['@_skewY']) / 60000 : undefined;

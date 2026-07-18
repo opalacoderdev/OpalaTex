@@ -45,6 +45,7 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 		slidePath: string,
 		rawXmlStr?: string,
 		depth: number = 0,
+		applyOwnTransform: boolean = true,
 	): Promise<PptxElement[]> {
 		// Load H1: cap recursion depth to prevent stack-overflow DoS from a
 		// maliciously deep `<p:grpSp>` chain.
@@ -67,31 +68,39 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 			parentY = 0,
 			parentW = 0,
 			parentH = 0;
+		let rotation: number | undefined;
+		let flipHorizontal = false;
+		let flipVertical = false;
 		let chX = 0,
 			chY = 0,
 			chW = 0,
 			chH = 0;
 
 		if (xfrm) {
+			rotation = xfrm['@_rot'] ? parseEmuInt(xfrm['@_rot']) / 60000 : undefined;
+			const flipState = this.readFlipState(xfrm);
+			flipHorizontal = flipState.flipHorizontal;
+			flipVertical = flipState.flipVertical;
+
 			const off = xfrm['a:off'] as XmlObject | undefined;
 			if (off) {
-				parentX = Math.round(parseEmuInt(off['@_x']) / PptxHandlerRuntime.EMU_PER_PX);
-				parentY = Math.round(parseEmuInt(off['@_y']) / PptxHandlerRuntime.EMU_PER_PX);
+				parentX = Math.round(parseEmuInt(off['@_x']) / this.coordinateDivisor);
+				parentY = Math.round(parseEmuInt(off['@_y']) / this.coordinateDivisor);
 			}
 			const ext = xfrm['a:ext'] as XmlObject | undefined;
 			if (ext) {
-				parentW = Math.round(parseEmuInt(ext['@_cx']) / PptxHandlerRuntime.EMU_PER_PX);
-				parentH = Math.round(parseEmuInt(ext['@_cy']) / PptxHandlerRuntime.EMU_PER_PX);
+				parentW = Math.round(parseEmuInt(ext['@_cx']) / this.coordinateDivisor);
+				parentH = Math.round(parseEmuInt(ext['@_cy']) / this.coordinateDivisor);
 			}
 			const chOff = xfrm['a:chOff'] as XmlObject | undefined;
 			if (chOff) {
-				chX = Math.round(parseEmuInt(chOff['@_x']) / PptxHandlerRuntime.EMU_PER_PX);
-				chY = Math.round(parseEmuInt(chOff['@_y']) / PptxHandlerRuntime.EMU_PER_PX);
+				chX = parseEmuInt(chOff['@_x']);
+				chY = parseEmuInt(chOff['@_y']);
 			}
 			const chExt = xfrm['a:chExt'] as XmlObject | undefined;
 			if (chExt) {
-				chW = Math.round(parseEmuInt(chExt['@_cx']) / PptxHandlerRuntime.EMU_PER_PX);
-				chH = Math.round(parseEmuInt(chExt['@_cy']) / PptxHandlerRuntime.EMU_PER_PX);
+				chW = parseEmuInt(chExt['@_cx']);
+				chH = parseEmuInt(chExt['@_cy']);
 			}
 		}
 
@@ -105,6 +114,32 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 			el.y = parentY + relativeY * scaleY;
 			el.width *= scaleX;
 			el.height *= scaleY;
+
+			if (applyOwnTransform && flipHorizontal) {
+				el.x = parentX + parentW - (el.x - parentX) - el.width;
+				el.flipHorizontal = !el.flipHorizontal;
+			}
+			if (applyOwnTransform && flipVertical) {
+				el.y = parentY + parentH - (el.y - parentY) - el.height;
+				el.flipVertical = !el.flipVertical;
+			}
+			if (applyOwnTransform && rotation) {
+				const groupCenterX = parentX + parentW / 2;
+				const groupCenterY = parentY + parentH / 2;
+				const elementCenterX = el.x + el.width / 2;
+				const elementCenterY = el.y + el.height / 2;
+				const angle = (rotation * Math.PI) / 180;
+				const cos = Math.cos(angle);
+				const sin = Math.sin(angle);
+				const dx = elementCenterX - groupCenterX;
+				const dy = elementCenterY - groupCenterY;
+				const rotatedCenterX = groupCenterX + dx * cos - dy * sin;
+				const rotatedCenterY = groupCenterY + dx * sin + dy * cos;
+
+				el.x = rotatedCenterX - el.width / 2;
+				el.y = rotatedCenterY - el.height / 2;
+				el.rotation = (el.rotation ?? 0) + rotation;
+			}
 
 			const avgScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
 			if (hasShapeProperties(el) && el.shapeStyle?.strokeWidth) {
@@ -141,23 +176,38 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 				if (!subGroup) {
 					continue;
 				}
-				const subElements = await this.parseGroupShape(
-					subGroup,
-					`${baseId}-group-${entry.indexInType}`,
-					slidePath,
-					rawXmlStr,
-					depth + 1,
-				);
+				const previousDivisor = this.coordinateDivisor;
+				this.coordinateDivisor = 1;
+				let subElements: PptxElement[];
+				try {
+					subElements = await this.parseGroupShape(
+						subGroup,
+						`${baseId}-group-${entry.indexInType}`,
+						slidePath,
+						rawXmlStr,
+						depth + 1,
+						true,
+					);
+				} finally {
+					this.coordinateDivisor = previousDivisor;
+				}
 				subElements.forEach((el) => transformElement(el));
 				elements.push(...subElements);
 			} else {
-				const element = await this.parseSpTreeChild(
-					entry.tag,
-					entry.indexInType,
-					group as Record<string, unknown>,
-					slidePath,
-					`${baseId}-`,
-				);
+				const previousDivisor = this.coordinateDivisor;
+				this.coordinateDivisor = 1;
+				let element: PptxElement | null;
+				try {
+					element = await this.parseSpTreeChild(
+						entry.tag,
+						entry.indexInType,
+						group as Record<string, unknown>,
+						slidePath,
+						`${baseId}-`,
+					);
+				} finally {
+					this.coordinateDivisor = previousDivisor;
+				}
 				if (element) {
 					transformElement(element);
 					elements.push(element);
@@ -185,17 +235,25 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 			parentY = 0,
 			parentW = 0,
 			parentH = 0;
+		let rotation: number | undefined;
+		let flipHorizontal = false;
+		let flipVertical = false;
 
 		if (xfrm) {
+			rotation = xfrm['@_rot'] ? parseEmuInt(xfrm['@_rot']) / 60000 : undefined;
+			const flipState = this.readFlipState(xfrm);
+			flipHorizontal = flipState.flipHorizontal;
+			flipVertical = flipState.flipVertical;
+
 			const off = xfrm['a:off'] as XmlObject | undefined;
 			if (off) {
-				parentX = Math.round(parseEmuInt(off['@_x']) / PptxHandlerRuntime.EMU_PER_PX);
-				parentY = Math.round(parseEmuInt(off['@_y']) / PptxHandlerRuntime.EMU_PER_PX);
+				parentX = Math.round(parseEmuInt(off['@_x']) / this.coordinateDivisor);
+				parentY = Math.round(parseEmuInt(off['@_y']) / this.coordinateDivisor);
 			}
 			const ext = xfrm['a:ext'] as XmlObject | undefined;
 			if (ext) {
-				parentW = Math.round(parseEmuInt(ext['@_cx']) / PptxHandlerRuntime.EMU_PER_PX);
-				parentH = Math.round(parseEmuInt(ext['@_cy']) / PptxHandlerRuntime.EMU_PER_PX);
+				parentW = Math.round(parseEmuInt(ext['@_cx']) / this.coordinateDivisor);
+				parentH = Math.round(parseEmuInt(ext['@_cy']) / this.coordinateDivisor);
 			}
 		}
 
@@ -204,7 +262,7 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 			: undefined;
 		const hasGroupFill = grpFillStyle && grpFillStyle.fillMode && grpFillStyle.fillMode !== 'none';
 
-		const children = await this.parseGroupShape(group, baseId, slidePath, rawXmlStr);
+		const children = await this.parseGroupShape(group, baseId, slidePath, rawXmlStr, 0, false);
 		if (children.length === 0) {
 			return null;
 		}
@@ -256,6 +314,9 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 			y: parentY,
 			width: parentW || Math.max(...children.map((c) => c.x + c.width)),
 			height: parentH || Math.max(...children.map((c) => c.y + c.height)),
+			rotation,
+			flipHorizontal,
+			flipVertical,
 			children,
 			rawXml: group as XmlObject,
 			actionClick: grpActionClick,

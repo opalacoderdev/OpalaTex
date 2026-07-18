@@ -487,6 +487,13 @@ export class PptxHandlerRuntime {
 	protected static EDITOR_META_NAMESPACE_URI = 'http://schemas.pptx.ai/pptx/editor-meta';
 
 	/**
+	 * Divisor used for transform coordinates while parsing an element.
+	 * Top-level DrawingML transforms are EMUs, but children inside a `p:grpSp`
+	 * are expressed in the group's local coordinate system.
+	 */
+	protected coordinateDivisor = PptxHandlerRuntime.EMU_PER_PX;
+
+	/**
 	 * Whether the loaded file uses Strict Open XML conformance class.
 	 * When true, all parsed XML is automatically normalized to Transitional
 	 * namespace URIs so the rest of the codebase needs no changes.

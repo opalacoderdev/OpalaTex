@@ -273,14 +273,14 @@ export function getSvgStrokeDasharray(
  */
 export function getElementTransform(element: PptxElement): string | undefined {
 	const transforms: string[] = [];
+	if (element.rotation) {
+		transforms.push(`rotate(${element.rotation}deg)`);
+	}
 	if (element.flipHorizontal) {
 		transforms.push('scaleX(-1)');
 	}
 	if (element.flipVertical) {
 		transforms.push('scaleY(-1)');
-	}
-	if (element.rotation) {
-		transforms.push(`rotate(${element.rotation}deg)`);
 	}
 	if (element.skewX) {
 		transforms.push(`skewX(${element.skewX}deg)`);

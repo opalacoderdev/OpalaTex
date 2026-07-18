@@ -34,11 +34,11 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 				return null;
 			}
 
-			const x = Math.round(parseInt(xmlAttr(off, 'x') || '0') / PptxHandlerRuntime.EMU_PER_PX);
-			const y = Math.round(parseInt(xmlAttr(off, 'y') || '0') / PptxHandlerRuntime.EMU_PER_PX);
-			const width = Math.round(parseInt(xmlAttr(ext, 'cx') || '0') / PptxHandlerRuntime.EMU_PER_PX);
+			const x = Math.round(parseInt(xmlAttr(off, 'x') || '0') / this.coordinateDivisor);
+			const y = Math.round(parseInt(xmlAttr(off, 'y') || '0') / this.coordinateDivisor);
+			const width = Math.round(parseInt(xmlAttr(ext, 'cx') || '0') / this.coordinateDivisor);
 			const height = Math.round(
-				parseInt(xmlAttr(ext, 'cy') || '0') / PptxHandlerRuntime.EMU_PER_PX,
+				parseInt(xmlAttr(ext, 'cy') || '0') / this.coordinateDivisor,
 			);
 
 			// Get rotation if present

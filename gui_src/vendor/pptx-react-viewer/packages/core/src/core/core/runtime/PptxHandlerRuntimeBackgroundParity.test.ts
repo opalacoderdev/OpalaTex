@@ -41,6 +41,9 @@ function resolveBackgroundRefColor(
 					return overrideColor || fillDef.color;
 				case 'pattern':
 					return overrideColor || fillDef.color || fillDef.patternBackgroundColor;
+				case 'image':
+				case 'group':
+					return overrideColor;
 			}
 		}
 	}

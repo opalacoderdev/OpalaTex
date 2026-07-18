@@ -10,41 +10,170 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 		rootElement: string = 'p:sld',
 	): Promise<string | undefined> {
 		try {
-			const blip = xmlPath(
-				slideXml,
-				rootElement,
-				'p:cSld',
-				'p:bg',
-				'p:bgPr',
-				'a:blipFill',
-				'a:blip',
-			);
+			const bg = xmlPath(slideXml, rootElement, 'p:cSld', 'p:bg');
+			const blip = xmlPath(bg, 'p:bgPr', 'a:blipFill', 'a:blip');
 			const rEmbed = xmlAttr(blip, 'r:embed');
-			if (!rEmbed) {
-				return undefined;
-			}
-
-			const slideRels = this.slideRelsMap.get(slidePath);
-			const target = slideRels?.get(rEmbed);
-			if (!target) {
-				return undefined;
-			}
-
-			// Load H3: external URL gating. Refuse to pass through
-			// http(s):// background images unless allowExternalImages
-			// is explicitly enabled.
-			if (target.startsWith('http://') || target.startsWith('https://')) {
-				if (this.allowExternalImages !== true) {
+			if (rEmbed) {
+				const slideRels = this.slideRelsMap.get(slidePath);
+				const target = slideRels?.get(rEmbed);
+				if (!target) {
 					return undefined;
 				}
-				return target;
+
+				// Load H3: external URL gating. Refuse to pass through
+				// http(s):// background images unless allowExternalImages
+				// is explicitly enabled.
+				if (target.startsWith('http://') || target.startsWith('https://')) {
+					if (this.allowExternalImages !== true) {
+						return undefined;
+					}
+					return target;
+				}
+				const imagePath = this.resolveImagePath(slidePath, target);
+				return this.getImageData(imagePath);
 			}
-			const imagePath = this.resolveImagePath(slidePath, target);
-			return this.getImageData(imagePath);
+
+			const bgRef = xmlChild(bg, 'p:bgRef');
+			if (bgRef) {
+				return this.extractThemeBackgroundRefImage(bgRef, slidePath);
+			}
 		} catch (e) {
 			console.warn('Failed to extract background image:', e);
 		}
 		return undefined;
+	}
+
+	private getBackgroundRefFillDef(bgRef: XmlObject):
+		| NonNullable<typeof this.themeFormatScheme>['fillStyles'][number]
+		| undefined {
+		const idx = xmlAttrNumber(bgRef, 'idx') ?? 0;
+		if (!Number.isFinite(idx) || idx <= 0 || !this.themeFormatScheme) {
+			return undefined;
+		}
+		if (idx >= 1 && idx <= 999) {
+			return this.themeFormatScheme.fillStyles[idx - 1];
+		}
+		if (idx >= 1001 && idx <= 1003) {
+			return this.themeFormatScheme.backgroundFillStyles[idx - 1001];
+		}
+		return undefined;
+	}
+
+	private async extractThemeBackgroundRefImage(
+		bgRef: XmlObject,
+		partPath: string,
+	): Promise<string | undefined> {
+		const fillDef = this.getBackgroundRefFillDef(bgRef);
+		if (fillDef?.kind !== 'image' || !fillDef.rawNode) {
+			return undefined;
+		}
+
+		const blip = xmlChild(fillDef.rawNode as XmlObject, 'a:blip');
+		const rEmbed = xmlAttr(blip, 'r:embed');
+		const rLink = xmlAttr(blip, 'r:link');
+		const relId = rEmbed || rLink;
+		if (!relId) {
+			return undefined;
+		}
+
+		const themePath = await this.resolveThemePathForBackgroundPart(partPath);
+		if (!themePath) {
+			return undefined;
+		}
+		await this.loadThemeRelationships(themePath);
+		const themeRels = this.slideRelsMap.get(themePath);
+		const target = themeRels?.get(relId);
+		if (!target) {
+			return undefined;
+		}
+
+		if (target.startsWith('http://') || target.startsWith('https://')) {
+			if (this.allowExternalImages !== true) {
+				return undefined;
+			}
+			return target;
+		}
+
+		const imagePath = this.resolveImagePath(themePath, target);
+		return this.getImageData(imagePath);
+	}
+
+	private async loadThemeRelationships(themePath: string): Promise<void> {
+		if (this.slideRelsMap.has(themePath)) {
+			return;
+		}
+		const relsPath = themePath.replace(/^ppt\/theme\/([^/]+\.xml)$/u, 'ppt/theme/_rels/$1.rels');
+		await this.loadSlideRelationships(themePath, relsPath);
+	}
+
+	private async resolveThemePathForBackgroundPart(partPath: string): Promise<string | undefined> {
+		if (partPath.startsWith('ppt/theme/')) {
+			return partPath;
+		}
+		const masterPath = await this.resolveMasterPathForBackgroundPart(partPath);
+		if (masterPath) {
+			return this.masterThemePaths.get(masterPath) ?? this.resolveThemePathForMaster(masterPath);
+		}
+		return this.resolvePrimaryThemePath();
+	}
+
+	private async resolveMasterPathForBackgroundPart(partPath: string): Promise<string | undefined> {
+		if (partPath.startsWith('ppt/slideMasters/')) {
+			return partPath;
+		}
+
+		let layoutPath: string | undefined;
+		if (partPath.startsWith('ppt/slideLayouts/')) {
+			layoutPath = partPath;
+		} else {
+			layoutPath = this.resolveLayoutPathFromRelationships(partPath);
+		}
+		if (!layoutPath) {
+			return undefined;
+		}
+
+		if (!this.slideRelsMap.has(layoutPath)) {
+			const layoutRelsPath = `${layoutPath.replace('slideLayouts/', 'slideLayouts/_rels/')}.rels`;
+			await this.loadSlideRelationships(layoutPath, layoutRelsPath);
+		}
+		return this.resolveMasterPathFromRelationships(layoutPath);
+	}
+
+	private resolveLayoutPathFromRelationships(slidePath: string): string | undefined {
+		const slideRels = this.slideRelsMap.get(slidePath);
+		if (!slideRels) {
+			return undefined;
+		}
+		for (const [, target] of slideRels.entries()) {
+			if (target.includes('slideLayout')) {
+				return this.resolveRelatedPartPath(slidePath, target);
+			}
+		}
+		return undefined;
+	}
+
+	private resolveMasterPathFromRelationships(layoutPath: string): string | undefined {
+		const layoutRels = this.slideRelsMap.get(layoutPath);
+		if (!layoutRels) {
+			return undefined;
+		}
+		for (const [, target] of layoutRels.entries()) {
+			if (target.includes('slideMaster')) {
+				return this.resolveRelatedPartPath(layoutPath, target);
+			}
+		}
+		return undefined;
+	}
+
+	private resolveRelatedPartPath(partPath: string, target: string): string {
+		if (target.startsWith('/')) {
+			return target.substring(1);
+		}
+		if (target.startsWith('..') || target.startsWith('./')) {
+			const partDir = partPath.substring(0, partPath.lastIndexOf('/') + 1);
+			return this.resolvePath(partDir, target);
+		}
+		return `ppt/${stripParentDirSegments(target)}`;
 	}
 
 	protected extractBackgroundColor(
@@ -140,6 +269,9 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 						return overrideColor || fillDef.color;
 					case 'pattern':
 						return overrideColor || fillDef.color || fillDef.patternBackgroundColor;
+					case 'image':
+					case 'group':
+						return overrideColor;
 				}
 			}
 		}

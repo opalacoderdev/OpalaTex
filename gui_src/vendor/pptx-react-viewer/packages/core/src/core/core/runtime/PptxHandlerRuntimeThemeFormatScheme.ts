@@ -12,6 +12,7 @@ const FILL_LIST_CHILD_TAGS = [
 	'a:solidFill',
 	'a:gradFill',
 	'a:pattFill',
+	'a:blipFill',
 	'a:noFill',
 	'a:grpFill',
 ] as const;
@@ -47,7 +48,7 @@ export function extractFillStyleListChildOrder(
 	}
 	const inner = rawXml.slice(startIdx, startIdx + closeMatch.index);
 	const order: FillListChildTag[] = [];
-	const childRegex = /<a:(solidFill|gradFill|pattFill|noFill|grpFill)\b/g;
+	const childRegex = /<a:(solidFill|gradFill|pattFill|blipFill|noFill|grpFill)\b/g;
 	let match: RegExpExecArray | null;
 	while ((match = childRegex.exec(inner)) !== null) {
 		order.push(`a:${match[1]}` as FillListChildTag);
@@ -90,6 +91,8 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 						this.parseColor(node['a:bgClr'] as XmlObject | undefined) || undefined,
 					rawNode: node,
 				};
+			case 'a:blipFill':
+				return { kind: 'image', rawNode: node };
 			case 'a:noFill':
 				return { kind: 'none', rawNode: node };
 			case 'a:grpFill':
@@ -119,6 +122,7 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 			'a:solidFill': this.ensureArray(listNode['a:solidFill']) as XmlObject[],
 			'a:gradFill': this.ensureArray(listNode['a:gradFill']) as XmlObject[],
 			'a:pattFill': this.ensureArray(listNode['a:pattFill']) as XmlObject[],
+			'a:blipFill': this.ensureArray(listNode['a:blipFill']) as XmlObject[],
 			'a:noFill': this.ensureArray(listNode['a:noFill']) as XmlObject[],
 			'a:grpFill': this.ensureArray(listNode['a:grpFill']) as XmlObject[],
 		};
@@ -128,6 +132,7 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 				'a:solidFill': 0,
 				'a:gradFill': 0,
 				'a:pattFill': 0,
+				'a:blipFill': 0,
 				'a:noFill': 0,
 				'a:grpFill': 0,
 			};

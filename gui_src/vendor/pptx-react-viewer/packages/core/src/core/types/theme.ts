@@ -155,7 +155,7 @@ export interface PptxThemeFillStyle {
 	 * containing group shape's fill at render time. Captured for round-trip
 	 * preservation in `fmtScheme/fillStyleLst`.
 	 */
-	kind: 'solid' | 'gradient' | 'pattern' | 'none' | 'group';
+	kind: 'solid' | 'gradient' | 'pattern' | 'image' | 'none' | 'group';
 	/** Pre-resolved colour (may be `undefined` when `phClr`-dependent). */
 	color?: string;
 	opacity?: number;

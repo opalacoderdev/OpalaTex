@@ -70,6 +70,19 @@ function getDefaultSchemeColorMap(): Record<string, string> {
 	};
 }
 
+function lookupSchemeValue(map: Record<string, string> | undefined, key: string): string | undefined {
+	if (!map) {
+		return undefined;
+	}
+	const direct = map[key];
+	if (direct) {
+		return direct;
+	}
+	const normalized = key.toLowerCase();
+	const matchedKey = Object.keys(map).find((candidate) => candidate.toLowerCase() === normalized);
+	return matchedKey ? map[matchedKey] : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // normalizeStrokeDashType
 // ---------------------------------------------------------------------------
@@ -238,6 +251,12 @@ describe('getDefaultSchemeColorMap', () => {
 		const map = getDefaultSchemeColorMap();
 		expect(map.hlink).toBe('#0563C1');
 		expect(map.folHlink).toBe('#954F72');
+	});
+
+	it('should resolve followed hyperlink colors case-insensitively', () => {
+		const map = getDefaultSchemeColorMap();
+		expect(lookupSchemeValue(map, 'folHlink')).toBe('#954F72');
+		expect(lookupSchemeValue(map, 'folhlink')).toBe('#954F72');
 	});
 
 	it('should have text and background aliases', () => {

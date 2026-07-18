@@ -14,6 +14,19 @@ const DEFAULT_CLR_MAP_ALIAS: Record<string, string> = {
 	tx2: 'dk2',
 };
 
+function lookupSchemeValue(map: Record<string, string> | undefined, key: string): string | undefined {
+	if (!map) {
+		return undefined;
+	}
+	const direct = map[key];
+	if (direct) {
+		return direct;
+	}
+	const normalized = key.toLowerCase();
+	const matchedKey = Object.keys(map).find((candidate) => candidate.toLowerCase() === normalized);
+	return matchedKey ? map[matchedKey] : undefined;
+}
+
 export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 	/**
 	 * Forward declaration – implemented in PptxHandlerRuntimeThemeProcessing.
@@ -73,11 +86,14 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 		// fall back to `accent1` so a stray `phClr` token without context
 		// still yields a visible colour rather than an undefined render.
 		if (normalized === 'phclr') {
-			const injected = this.themeColorMap['phclr'];
+			const injected = lookupSchemeValue(this.themeColorMap, 'phclr');
 			if (injected) {
 				return injected;
 			}
-			return this.themeColorMap['accent1'] || this.getDefaultSchemeColorMap()['accent1'];
+			return (
+				lookupSchemeValue(this.themeColorMap, 'accent1') ||
+				lookupSchemeValue(this.getDefaultSchemeColorMap(), 'accent1')
+			);
 		}
 
 		// Resolve through the active clrMap layer:
@@ -96,9 +112,12 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 		// Phase 2 Stream B / C-H4 / C-H5.
 		const overrideMap = this.currentSlideClrMapOverride ?? this.currentMasterClrMap;
 		if (overrideMap) {
-			const remapped = overrideMap[normalized];
+			const remapped = lookupSchemeValue(overrideMap, normalized);
 			if (remapped) {
-				return this.themeColorMap[remapped] || this.getDefaultSchemeColorMap()[remapped];
+				return (
+					lookupSchemeValue(this.themeColorMap, remapped) ||
+					lookupSchemeValue(this.getDefaultSchemeColorMap(), remapped)
+				);
 			}
 		} else {
 			// No clrMap on the active master — apply the canonical default
@@ -108,14 +127,17 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 			const defaultAliasTarget = DEFAULT_CLR_MAP_ALIAS[normalized];
 			if (defaultAliasTarget) {
 				return (
-					this.themeColorMap[defaultAliasTarget] ||
-					this.themeColorMap[normalized] ||
-					this.getDefaultSchemeColorMap()[normalized]
+					lookupSchemeValue(this.themeColorMap, defaultAliasTarget) ||
+					lookupSchemeValue(this.themeColorMap, normalized) ||
+					lookupSchemeValue(this.getDefaultSchemeColorMap(), normalized)
 				);
 			}
 		}
 
-		return this.themeColorMap[normalized] || this.getDefaultSchemeColorMap()[normalized];
+		return (
+			lookupSchemeValue(this.themeColorMap, normalized) ||
+			lookupSchemeValue(this.getDefaultSchemeColorMap(), normalized)
+		);
 	}
 
 	protected normalizeStrokeDashType(value: unknown): StrokeDashType | undefined {

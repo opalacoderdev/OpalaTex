@@ -288,6 +288,12 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 				style.fillOpacity = 0;
 				break;
 			}
+			case 'image':
+			case 'group': {
+				style.fillMode = 'theme';
+				style.fillColor = overrideColor;
+				break;
+			}
 		}
 	}
 }

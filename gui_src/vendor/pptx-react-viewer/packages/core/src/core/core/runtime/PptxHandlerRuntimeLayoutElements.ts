@@ -186,9 +186,36 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 						element.id = `layout-${element.id}`;
 						elements.push(element);
 					}
+				} else if (entry.tag === 'p:grpSp') {
+					const groups = this.ensureArray(spTree['p:grpSp']);
+					const group = groups[entry.indexInType] as XmlObject | undefined;
+					if (!group) {
+						continue;
+					}
+					const element = await this.parseGroupShapeAsGroup(
+						group,
+						`layout-group-${layoutToken}-${entry.indexInType}`,
+						layoutPath,
+						layoutXmlStr,
+					);
+					if (element) {
+						element.id = `layout-${element.id}`;
+						elements.push(element);
+					}
+				} else {
+					const element = await this.parseSpTreeChild(
+						entry.tag,
+						entry.indexInType,
+						spTree as Record<string, unknown>,
+						layoutPath,
+						`layout-${layoutToken}-`,
+						layoutXmlStr,
+					);
+					if (element) {
+						element.id = `layout-${element.id}`;
+						elements.push(element);
+					}
 				}
-				// Other element types (p:grpSp, p:contentPart) are
-				// uncommon in layouts but could be added here if needed.
 			}
 
 			// Check whether master shapes should be shown on this layout

@@ -226,11 +226,40 @@ export function getShapeVisualStyle(
 	// ── 3D effects (perspective + rotation + extrusion/bevel) ──
 	apply3dEffects(base, ss?.scene3d, ss?.shape3d);
 
+	const pathElement = element as PptxElement & {
+		pathData?: unknown;
+		pathWidth?: unknown;
+		pathHeight?: unknown;
+	};
+	const hasCustomPath =
+		typeof pathElement.pathData === 'string' &&
+		pathElement.pathData.length > 0 &&
+		typeof pathElement.pathWidth === 'number' &&
+		pathElement.pathWidth > 0 &&
+		typeof pathElement.pathHeight === 'number' &&
+		pathElement.pathHeight > 0;
+
 	if (element.type === 'connector' || normalizedShapeType === 'connector') {
 		return {
 			backgroundColor: 'transparent',
 			borderWidth: 0,
 			borderStyle: 'none',
+		};
+	}
+
+	if (hasCustomPath) {
+		return {
+			...base,
+			backgroundColor: 'transparent',
+			backgroundImage: undefined,
+			backgroundRepeat: undefined,
+			backgroundSize: undefined,
+			backgroundPosition: undefined,
+			borderWidth: 0,
+			borderStyle: 'none',
+			borderColor: undefined,
+			clipPath: undefined,
+			borderRadius: undefined,
 		};
 	}
 
