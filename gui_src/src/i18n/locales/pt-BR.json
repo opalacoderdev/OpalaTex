@@ -259,6 +259,10 @@
   },
   "chatPanel": {
     "header": "OPALATEX CHAT",
+    "orchestrator": "Orquestrador",
+    "worker": "Worker",
+    "refreshModels": "Atualizar Modelos",
+    "editModels": "Editar Modelos...",
     "zoomIn": "Aumentar Zoom",
     "zoomOut": "Diminuir Zoom",
     "zoomReset": "Restaurar Zoom",
@@ -801,6 +805,7 @@
     "configThirdPartyKey": "Configurar Chave de API de Terceiros"
   },
   "common": {
+    "actions": "Acões",
     "cancel": "Cancelar",
     "close": "Fechar",
     "delete": "Excluir",
