@@ -1970,7 +1970,7 @@ export default function App() {
       case 'error':
         addLog('error', data.message);
         addProblem({ tool: data.agent || t('app.agentTool', 'Agent'), message: data.message, severity: 'error' });
-        setChatMessages(prev => [...prev, { role: 'assistant', content: t('app.agentError', '🔴 Erro do Agente: {{message}}', { message: data.message }), timestamp: new Date().toISOString() }]);
+        setChatMessages(prev => [...prev, { role: 'assistant', content: t('app.agentError', '🔴 Erro do Agente: {{message}}', { message: data.message }), is_error: true, timestamp: new Date().toISOString() }]);
         break;
       case 'problem':
         addLog('error', t('app.toolProblem', { tool: data.tool, message: data.message }));
@@ -1983,6 +1983,12 @@ export default function App() {
   const handleSendMessage = async (e, retryMsg = null, options = {}) => {
     if (e && e.preventDefault) e.preventDefault();
     const targetChatId = options.chatIdOverride || activeChatId;
+    const makeClientMessageId = () => {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+      }
+      return `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    };
 
     try {
       const r = await fetch('/api/settings/ai-provider');
@@ -2005,6 +2011,7 @@ export default function App() {
     let displayText = '';
     let attachmentsSnapshot = [];
     let messagesForRequest = undefined;
+    let clientMessageId = options.clientMessageId || retryMsg?.client_message_id || retryMsg?.clientMessageId || '';
 
     if (options.resumeInterrupted) {
       if (!activeProject || isAgentRunning) return;
@@ -2031,6 +2038,9 @@ export default function App() {
       setChatInput('');
       setPendingAttachments([]);
     }
+    if (!clientMessageId) {
+      clientMessageId = makeClientMessageId();
+    }
     if (options.replaceFromIndex !== undefined) {
       try {
         const truncateRes = await fetch('/api/chat/truncate', {
@@ -2054,7 +2064,13 @@ export default function App() {
     const requestPrompt = userText;
     if (displayText) userText = displayText;
     // Show attachment previews alongside the user message in the chat history
-    const userMsg = { role: 'user', content: userText || '📎 Attachment', _attachments: attachmentsSnapshot, timestamp: new Date().toISOString() };
+    const userMsg = {
+      role: 'user',
+      content: userText || '📎 Attachment',
+      client_message_id: clientMessageId,
+      _attachments: attachmentsSnapshot,
+      timestamp: new Date().toISOString(),
+    };
     setChatMessages(prev => {
       if (options.baseMessages) {
         return [...options.baseMessages, userMsg];
@@ -2092,11 +2108,11 @@ export default function App() {
         } else if (result.status === 'done') {
           setChatMessages(prev => [...prev, { role: 'assistant', content: (result.messages || []).join('\n') || 'Comando executado.', timestamp: new Date().toISOString() }]);
         } else {
-          setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Erro: ${result.error || 'desconhecido'}`, timestamp: new Date().toISOString() }]);
+          setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Erro: ${result.error || 'desconhecido'}`, is_error: true, timestamp: new Date().toISOString() }]);
         }
       } catch (err) {
         addLog('error', t('app.commandFailed', { error: err.message }));
-        setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha: ${err.message}`, timestamp: new Date().toISOString() }]);
+        setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
       } finally { setIsAgentRunning(false); fetchFiles(); }
       return;
     }
@@ -2116,6 +2132,7 @@ export default function App() {
           editor_content: fileContent || '', selected_text: selectedText || '',
           lang: i18n.language || 'en',
           chat_id: targetChatId,
+          client_message_id: clientMessageId,
           attachments: attachmentsSnapshot,
           messages: messagesForRequest,
         }),
@@ -2138,7 +2155,7 @@ export default function App() {
       if (buffer.trim()) { try { handleAgentEvent(JSON.parse(buffer)); } catch (e) { addLog('stdout', buffer); } }
     } catch (err) {
       addLog('error', t('app.executionFailed', { error: err.message }));
-      setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, timestamp: new Date().toISOString() }]);
+      setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
     } finally { setIsAgentRunning(false); fetchFiles(); fetchProblems(); }
   };
 
@@ -2770,7 +2787,7 @@ export default function App() {
       if (buffer.trim()) { try { handleAgentEvent(JSON.parse(buffer)); } catch (e) { addLog('stdout', buffer); } }
     } catch (err) {
       addLog('error', t('app.executionFailed', { error: err.message }));
-      setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, timestamp: new Date().toISOString() }]);
+      setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
     } finally { setIsAgentRunning(false); fetchFiles(); fetchProblems(); }
   };
 

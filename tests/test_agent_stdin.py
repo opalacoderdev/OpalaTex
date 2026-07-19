@@ -405,6 +405,65 @@ async def test_handle_run_reports_error_when_orchestrator_never_sends_message(mo
 
 
 @pytest.mark.asyncio
+async def test_handle_run_does_not_duplicate_user_message_on_failed_retries(monkeypatch, tmp_path):
+    import opalatex.agent_stdin as stdin_mod
+    from opalatex.project import ProjectStore
+
+    db_path = str(tmp_path / "projects.db")
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    store = ProjectStore(db_path=db_path)
+    project = store.create(
+        name="proj",
+        mode="auto",
+        model="fake/model",
+        project_name="Project",
+        project_path=str(project_dir),
+    )
+
+    class FakeMemGPT:
+        model = "fake/model"
+        model_kargs = {}
+        internal_history = []
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        _last_worker_chat_response = ""
+        _worker_response_emitted = False
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, _agent_input):
+            raise RuntimeError("simulated api failure")
+
+    events = []
+    monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(stdin_mod, "current_memgpt", FakeMemGPT())
+    monkeypatch.setattr(stdin_mod, "current_project", project)
+    monkeypatch.setattr(stdin_mod, "current_store", store)
+
+    payload = {
+        "agent": "chat_orchestrator",
+        "prompt": "review main.tex",
+        "client_message_id": "client-turn-1",
+    }
+    await stdin_mod.handle_run(payload)
+    await stdin_mod.handle_run(payload)
+    await stdin_mod.handle_run(payload)
+
+    loaded = store.load("proj", chat_id=project.current_chat_id)
+    assert [(m["role"], m["content"]) for m in loaded.history] == [
+        ("user", "review main.tex")
+    ]
+    assert loaded.history[0]["client_message_id"] == "client-turn-1"
+    assert [data["message"] for event, data in events if event == "error"] == [
+        "simulated api failure",
+        "simulated api failure",
+        "simulated api failure",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_handle_run_persists_thought_snapshot_without_reemitting_it(monkeypatch, tmp_path):
     import opalatex.agent_stdin as stdin_mod
 

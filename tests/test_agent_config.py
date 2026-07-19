@@ -128,6 +128,30 @@ def test_cloud_provider_uses_global_cloud_model_setting():
         assert get_agent_model("memgpt", default="ollama/gemma4:12b") == "openai/gemini-3.5-flash"
 
 
+def test_ollama_cloud_model_uses_remote_api_base_by_default(monkeypatch):
+    """Ollama cloud-tagged models must not silently fall back to localhost."""
+    from opalatex.config import get_agent_llm_kwargs
+    from unittest.mock import patch
+
+    class FakeSession:
+        model = "ollama/qwen3.5:cloud"
+        model_params = {}
+        project_path = "/fake/path"
+        api_base = ""
+        api_key = ""
+
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama-test-key")
+
+    with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+        with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+            kwargs = get_agent_llm_kwargs("custom_agent")
+
+    assert kwargs["api_base"] == "https://ollama.com"
+    assert kwargs["api_key"] == "ollama-test-key"
+    assert kwargs["timeout"] == 600.0
+    assert kwargs["request_timeout"] == 600.0
+
+
 def test_internal_attachment_flags_are_not_sent_to_litellm():
     """Internal attachment flags must not leak into provider request kwargs."""
     from opalatex.config import get_agent_llm_kwargs

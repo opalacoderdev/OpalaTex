@@ -103,6 +103,7 @@ def _init_schema(db_path: str) -> None:
                 timestamp   TEXT NOT NULL,
                 role        TEXT NOT NULL,
                 content     TEXT NOT NULL,
+                client_message_id TEXT NOT NULL DEFAULT '',
                 attachments TEXT NOT NULL DEFAULT '[]',
                 FOREIGN KEY (project) REFERENCES projects(name) ON DELETE CASCADE
             );
@@ -183,6 +184,19 @@ def _init_schema(db_path: str) -> None:
             conn.execute("ALTER TABLE project_history ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'")
         except sqlite3.OperationalError:
             pass
+
+        try:
+            conn.execute("ALTER TABLE project_history ADD COLUMN client_message_id TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_project_history_client_message_id
+            ON project_history(project, chat_id, client_message_id)
+            WHERE client_message_id != ''
+            """
+        )
 
 
 @dataclass
@@ -520,7 +534,7 @@ class ProjectStore:
                     chats = [{"id": chat_id, "name": "Main Chat"}]
                     
             hist_rows = conn.execute(
-                "SELECT id, role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id",
+                "SELECT id, role, content, timestamp, client_message_id, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id",
                 (name, chat_id),
             ).fetchall()
             # Read api_key and api_base from local .env if it exists.
@@ -585,6 +599,7 @@ class ProjectStore:
                         "role": r["role"],
                         "content": r["content"],
                         "timestamp": r["timestamp"],
+                        "client_message_id": r["client_message_id"] if "client_message_id" in r.keys() else "",
                         "_attachments": json.loads(r["attachments"] or "[]"),
                     }
                     for r in hist_rows
@@ -667,25 +682,59 @@ class ProjectStore:
                 ),
             )
 
-    def append_message(self, project: ProjectData, role: str, content: str, attachments: list | None = None) -> int:
+    def append_message(
+        self,
+        project: ProjectData,
+        role: str,
+        content: str,
+        attachments: list | None = None,
+        client_message_id: str = "",
+    ) -> int:
         now = datetime.now(timezone.utc).isoformat()
         message_id = None
         clean_attachments = attachments or []
+        clean_client_message_id = str(client_message_id or "").strip()
         with _conn(self.db_path) as conn:
+            if clean_client_message_id:
+                existing = conn.execute(
+                    """
+                    SELECT id, role, content, timestamp, attachments
+                    FROM project_history
+                    WHERE project = ? AND chat_id = ? AND client_message_id = ?
+                    """,
+                    (project.name, project.current_chat_id, clean_client_message_id),
+                ).fetchone()
+                if existing:
+                    existing_id = int(existing["id"])
+                    if not any(int(m.get("id", -1)) == existing_id for m in project.history):
+                        existing_message = {
+                            "id": existing_id,
+                            "role": existing["role"],
+                            "content": existing["content"],
+                            "timestamp": existing["timestamp"],
+                            "client_message_id": clean_client_message_id,
+                            "_attachments": json.loads(existing["attachments"] or "[]"),
+                        }
+                        project.history.append(existing_message)
+                    return existing_id
+
             cursor = conn.execute(
-                "INSERT INTO project_history (project, chat_id, timestamp, role, content, attachments) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO project_history (project, chat_id, timestamp, role, content, client_message_id, attachments) VALUES (?,?,?,?,?,?,?)",
                 (
                     project.name,
                     project.current_chat_id,
                     now,
                     role,
                     content,
+                    clean_client_message_id,
                     json.dumps(clean_attachments, ensure_ascii=False),
                 ),
             )
             message_id = cursor.lastrowid
             
         message = {"id": message_id, "role": role, "content": content, "timestamp": now}
+        if clean_client_message_id:
+            message["client_message_id"] = clean_client_message_id
         if clean_attachments:
             message["_attachments"] = clean_attachments
         project.history.append(message)

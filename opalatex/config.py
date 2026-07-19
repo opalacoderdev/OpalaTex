@@ -213,6 +213,18 @@ from typing import Union
 
 LOCAL_MODEL_CONTEXT_TOKENS = 8192
 CLOUD_MODEL_CONTEXT_TOKENS = 65536
+OLLAMA_CLOUD_API_BASE = "https://ollama.com"
+
+
+def is_ollama_cloud_model(model: str | None) -> bool:
+    """Return True for Ollama model ids that are meant to run on Ollama Cloud."""
+    model_id = str(model or "").strip().lower()
+    if "/" not in model_id:
+        return False
+    provider, model_name = model_id.split("/", 1)
+    if provider not in {"ollama", "ollama_chat"}:
+        return False
+    return model_name.endswith(":cloud") or model_name.endswith("-cloud")
 
 
 def is_local_model(model: str | None, api_base: str | None = "") -> bool:
@@ -230,6 +242,9 @@ def is_local_model(model: str | None, api_base: str | None = "") -> bool:
 
     provider = model_id.split("/", 1)[0].lower() if "/" in model_id else ""
     if provider not in {"ollama", "ollama_chat"}:
+        return False
+
+    if is_ollama_cloud_model(model_id):
         return False
 
     if not api_base_value:
@@ -394,6 +409,11 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
         merged["api_key"] = license_key
         # The proxy itself uses google/genai, but litellm expects openai format when using a generic proxy base
         merged["custom_llm_provider"] = "openai"
+        merged.setdefault("timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
+        merged.setdefault("request_timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
+    elif is_ollama_cloud_model(resolved_model):
+        merged.setdefault("api_base", OLLAMA_CLOUD_API_BASE)
+        merged.setdefault("api_key", os.getenv("OLLAMA_API_KEY", ""))
         merged.setdefault("timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
         merged.setdefault("request_timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
 

@@ -208,11 +208,11 @@ i18n
     lng: detectLanguage(),
     fallbackLng: 'en',
     initImmediate: false,
-    parseMissingKeyHandler: (key) => (
-      typeof key === 'string' && key.startsWith('pptx.')
-        ? keyToLabel(key)
-        : key
-    ),
+    parseMissingKeyHandler: (key, defaultValue) => {
+      if (typeof defaultValue === 'string' && defaultValue) return defaultValue;
+      if (typeof key === 'string' && key.startsWith('pptx.')) return keyToLabel(key);
+      return key;
+    },
     interpolation: {
       escapeValue: false,
     },

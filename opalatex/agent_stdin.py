@@ -763,6 +763,7 @@ async def handle_run(data: dict):
     messages_history = data.get("messages", [])
     requested_tools = data.get("tools")
     raw_attachments = data.get("attachments", [])  # [{type, data, mime, name}]
+    client_message_id = str(data.get("client_message_id") or "").strip()
     
     # Setup project context if provided
     if "project_path" in data or "project_name" in data:
@@ -1139,7 +1140,16 @@ async def handle_run(data: dict):
 
             # Save user message to store immediately so it's not lost if the agent crashes
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
-                current_store.append_message(current_project, "user", user_history_content, attachments=raw_attachments)
+                try:
+                    current_store.append_message(
+                        current_project,
+                        "user",
+                        user_history_content,
+                        attachments=raw_attachments,
+                        client_message_id=client_message_id,
+                    )
+                except TypeError:
+                    current_store.append_message(current_project, "user", user_history_content, attachments=raw_attachments)
                 current_store.save(current_project)
 
             if agent_type in ("orchestrator", "chat_orchestrator"):

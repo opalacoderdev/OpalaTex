@@ -1132,9 +1132,14 @@ export default function ChatPanel({
             interruptionProbe.startsWith('Interrupted:') ||
             interruptionProbe.startsWith('Interrompido:')
           );
+          const legacyErrorProbe = contentWithoutThink(displayContent);
+          const shouldShowTryAgain = !isUser && (
+            msg.is_error === true ||
+            /^\s*(🔴|ðŸ”´)\s*(Agent Error|Erro do Agente|Erro:|Error:|Falha|Failure|Failed|Falha na execução)/i.test(legacyErrorProbe)
+          );
 
           let lastUserMsgBeforeThis = null;
-          if (isError || isInterrupted) {
+          if (shouldShowTryAgain || isInterrupted) {
             for (let j = i - 1; j >= 0; j--) {
               if (chatMessages[j].role === 'user') {
                 lastUserMsgBeforeThis = chatMessages[j];
@@ -1286,7 +1291,7 @@ export default function ChatPanel({
                 ) : (
                   formatMessageContent(displayContent, activeProject?.project_path)
                 )}
-                {isError && isLastMessage && !isAgentRunning && lastUserMsgBeforeThis && (
+                {shouldShowTryAgain && isLastMessage && !isAgentRunning && lastUserMsgBeforeThis && (
                   <button
                     onClick={() => handleSendMessage(null, lastUserMsgBeforeThis)}
                     style={{

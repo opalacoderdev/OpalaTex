@@ -358,8 +358,11 @@
     "importFile": "Import File...",
     "rename": "Rename...",
     "delete": "Delete",
+    "setMainFile": "Set as Main File",
+    "cut": "Cut",
     "copy": "Copy",
     "paste": "Paste",
+    "commandPalette": "Command Palette",
     "openInSystem": "Open with default app"
   },
   "textContextMenu": {

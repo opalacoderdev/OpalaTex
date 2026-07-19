@@ -104,6 +104,19 @@ def test_create_remote_ollama_model_uses_cloud_context_default(store, tmp_path):
     assert p.model_params["num_ctx"] == 65536
 
 
+def test_create_ollama_cloud_tag_uses_cloud_context_default(store, tmp_path):
+    project_dir = tmp_path / "remote_ollama_tag_ctx"
+    p = store.create(
+        **_base_args(
+            name="remote_ollama_tag_ctx",
+            model="ollama/qwen3.5:cloud",
+            project_path=str(project_dir),
+        )
+    )
+
+    assert p.model_params["num_ctx"] == 65536
+
+
 def test_create_preserves_explicit_num_ctx(store, tmp_path):
     project_dir = tmp_path / "explicit_ctx"
     p = store.create(
@@ -330,6 +343,29 @@ def test_append_message_persists_attachments(store):
     assert loaded.history[0]["id"] == message_id
     assert loaded.history[0]["content"] == "describe this"
     assert loaded.history[0]["_attachments"] == [att]
+
+
+def test_append_message_is_idempotent_by_client_message_id(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+
+    first_id = store.append_message(
+        p,
+        "user",
+        "review main.tex",
+        client_message_id="client-turn-1",
+    )
+    retry_id = store.append_message(
+        p,
+        "user",
+        "review main.tex",
+        client_message_id="client-turn-1",
+    )
+
+    loaded = store.load("myproj", chat_id=p.current_chat_id)
+    assert retry_id == first_id
+    assert [m["content"] for m in loaded.history] == ["review main.tex"]
+    assert loaded.history[0]["client_message_id"] == "client-turn-1"
 
 
 def test_branch_chat_copies_attachments(store):
