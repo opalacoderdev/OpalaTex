@@ -3062,7 +3062,12 @@ class AsyncHTTPServer:
         # 7h. Git log
         elif path == '/api/git/log':
             project_path = query.get('projectPath', [None])[0]
-            limit = query.get('limit', ['20'])[0]
+            try:
+                limit = max(1, min(200, int(query.get('limit', ['20'])[0])))
+                offset = max(0, int(query.get('offset', ['0'])[0]))
+            except (TypeError, ValueError):
+                self.send_response(writer, 400, b'{"error":"Invalid pagination parameters"}', "application/json")
+                return
             is_shadow = query.get('shadow', ['false'])[0].lower() == 'true'
             git_root_path = query.get('gitRootPath', [None])[0]
             if not project_path or not os.path.exists(project_path):
@@ -3072,7 +3077,7 @@ class AsyncHTTPServer:
             try:
                 git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 res = subprocess.run(
-                    git_ctx["git_cmd"] + ["log", f"--max-count={limit}", "--pretty=format:%H|%h|%an|%ar|%s"],
+                    git_ctx["git_cmd"] + ["log", f"--max-count={limit + 1}", f"--skip={offset}", "--pretty=format:%H|%h|%an|%ar|%s"],
                     cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs()
                 )
                 commits = []
@@ -3080,7 +3085,13 @@ class AsyncHTTPServer:
                     parts = line.split("|", 4)
                     if len(parts) == 5:
                         commits.append({"hash": parts[0], "short": parts[1], "author": parts[2], "date": parts[3], "message": parts[4]})
-                self.send_response(writer, 200, json.dumps({"commits": commits}).encode('utf-8'), "application/json")
+                has_more = len(commits) > limit
+                self.send_response(writer, 200, json.dumps({
+                    "commits": commits[:limit],
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": has_more,
+                }).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 

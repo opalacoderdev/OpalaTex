@@ -353,6 +353,44 @@
   font-size: 12px;
   border: 1px solid var(--vscode-border);
 }
+.git-review-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 12px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+.git-review-page-button {
+  min-width: 82px;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--vscode-border);
+  border-radius: 3px;
+  background: var(--vscode-input-bg);
+  color: var(--vscode-text-fg);
+  cursor: pointer;
+  font-size: 11px;
+}
+.git-review-page-button:hover:not(:disabled) {
+  background: var(--vscode-hover-item);
+}
+.git-review-page-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.git-review-page-status {
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .git-icon-button {
   padding: 2px;
   border: none;

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, ChevronDown, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+
+const REVIEW_HISTORY_PAGE_SIZE = 10;
 
 function buildStatusMeta(t) {
   return {
@@ -131,6 +133,8 @@ export default function GitSidebar({
   const [restoringCommit, setRestoringCommit] = useState('');
   const [commits, setCommits] = useState([]);
   const [loadingLog, setLoadingLog] = useState(false);
+  const [reviewPage, setReviewPage] = useState(0);
+  const [reviewHasNextPage, setReviewHasNextPage] = useState(false);
 
   const projectPath = activeProject?.project_path;
   const effectiveUseShadowGit = reviewMode ? true : useShadowGit;
@@ -155,11 +159,17 @@ export default function GitSidebar({
     if (!projectPath) return;
     setLoadingLog(true);
     try {
-      const res = await fetch(`/api/git/log?${gitQuery({ limit: reviewMode ? '80' : '30' })}`);
-      if (res.ok) { const d = await res.json(); setCommits(d.commits || []); }
+      const limit = reviewMode ? REVIEW_HISTORY_PAGE_SIZE : 30;
+      const offset = reviewMode ? reviewPage * REVIEW_HISTORY_PAGE_SIZE : 0;
+      const res = await fetch(`/api/git/log?${gitQuery({ limit: String(limit), offset: String(offset) })}`);
+      if (res.ok) {
+        const d = await res.json();
+        setCommits(d.commits || []);
+        setReviewHasNextPage(!!d.has_more);
+      }
     } catch { /* ignore */ }
     finally { setLoadingLog(false); }
-  }, [projectPath, gitQuery, reviewMode]);
+  }, [projectPath, gitQuery, reviewMode, reviewPage]);
 
   useEffect(() => {
     if ((reviewMode || activeTab === 'log') && projectPath) fetchLog();
@@ -176,6 +186,10 @@ export default function GitSidebar({
     setExpandedCommitDiffs({});
     setCommitDiffs({});
   }, [projectPath, gitRootPath]);
+
+  useEffect(() => {
+    setReviewPage(0);
+  }, [projectPath, effectiveUseShadowGit, gitRootPath, reviewMode]);
 
   const toggleDiff = async (filePath) => {
     const next = !expandedDiffs[filePath];
@@ -282,12 +296,45 @@ export default function GitSidebar({
     </div>
   );
 
+  const renderReviewPagination = () => {
+    if (!reviewMode || loadingLog || (commits.length === 0 && reviewPage === 0)) return null;
+    return (
+      <div className="git-review-pagination">
+        <button
+          type="button"
+          className="git-review-page-button"
+          title={t('gitSidebar.previousPage')}
+          onClick={() => setReviewPage(page => Math.max(0, page - 1))}
+          disabled={reviewPage === 0}
+        >
+          <ChevronLeft size={13} />
+          {t('gitSidebar.previous')}
+        </button>
+        <div className="git-review-page-status">
+          {t('gitSidebar.reviewPageStatus', { page: reviewPage + 1, count: commits.length })}
+        </div>
+        <button
+          type="button"
+          className="git-review-page-button"
+          title={t('gitSidebar.nextPage')}
+          onClick={() => setReviewPage(page => page + 1)}
+          disabled={!reviewHasNextPage}
+        >
+          {t('gitSidebar.next')}
+          <ChevronRight size={13} />
+        </button>
+      </div>
+    );
+  };
+
   const renderHistory = () => (
     <div style={{ flex: 1, overflowY: 'auto', padding: reviewMode ? '16px 20px 24px' : '12px' }}>
       {loadingLog ? (
         <div style={{ fontSize: '12px', color: '#808080' }}>{t('gitSidebar.loadingHistory')}</div>
       ) : commits.length === 0 ? (
-        <div style={{ fontSize: '12px', color: '#808080', fontStyle: 'italic' }}>{t('gitSidebar.noCommits')}</div>
+        <div style={{ fontSize: '12px', color: '#808080', fontStyle: 'italic' }}>
+          {reviewMode && reviewPage > 0 ? t('gitSidebar.noCommitsOnPage') : t('gitSidebar.noCommits')}
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: reviewMode ? '8px' : '2px' }}>
           {commits.map((c, i) => (
@@ -340,6 +387,7 @@ export default function GitSidebar({
           ))}
         </div>
       )}
+      {renderReviewPagination()}
     </div>
   );
 
