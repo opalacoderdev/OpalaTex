@@ -232,6 +232,11 @@ export default function App() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedNodes, setSelectedNodes] = useState(new Set());
   const [fileContent, setFileContent] = useState('');
+  // Always-current ref for fileContent — used in async closures and useEffect
+  // callbacks where capturing fileContent directly would produce a stale value.
+  // Assigning here (outside any hook) keeps it in sync on every render without
+  // adding fileContent to useEffect dependency arrays.
+  const fileContentRef = useRef('');
   const [openFiles, setOpenFiles] = useState([]);
   const [fileContents, setFileContents] = useState({});
   const [originalFileContents, setOriginalFileContents] = useState({});
@@ -411,11 +416,14 @@ export default function App() {
   const importFileInputRef = useRef(null);
   const importTargetPathRef = useRef('');
 
+  // Keep fileContentRef in sync with the latest fileContent state on every render.
+  fileContentRef.current = fileContent;
+
   async function refreshSelectedFileFromDiskIfUnmodified() {
     if (!activeProject?.project_path || !selectedFile) return;
     if (isBinaryEditorFile(selectedFile)) return;
     const lastDiskContent = diskFileContentsRef.current[selectedFile];
-    if (lastDiskContent === undefined || fileContent !== lastDiskContent) return;
+    if (lastDiskContent === undefined || fileContentRef.current !== lastDiskContent) return;
     try {
       const res = await fetch(`/api/file/read?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`);
       if (!res.ok) return;
@@ -836,7 +844,10 @@ export default function App() {
       window.removeEventListener('focus', refreshWorkspace);
       document.removeEventListener('visibilitychange', refreshWorkspace);
     };
-  }, [activeProject, useShadowGit, currentGitRootPath, selectedFile, fileContent]);
+  // fileContent intentionally excluded: the guard in refreshSelectedFileFromDiskIfUnmodified
+  // now reads fileContentRef.current (always current) instead of a closure-captured value,
+  // so there is no need to recreate this effect on every keystroke.
+  }, [activeProject, useShadowGit, currentGitRootPath, selectedFile]);
 
   useEffect(() => {
     if (activeSidebarTab === 'git' && activeProject) fetchGitStatus();
