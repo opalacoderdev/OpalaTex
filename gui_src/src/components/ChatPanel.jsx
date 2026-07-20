@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
 import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useCustomDialog } from './modals/CustomDialogProvider';
 import { formatMessageContent } from '../utils/formatMessage';
 import { readClipboard } from '../utils/clipboard.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
@@ -42,6 +43,7 @@ export default function ChatPanel({
   globalAiProvider
 }) {
   const { t } = useTranslation();
+  const { showPrompt, showAlert } = useCustomDialog();
   const historyRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -476,9 +478,9 @@ export default function ChatPanel({
   };
 
   const handleBranchChat = async (messageIndex) => {
-    const newChatName = window.prompt(t('chatPanel.branchPrompt', 'Name for the new chat (branch):'));
+    const newChatName = await showPrompt(t('chatPanel.branchPrompt', 'Name for the new chat (branch):'));
     if (!newChatName) return;
-
+ 
     try {
       const projectName = activeProject?.name || '';
       const persistedMessageIndex = chatMessages
@@ -509,11 +511,11 @@ export default function ChatPanel({
       } else {
         const err = await res.json();
         console.error('Failed to branch chat:', err.error);
-        alert(t('app.error', 'Erro:') + ' ' + (err.error || 'Failed to branch chat'));
+        await showAlert(t('app.error', 'Erro:') + ' ' + (err.error || 'Failed to branch chat'));
       }
     } catch (e) {
       console.error(e);
-      alert(t('app.error', 'Erro:') + ' ' + e.message);
+      await showAlert(t('app.error', 'Erro:') + ' ' + e.message);
     }
   };
 

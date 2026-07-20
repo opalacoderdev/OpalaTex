@@ -1,10 +1,12 @@
 import React from 'react';
 import { Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useCustomDialog } from './modals/CustomDialogProvider';
 
 // Bottom status bar (VSCode-style footer).
 export default function StatusBar({ activeProject, isAgentRunning, licenseData, onOpenLicense }) {
   const { t, i18n } = useTranslation();
+  const { showAlert } = useCustomDialog();
 
   const [tokenBalance, setTokenBalance] = React.useState(null);
   const [aiProvider, setAiProvider] = React.useState('local');
@@ -34,7 +36,7 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
     e.preventDefault();
     const lang = i18n.language || 'en';
     if (!licenseData?.key) {
-      alert(t('statusBar.noCloudAccountAlert'));
+      await showAlert(t('statusBar.noCloudAccountAlert'));
       window.open(`https://opalacoder.com/?lang=${lang}#products`, '_blank');
       return;
     }

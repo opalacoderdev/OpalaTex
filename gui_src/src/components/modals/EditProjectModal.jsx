@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Settings, Check, FolderOpen } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import { useModelValidation } from './useModelValidation';
+import { useCustomDialog } from './CustomDialogProvider';
 
 // Numeric input helper to avoid repetition in the advanced params grid.
 function ParamNumber({ label, value, onChange, step, min, max, placeholder }) {
@@ -36,6 +37,7 @@ export default function EditProjectModal({
   onOpenDirPicker,
 }) {
   const { t } = useTranslation();
+  const { showAlert } = useCustomDialog();
   const { hardware, modelStatus } = useModelValidation(editingProject?.model);
   const { hardware: workerHardware, modelStatus: workerModelStatus } = useModelValidation(editingProject?.worker_model);
 
@@ -372,12 +374,12 @@ export default function EditProjectModal({
                         body: JSON.stringify({ project_path: editingProject.project_path })
                       });
                       if (res.ok) {
-                        alert(t('settingsModal.contextualSkillsLoaded'));
+                        await showAlert(t('settingsModal.contextualSkillsLoaded'));
                       } else {
-                        alert(t('editProjectModal.contextualSkillsLoadError'));
+                        await showAlert(t('editProjectModal.contextualSkillsLoadError'));
                       }
                     } catch (e) {
-                      alert(String(e));
+                      await showAlert(String(e));
                     }
                   }}
                 >

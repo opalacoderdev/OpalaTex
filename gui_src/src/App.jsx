@@ -2037,7 +2037,7 @@ export default function App() {
           if (balRes.ok) {
             const balData = await balRes.json();
             if (!balData || balData.balance === undefined || balData.balance <= 0) {
-              alert(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
+              setAlertMessage(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
               return;
             }
           }
@@ -2790,7 +2790,7 @@ export default function App() {
           if (balRes.ok) {
             const balData = await balRes.json();
             if (!balData || balData.balance === undefined || balData.balance <= 0) {
-              alert(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
+              setAlertMessage(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
               return;
             }
           }

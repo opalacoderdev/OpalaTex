@@ -43,6 +43,15 @@
   --battery-good: #4ade80;
   --battery-low: #fbbf24;
   --battery-exploded: #f87171;
+
+  /* Diff colors */
+  --diff-text-added: #73c991;
+  --diff-bg-added: rgba(115, 201, 145, 0.12);
+  --diff-text-removed: #f48771;
+  --diff-bg-removed: rgba(244, 135, 113, 0.12);
+  --diff-text-meta: #9cdcfe;
+  --diff-text-header: #808080;
+  --diff-text-default: #cccccc;
 }
 
 /* ─── Light Theme ──────────────────────────────────────────────────────────
@@ -104,6 +113,15 @@
   --battery-good: #059669;
   --battery-low: #d97706;
   --battery-exploded: #dc2626;
+
+  /* Diff colors */
+  --diff-text-added: #1e8745;
+  --diff-bg-added: rgba(46, 160, 67, 0.12);
+  --diff-text-removed: #d1242f;
+  --diff-bg-removed: rgba(248, 81, 73, 0.12);
+  --diff-text-meta: #005fb8;
+  --diff-text-header: #6a737d;
+  --diff-text-default: #1e1e1e;
 }
 
 /* ── Light-theme component overrides ──────────────────────────────────────

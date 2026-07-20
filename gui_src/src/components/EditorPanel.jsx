@@ -2,6 +2,7 @@ import { Suspense, lazy, useRef, useEffect, useState, useCallback } from 'react'
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText, HelpCircle, MoreHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useCustomDialog } from './modals/CustomDialogProvider';
 import { getLanguage } from '../utils/language';
 import { safeSetLocalStorage } from '../utils/storage';
 import InlinePromptOverlay from './InlinePromptOverlay';
@@ -51,6 +52,7 @@ export default function EditorPanel({
   onRegisterBinarySave,
 }) {
   const { t } = useTranslation();
+  const { showAlert } = useCustomDialog();
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isLatexPreviewMode, setIsLatexPreviewMode] = useState(false);
@@ -153,10 +155,10 @@ export default function EditorPanel({
       if (data.success) {
         setIsTectonicAvailable(true);
       } else {
-        alert(t('editorPanel.installTectonicError') + (data.error || ''));
+        await showAlert(t('editorPanel.installTectonicError') + (data.error || ''));
       }
     } catch (err) {
-      alert(t('editorPanel.installTectonicError') + err);
+      await showAlert(t('editorPanel.installTectonicError') + err);
     } finally {
       setIsInstallingTectonic(false);
     }
@@ -321,10 +323,10 @@ export default function EditorPanel({
       if (data.success) {
         setIsPandocAvailable(true);
       } else {
-        alert(t('editorPanel.installPandocError') + (data.error || ''));
+        await showAlert(t('editorPanel.installPandocError') + (data.error || ''));
       }
     } catch (err) {
-      alert(t('editorPanel.installPandocError') + err);
+      await showAlert(t('editorPanel.installPandocError') + err);
     } finally {
       setIsInstallingPandoc(false);
     }

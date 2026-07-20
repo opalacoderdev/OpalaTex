@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Search, Plus, Trash2, Edit2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useCustomDialog } from './CustomDialogProvider';
 
 export default function EditModelsModal({
   globalModels,
@@ -10,6 +11,7 @@ export default function EditModelsModal({
   onAddProvider
 }) {
   const { t } = useTranslation();
+  const { showConfirm } = useCustomDialog();
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredModels = globalModels.filter(m => 
@@ -78,8 +80,8 @@ export default function EditModelsModal({
                         <button 
                           className="vscode-bottom-panel-clear-btn" 
                           title={t('common.delete')}
-                          onClick={() => {
-                            if(window.confirm(t('editModelsModal.deleteConfirm', { id: model.id }))) {
+                          onClick={async () => {
+                            if (await showConfirm(t('editModelsModal.deleteConfirm', { id: model.id }))) {
                               onDeleteModel(model.id);
                             }
                           }}

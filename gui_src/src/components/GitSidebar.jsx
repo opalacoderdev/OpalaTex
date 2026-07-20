@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useCustomDialog } from './modals/CustomDialogProvider';
 
 const REVIEW_HISTORY_PAGE_SIZE = 10;
 
@@ -18,7 +19,7 @@ function buildStatusMeta(t) {
 function DiffViewer({ diff, wrapLines = false }) {
   const { t } = useTranslation();
   if (!diff || !diff.trim()) return (
-    <div style={{ padding: '8px', fontSize: '11px', color: '#808080', fontStyle: 'italic' }}>{t('gitSidebar.noDiff')}</div>
+    <div style={{ padding: '8px', fontSize: '11px', color: 'var(--vscode-descriptionForeground)', fontStyle: 'italic' }}>{t('gitSidebar.noDiff')}</div>
   );
   const lineStyle = {
     lineHeight: '1.5',
@@ -30,11 +31,11 @@ function DiffViewer({ diff, wrapLines = false }) {
     <div style={{ fontFamily: 'monospace', fontSize: '11px', overflowX: wrapLines ? 'hidden' : 'auto', background: 'var(--vscode-input-bg)', borderRadius: '4px', padding: '6px', border: '1px solid var(--vscode-border)' }}>
       {diff.split('\n').map((line, i) => {
         let bg = 'transparent';
-        let color = '#cccccc';
-        if (line.startsWith('+') && !line.startsWith('+++')) { bg = 'rgba(115,201,145,0.12)'; color = '#73c991'; }
-        else if (line.startsWith('-') && !line.startsWith('---')) { bg = 'rgba(244,135,113,0.12)'; color = '#f48771'; }
-        else if (line.startsWith('@@')) { color = '#9cdcfe'; }
-        else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) { color = '#808080'; }
+        let color = 'var(--diff-text-default)';
+        if (line.startsWith('+') && !line.startsWith('+++')) { bg = 'var(--diff-bg-added)'; color = 'var(--diff-text-added)'; }
+        else if (line.startsWith('-') && !line.startsWith('---')) { bg = 'var(--diff-bg-removed)'; color = 'var(--diff-text-removed)'; }
+        else if (line.startsWith('@@')) { color = 'var(--diff-text-meta)'; }
+        else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) { color = 'var(--diff-text-header)'; }
         return (
           <div key={i} style={{ ...lineStyle, background: bg, color }}>{line || ' '}</div>
         );
@@ -123,6 +124,7 @@ export default function GitSidebar({
   onAfterRestore,
 }) {
   const { t } = useTranslation();
+  const { showConfirm, showAlert } = useCustomDialog();
   const [activeTab, setActiveTab] = useState('changes'); // 'changes' | 'log'
   const [expandedDiffs, setExpandedDiffs] = useState({});
   const [diffs, setDiffs] = useState({});
@@ -255,7 +257,7 @@ export default function GitSidebar({
 
   const restoreCommit = async (commit) => {
     if (!projectPath || restoringCommit) return;
-    const confirmed = window.confirm(t('gitSidebar.restoreConfirm', { short: commit.short, message: commit.message }));
+    const confirmed = await showConfirm(t('gitSidebar.restoreConfirm', { short: commit.short, message: commit.message }));
     if (!confirmed) return;
     setRestoringCommit(commit.hash);
     try {
@@ -272,7 +274,7 @@ export default function GitSidebar({
       fetchGitStatus();
       onAfterRestore?.(commit);
     } catch (err) {
-      window.alert(t('gitSidebar.restoreError', { error: err.message }));
+      await showAlert(t('gitSidebar.restoreError', { error: err.message }));
     } finally {
       setRestoringCommit('');
     }

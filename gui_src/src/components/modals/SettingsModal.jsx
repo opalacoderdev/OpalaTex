@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useCustomDialog } from './CustomDialogProvider';
 import i18n from '../../i18n/index.js';
 import { safeSetLocalStorage } from '../../utils/storage';
 // Language preference is persisted server-side via /api/settings/language (survives webview restarts)
@@ -34,6 +35,7 @@ export default function SettingsModal({
   onReplaceSerial,
 }) {
   const { t } = useTranslation();
+  const { showAlert } = useCustomDialog();
   const [selectedLang, setSelectedLang] = React.useState('');
   const [opalatexHome, setOpalaTexHome] = React.useState('');
   const [aiProvider, setAiProvider] = React.useState('local');
@@ -269,12 +271,11 @@ export default function SettingsModal({
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ path: opalatexHome })
                       })
-                        .then(r => r.json())
-                        .then(res => {
+                        .then(async res => {
                           if (res.requiresRestart) {
-                            alert(t('settingsModal.globalDataDirRestartAlert'));
+                            await showAlert(t('settingsModal.globalDataDirRestartAlert'));
                           } else if (res.error) {
-                            alert(t('settingsModal.globalDataDirError') + res.error);
+                            await showAlert(t('settingsModal.globalDataDirError') + res.error);
                           }
                         });
                     }}
@@ -369,16 +370,16 @@ export default function SettingsModal({
                       if (btn) btn.disabled = true;
                       fetch('/api/settings/install-tectonic', { method: 'POST' })
                         .then(r => r.json())
-                        .then(res => {
+                        .then(async res => {
                           if (res.success) {
                             setTectonicInstallMessage(t('settingsModal.installTectonicSuccess'));
                           } else {
-                            alert(t('settingsModal.installTectonicError') + res.error);
+                            await showAlert(t('settingsModal.installTectonicError') + res.error);
                           }
                           if (btn) btn.disabled = false;
                         })
-                        .catch(err => {
-                          alert(t('settingsModal.connectionError') + err);
+                        .catch(async err => {
+                          await showAlert(t('settingsModal.connectionError') + err);
                           if (btn) btn.disabled = false;
                         });
                     }}
@@ -406,16 +407,16 @@ export default function SettingsModal({
                       if (btn) btn.disabled = true;
                       fetch('/api/settings/install-pandoc', { method: 'POST' })
                         .then(r => r.json())
-                        .then(res => {
+                        .then(async res => {
                           if (res.success) {
                             setPandocInstallMessage(t('settingsModal.installPandocSuccess'));
                           } else {
-                            alert(t('settingsModal.installPandocError') + res.error);
+                            await showAlert(t('settingsModal.installPandocError') + res.error);
                           }
                           if (btn) btn.disabled = false;
                         })
-                        .catch(err => {
-                          alert(t('settingsModal.connectionError') + err);
+                        .catch(async err => {
+                          await showAlert(t('settingsModal.connectionError') + err);
                           if (btn) btn.disabled = false;
                         });
                     }}

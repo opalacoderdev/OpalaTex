@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, MessageSquare, Trash2, Pencil } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useCustomDialog } from './modals/CustomDialogProvider';
 
 export default function ChatSidebar({
   chats,
@@ -12,6 +13,7 @@ export default function ChatSidebar({
   onSwitchChat
 }) {
   const { t } = useTranslation();
+  const { showPrompt } = useCustomDialog();
   const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
   const [newChatName, setNewChatName] = useState('');
   const [chatToDelete, setChatToDelete] = useState(null);
@@ -20,7 +22,7 @@ export default function ChatSidebar({
     e.stopPropagation();
     if (!activeProject || id === 'main') return;
     
-    const newName = window.prompt(t('chatSidebar.renamePrompt', 'Novo nome do chat:'), currentName);
+    const newName = await showPrompt(t('chatSidebar.renamePrompt', 'Novo nome do chat:'), currentName);
     if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
 
     try {
