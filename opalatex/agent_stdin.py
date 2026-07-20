@@ -61,6 +61,10 @@ _LAST_WORKER_MESSAGES: list[str] = []
 _LAST_INTERMEDIATE_AGENT_RESPONSE = ""
 EMPTY_RESPONSE_MAX_CORRECTION_ATTEMPTS = 2
 _ACTIVE_THOUGHT_CHUNKS: list[str] | None = None
+_ACTIVE_THOUGHT_CHARS = 0
+_ACTIVE_THOUGHT_SUPPRESSED = False
+MAX_THOUGHT_CHARS_PER_TURN = 24_000
+MAX_THOUGHT_CHUNK_CHARS = 4_000
 
 # Pending GUI input requests: maps request-id -> asyncio.Future so that the
 # /api/opalatex/input_response endpoint can resolve them.
@@ -252,15 +256,10 @@ def _extract_worker_summary_from_tool_result(content: str) -> str:
     return summary
 
 
-def _response_with_thought(response: str, thought_chunks: list[str]) -> str:
-    """Return the persisted chat content, preserving the turn thought snapshot."""
-    thought = "".join(thought_chunks).strip()
-    text = _strip_empty_think_blocks(str(response or "")).strip()
-    if not thought:
-        return text
-    if text.startswith("<think>") or text.startswith("```thought"):
-        return text
-    return f"<think>\n{thought}\n</think>\n\n{text}".strip()
+def _visible_chat_response(response: str) -> str:
+    """Return the only content allowed in chat history or user-visible chat."""
+    visible, _thoughts = _split_channel_markup(response)
+    return _strip_empty_think_blocks(visible).strip()
 
 
 def _strip_empty_think_blocks(content: str) -> str:
@@ -342,11 +341,54 @@ def _sanitize_model_response(response: str, thought_chunks: list[str]) -> str:
     return visible.strip()
 
 
-def _record_turn_thought(content: str) -> None:
-    """Record a thought chunk for the active chat turn, if any."""
+def _looks_like_degenerate_thought(text: str) -> bool:
+    """Detect provider loops that stream mostly one repeated token/character."""
+    if len(text) < 120:
+        return False
+    compact = re.sub(r"\s+", "", text)
+    if len(compact) < 80:
+        return False
+    if re.fullmatch(r"(?:\\u[0-9a-fA-F]{4}){20,}", compact):
+        return True
+    most_common = max(compact.count(ch) for ch in set(compact))
+    if most_common / len(compact) >= 0.85:
+        return True
+    for width in range(1, min(16, len(compact) // 8) + 1):
+        unit = compact[:width]
+        if unit and unit * (len(compact) // width) == compact[: width * (len(compact) // width)]:
+            if len(compact) // width >= 12:
+                return True
+    return False
+
+
+def _record_turn_thought(content: str) -> bool:
+    """Record a thought chunk for the active chat turn, if it is useful."""
+    global _ACTIVE_THOUGHT_CHARS, _ACTIVE_THOUGHT_SUPPRESSED
+
     text = str(content or "")
-    if text and _ACTIVE_THOUGHT_CHUNKS is not None:
-        _ACTIVE_THOUGHT_CHUNKS.append(text)
+    if not text or _ACTIVE_THOUGHT_CHUNKS is None:
+        return bool(text)
+
+    if _ACTIVE_THOUGHT_SUPPRESSED:
+        return False
+
+    if (
+        len(text) > MAX_THOUGHT_CHUNK_CHARS
+        or _ACTIVE_THOUGHT_CHARS + len(text) > MAX_THOUGHT_CHARS_PER_TURN
+        or _looks_like_degenerate_thought(text)
+    ):
+        _ACTIVE_THOUGHT_SUPPRESSED = True
+        diagnostic = (
+            "[Thought stream suppressed: the model emitted an excessively long "
+            "or repetitive reasoning stream. The run will continue, but this "
+            "diagnostic was kept out of resume context.]"
+        )
+        _ACTIVE_THOUGHT_CHUNKS.append(diagnostic)
+        return False
+
+    _ACTIVE_THOUGHT_CHARS += len(text)
+    _ACTIVE_THOUGHT_CHUNKS.append(text)
+    return True
 
 
 def _empty_response_retry_prompt(worker_summary: str = "") -> str:
@@ -386,7 +428,8 @@ def print_event(event: str, data: dict):
 
     already_recorded_thought = bool(data.pop("_thought_recorded", False))
     if event == "thought" and not already_recorded_thought:
-        _record_turn_thought(data.get("content", ""))
+        if not _record_turn_thought(data.get("content", "")):
+            return
 
     payload = {"event": event, **data}
     hook = event_hook
@@ -423,8 +466,7 @@ def print_event(event: str, data: dict):
             elif event == "error":
                 thought_content = f"Alert: An error occurred during execution: {data.get('message', '')}"
                 
-            if thought_content:
-                _record_turn_thought(thought_content)
+            if thought_content and _record_turn_thought(thought_content):
                 hook({"event": "thought", "content": thought_content})
         except Exception as ex:
             import sys
@@ -840,6 +882,7 @@ async def handle_run(data: dict):
     system_prompt = data.get("system_prompt")
     raw_prompt = data.get("prompt", "")
     prompt, _meta_overrides = parse_meta_params(raw_prompt)
+    display_prompt = str(data.get("display_prompt") or "").strip()
     messages_history = data.get("messages", [])
     requested_tools = data.get("tools")
     raw_attachments = data.get("attachments", [])  # [{type, data, mime, name}]
@@ -933,8 +976,10 @@ async def handle_run(data: dict):
         if model_params.get("reasoning_effort"):
             model_kwargs["reasoning_effort"] = model_params["reasoning_effort"]
         
-        # Default think to False if not explicitly passed as True
-        model_kwargs["think"] = bool(model_params.get("think", False))
+        # Thinking defaults on, while still honoring an explicit user setting.
+        # Downstream sanitization drops this only for providers that cannot
+        # accept the parameter.
+        model_kwargs["think"] = bool(model_params.get("think", True))
         model_kwargs["stream"] = bool(model_params.get("stream", False))
 
         agent_kwargs = {}
@@ -988,15 +1033,17 @@ async def handle_run(data: dict):
                 "content": msg.get("content", "")
             })
             
-    global _ACTIVE_THOUGHT_CHUNKS
+    global _ACTIVE_THOUGHT_CHUNKS, _ACTIVE_THOUGHT_CHARS, _ACTIVE_THOUGHT_SUPPRESSED
     thought_chunks = []
     _ACTIVE_THOUGHT_CHUNKS = thought_chunks
+    _ACTIVE_THOUGHT_CHARS = 0
+    _ACTIVE_THOUGHT_SUPPRESSED = False
     in_think_block = [False]
     think_buffer = [""]
 
     def _on_thinking(chunk: str) -> None:
-        _record_turn_thought(chunk)
-        print_event("thought", {"content": chunk, "agent": agent_type, "_thought_recorded": True})
+        if _record_turn_thought(chunk):
+            print_event("thought", {"content": chunk, "agent": agent_type, "_thought_recorded": True})
 
     def _on_chunk(chunk: str) -> None:
         think_buffer[0] += chunk
@@ -1070,16 +1117,16 @@ async def handle_run(data: dict):
         tools_mod.TURN_ACHIEVEMENTS = ""
 
     turn_checkpoint_project_path = None
-    turn_checkpoint_started = False
+    turn_checkpoint_id = None
     if agent_type in ("orchestrator", "chat_orchestrator") and current_project and current_project.project_path:
         try:
             from opalatex.config import get_git_strategy
             if get_git_strategy().lower() != "none":
                 from opalatex.vcs import begin_agent_turn_checkpoint
                 turn_checkpoint_project_path = current_project.project_path
-                turn_checkpoint_started = bool(begin_agent_turn_checkpoint(turn_checkpoint_project_path))
+                turn_checkpoint_id = begin_agent_turn_checkpoint(turn_checkpoint_project_path)
         except Exception:
-            turn_checkpoint_started = False
+            turn_checkpoint_id = None
 
     import opalatex.terminal as T
     orig_async_confirm_hook = getattr(T, "_async_confirm_hook", None)
@@ -1169,7 +1216,7 @@ async def handle_run(data: dict):
             free_tokens = max(0, num_ctx - history_tokens)
             free_chars = free_tokens * 4  # back to chars
 
-            user_history_content = prompt
+            user_history_content = display_prompt or prompt
             history_attachments = []
             if not raw_attachments and current_project:
                 history_attachments = _recent_history_attachments(getattr(current_project, "history", []) or [])
@@ -1269,15 +1316,15 @@ async def handle_run(data: dict):
 
             #print(f"[DIAG-PY] response[:200] = {repr(response[:200])}", flush=True)
 
-            persisted_response = _response_with_thought(response, thought_chunks)
+            chat_response = _visible_chat_response(response)
             assistant_message_id = None
 
             # Save assistant response and achievements
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
                 if tools_mod.TURN_ACHIEVEMENTS:
                     current_store.append_message(current_project, "system", f"Achievements logged during this turn:\n{tools_mod.TURN_ACHIEVEMENTS}")
-                if persisted_response:
-                    assistant_message_id = current_store.append_message(current_project, "assistant", persisted_response)
+                if chat_response:
+                    assistant_message_id = current_store.append_message(current_project, "assistant", chat_response)
                 # Revert any temporary mode changes (like create_plan setting mode to 'auto')
                 if 'initial_project_mode' in locals() and initial_project_mode:
                     current_project.mode = initial_project_mode
@@ -1285,7 +1332,7 @@ async def handle_run(data: dict):
 
             response_payload = {"response": response}
             if agent_type in ("orchestrator", "chat_orchestrator"):
-                response_payload["persisted_response"] = persisted_response
+                response_payload["persisted_response"] = chat_response
                 if assistant_message_id is not None:
                     response_payload["message_id"] = assistant_message_id
             print_event("agent_response", response_payload)
@@ -1299,10 +1346,10 @@ async def handle_run(data: dict):
             user_msg = _friendly_llm_error(e, current_project)
             print_event("error", {"message": user_msg, "trace": err_msg})
     finally:
-        if turn_checkpoint_started and turn_checkpoint_project_path:
+        if turn_checkpoint_id and turn_checkpoint_project_path:
             try:
                 from opalatex.vcs import finalize_agent_turn_checkpoint
-                finalize_agent_turn_checkpoint(turn_checkpoint_project_path)
+                finalize_agent_turn_checkpoint(turn_checkpoint_project_path, turn_checkpoint_id)
             except Exception:
                 pass
         T._async_confirm_hook = orig_async_confirm_hook

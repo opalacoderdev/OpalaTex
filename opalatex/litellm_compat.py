@@ -94,6 +94,18 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
         sanitize_agent_state(agent)
         
         cleaned_messages = sanitize_tool_call_messages(messages)
+        if _has_repeated_tool_validation_errors(cleaned_messages):
+            cleaned_messages = cleaned_messages + [{
+                "role": "system",
+                "content": (
+                    "SYSTEM ALERT: Repeated invalid tool-call arguments were detected. "
+                    "Stop attempting tool calls for this turn. You MUST call send_message "
+                    "with request_heartbeat=false and briefly tell the user that the active "
+                    "model failed to produce valid tool arguments for the requested action."
+                ),
+            }]
+            if _tool_name_available(getattr(agent, "tools", []), "send_message"):
+                kwargs["tool_choice"] = {"type": "function", "function": {"name": "send_message"}}
         
         try:
             res = await original(cleaned_messages, **kwargs)
@@ -261,6 +273,27 @@ def tool_accepts_args(tool_name: str, args_dict: dict, tools: list) -> bool:
         fields, required = schema
         return keys <= fields and required <= keys
     return False
+
+
+def _has_repeated_tool_validation_errors(messages: list[dict[str, Any]], *, threshold: int = 2) -> bool:
+    seen: dict[str, int] = {}
+    for msg in reversed(messages[-12:]):
+        if msg.get("role") != "tool":
+            continue
+        content = str(msg.get("content") or "")
+        if "validation error" not in content and "validation errors" not in content:
+            continue
+        if "Field required" not in content and "Input should be" not in content:
+            continue
+        name = str(msg.get("name") or "unknown")
+        seen[name] = seen.get(name, 0) + 1
+        if seen[name] >= threshold:
+            return True
+    return False
+
+
+def _tool_name_available(tools: list, name: str) -> bool:
+    return any(getattr(tool, "name", None) == name for tool in tools)
 
 
 def _tool_schema_fields(tool: Any) -> tuple[set[str], set[str]] | None:

@@ -23,22 +23,10 @@ PLANNING_AGENTS = [
 ]
 
 
-@pytest.mark.parametrize("agent", TOOL_CALL_AGENTS)
-def test_tool_call_agents_disable_thinking(agent):
-    """Agents that rely on tool_calls must disable gemma4 thinking mode.
-
-    litellm maps reasoning_effort to the ollama `think` field. Values outside
-    {"low","medium","high"} (e.g. "none") produce think=false on the wire.
-    With thinking on, gemma4 returns output in the reasoning field and leaves
-    tool_calls/message.content empty (ollama #15288).
-    """
+@pytest.mark.parametrize("agent", TOOL_CALL_AGENTS + PLANNING_AGENTS + ["memgpt"])
+def test_agents_enable_thinking_by_default(agent):
     kwargs = get_agent_llm_kwargs(agent)
-    effort = kwargs.get("reasoning_effort")
-    thinking_enabled = effort in {"low", "medium", "high"}
-    assert not thinking_enabled, (
-        f"{agent} must have reasoning_effort set to a non-thinking value (e.g. 'none'), "
-        f"got {effort!r}"
-    )
+    assert kwargs.get("think") is True
 
 
 def test_orchestrator_has_large_num_ctx():

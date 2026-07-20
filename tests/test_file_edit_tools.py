@@ -87,7 +87,7 @@ def test_read_content_pos_falls_back_to_cp1252(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-def test_mutating_tool_creates_shadow_git_checkpoint(tmp_path):
+def test_mutating_tool_does_not_create_shadow_git_checkpoint(tmp_path):
     from opalatex.tools import set_project_context, write_file
 
     set_project_context(SimpleNamespace(project_path=str(tmp_path), mode="auto"))
@@ -95,34 +95,35 @@ def test_mutating_tool_creates_shadow_git_checkpoint(tmp_path):
     raw = getattr(write_file, "_func", None) or write_file
     asyncio.run(raw("main.tex", "hello\n"))
 
-    log = subprocess.run(
-        [
-            "git",
-            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
-            f"--work-tree={tmp_path}",
-            "log",
-            "--oneline",
-        ],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-
-    assert "Agent tool checkpoint: write_file main.tex" in log
+    assert (tmp_path / "main.tex").read_text(encoding="utf-8") == "hello\n"
+    assert not (tmp_path / ".opalatex" / ".shadowgit").exists()
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-def test_mutating_tool_keeps_preexisting_changes_in_separate_checkpoint(tmp_path):
+def test_mutating_tool_preserves_preexisting_changes_without_checkpointing(tmp_path):
     from opalatex.tools import set_project_context, write_file
-    from opalatex.vcs import auto_checkpoint_if_changed
 
     set_project_context(SimpleNamespace(project_path=str(tmp_path), mode="auto"))
-    auto_checkpoint_if_changed("baseline", str(tmp_path))
     (tmp_path / "user.tex").write_text("user edit\n", encoding="utf-8")
 
     raw = getattr(write_file, "_func", None) or write_file
     asyncio.run(raw("agent.tex", "agent edit\n"))
+
+    assert (tmp_path / "user.tex").read_text(encoding="utf-8") == "user edit\n"
+    assert (tmp_path / "agent.tex").read_text(encoding="utf-8") == "agent edit\n"
+    assert not (tmp_path / ".opalatex" / ".shadowgit").exists()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_agent_turn_cleanup_preserves_preexisting_uncommitted_changes(tmp_path):
+    from opalatex.vcs import begin_agent_turn_checkpoint, finalize_agent_turn_checkpoint
+
+    target = tmp_path / "user.tex"
+    target.write_text("user edit\n", encoding="utf-8")
+
+    start_checkpoint = begin_agent_turn_checkpoint(str(tmp_path))
+    assert start_checkpoint
+    assert finalize_agent_turn_checkpoint(str(tmp_path), start_checkpoint)
 
     log = subprocess.run(
         [
@@ -138,8 +139,21 @@ def test_mutating_tool_keeps_preexisting_changes_in_separate_checkpoint(tmp_path
         text=True,
     ).stdout.splitlines()
 
-    assert "Agent tool checkpoint: write_file agent.tex" in log
-    assert "Pre-tool checkpoint: before write_file agent.tex" in log
-    assert log.index("Agent tool checkpoint: write_file agent.tex") < log.index(
-        "Pre-tool checkpoint: before write_file agent.tex"
-    )
+    status = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "status",
+            "--porcelain",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    assert "Agent turn start checkpoint" not in log
+    assert "Agent turn end checkpoint" not in log
+    assert "?? user.tex" in status
+    assert target.read_text(encoding="utf-8") == "user edit\n"

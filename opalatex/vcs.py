@@ -221,6 +221,21 @@ def auto_checkpoint_if_changed(message: str, project_path: str | None = None) ->
 
 # ─── Agent Git Tools ──────────────────────────────────────────────────────────
 
+def _remove_agent_turn_checkpoints(project_path: str, start_checkpoint: str) -> bool:
+    parent = _run_shadow_git(["rev-parse", f"{start_checkpoint}^"], project_path)
+    if parent.returncode == 0:
+        reset_target = parent.stdout.strip()
+        res = _run_shadow_git(["reset", "--mixed", reset_target], project_path)
+        return res.returncode == 0
+
+    head = _run_shadow_git("rev-parse HEAD", project_path)
+    if head.returncode != 0:
+        return False
+    _run_shadow_git(["update-ref", "-d", "HEAD"], project_path)
+    _run_shadow_git("reset", project_path)
+    return True
+
+
 def begin_agent_turn_checkpoint(project_path: str | None = None) -> str | None:
     """Create a deterministic start checkpoint for an agent turn."""
     if project_path is None:
@@ -247,8 +262,8 @@ def begin_agent_turn_checkpoint(project_path: str | None = None) -> str | None:
             return None
 
 
-def finalize_agent_turn_checkpoint(project_path: str | None = None) -> bool:
-    """Create a deterministic end checkpoint for an agent turn."""
+def finalize_agent_turn_checkpoint(project_path: str | None = None, start_checkpoint: str | None = None) -> bool:
+    """Create an end checkpoint and discard the turn checkpoints when no net diff exists."""
     if project_path is None:
         project_path = get_project_path()
     project_path = os.path.abspath(project_path)
@@ -263,7 +278,15 @@ def finalize_agent_turn_checkpoint(project_path: str | None = None) -> bool:
                 ["commit", "--allow-empty", "-m", "Agent turn end checkpoint"],
                 project_path,
             )
-            return res.returncode == 0
+            if res.returncode != 0:
+                return False
+            if not start_checkpoint:
+                return True
+
+            diff = _run_shadow_git(["diff", "--quiet", start_checkpoint, "HEAD", "--"], project_path)
+            if diff.returncode == 0:
+                return _remove_agent_turn_checkpoints(project_path, start_checkpoint)
+            return diff.returncode == 1
         except Exception:
             return False
 

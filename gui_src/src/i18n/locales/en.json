@@ -759,6 +759,7 @@
     "editedBranchCreateError": "Failed to create edited branch: {{error}}",
     "confirmationValue": "Confirmation: \"{{prompt}}\" -> {{value}}",
     "confirmationSendError": "Error sending confirmation: {{error}}",
+    "confirmationRejectedByBackend": "The backend did not accept the confirmation response: {{error}}",
     "inlineEditStarting": "Starting inline edit: \"{{instruction}}\"",
     "streamUnsupportedBackground": "ReadableStream is not supported in the background.",
     "inlineAgentErrorLog": "Inline Agent Error: {{message}}",

@@ -354,6 +354,44 @@ def test_find_tool_for_args_requires_complete_unique_schema_match():
     ) == "read_file"
 
 
+def test_repeated_tool_validation_errors_are_detected():
+    from opalatex.litellm_compat import _has_repeated_tool_validation_errors
+
+    messages = [
+        {
+            "role": "tool",
+            "name": "replace_content_range",
+            "content": "3 validation errors for ReplaceContentRangeInput\npath\n  Field required",
+        },
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [],
+        },
+        {
+            "role": "tool",
+            "name": "replace_content_range",
+            "content": "3 validation errors for ReplaceContentRangeInput\nstart_pos\n  Field required",
+        },
+    ]
+
+    assert _has_repeated_tool_validation_errors(messages)
+
+
+def test_single_tool_validation_error_does_not_trip_loop_breaker():
+    from opalatex.litellm_compat import _has_repeated_tool_validation_errors
+
+    messages = [
+        {
+            "role": "tool",
+            "name": "replace_content_range",
+            "content": "3 validation errors for ReplaceContentRangeInput\npath\n  Field required",
+        },
+    ]
+
+    assert not _has_repeated_tool_validation_errors(messages)
+
+
 def test_analyze_image_resanitizes_kwargs_for_final_model(monkeypatch):
     import opalatex.tools as tools
 

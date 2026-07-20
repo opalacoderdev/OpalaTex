@@ -58,26 +58,28 @@ _APP_CONFIG = _load_yaml("config.yaml")
 _CORE_AGENT_DEFAULTS = {
     "memgpt": {
         "num_ctx": 16384,
+        "think": True,
         "max_heartbeats": 20,
         "debug": False,
     },
     "landscape_planner": {
         "num_ctx": 8192,
-        "reasoning_effort": "none",
+        "think": True,
     },
     "refinement_agent": {
         "num_ctx": 8192,
-        "reasoning_effort": "none",
+        "think": True,
     },
     "orchestrator": {
         "num_ctx": 16384,
+        "think": True,
         "max_heartbeats": 20,
         "debug": False,
         "strategy": "workflow",
     },
     "worker": {
         "num_ctx": 16384,
-        "reasoning_effort": "none",
+        "think": True,
         "debug": False,
     }
 }
@@ -419,6 +421,7 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
 
     for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
         merged.pop(field, None)
+    merged.setdefault("think", True)
     return sanitize_litellm_kwargs_for_model(resolved_model, merged)
 
 

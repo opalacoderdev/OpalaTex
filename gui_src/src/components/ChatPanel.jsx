@@ -97,7 +97,8 @@ export default function ChatPanel({
   }, [chatInput, setChatInput, closeMenu]);
 
   const [hideThink, setHideThink] = useState(() => {
-    return localStorage.getItem('chatHideThink') === 'true';
+    const stored = localStorage.getItem('chatHideThink');
+    return stored === null ? true : stored === 'true';
   });
 
   // Chat input history state
@@ -558,6 +559,14 @@ export default function ChatPanel({
   const contentWithoutThink = (content = '') => (
     String(content).replace(/<think>[\s\S]*?(<\/think>|$)/gi, '').trim()
   );
+
+  const isInternalResumePrompt = (content = '') => {
+    const text = String(content).trim();
+    return (
+      text.startsWith('Continue the task that was interrupted. Do not restart from scratch.') &&
+      text.includes('## Captured agent activity before interruption')
+    );
+  };
 
   const modelSelectorGroupStyle = {
     display: 'flex',
@@ -1117,7 +1126,9 @@ export default function ChatPanel({
           const canGenerateResponse = isUser && isLastMessage && !isAgentRunning && editingMessageIndex !== i;
           const atts = msg._attachments || [];
           
-          let displayContent = msg.content;
+          let displayContent = isUser && isInternalResumePrompt(msg.content)
+            ? t('chatPanel.continue', 'Continue')
+            : msg.content;
           if (hideThink && !isUser && displayContent) {
             displayContent = displayContent.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '');
           }

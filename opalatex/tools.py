@@ -315,34 +315,6 @@ class UserCancelException(BaseException):
     pass
 
 
-def _tool_checkpoint_label(tool_name: str, args: tuple, kwargs: dict) -> str:
-    path = kwargs.get("path") or kwargs.get("filePath") or kwargs.get("tex_path") or kwargs.get("script_path")
-    if path is None and args:
-        path = args[0]
-    if path:
-        return f"{tool_name} {os.path.basename(str(path))}"
-    return tool_name
-
-
-def _checkpoint_shadow_git_after_tool(tool_name: str, args: tuple, kwargs: dict, phase: str) -> None:
-    try:
-        from .config import get_git_strategy
-        if get_git_strategy().lower() == "none":
-            return
-        from .vcs import auto_checkpoint_if_changed
-
-        label = _tool_checkpoint_label(tool_name, args, kwargs)
-        project_path = get_project_path()
-        if phase == "before":
-            message = f"Pre-tool checkpoint: before {label}"
-        elif phase == "failed":
-            message = f"Agent tool checkpoint: {label} failed"
-        else:
-            message = f"Agent tool checkpoint: {label}"
-        auto_checkpoint_if_changed(message, project_path)
-    except Exception:
-        pass
-
 def opalatex_tool(name: str, description: str, is_safe: bool = False):
     """
     Decorator that wraps the agenticblocks tool.
@@ -434,21 +406,13 @@ def opalatex_tool(name: str, description: str, is_safe: bool = False):
                         if name not in _PROJECT_SESSION.results["allowed_tools"]:
                             _PROJECT_SESSION.results["allowed_tools"].append(name)
 
-            if not is_safe:
-                _checkpoint_shadow_git_after_tool(name, args, kwargs, "before")
-
             try:
                 if is_async:
                     result = await func(*args, **kwargs)
                 else:
                     result = func(*args, **kwargs)
             except Exception:
-                if not is_safe:
-                    _checkpoint_shadow_git_after_tool(name, args, kwargs, "failed")
                 raise
-
-            if not is_safe:
-                _checkpoint_shadow_git_after_tool(name, args, kwargs, "after")
 
             return result
                 

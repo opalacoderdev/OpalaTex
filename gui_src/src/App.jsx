@@ -861,19 +861,6 @@ export default function App() {
   // ── Helpers ───────────────────────────────────────────────────────────────
   const trimToLimit = (arr, limit) => arr.length > limit ? arr.slice(arr.length - limit) : arr;
 
-  const contentHasPersistedThought = (content) => {
-    const text = String(content || '');
-    return /<think>[\s\S]*?<\/think>/i.test(text)
-      || /```(?:thought|reasoning)[\s\S]*?```/i.test(text);
-  };
-
-  const withPersistedThought = (content, thoughtSnapshot) => {
-    const text = String(content || '');
-    const thought = String(thoughtSnapshot || '').trim();
-    if (!thought || contentHasPersistedThought(text)) return text;
-    return `<think>\n${thought}\n</think>\n\n${text}`.trim();
-  };
-
   const compactTextForAgent = (value, limit = 2400) => {
     const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
     if (text.length <= limit) return text;
@@ -970,16 +957,23 @@ export default function App() {
     ].join('\n');
   };
 
+  const MAX_MERGED_LOG_CHARS = 16000;
+  const clampLogMessage = (value) => {
+    const text = String(value ?? '');
+    if (text.length <= MAX_MERGED_LOG_CHARS) return text;
+    return `${text.slice(0, MAX_MERGED_LOG_CHARS)}\n[log truncated]`;
+  };
+
   const addLog = (type, message, agent) =>
     setTerminalLogs(prev => {
       let next;
       if (prev.length > 0) {
         const last = prev[prev.length - 1];
         if (last.type === type && last.agent === agent && (type === 'thought' || type === 'reflection' || type === 'stream_chunk' || type === 'stdout' || type === 'stderr')) {
-          next = [...prev.slice(0, -1), { ...last, message: last.message + message }];
+          next = [...prev.slice(0, -1), { ...last, message: clampLogMessage(last.message + message) }];
         }
       }
-      if (!next) next = [...prev, { type, message, agent, timestamp: new Date().toLocaleTimeString() }];
+      if (!next) next = [...prev, { type, message: clampLogMessage(message), agent, timestamp: new Date().toLocaleTimeString() }];
       return trimToLimit(next, panelMaxLines);
     });
 
@@ -1882,12 +1876,10 @@ export default function App() {
         break;
       case 'cancelled': {
         addLog('warning', data.message || t('app.executionCancelled'), data.agent);
-        const thoughtSnapshot = chatThoughtStreamRef.current;
         chatThoughtStreamRef.current = '';
         setChatThoughtStream('');
         const interruptedText = t('app.agentInterrupted', { message: data.message || t('app.agentStopped') });
-        const content = withPersistedThought(interruptedText, thoughtSnapshot);
-        setChatMessages(prev => [...prev, { role: 'assistant', content, timestamp: new Date().toISOString() }]);
+        setChatMessages(prev => [...prev, { role: 'assistant', content: interruptedText, timestamp: new Date().toISOString() }]);
         setConfirmRequest(null);
         break;
       }
@@ -1959,15 +1951,13 @@ export default function App() {
           ? data.response
           : "⚠️ *O agente concluiu o processamento, mas não emitiu nenhuma resposta textual ou chamada de ferramenta. Isso geralmente acontece quando o modelo de IA sofre uma falha de geração (ex: esqueceu de usar o formato correto após pensar).*";
 
-        // Snapshot thought BEFORE any state calls — React 18 batches updaters async
-        const thoughtSnapshot = chatThoughtStreamRef.current;
         chatThoughtStreamRef.current = '';
         setChatThoughtStream('');
 
         setChatMessages(prev => {
           const last = prev[prev.length - 1];
           const baseContent = data.persisted_response || responseText;
-          const finalContent = withPersistedThought(baseContent, thoughtSnapshot);
+          const finalContent = baseContent;
           if (last?.role === 'assistant' && last.content === finalContent) return prev;
           return [...prev, {
             id: data.message_id,
@@ -2175,6 +2165,7 @@ export default function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           command: 'run', agent: 'chat_orchestrator', prompt: requestPrompt,
+          display_prompt: displayText || userText || '',
           project_name: activeProject.name, project_path: activeProject.project_path,
           model: activeProject.model, current_file: selectedFile || '',
           editor_content: fileContent || '', selected_text: selectedText || '',
@@ -2293,7 +2284,8 @@ export default function App() {
 
   const sendConfirmResponse = async (value) => {
     if (!confirmRequest) return;
-    const { id, prompt, isSlashCommand, callback } = confirmRequest;
+    const currentRequest = confirmRequest;
+    const { id, prompt, isSlashCommand, callback } = currentRequest;
     setConfirmRequest(null);
 
     if (callback) {
@@ -2305,6 +2297,10 @@ export default function App() {
     try {
       if (isSlashCommand) {
         const res = await fetch('/api/opalatex/slash-command/continue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, value }) });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(text || `HTTP ${res.status}`);
+        }
         const result = await res.json();
         if (result.status === 'done') {
           setChatMessages(prev => [...prev, { role: 'assistant', content: (result.messages || []).join('\n') || 'Comando executado.', timestamp: new Date().toISOString() }]);
@@ -2312,9 +2308,17 @@ export default function App() {
           fetchGitStatus();
         }
       } else {
-        await fetch('/api/opalatex/input_response', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, value }) });
+        const res = await fetch('/api/opalatex/input_response', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, value }) });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(text || `HTTP ${res.status}`);
+        }
       }
-    } catch (err) { addLog('error', t('app.confirmationSendError', { error: err.message })); }
+    } catch (err) {
+      setConfirmRequest(currentRequest);
+      addLog('error', t('app.confirmationSendError', { error: err.message }));
+      addProblem({ tool: t('app.agentTool', 'Agent'), message: t('app.confirmationRejectedByBackend', { error: err.message }), severity: 'error' });
+    }
   };
 
   // ── Editor mount ──────────────────────────────────────────────────────────

@@ -411,7 +411,7 @@ def build_run_skill_tool(
         from .litellm_compat import wrap_agent_litellm_compat
         wrap_agent_litellm_compat(sub_agent)
 
-        from opalatex.agent_stdin import print_event
+        from opalatex.agent_stdin import _record_turn_thought, print_event
         
         if worker_kwargs.get("stream", False):
             thought_chunks = []
@@ -419,8 +419,9 @@ def build_run_skill_tool(
             think_buffer = [""]
             
             def _worker_on_thinking(chunk: str) -> None:
-                thought_chunks.append(chunk)
-                print_event("thought", {"content": chunk, "agent": f"worker:{skill_name}"})
+                if _record_turn_thought(chunk):
+                    thought_chunks.append(chunk)
+                    print_event("thought", {"content": chunk, "agent": f"worker:{skill_name}", "_thought_recorded": True})
 
             def _worker_on_chunk(chunk: str) -> None:
                 think_buffer[0] += chunk
