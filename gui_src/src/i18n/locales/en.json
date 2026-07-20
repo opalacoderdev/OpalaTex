@@ -69,7 +69,7 @@
   "gitSidebar": {
     "header": "SOURCE CONTROL",
     "reviewHeader": "REVIEW",
-    "reviewSubtitle": "Agent checkpoints are listed newest first. Open a diff to inspect a change or restore the project to that version.",
+    "reviewSubtitle": "Agent checkpoints appear newest first. Expand a checkpoint to inspect the full diff or undo the agent's changes.",
     "refresh": "Refresh",
     "changesTab": "Changes",
     "historyTab": "History",
@@ -111,8 +111,19 @@
     "statusDeleted": "Deleted",
     "statusRenamed": "Renamed",
     "statusCopied": "Copied",
-    "statusUntracked": "Untracked"
+    "statusUntracked": "Untracked",
+    "agentCheckpoint": "Agent checkpoint",
+    "agentCheckpointDetails": "Details",
+    "agentCheckpointBefore": "Before",
+    "agentCheckpointAfter": "After",
+    "agentCheckpointToolSteps": "Tool steps",
+    "agentCheckpointUndo": "Undo",
+    "agentCheckpointUndoing": "Undoing...",
+    "agentCheckpointUndoTitle": "Undo this agent turn",
+    "agentCheckpointUndoConfirm": "Undo this agent turn?\n\nThe project will revert to the state before the agent ran.\n\nCheckpoint: {{short}}",
+    "agentCheckpointUndoFailed": "Failed to undo agent turn: {{error}}"
   },
+
   "editorPanel": {
     "noFileOpen": "No File Open",
     "openFileHint": "Open a file from the left sidebar.",

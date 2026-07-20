@@ -64,11 +64,9 @@ _CORE_AGENT_DEFAULTS = {
     },
     "landscape_planner": {
         "num_ctx": 8192,
-        "think": True,
     },
     "refinement_agent": {
         "num_ctx": 8192,
-        "think": True,
     },
     "orchestrator": {
         "num_ctx": 16384,
@@ -79,7 +77,6 @@ _CORE_AGENT_DEFAULTS = {
     },
     "worker": {
         "num_ctx": 16384,
-        "think": True,
         "debug": False,
     }
 }
@@ -421,7 +418,7 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
 
     for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
         merged.pop(field, None)
-    merged.setdefault("think", True)
+    merged.setdefault("think", False)
     return sanitize_litellm_kwargs_for_model(resolved_model, merged)
 
 

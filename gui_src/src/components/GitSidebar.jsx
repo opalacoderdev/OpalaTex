@@ -1,9 +1,45 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye, Bot } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 
 const REVIEW_HISTORY_PAGE_SIZE = 10;
+
+const MSG_AGENT_START = 'Agent turn start checkpoint';
+const MSG_AGENT_END   = 'Agent turn end checkpoint';
+const MSG_AGENT_TOOL  = 'Agent tool checkpoint';
+
+function groupAgentTurns(commits) {
+  const out = [];
+  let i = 0;
+  while (i < commits.length) {
+    const c = commits[i];
+    if (c.message === MSG_AGENT_END) {
+      const end = c;
+      const tools = [];
+      let j = i + 1;
+      while (j < commits.length && commits[j].message.startsWith(MSG_AGENT_TOOL)) {
+        tools.push(commits[j]);
+        j++;
+      }
+      if (j < commits.length && commits[j].message === MSG_AGENT_START) {
+        const start = commits[j];
+        out.push({ type: 'agent_turn', start, end, tools });
+        i = j + 1;
+      } else {
+        out.push({ type: 'commit', commit: end });
+        i++;
+      }
+    } else if (c.message === MSG_AGENT_START || c.message.startsWith(MSG_AGENT_TOOL)) {
+      out.push({ type: 'commit', commit: c });
+      i++;
+    } else {
+      out.push({ type: 'commit', commit: c });
+      i++;
+    }
+  }
+  return out;
+}
 
 function buildStatusMeta(t) {
   return {
@@ -239,19 +275,23 @@ export default function GitSidebar({
     if (!hadFailure) fetchGitStatus();
   };
 
-  const toggleCommitDiff = async (commitHash) => {
-    const next = !expandedCommitDiffs[commitHash];
-    setExpandedCommitDiffs(prev => ({ ...prev, [commitHash]: next }));
-    if (next && !commitDiffs[commitHash]) {
-      setLoadingCommitDiffs(prev => ({ ...prev, [commitHash]: true }));
+  const toggleCommitDiff = async (commitHash, endCommitHash) => {
+    const key = endCommitHash ? `${commitHash}..${endCommitHash}` : commitHash;
+    const next = !expandedCommitDiffs[key];
+    setExpandedCommitDiffs(prev => ({ ...prev, [key]: next }));
+    if (next && !commitDiffs[key]) {
+      setLoadingCommitDiffs(prev => ({ ...prev, [key]: true }));
       try {
-        const res = await fetch(`/api/git/diff?${gitQuery({ commit: commitHash })}`);
+        const params = endCommitHash
+          ? gitQuery({ commit: commitHash, endCommit: endCommitHash })
+          : gitQuery({ commit: commitHash });
+        const res = await fetch(`/api/git/diff?${params}`);
         if (res.ok) {
           const d = await res.json();
-          setCommitDiffs(prev => ({ ...prev, [commitHash]: d.diff || '' }));
+          setCommitDiffs(prev => ({ ...prev, [key]: d.diff || '' }));
         }
       } catch { /* ignore */ }
-      finally { setLoadingCommitDiffs(prev => ({ ...prev, [commitHash]: false })); }
+      finally { setLoadingCommitDiffs(prev => ({ ...prev, [key]: false })); }
     }
   };
 
@@ -329,69 +369,243 @@ export default function GitSidebar({
     );
   };
 
-  const renderHistory = () => (
-    <div style={{ flex: 1, overflowY: 'auto', padding: reviewMode ? '16px 20px 24px' : '12px' }}>
-      {loadingLog ? (
-        <div style={{ fontSize: '12px', color: '#808080' }}>{t('gitSidebar.loadingHistory')}</div>
-      ) : commits.length === 0 ? (
-        <div style={{ fontSize: '12px', color: '#808080', fontStyle: 'italic' }}>
-          {reviewMode && reviewPage > 0 ? t('gitSidebar.noCommitsOnPage') : t('gitSidebar.noCommits')}
+  function AgentTurnRow({ item }) {
+    const turnKey = `${item.start.hash}..${item.end.hash}`;
+    const [expanded, setExpanded] = React.useState(false);
+    const [undoing, setUndoing] = React.useState(false);
+
+    const handleDiff = () => toggleCommitDiff(item.start.hash, item.end.hash);
+
+    const handleUndo = async () => {
+      if (undoing || restoringCommit) return;
+      const confirmed = await showConfirm(
+        t('gitSidebar.agentCheckpointUndoConfirm', { short: item.start.short })
+      );
+      if (!confirmed) return;
+      setUndoing(true);
+      setRestoringCommit(item.start.hash);
+      try {
+        const res = await fetch('/api/git/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(gitBody({ commit: item.start.hash })),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || t('gitSidebar.restoreFailed'));
+        }
+        await fetchLog();
+        fetchGitStatus();
+        onAfterRestore?.(item.start);
+      } catch (err) {
+        await showAlert(t('gitSidebar.agentCheckpointUndoFailed', { error: err.message }));
+      } finally {
+        setUndoing(false);
+        setRestoringCommit('');
+      }
+    };
+
+    const isExpanded = !!expandedCommitDiffs[turnKey];
+
+    return (
+      <div className="git-review-row">
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+          {/* Expand toggle + meta */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: '130px', color: 'var(--vscode-descriptionForeground)', fontSize: '12px' }}>
+            <button
+              type="button"
+              onClick={() => setExpanded(e => !e)}
+              title={t('gitSidebar.agentCheckpointDetails')}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--vscode-descriptionForeground)', padding: '1px', display: 'flex', alignItems: 'center' }}
+            >
+              {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </button>
+            <Bot size={14} style={{ color: 'var(--vscode-accent, #4d9cf8)', flexShrink: 0 }} />
+            <div>
+              <div style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{item.end.short}</div>
+              <div>{item.end.date}</div>
+            </div>
+          </div>
+          {/* Label */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ color: 'var(--vscode-text-fg)', fontWeight: 600 }}>
+              {t('gitSidebar.agentCheckpoint')}
+            </div>
+            <div style={{ color: 'var(--vscode-descriptionForeground)', fontSize: '11px', marginTop: '2px' }}>
+              {item.end.author}
+            </div>
+          </div>
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+            <button
+              type="button"
+              className="vscode-button secondary"
+              title={t('gitSidebar.showCommitDiff')}
+              onClick={handleDiff}
+              style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' }}
+            >
+              <Eye size={12} />{t('gitSidebar.diff')}
+            </button>
+            <button
+              type="button"
+              className="vscode-button"
+              title={t('gitSidebar.agentCheckpointUndoTitle')}
+              onClick={handleUndo}
+              disabled={undoing || !!restoringCommit}
+              style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' }}
+            >
+              <RotateCcw size={12} />
+              {undoing ? t('gitSidebar.agentCheckpointUndoing') : t('gitSidebar.agentCheckpointUndo')}
+            </button>
+          </div>
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: reviewMode ? '8px' : '2px' }}>
-          {commits.map((c, i) => (
-            <div key={c.hash || i} className={reviewMode ? 'git-review-row' : 'git-commit-row'}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                <div style={{ minWidth: reviewMode ? '130px' : 'auto', color: 'var(--vscode-descriptionForeground)', fontSize: reviewMode ? '12px' : '11px' }}>
-                  <div style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{c.short}</div>
-                  <div>{c.date}</div>
+
+        {/* Net diff (toggled by Diff button) */}
+        {isExpanded && (
+          <div style={{ marginTop: '8px' }}>
+            {loadingCommitDiffs[turnKey] ? (
+              <div style={{ fontSize: '11px', color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
+            ) : (
+              <DiffViewer diff={commitDiffs[turnKey]} wrapLines />
+            )}
+          </div>
+        )}
+
+        {/* Expandable details */}
+        {expanded && (
+          <div style={{ marginTop: '10px', paddingLeft: '20px', borderLeft: '2px solid var(--vscode-border)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {/* Before / After */}
+            <div style={{ display: 'flex', gap: '16px', fontSize: '11px' }}>
+              <div>
+                <span style={{ color: 'var(--vscode-descriptionForeground)' }}>{t('gitSidebar.agentCheckpointBefore')}: </span>
+                <span style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{item.start.short}</span>
+                <span style={{ color: 'var(--vscode-descriptionForeground)', marginLeft: '6px' }}>{item.start.date}</span>
+              </div>
+              <div>
+                <span style={{ color: 'var(--vscode-descriptionForeground)' }}>{t('gitSidebar.agentCheckpointAfter')}: </span>
+                <span style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{item.end.short}</span>
+                <span style={{ color: 'var(--vscode-descriptionForeground)', marginLeft: '6px' }}>{item.end.date}</span>
+              </div>
+            </div>
+            {/* Tool steps */}
+            {item.tools.length > 0 && (
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)', marginBottom: '4px', fontWeight: 600 }}>
+                  {t('gitSidebar.agentCheckpointToolSteps')} ({item.tools.length})
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: 'var(--vscode-text-fg)', fontWeight: reviewMode ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: reviewMode ? 'normal' : 'nowrap' }} title={c.message}>
-                    {c.message}
-                  </div>
-                  <div style={{ color: 'var(--vscode-descriptionForeground)', marginTop: '3px' }}>{c.author}</div>
-                </div>
-                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                  <button
-                    type="button"
-                    className={reviewMode ? 'vscode-button secondary' : 'git-icon-button'}
-                    title={t('gitSidebar.showCommitDiff')}
-                    onClick={() => toggleCommitDiff(c.hash)}
-                    style={reviewMode ? { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' } : undefined}
-                  >
-                    <Eye size={12} /> {reviewMode && t('gitSidebar.diff')}
-                  </button>
-                  {(reviewMode || effectiveUseShadowGit) && (
-                    <button
-                      type="button"
-                      className={reviewMode ? 'vscode-button' : 'git-icon-button'}
-                      title={t('gitSidebar.restoreCheckpoint')}
-                      onClick={() => restoreCommit(c)}
-                      disabled={!!restoringCommit}
-                      style={reviewMode ? { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' } : undefined}
-                    >
-                      <RotateCcw size={12} /> {reviewMode && (restoringCommit === c.hash ? t('gitSidebar.restoring') : t('gitSidebar.restore'))}
-                    </button>
-                  )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {item.tools.map((tool, idx) => (
+                    <div key={tool.hash || idx} className="git-commit-row" style={{ fontSize: '11px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontFamily: 'monospace', color: '#9cdcfe', minWidth: '60px' }}>{tool.short}</span>
+                        <span style={{ color: 'var(--vscode-text-fg)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={tool.message}>
+                          {tool.message.replace(/^Agent tool checkpoint:\s*/, '')}
+                        </span>
+                        <button
+                          type="button"
+                          className="git-icon-button"
+                          title={t('gitSidebar.showCommitDiff')}
+                          onClick={() => toggleCommitDiff(tool.hash)}
+                          style={{ flexShrink: 0 }}
+                        >
+                          <Eye size={11} />
+                        </button>
+                      </div>
+                      {expandedCommitDiffs[tool.hash] && (
+                        <div style={{ marginTop: '4px' }}>
+                          {loadingCommitDiffs[tool.hash] ? (
+                            <div style={{ color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
+                          ) : (
+                            <DiffViewer diff={commitDiffs[tool.hash]} wrapLines />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
-              {expandedCommitDiffs[c.hash] && (
-                <div style={{ marginTop: '8px', paddingLeft: reviewMode ? '0' : '12px' }}>
-                  {loadingCommitDiffs[c.hash] ? (
-                    <div style={{ fontSize: '11px', color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
-                  ) : (
-                    <DiffViewer diff={commitDiffs[c.hash]} wrapLines={reviewMode} />
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const renderHistory = () => {
+    const items = reviewMode ? groupAgentTurns(commits) : commits.map(c => ({ type: 'commit', commit: c }));
+    return (
+      <div style={{ flex: 1, overflowY: 'auto', padding: reviewMode ? '16px 20px 24px' : '12px' }}>
+        {loadingLog ? (
+          <div style={{ fontSize: '12px', color: '#808080' }}>{t('gitSidebar.loadingHistory')}</div>
+        ) : commits.length === 0 ? (
+          <div style={{ fontSize: '12px', color: '#808080', fontStyle: 'italic' }}>
+            {reviewMode && reviewPage > 0 ? t('gitSidebar.noCommitsOnPage') : t('gitSidebar.noCommits')}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: reviewMode ? '8px' : '2px' }}>
+            {items.map((item, i) => {
+              if (item.type === 'agent_turn') {
+                return <AgentTurnRow key={`${item.start.hash}-${item.end.hash}`} item={item} />;
+              }
+              const c = item.commit;
+              return (
+                <div key={c.hash || i} className={reviewMode ? 'git-review-row' : 'git-commit-row'}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                    <div style={{ minWidth: reviewMode ? '130px' : 'auto', color: 'var(--vscode-descriptionForeground)', fontSize: reviewMode ? '12px' : '11px' }}>
+                      <div style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{c.short}</div>
+                      <div>{c.date}</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ color: 'var(--vscode-text-fg)', fontWeight: reviewMode ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: reviewMode ? 'normal' : 'nowrap' }} title={c.message}>
+                        {c.message}
+                      </div>
+                      <div style={{ color: 'var(--vscode-descriptionForeground)', marginTop: '3px' }}>{c.author}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        className={reviewMode ? 'vscode-button secondary' : 'git-icon-button'}
+                        title={t('gitSidebar.showCommitDiff')}
+                        onClick={() => toggleCommitDiff(c.hash)}
+                        style={reviewMode ? { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' } : undefined}
+                      >
+                        <Eye size={12} /> {reviewMode && t('gitSidebar.diff')}
+                      </button>
+                      {(reviewMode || effectiveUseShadowGit) && (
+                        <button
+                          type="button"
+                          className={reviewMode ? 'vscode-button' : 'git-icon-button'}
+                          title={t('gitSidebar.restoreCheckpoint')}
+                          onClick={() => restoreCommit(c)}
+                          disabled={!!restoringCommit}
+                          style={reviewMode ? { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' } : undefined}
+                        >
+                          <RotateCcw size={12} /> {reviewMode && (restoringCommit === c.hash ? t('gitSidebar.restoring') : t('gitSidebar.restore'))}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {expandedCommitDiffs[c.hash] && (
+                    <div style={{ marginTop: '8px', paddingLeft: reviewMode ? '0' : '12px' }}>
+                      {loadingCommitDiffs[c.hash] ? (
+                        <div style={{ fontSize: '11px', color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
+                      ) : (
+                        <DiffViewer diff={commitDiffs[c.hash]} wrapLines={reviewMode} />
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-      {renderReviewPagination()}
-    </div>
-  );
+              );
+            })}
+          </div>
+        )}
+        {renderReviewPagination()}
+      </div>
+    );
+  };
+
+
 
   return (
     <div className="vscode-sidebar-content" style={{ padding: '0', display: 'flex', flexDirection: 'column', height: '100%' }}>

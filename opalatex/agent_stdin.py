@@ -976,10 +976,10 @@ async def handle_run(data: dict):
         if model_params.get("reasoning_effort"):
             model_kwargs["reasoning_effort"] = model_params["reasoning_effort"]
         
-        # Thinking defaults on, while still honoring an explicit user setting.
-        # Downstream sanitization drops this only for providers that cannot
-        # accept the parameter.
-        model_kwargs["think"] = bool(model_params.get("think", True))
+        # Thinking defaults off for inline agents; orchestrator/memgpt get think=True
+        # from _CORE_AGENT_DEFAULTS in config.py. Workers stay False unless the user
+        # explicitly enables thinking in project settings.
+        model_kwargs["think"] = bool(model_params.get("think", False))
         model_kwargs["stream"] = bool(model_params.get("stream", False))
 
         agent_kwargs = {}

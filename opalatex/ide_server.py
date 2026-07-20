@@ -2964,27 +2964,48 @@ class AsyncHTTPServer:
                     if verify.returncode != 0:
                         self.send_response(writer, 400, b'{"error":"Invalid commit"}', "application/json")
                         return
-                    parent = subprocess.run(
-                        git_cmd + ["rev-parse", "--verify", f"{commit_hash}^"],
-                        cwd=git_ctx["cwd"],
-                        capture_output=True,
-                        **utf8_text_kwargs(),
-                    )
-                    if parent.returncode == 0:
+                    end_commit_hash = query.get('endCommit', [None])[0]
+                    if end_commit_hash:
+                        # Range diff: net change from commit (exclusive) to endCommit (inclusive).
+                        # Used to show the full diff of an agent turn (start → end).
+                        verify_end = subprocess.run(
+                            git_cmd + ["rev-parse", "--verify", f"{end_commit_hash}^{{commit}}"],
+                            cwd=git_ctx["cwd"],
+                            capture_output=True,
+                            **utf8_text_kwargs(),
+                        )
+                        if verify_end.returncode != 0:
+                            self.send_response(writer, 400, b'{"error":"Invalid endCommit"}', "application/json")
+                            return
                         res = subprocess.run(
-                            git_cmd + ["diff", f"{commit_hash}^", commit_hash],
+                            git_cmd + ["diff", commit_hash, end_commit_hash],
                             cwd=git_ctx["cwd"],
                             capture_output=True,
                             **utf8_text_kwargs(),
                         )
                     else:
-                        res = subprocess.run(
-                            git_cmd + ["show", "--format=", "--find-renames", commit_hash],
+                        parent = subprocess.run(
+                            git_cmd + ["rev-parse", "--verify", f"{commit_hash}^"],
                             cwd=git_ctx["cwd"],
                             capture_output=True,
                             **utf8_text_kwargs(),
                         )
+                        if parent.returncode == 0:
+                            res = subprocess.run(
+                                git_cmd + ["diff", f"{commit_hash}^", commit_hash],
+                                cwd=git_ctx["cwd"],
+                                capture_output=True,
+                                **utf8_text_kwargs(),
+                            )
+                        else:
+                            res = subprocess.run(
+                                git_cmd + ["show", "--format=", "--find-renames", commit_hash],
+                                cwd=git_ctx["cwd"],
+                                capture_output=True,
+                                **utf8_text_kwargs(),
+                            )
                     diff = res.stdout
+
                 elif file_path_param:
                     repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
                     # Check if file is untracked

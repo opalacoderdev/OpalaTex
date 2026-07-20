@@ -69,7 +69,7 @@
   "gitSidebar": {
     "header": "SOURCE CONTROL",
     "reviewHeader": "REVIEW",
-    "reviewSubtitle": "Os checkpoints do agente aparecem do mais recente para o mais antigo. Abra um diff para inspecionar uma alteracao ou recupere o projeto nessa versao.",
+    "reviewSubtitle": "Os checkpoints do agente aparecem do mais recente para o mais antigo. Expanda um checkpoint para inspecionar o diff ou desfazer as alterações do agente.",
     "refresh": "Atualizar",
     "changesTab": "Alterações",
     "historyTab": "Histórico",
@@ -111,7 +111,17 @@
     "statusDeleted": "Deletado",
     "statusRenamed": "Renomeado",
     "statusCopied": "Copiado",
-    "statusUntracked": "Não rastreado"
+    "statusUntracked": "Não rastreado",
+    "agentCheckpoint": "Checkpoint do agente",
+    "agentCheckpointDetails": "Detalhes",
+    "agentCheckpointBefore": "Antes",
+    "agentCheckpointAfter": "Depois",
+    "agentCheckpointToolSteps": "Passos da ferramenta",
+    "agentCheckpointUndo": "Desfazer",
+    "agentCheckpointUndoing": "Desfazendo...",
+    "agentCheckpointUndoTitle": "Desfazer este turno do agente",
+    "agentCheckpointUndoConfirm": "Desfazer este turno do agente?\n\nO projeto voltará ao estado anterior à execução do agente.\n\nCheckpoint: {{short}}",
+    "agentCheckpointUndoFailed": "Falha ao desfazer turno do agente: {{error}}"
   },
   "editorPanel": {
     "noFileOpen": "Nenhum Arquivo Aberto",

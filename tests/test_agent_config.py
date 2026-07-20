@@ -16,17 +16,30 @@ TOOL_CALL_AGENTS = [
     "worker",
 ]
 
-PLANNING_AGENTS = [
+# Planning sub-agents: thinking defaults off to avoid unbounded reasoning streams.
+SUBAGENT_AGENTS = [
     "landscape_planner",
     "refinement_agent",
+]
+
+PLANNING_AGENTS = [
     "orchestrator",
 ]
 
 
-@pytest.mark.parametrize("agent", TOOL_CALL_AGENTS + PLANNING_AGENTS + ["memgpt"])
-def test_agents_enable_thinking_by_default(agent):
+@pytest.mark.parametrize("agent", PLANNING_AGENTS + ["memgpt"])
+def test_orchestrator_agents_enable_thinking_by_default(agent):
+    """Orchestrator and memgpt have think=True so the user sees reasoning traces."""
     kwargs = get_agent_llm_kwargs(agent)
     assert kwargs.get("think") is True
+
+
+@pytest.mark.parametrize("agent", TOOL_CALL_AGENTS + SUBAGENT_AGENTS)
+def test_subagents_do_not_enable_thinking_by_default(agent):
+    """Workers and planning sub-agents default think=False to avoid long reasoning
+    streams that can block the agent run indefinitely on complex inputs."""
+    kwargs = get_agent_llm_kwargs(agent)
+    assert not kwargs.get("think")
 
 
 def test_orchestrator_has_large_num_ctx():
