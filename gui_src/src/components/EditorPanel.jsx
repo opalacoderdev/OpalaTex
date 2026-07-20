@@ -586,6 +586,8 @@ export default function EditorPanel({
           y: rect.top + (coords?.top ?? 40) + 24,
           startLine: sel.startLineNumber,
           endLine: sel.endLineNumber,
+          startColumn: sel.startColumn,
+          endColumn: sel.endColumn,
           cursorCol: pos?.column ?? 1,
           selectedText,
           mode: 'free',

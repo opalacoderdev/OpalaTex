@@ -6,6 +6,7 @@ import asyncio
 import os
 import time
 import io
+import re
 
 # ── Force UTF-8 on all I/O streams (critical for PyInstaller --windowed) ─────
 os.environ["PYTHONUTF8"] = "1"
@@ -254,12 +255,91 @@ def _extract_worker_summary_from_tool_result(content: str) -> str:
 def _response_with_thought(response: str, thought_chunks: list[str]) -> str:
     """Return the persisted chat content, preserving the turn thought snapshot."""
     thought = "".join(thought_chunks).strip()
-    text = str(response or "").strip()
+    text = _strip_empty_think_blocks(str(response or "")).strip()
     if not thought:
         return text
     if text.startswith("<think>") or text.startswith("```thought"):
         return text
     return f"<think>\n{thought}\n</think>\n\n{text}".strip()
+
+
+def _strip_empty_think_blocks(content: str) -> str:
+    """Remove empty thinking sections produced by local reasoning models."""
+    return re.sub(r"<think>\s*</think>\s*", "", str(content or ""), flags=re.IGNORECASE)
+
+
+def _split_think_tags(content: str) -> tuple[str, list[str]]:
+    """Extract non-empty <think> blocks from visible model output."""
+    thoughts: list[str] = []
+
+    def _collect(match: re.Match) -> str:
+        thought = match.group(1).strip()
+        if thought:
+            thoughts.append(thought)
+        return "\n"
+
+    visible = re.sub(
+        r"<think>([\s\S]*?)</think>",
+        _collect,
+        str(content or ""),
+        flags=re.IGNORECASE,
+    )
+    visible = _strip_empty_think_blocks(visible).strip()
+    return visible, thoughts
+
+
+def _strip_chat_control_tokens(content: str) -> str:
+    """Remove raw chat-template control tokens from model output."""
+    text = str(content or "")
+    text = re.sub(r"<\|message\|>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<\|end\|>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<\|start\|>[^<\r\n]*", "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def _split_channel_markup(content: str) -> tuple[str, list[str]]:
+    """Split gpt-oss/Ollama channel markup into visible text and thought text."""
+    text = str(content or "")
+    marker_re = re.compile(
+        r"<\|channel\|>\s*([A-Za-z0-9_-]+)\s*(?:<\|message\|>)?",
+        flags=re.IGNORECASE,
+    )
+    matches = list(marker_re.finditer(text))
+    if not matches:
+        return _split_think_tags(text)
+
+    visible_parts: list[str] = []
+    thought_parts: list[str] = []
+    if matches[0].start() > 0:
+        visible_parts.append(_strip_chat_control_tokens(text[:matches[0].start()]))
+
+    reasoning_channels = {"thought", "analysis", "reasoning"}
+    visible_channels = {"final", "commentary", "assistant"}
+    for index, match in enumerate(matches):
+        channel = match.group(1).lower()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        segment = _strip_chat_control_tokens(text[match.end():end])
+        if not segment:
+            continue
+        if channel in reasoning_channels:
+            thought_parts.append(segment)
+        elif channel in visible_channels:
+            visible_parts.append(segment)
+        else:
+            visible_parts.append(segment)
+
+    visible, embedded_thoughts = _split_think_tags("\n\n".join(part for part in visible_parts if part))
+    return visible, thought_parts + embedded_thoughts
+
+
+def _sanitize_model_response(response: str, thought_chunks: list[str]) -> str:
+    """Move raw reasoning-channel output into thought storage and return visible text."""
+    visible, channel_thoughts = _split_channel_markup(response)
+    for thought in channel_thoughts:
+        cleaned = thought.strip()
+        if cleaned:
+            thought_chunks.append(cleaned)
+    return visible.strip()
 
 
 def _record_turn_thought(content: str) -> None:
@@ -1161,7 +1241,7 @@ async def handle_run(data: dict):
 
             with apply_meta_params(agent, _meta_overrides):
                 resp_obj = await agent.run(AgentInput(prompt=prompt, attachments=final_attachments))
-            response = resp_obj.response.strip() if resp_obj.response else ""
+            response = _sanitize_model_response(resp_obj.response or "", thought_chunks)
             
             empty_response_attempts = 0
             while not response and empty_response_attempts < EMPTY_RESPONSE_MAX_CORRECTION_ATTEMPTS:
@@ -1172,7 +1252,7 @@ async def handle_run(data: dict):
                 retry_prompt = _empty_response_retry_prompt(worker_summary)
                 with apply_meta_params(agent, _meta_overrides):
                     resp_obj = await agent.run(AgentInput(prompt=retry_prompt))
-                response = resp_obj.response.strip() if resp_obj.response else ""
+                response = _sanitize_model_response(resp_obj.response or "", thought_chunks)
 
             if not response:
                 raise RuntimeError(_empty_response_failure_message())

@@ -142,6 +142,47 @@ const normalizeInlineReplacementSpacing = (replacementText, originalText = '', e
   return replacement.replace(/\n/g, eol);
 };
 
+const extractInlineReplacementBlock = (text) => {
+  const source = String(text || '').trim();
+  const lines = source.split('\n');
+  const blocks = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const opening = lines[index].match(/^( {0,3})(`{3,}|~{3,})([^\r\n]*)$/);
+    if (!opening) continue;
+
+    const fence = opening[2];
+    const fenceChar = fence[0];
+    const fenceLength = fence.length;
+    const info = opening[3].trim().split(/\s+/)[0].toLowerCase();
+    const bodyLines = [];
+
+    index += 1;
+    for (; index < lines.length; index += 1) {
+      const closingPattern = fenceChar === '`'
+        ? /^( {0,3})(`{3,})(\s*)$/
+        : /^( {0,3})(~{3,})(\s*)$/;
+      const closing = lines[index].match(closingPattern);
+      if (closing && closing[2].length >= fenceLength) {
+        blocks.push({
+          fenceLength,
+          info,
+          content: bodyLines.join('\n').replace(/\n+$/, ''),
+        });
+        break;
+      }
+      bodyLines.push(lines[index]);
+    }
+  }
+
+  if (!blocks.length) return null;
+  const contentBlock = blocks.find(block => block.info === 'content');
+  if (contentBlock) return contentBlock.content;
+  const fourTickBlock = blocks.find(block => block.fenceLength >= 4);
+  if (fourTickBlock) return fourTickBlock.content;
+  return blocks[blocks.length - 1].content;
+};
+
 const isBinaryEditorFile = (filePath) => {
   if (!filePath) return false;
   return /\.(docx|pptx)$/i.test(String(filePath));
@@ -1017,7 +1058,12 @@ export default function App() {
       currentContents[selectedFile] = fileContent;
     }
 
-    const dirtyFiles = openFiles.filter(f => currentContents[f] !== originalFileContents[f] && originalFileContents[f] !== undefined);
+    const dirtyFiles = openFiles.filter((filePath) => {
+      if (isBinaryEditorFile(filePath)) return false;
+      const currentContent = currentContents[filePath];
+      const diskContent = diskFileContentsRef.current[filePath];
+      return currentContent !== undefined && diskContent !== undefined && currentContent !== diskContent;
+    });
 
     if (dirtyFiles.length > 0) {
       setConfirmRequest({
@@ -1236,6 +1282,9 @@ export default function App() {
     });
     if (cachedFilePath !== filePath) {
       setFileContents(prev => ({ ...prev, [filePath]: prev[cachedFilePath] }));
+      if (diskFileContentsRef.current[cachedFilePath] !== undefined) {
+        diskFileContentsRef.current[filePath] = diskFileContentsRef.current[cachedFilePath];
+      }
       setOriginalFileContents(prev => (
         prev[cachedFilePath] === undefined ? prev : { ...prev, [filePath]: prev[cachedFilePath] }
       ));
@@ -1934,9 +1983,8 @@ export default function App() {
           const range = pendingInlineRangeRef.current;
           pendingInlineRangeRef.current = null;
           try {
-            const codeBlockMatch = data.response.match(/```(?:\w+)?\n([\s\S]*?)```/);
-            if (codeBlockMatch) {
-              const newCode = codeBlockMatch[1].replace(/\n$/, '');
+            const newCode = extractInlineReplacementBlock(data.response);
+            if (newCode !== null) {
               const monacoRange = new monacoRef.current.Range(
                 range.startLineNumber,
                 range.startColumn,
@@ -2299,6 +2347,8 @@ export default function App() {
   const handleInlineSubmit = async (instruction) => {
     if (!inlinePrompt || !activeProject) return;
     const { startLine, endLine, selectedText, mode } = inlinePrompt;
+    const startColumn = inlinePrompt.startColumn ?? 1;
+    const endColumn = inlinePrompt.endColumn ?? inlinePrompt.cursorCol ?? 1;
 
     const hasSelection = selectedText && selectedText.trim().length > 0;
 
@@ -2655,7 +2705,8 @@ export default function App() {
 
           // 1) PRIMARY: 4-backtick outer fence (simple regex is safe because inner
           //    ``` cannot close a ```` fence — CommonMark spec §4.5).
-          const match4 = /^````(\w*)\n([\s\S]*?)\n````\s*$/m.exec(rawResponse);
+          const match4Content = extractInlineReplacementBlock(rawResponse);
+          const match4 = match4Content !== null ? [null, null, match4Content] : null;
           if (match4) {
             codeToInsert = match4[2];
 
@@ -2686,11 +2737,8 @@ export default function App() {
             }]);
             addLog('info', t('app.inlineGenerationApplied'));
           } else if (hasSelection) {
-            // Calculate end column dynamically
             const model = editorRef.current.getModel();
-            const endCol = model ? model.getLineMaxColumn(endLine) : 1;
-
-            const range = new monacoRef.current.Range(startLine, 1, endLine, endCol);
+            const range = new monacoRef.current.Range(startLine, startColumn, endLine, endColumn);
             const originalText = model ? model.getValueInRange(range) : selectedText;
             const normalizedCode = normalizeInlineReplacementSpacing(
               codeToInsert,

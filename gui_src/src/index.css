@@ -1260,6 +1260,139 @@ input:focus, select:focus, textarea:focus {
   user-select: none;
 }
 
+.pdf-preview-controls {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 80;
+  max-width: calc(100% - 32px);
+  padding: 6px;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.pdf-preview-scroll {
+  padding-top: 32px;
+  padding-bottom: 32px;
+}
+
+.pdf-preview-compile-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    linear-gradient(135deg, rgba(0, 122, 204, 0.16), rgba(0, 0, 0, 0.12)),
+    var(--vscode-editorOverlay);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+.pdf-preview-compile-panel {
+  width: min(320px, calc(100vw - 48px));
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 14px;
+  row-gap: 12px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--vscode-active-border) 45%, var(--vscode-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vscode-sidebar-bg) 92%, transparent);
+  color: var(--vscode-text-fg);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+}
+
+.pdf-preview-compile-orbit {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, var(--vscode-sidebar-bg) 42%, transparent 44%),
+    conic-gradient(from 0deg, transparent, var(--vscode-active-border), #73c991, transparent 78%);
+  animation: pdfCompileSpin 1.15s linear infinite;
+}
+
+.pdf-preview-compile-page {
+  position: absolute;
+  inset: 13px 15px;
+  border-radius: 3px 3px 5px 5px;
+  background: var(--vscode-text-fg);
+  box-shadow: inset -5px -5px 0 color-mix(in srgb, var(--vscode-active-border) 35%, transparent);
+}
+
+.pdf-preview-compile-page::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--vscode-active-border);
+  box-shadow: 0 5px 0 var(--vscode-active-border), 0 10px 0 var(--vscode-active-border);
+  opacity: 0.75;
+}
+
+.pdf-preview-compile-text {
+  min-width: 0;
+}
+
+.pdf-preview-compile-title {
+  margin: 0 0 3px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pdf-preview-compile-subtitle {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.pdf-preview-compile-progress {
+  grid-column: 1 / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vscode-active-border) 16%, var(--vscode-input-bg));
+}
+
+.pdf-preview-compile-progress span {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--vscode-active-border), #73c991);
+  animation: pdfCompileProgress 1.35s ease-in-out infinite;
+}
+
+@keyframes pdfCompileSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pdfCompileProgress {
+  0% {
+    transform: translateX(-105%);
+  }
+  50% {
+    transform: translateX(75%);
+  }
+  100% {
+    transform: translateX(245%);
+  }
+}
+
 /* Protect UI chrome from text selection */
 .vscode-activitybar,
 .vscode-sidebar-header,

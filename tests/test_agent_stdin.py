@@ -18,6 +18,7 @@ from opalatex.agent_stdin import (
     _empty_response_failure_message,
     _friendly_llm_error,
     _response_with_thought,
+    _sanitize_model_response,
     _worker_summary_response,
     clear_worker_message_buffer,
     record_worker_message,
@@ -225,6 +226,52 @@ def test_response_with_thought_preserves_snapshot_for_storage():
     assert _response_with_thought("<think>\nold\n</think>\n\nDone.", ["new"]) == (
         "<think>\nold\n</think>\n\nDone."
     )
+
+
+def test_response_with_thought_drops_empty_think_blocks():
+    assert _response_with_thought("<think>\n\n</think>\n\nDone.", ["plan"]) == (
+        "<think>\nplan\n</think>\n\nDone."
+    )
+
+
+def test_sanitize_model_response_moves_channel_thought_to_snapshot():
+    thoughts = []
+
+    visible = _sanitize_model_response(
+        (
+            "<think>\n\n</think>\n"
+            "<|channel|>thought<|message|>I should inspect the prompt.<|end|>"
+            "<|channel|>final<|message|>Here is the explanation."
+        ),
+        thoughts,
+    )
+
+    assert visible == "Here is the explanation."
+    assert thoughts == ["I should inspect the prompt."]
+
+
+def test_sanitize_model_response_consolidates_multiple_think_blocks():
+    thoughts = ["live thought."]
+
+    visible = _sanitize_model_response(
+        "<think>first internal note</think>\n\nVisible answer.\n\n<think>second internal note</think>",
+        thoughts,
+    )
+
+    assert visible == "Visible answer."
+    assert thoughts == ["live thought.", "first internal note", "second internal note"]
+
+
+def test_sanitize_model_response_treats_thought_only_channel_as_empty_response():
+    thoughts = []
+
+    visible = _sanitize_model_response(
+        "<|channel|>thought\nWait, I see what happened.",
+        thoughts,
+    )
+
+    assert visible == ""
+    assert thoughts == ["Wait, I see what happened."]
 
 
 @pytest.mark.asyncio

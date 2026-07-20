@@ -3,7 +3,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { useTranslation } from 'react-i18next';
-import { Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X } from 'lucide-react';
+import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X } from 'lucide-react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -23,6 +23,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const [searchResults, setSearchResults] = useState([]);
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
   const [pdfTextPages, setPdfTextPages] = useState([]);
+  const [canGoBack, setCanGoBack] = useState(false);
   const containerRef = useRef(null);
   const scrollPosRef = useRef(0);
   const restoreScrollPosRef = useRef(0);
@@ -30,6 +31,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const pageNavRef = useRef(null);
   const searchInputRef = useRef(null);
   const pdfDocumentRef = useRef(null);
+  const navigationHistoryRef = useRef([]);
 
   const searchNeedle = searchQuery.trim().toLowerCase();
 
@@ -48,6 +50,53 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     if (isReloadingPdfRef.current) return;
     if (containerRef.current) {
       scrollPosRef.current = containerRef.current.scrollTop;
+    }
+  };
+
+  const pushNavigationHistory = () => {
+    if (!containerRef.current) return;
+
+    const currentPosition = {
+      page: currentPage,
+      scale,
+      scrollTop: containerRef.current.scrollTop,
+    };
+    const lastPosition = navigationHistoryRef.current[navigationHistoryRef.current.length - 1];
+    if (
+      lastPosition &&
+      Math.abs(lastPosition.scrollTop - currentPosition.scrollTop) < 8 &&
+      lastPosition.page === currentPosition.page &&
+      lastPosition.scale === currentPosition.scale
+    ) {
+      return;
+    }
+
+    navigationHistoryRef.current = [...navigationHistoryRef.current.slice(-24), currentPosition];
+    setCanGoBack(true);
+  };
+
+  const handleBackNavigation = () => {
+    const previousPosition = navigationHistoryRef.current.pop();
+    setCanGoBack(navigationHistoryRef.current.length > 0);
+    if (!previousPosition || !containerRef.current) return;
+
+    setScale(previousPosition.scale);
+    setCurrentPage(previousPosition.page);
+    setTimeout(() => {
+      if (!containerRef.current) return;
+      containerRef.current.scrollTo({ top: previousPosition.scrollTop, behavior: 'smooth' });
+      scrollPosRef.current = previousPosition.scrollTop;
+    }, 80);
+  };
+
+  const handlePdfPointerDownCapture = (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    const target = event.target;
+    if (!target?.closest) return;
+
+    const annotationLink = target.closest('.annotationLayer a, .annotationLayer [role="link"], .annotationLayer .linkAnnotation');
+    if (annotationLink) {
+      pushNavigationHistory();
     }
   };
 
@@ -153,15 +202,16 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   // Uses the same [data-page-number] selector as the forward-search
   // highlight logic. Retries a few times in case the page element has not
   // been rendered yet by react-pdf.
-  const scrollToPage = (pageNum, attempt = 0) => {
+  const scrollToPage = (pageNum, attempt = 0, rememberPosition = true) => {
     if (!containerRef.current || !numPages) return;
     const target = Math.max(1, Math.min(pageNum, numPages));
     const pageEl = containerRef.current.querySelector(`[data-page-number="${target}"]`);
     if (!pageEl && attempt < 10) {
-      setTimeout(() => scrollToPage(target, attempt + 1), 120);
+      setTimeout(() => scrollToPage(target, attempt + 1, rememberPosition), 120);
       return;
     }
     if (pageEl) {
+      if (rememberPosition) pushNavigationHistory();
       const offset = pageEl.offsetTop - containerRef.current.clientHeight / 2 + pageEl.clientHeight / 2;
       containerRef.current.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' });
       setCurrentPage(target);
@@ -304,6 +354,8 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     setPdfTextPages([]);
     setSearchResults([]);
     setActiveSearchIndex(-1);
+    navigationHistoryRef.current = [];
+    setCanGoBack(false);
     pdfDocumentRef.current = null;
   }, [base64Pdf, sourceUrl, directUrl]);
 
@@ -322,12 +374,12 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     }, 150);
   }
   
-  const scrollToPosition = (page, x, y, w, h, attempt = 0) => {
+  const scrollToPosition = (page, x, y, w, h, attempt = 0, rememberPosition = true) => {
       if (!containerRef.current) return;
       const pageEl = containerRef.current.querySelector(`[data-page-number="${page}"]`);
       if (!pageEl && attempt < 10) {
         setTimeout(() => {
-          scrollToPosition(page, x, y, w, h, attempt + 1);
+          scrollToPosition(page, x, y, w, h, attempt + 1, rememberPosition);
         }, 120);
         return;
       }
@@ -342,6 +394,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         const top = targetY;
         
         setHighlight({ page, y: top, h: targetH });
+        if (rememberPosition) pushNavigationHistory();
         
         containerRef.current.scrollTo({
           top: Math.max(0, pageEl.offsetTop + top - 150), // offset a bit to show context
@@ -368,9 +421,8 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     const rawX = e.clientX - rect.left;
     const rawY = e.clientY - rect.top;
     
-    // Convert to PDF points based on scale 1.2
-    const ptX = rawX / 1.2;
-    const ptY = rawY / 1.2;
+    const ptX = rawX / scale;
+    const ptY = rawY / scale;
     
     try {
       const res = await fetch(`/api/latex/synctex?action=pdf2tex&page=${pageIndex}&x=${ptX}&y=${ptY}&filePath=${encodeURIComponent(selectedFile)}&projectPath=${encodeURIComponent(activeProject.project_path)}`);
@@ -477,23 +529,53 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   return (
     <div className="w-full h-full relative overflow-hidden" style={{ background: 'var(--vscode-editor-bg)' }}>
       {isCompiling && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center" style={{ background: 'var(--vscode-editorOverlay)' }}>
-          <div className="flex flex-col items-center gap-4 p-6 rounded-lg shadow-xl" style={{ background: 'var(--vscode-sidebar-bg)', color: 'var(--vscode-text-fg)' }}>
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--vscode-active-border)' }}></div>
-            <p>{t('pdfPreview.compiling')}</p>
+        <div className="pdf-preview-compile-overlay" role="status" aria-live="polite">
+          <div className="pdf-preview-compile-panel">
+            <div className="pdf-preview-compile-orbit" aria-hidden="true">
+              <span className="pdf-preview-compile-page"></span>
+            </div>
+            <div className="pdf-preview-compile-text">
+              <p className="pdf-preview-compile-title">{t('pdfPreview.compiling')}</p>
+              <p className="pdf-preview-compile-subtitle">{t('pdfPreview.compilingSubtitle')}</p>
+            </div>
+            <div className="pdf-preview-compile-progress" aria-hidden="true">
+              <span></span>
+            </div>
           </div>
         </div>
       )}
       
       {/* PDF Controls */}
       <div 
-        className="absolute top-4 right-4 z-50 flex items-center gap-1.5 rounded-lg shadow-lg p-1.5"
+        className="pdf-preview-controls flex items-center gap-1.5"
         style={{
           background: 'var(--vscode-sidebar-bg)',
           border: '1px solid var(--vscode-border)',
         }}
       >
         <button
+          type="button"
+          onClick={handleBackNavigation}
+          disabled={!canGoBack}
+          className="flex items-center justify-center rounded-md transition-colors"
+          style={{
+            width: '32px',
+            height: '32px',
+            background: 'var(--vscode-input-bg)',
+            border: '1px solid var(--vscode-border)',
+            color: canGoBack ? 'var(--vscode-text-fg)' : 'var(--vscode-descriptionForeground)',
+            opacity: canGoBack ? 1 : 0.5,
+            cursor: canGoBack ? 'pointer' : 'default',
+          }}
+          onMouseEnter={(e) => { if (canGoBack) { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; } }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = canGoBack ? 'var(--vscode-text-fg)' : 'var(--vscode-descriptionForeground)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+          title={t('pdfPreview.backToPreviousPosition')}
+          aria-label={t('pdfPreview.backToPreviousPosition')}
+        >
+          <ArrowLeft size={18} />
+        </button>
+        <button
+          type="button"
           onClick={handleSavePdf}
           className="flex items-center justify-center rounded-md transition-colors"
           style={{
@@ -804,9 +886,10 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
       </div>
       
       <div 
-        className="w-full h-full overflow-y-auto flex flex-col items-center py-8"
+        className="pdf-preview-scroll w-full h-full overflow-y-auto flex flex-col items-center"
         ref={containerRef}
         onScroll={handleScroll}
+        onPointerDownCapture={handlePdfPointerDownCapture}
         style={{ background: 'var(--vscode-editor-bg)' }}
       >
         {pdfUrl && (
@@ -838,9 +921,9 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
                       position: 'absolute',
                       zIndex: 99999,
                       left: 0,
-                      top: `${highlight.y * (scale / 1.2)}px`, 
+                      top: `${highlight.y}px`,
                       width: '100%',
-                      height: `${Math.max(highlight.h * (scale / 1.2), 18)}px`,
+                      height: `${Math.max(highlight.h, 18)}px`,
                       backgroundColor: 'rgba(250, 204, 21, 0.25)',
                       borderLeft: '6px solid #ef4444',
                       pointerEvents: 'none',

@@ -74,6 +74,45 @@ import 'katex/dist/katex.min.css';
   bodyObserver.observe(document.body, { childList: true, subtree: true });
 })();
 
+// Monaco can hide its find widget while the internal textarea still has focus,
+// which makes Chromium warn about a focused element inside aria-hidden content.
+// Keep focus out of the hidden widget and mirror the hidden state with inert.
+(function patchMonacoHiddenFocus() {
+  const syncFindWidgets = (root = document) => {
+    root.querySelectorAll?.('.editor-widget.find-widget').forEach((widget) => {
+      const isHidden = widget.getAttribute('aria-hidden') === 'true';
+      if (isHidden) {
+        if (widget.contains(document.activeElement)) {
+          document.activeElement?.blur?.();
+        }
+        widget.inert = true;
+      } else {
+        widget.inert = false;
+      }
+    });
+  };
+
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === 'attributes') {
+        syncFindWidgets(mutation.target?.ownerDocument || document);
+      } else {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === 1) syncFindWidgets(node);
+        });
+      }
+    }
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['aria-hidden'],
+  });
+  syncFindWidgets();
+})();
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <Suspense fallback={null}>
