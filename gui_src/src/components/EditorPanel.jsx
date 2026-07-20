@@ -117,6 +117,30 @@ export default function EditorPanel({
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isCleaningLatex, setIsCleaningLatex] = useState(false);
   const pendingPdfSyncRef = useRef(null);
+  const lastCompiledContentsRef = useRef({});
+
+  const findFirstModifiedLine = (oldText, newText) => {
+    const normOld = (oldText || '').replace(/\r\n/g, '\n');
+    const normNew = (newText || '').replace(/\r\n/g, '\n');
+    if (normOld === normNew) return null;
+    const oldLines = normOld.split('\n');
+    const newLines = normNew.split('\n');
+    const maxLines = Math.max(oldLines.length, newLines.length);
+    for (let i = 0; i < maxLines; i++) {
+      if (oldLines[i] !== newLines[i]) {
+        return i + 1;
+      }
+    }
+    return 1;
+  };
+
+  useEffect(() => {
+    if (selectedFile && fileContent !== undefined) {
+      if (lastCompiledContentsRef.current[selectedFile] === undefined) {
+        lastCompiledContentsRef.current[selectedFile] = fileContent;
+      }
+    }
+  }, [selectedFile, fileContent]);
 
   const getCurrentEditorLine = () => (
     localEditorRef.current?.getPosition?.()?.lineNumber || null
@@ -241,17 +265,21 @@ export default function EditorPanel({
   }, [selectedFile, jumpToLine, setJumpToLine]);
 
   const handleCompile = async (skipSave = false, partial = false) => {
-    if (!skipSave) {
-      const saved = await saveFile({ suppressCompile: true });
-      if (!saved) return;
-    }
-    const compileLine = getCurrentEditorLine();
-    const compileFile = selectedFile;
-    const compileProjectPath = activeProject?.project_path;
     setIsCompiling(true);
     setPdfErrorLog('');
     setCleanMessage('');
     setCompileTiming(null);
+    if (!skipSave) {
+      const saved = await saveFile({ suppressCompile: true });
+      if (!saved) {
+        setIsCompiling(false);
+        return;
+      }
+    }
+    const oldContent = lastCompiledContentsRef.current[selectedFile];
+    const compileLine = findFirstModifiedLine(oldContent, fileContent);
+    const compileFile = selectedFile;
+    const compileProjectPath = activeProject?.project_path;
     try {
       const res = await fetch('/api/latex/compile', {
         method: 'POST',
@@ -275,6 +303,7 @@ export default function EditorPanel({
             projectPath: compileProjectPath,
           };
         }
+        lastCompiledContentsRef.current[compileFile] = fileContent;
         setPdfUrl(data.pdf_url || `/api/latex/pdf?ts=${Date.now()}`);
       } else {
         setPdfErrorLog(data.log);

@@ -520,8 +520,24 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
 
   if (!base64Pdf && !sourceUrl && !directUrl) {
     return (
-      <div className="flex items-center justify-center h-full w-full" style={{ background: 'var(--vscode-editor-bg)', color: 'var(--vscode-descriptionForeground, #888)' }}>
+      <div className="flex items-center justify-center h-full w-full relative" style={{ background: 'var(--vscode-editor-bg)', color: 'var(--vscode-descriptionForeground, #888)' }}>
         <p>{t('pdfPreview.noDocument')}</p>
+        {isCompiling && (
+          <div className="pdf-preview-compile-overlay" role="status" aria-live="polite">
+            <div className="pdf-preview-compile-panel">
+              <div className="pdf-preview-compile-orbit" aria-hidden="true">
+                <span className="pdf-preview-compile-page"></span>
+              </div>
+              <div className="pdf-preview-compile-text">
+                <p className="pdf-preview-compile-title">{t('pdfPreview.compiling')}</p>
+                <p className="pdf-preview-compile-subtitle">{t('pdfPreview.compilingSubtitle')}</p>
+              </div>
+              <div className="pdf-preview-compile-progress" aria-hidden="true">
+                <span></span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
