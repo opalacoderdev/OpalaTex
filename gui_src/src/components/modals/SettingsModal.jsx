@@ -44,8 +44,8 @@ export default function SettingsModal({
   const [pandocInstallMessage, setPandocInstallMessage] = React.useState('');
 
   const cloudModelOptions = [
-    { value: 'OpalaTexCloud', label: t('editProjectModal.opalaCloudLiteOption', 'Opala Cloud Lite (standard credit use)') },
-    { value: 'OpalaTexCloudGemini35Flash', label: t('editProjectModal.opalaCloudFlashOption', 'Gemini 3.5 Flash (6x credit use)') },
+    { value: 'OpalaTexCloud', label: t('editProjectModal.opalaCloudLiteOption', 'OpalaTex Live (standard credit use)') },
+    { value: 'OpalaTexCloudGemini35Flash', label: t('editProjectModal.opalaCloudFlashOption', 'OpalaTex Flash (4x credit use)') },
   ];
   const normalizeCloudModel = (value) => cloudModelOptions.some(option => option.value === value) ? value : 'OpalaTexCloud';
 

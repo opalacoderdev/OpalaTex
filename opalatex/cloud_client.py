@@ -30,7 +30,7 @@ CLOUD_MODEL_ALIASES = {
     CLOUD_FLASH_MODEL_ALIAS: {
         "litellm_model": "openai/gemini-3.5-flash",
         "provider_model": "gemini-3.5-flash",
-        "credit_multiplier": 6,
+        "credit_multiplier": 4,
     },
 }
 

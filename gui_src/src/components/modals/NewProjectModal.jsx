@@ -80,8 +80,8 @@ export default function NewProjectModal({
   };
 
   const cloudModelOptions = [
-    { value: 'OpalaTexCloud', label: t('editProjectModal.opalaCloudLiteOption', 'Opala Cloud Lite (standard credit use)') },
-    { value: 'OpalaTexCloudGemini35Flash', label: t('editProjectModal.opalaCloudFlashOption', 'Gemini 3.5 Flash (6x credit use)') }
+    { value: 'OpalaTexCloud', label: t('editProjectModal.opalaCloudLiteOption', 'OpalaTex Live (standard credit use)') },
+    { value: 'OpalaTexCloudGemini35Flash', label: t('editProjectModal.opalaCloudFlashOption', 'OpalaTex Flash (4x credit use)') }
   ];
   const normalizeCloudModel = (value) => {
     if (cloudModelOptions.some(option => option.value === value)) return value;

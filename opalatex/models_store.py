@@ -10,8 +10,8 @@ _MODELS_STORE_PATH = Path(get_opalatex_home()) / "models.json"
 
 _DEFAULT_MODELS = [
     # OpalaTex Cloud Model
-    { "id": DEFAULT_CLOUD_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Cloud Lite", "api_key": "", "api_base": "" },
-    { "id": CLOUD_FLASH_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Cloud Gemini 3.5 Flash (6x credits)", "api_key": "", "api_base": "" },
+    { "id": DEFAULT_CLOUD_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Live", "api_key": "", "api_base": "" },
+    { "id": CLOUD_FLASH_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Flash (4x credits)", "api_key": "", "api_base": "" },
 
     # OpenAI Models
     { "id": "openai/gpt-5.5", "provider": "openai", "name": "gpt-5.5", "api_key": "", "api_base": "" },
@@ -68,8 +68,8 @@ def load_models() -> List[Dict[str, Any]]:
         
     # Ensure managed Opala Cloud aliases are in the list.
     managed_cloud_models = [
-        { "id": DEFAULT_CLOUD_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Cloud Lite", "api_key": "", "api_base": "" },
-        { "id": CLOUD_FLASH_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Cloud Gemini 3.5 Flash (6x credits)", "api_key": "", "api_base": "" },
+        { "id": DEFAULT_CLOUD_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Live", "api_key": "", "api_base": "" },
+        { "id": CLOUD_FLASH_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Flash (4x credits)", "api_key": "", "api_base": "" },
     ]
     existing_ids = {m.get("id") for m in models}
     insert_at = 0
