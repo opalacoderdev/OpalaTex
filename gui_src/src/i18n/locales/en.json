@@ -206,7 +206,10 @@
     "previousMatch": "Previous match",
     "nextMatch": "Next match",
     "clearSearch": "Clear search",
-    "noSearchResults": "No results"
+    "noSearchResults": "No results",
+    "toggleAnnotations": "Toggle PDF annotations",
+    "annotationsOn": "Hide PDF annotations",
+    "annotationsOff": "Show PDF annotations"
   },
   "docxEditor": {
     "loading": "Loading DOCX...",

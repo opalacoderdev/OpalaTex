@@ -145,7 +145,8 @@ def test_ollama_cloud_model_uses_remote_api_base_by_default(monkeypatch):
 
     with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
         with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
-            kwargs = get_agent_llm_kwargs("custom_agent")
+            with patch("opalatex.models_store.get_model", return_value=None):
+                kwargs = get_agent_llm_kwargs("custom_agent")
 
     assert kwargs["api_base"] == "https://ollama.com"
     assert kwargs["api_key"] == "ollama-test-key"

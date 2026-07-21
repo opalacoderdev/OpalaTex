@@ -3,7 +3,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X } from 'lucide-react';
+import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare } from 'lucide-react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -24,6 +24,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const [activeSearchIndex, setActiveSearchIndex] = useState(-1);
   const [pdfTextPages, setPdfTextPages] = useState([]);
   const [canGoBack, setCanGoBack] = useState(false);
+  const [showAnnotations, setShowAnnotations] = useState(true);
   const containerRef = useRef(null);
   const scrollPosRef = useRef(0);
   const restoreScrollPosRef = useRef(0);
@@ -157,44 +158,106 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     goToSearchResult((activeSearchIndex >= 0 ? activeSearchIndex : -1) + 1);
   };
 
-  const renderSearchHighlights = (text) => {
-    if (!searchNeedle || !text) return text;
+  /**
+   * Builds an array of SVG <rect> elements that highlight every occurrence of
+   * `searchNeedle` in `pageItems` (the raw pdfjs text items for a single page).
+   * Each item carries a 6-element transform matrix [a,b,c,d,e,f] and a width.
+   * We compute the on-screen bounding box using the same approach PDF.js uses.
+   */
+  const buildHighlightRects = (pageItems, pageHeight, needle) => {
+    if (!needle || !pageItems || !pageItems.length) return [];
 
-    const lowerText = text.toLowerCase();
-    const parts = [];
+    const rects = [];
+    let globalIndex = 0; // character offset across items
+
+    // Build a flat string and track item spans inside it
+    const spans = [];
+    let flat = '';
+    for (const item of pageItems) {
+      const s = item.str || '';
+      spans.push({ start: flat.length, end: flat.length + s.length, item });
+      flat += s;
+      // PDF text items are NOT separated by spaces in the transform stream;
+      // but we want multi-item matches so we add a space sentinel that won't
+      // accidentally create a match.
+      flat += ' ';
+    }
+
+    const lowerFlat = flat.toLowerCase();
     let cursor = 0;
-    let matchIndex = lowerText.indexOf(searchNeedle);
+    let idx = lowerFlat.indexOf(needle, cursor);
 
-    while (matchIndex !== -1) {
-      if (matchIndex > cursor) {
-        parts.push(text.slice(cursor, matchIndex));
+    while (idx !== -1) {
+      const matchEnd = idx + needle.length;
+      // Collect all items that overlap [idx, matchEnd)
+      for (const { start, end, item } of spans) {
+        if (end <= idx || start >= matchEnd) continue;
+        // Fraction of the item that is highlighted
+        const overlapStart = Math.max(start, idx) - start;
+        const overlapEnd   = Math.min(end, matchEnd) - start;
+        const itemLen = end - start;
+        const fracStart = itemLen > 0 ? overlapStart / itemLen : 0;
+        const fracEnd   = itemLen > 0 ? overlapEnd   / itemLen : 1;
+
+        // PDF transform: [scaleX, skewY, skewX, scaleY, tx, ty]
+        const [a, b, c, d, tx, ty] = item.transform;
+        const itemW = item.width || 0;
+        const itemH = item.height || Math.abs(d) || 10;
+
+        // x from left edge of item, scaled by fractional coverage
+        const x0 = tx + itemW * fracStart * (a > 0 ? 1 : -1);
+        const x1 = tx + itemW * fracEnd   * (a > 0 ? 1 : -1);
+
+        // PDF y-axis is bottom-up; convert to top-down viewport coords
+        const yTop    = pageHeight - ty - itemH;
+        const rectX   = Math.min(x0, x1);
+        const rectW   = Math.abs(x1 - x0);
+
+        rects.push({ x: rectX, y: yTop, w: rectW, h: itemH });
       }
-      const matchText = text.slice(matchIndex, matchIndex + searchNeedle.length);
-      parts.push(
-        <mark
-          key={`${matchIndex}-${parts.length}`}
-          style={{
-            backgroundColor: '#facc15',
-            boxShadow: '0 0 0 2px rgba(245, 158, 11, 0.9)',
-            borderRadius: '2px',
-            color: 'transparent',
-            padding: '0 1px',
-            WebkitBoxDecorationBreak: 'clone',
-            boxDecorationBreak: 'clone',
-          }}
-        >
-          {matchText}
-        </mark>
-      );
-      cursor = matchIndex + searchNeedle.length;
-      matchIndex = lowerText.indexOf(searchNeedle, cursor);
+      cursor = matchEnd;
+      idx = lowerFlat.indexOf(needle, cursor);
     }
+    return rects;
+  };
 
-    if (cursor < text.length) {
-      parts.push(text.slice(cursor));
-    }
-
-    return parts;
+  /**
+   * Absolutely-positioned SVG overlay that paints search-hit highlight
+   * rectangles on top of the canvas layer without touching the text layer.
+   */
+  const SearchHighlightLayer = ({ pageItems, pageWidth, pageHeight, needle, scaleFactor }) => {
+    if (!needle || !pageItems) return null;
+    const rects = buildHighlightRects(pageItems, pageHeight, needle);
+    if (!rects.length) return null;
+    return (
+      <svg
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 5,
+        }}
+        viewBox={`0 0 ${pageWidth} ${pageHeight}`}
+        preserveAspectRatio="none"
+      >
+        {rects.map((r, i) => (
+          <rect
+            key={i}
+            x={r.x - 1}
+            y={r.y - 1}
+            width={r.w + 2}
+            height={r.h + 2}
+            fill="rgba(250, 204, 21, 0.45)"
+            stroke="rgba(245, 158, 11, 0.75)"
+            strokeWidth="1.5"
+            rx="2"
+          />
+        ))}
+      </svg>
+    );
   };
 
   // ── Page navigation ────────────────────────────────────────────────────
@@ -278,8 +341,15 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         const pages = [];
         for (let pageNumber = 1; pageNumber <= numPages; pageNumber += 1) {
           const page = await pdfDocument.getPage(pageNumber);
+          const viewport = page.getViewport({ scale: 1 });
           const textContent = await page.getTextContent();
-          pages.push(textContent.items.map((item) => item.str || '').join(' '));
+          // Store both plain text (for search counting) and raw items (for highlight rects)
+          pages.push({
+            text: textContent.items.map((item) => item.str || '').join(' '),
+            items: textContent.items,
+            width: viewport.width,
+            height: viewport.height,
+          });
         }
         if (!cancelled) {
           setPdfTextPages(pages);
@@ -307,7 +377,8 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     }
 
     const results = [];
-    pdfTextPages.forEach((pageText, pageIndex) => {
+    pdfTextPages.forEach((pageData, pageIndex) => {
+      const pageText = typeof pageData === 'string' ? pageData : pageData.text;
       const matches = countMatches(pageText, searchNeedle);
       for (let i = 0; i < matches; i += 1) {
         results.push({ page: pageIndex + 1 });
@@ -814,6 +885,31 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
             <RotateCcw size={18} />
           </button>
         )}
+        {/* Annotation toggle */}
+        <button
+          onClick={() => setShowAnnotations(prev => !prev)}
+          className="flex items-center justify-center rounded-md transition-colors"
+          style={{
+            width: '32px',
+            height: '32px',
+            background: showAnnotations ? 'var(--vscode-input-bg)' : 'var(--vscode-button-bg)',
+            border: `1px solid ${showAnnotations ? 'var(--vscode-border)' : 'var(--vscode-button-bg)'}`,
+            color: showAnnotations ? 'var(--vscode-text-fg)' : '#ffffff',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = showAnnotations ? 'var(--vscode-button-bg)' : 'var(--vscode-input-bg)';
+            e.currentTarget.style.color = showAnnotations ? '#ffffff' : 'var(--vscode-text-fg)';
+            e.currentTarget.style.borderColor = showAnnotations ? 'var(--vscode-button-bg)' : 'var(--vscode-border)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = showAnnotations ? 'var(--vscode-input-bg)' : 'var(--vscode-button-bg)';
+            e.currentTarget.style.color = showAnnotations ? 'var(--vscode-text-fg)' : '#ffffff';
+            e.currentTarget.style.borderColor = showAnnotations ? 'var(--vscode-border)' : 'var(--vscode-button-bg)';
+          }}
+          title={t(showAnnotations ? 'pdfPreview.annotationsOn' : 'pdfPreview.annotationsOff')}
+        >
+          {showAnnotations ? <MessageSquareOff size={18} /> : <MessageSquare size={18} />}
+        </button>
         {/* Page navigation: prev / [input] of N / next */}
         {numPages && numPages > 1 && (
           <>
@@ -919,16 +1015,27 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
               <div 
                 key={`page_${index + 1}`} 
                 data-page-number={index + 1}
-                className="shadow-2xl mb-8 bg-white cursor-text relative"
+                className="pdf-page-wrapper shadow-2xl mb-8 bg-white cursor-text relative"
+                style={{ isolation: 'isolate' }}
                 onDoubleClick={(e) => handlePageDoubleClick(e, index + 1)}
               >
                 <Page
                   pageNumber={index + 1}
                   renderTextLayer={true}
-                  renderAnnotationLayer={true}
-                  customTextRenderer={({ str }) => renderSearchHighlights(str)}
+                  renderAnnotationLayer={showAnnotations}
                   scale={scale}
                 />
+                {/* Bounding-box search highlight overlay — drawn above the canvas,
+                    does NOT touch the text layer so there is no double-text glitch */}
+                {searchNeedle && pdfTextPages[index] && (
+                  <SearchHighlightLayer
+                    pageItems={pdfTextPages[index].items}
+                    pageWidth={pdfTextPages[index].width}
+                    pageHeight={pdfTextPages[index].height}
+                    needle={searchNeedle}
+                    scaleFactor={scale}
+                  />
+                )}
                 
                 {/* Visual Highlight for Forward Search */}
                 {highlight && highlight.page === index + 1 && (

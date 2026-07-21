@@ -100,7 +100,7 @@ export default function ChatPanel({
 
   const [hideThink, setHideThink] = useState(() => {
     const stored = localStorage.getItem('chatHideThink');
-    return stored === null ? true : stored === 'true';
+    return stored === null ? false : stored === 'true';
   });
 
   // Chat input history state

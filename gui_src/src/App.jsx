@@ -662,10 +662,13 @@ export default function App() {
             setChats(loadedChats);
 
             // Set active chat id: use the one stored in the project or fall back to the first chat
-            const currentChatId = activeProject.current_chat_id
-              || (loadedChats.length > 0 ? loadedChats[0].id : 'main');
+            const savedChatId = localStorage.getItem(`lastChat_${activeProject.name}`);
+            let currentChatId = savedChatId || activeProject.current_chat_id || (loadedChats.length > 0 ? loadedChats[0].id : 'main');
+            if (currentChatId !== 'main' && !loadedChats.find(c => c.id === currentChatId)) {
+              currentChatId = loadedChats.length > 0 ? loadedChats[0].id : 'main';
+            }
             setActiveChatId(currentChatId);
-            if (!activeProject.current_chat_id) {
+            if (!activeProject.current_chat_id || activeProject.current_chat_id !== currentChatId) {
               setActiveProject(prev => prev ? { ...prev, current_chat_id: currentChatId } : null);
             }
 
@@ -738,6 +741,7 @@ export default function App() {
     setIsLoadingChat(true);
     setActiveChatId(id);
     setActiveProject(prev => prev ? { ...prev, current_chat_id: id } : null);
+    localStorage.setItem(`lastChat_${activeProject.name}`, id);
 
     setTimeout(async () => {
       try {
@@ -1010,8 +1014,15 @@ export default function App() {
         const data = await res.json();
         setProjects(data.projects || []);
         if (data.projects?.length > 0 && !activeProject) {
-          const firstValid = data.projects.find(p => p.exists);
-          if (firstValid) handleSelectProject(firstValid);
+          const lastActiveProjectName = localStorage.getItem('lastActiveProject');
+          let projToSelect = null;
+          if (lastActiveProjectName) {
+            projToSelect = data.projects.find(p => p.name === lastActiveProjectName && p.exists);
+          }
+          if (!projToSelect) {
+            projToSelect = data.projects.find(p => p.exists);
+          }
+          if (projToSelect) handleSelectProject(projToSelect);
         }
       }
     } catch (err) { addLog('error', t('app.failedToLoadProjects', { error: err.message })); }
@@ -1088,6 +1099,7 @@ export default function App() {
             }
           }
           setActiveProject(proj);
+          localStorage.setItem('lastActiveProject', proj.name);
           addLog('info', t('app.projectSelected', { name: proj.project_name || proj.name }));
         }
       });
@@ -1095,6 +1107,7 @@ export default function App() {
     }
 
     setActiveProject(proj);
+    localStorage.setItem('lastActiveProject', proj.name);
     addLog('info', t('app.projectSelected', { name: proj.project_name || proj.name }));
   };
 
@@ -2259,6 +2272,7 @@ export default function App() {
       const newChatId = data.new_chat_id;
       setActiveChatId(newChatId);
       setActiveProject(prev => prev ? { ...prev, current_chat_id: newChatId } : null);
+      if (activeProject) localStorage.setItem(`lastChat_${activeProject.name}`, newChatId);
       setChats(prev => [...prev, { id: newChatId, name: data.name || newChatName }]);
       setChatMessages(branchHistory);
       await handleSendMessage(null, null, {

@@ -205,7 +205,10 @@
     "previousMatch": "Resultado anterior",
     "nextMatch": "Proximo resultado",
     "clearSearch": "Limpar busca",
-    "noSearchResults": "Sem resultados"
+    "noSearchResults": "Sem resultados",
+    "toggleAnnotations": "Alternar anotações do PDF",
+    "annotationsOn": "Ocultar anotações do PDF",
+    "annotationsOff": "Mostrar anotações do PDF"
   },
   "docxEditor": {
     "loading": "Carregando DOCX...",

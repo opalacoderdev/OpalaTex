@@ -400,6 +400,18 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     resolved_model = get_agent_model(agent_name, default=session_model)
     from opalatex.cloud_client import CHAT_PROXY_URL, CLOUD_MODEL_ALIASES
     cloud_litellm_models = {meta["litellm_model"] for meta in CLOUD_MODEL_ALIASES.values()}
+
+    store_api_base = None
+    store_api_key = None
+    try:
+        from opalatex.models_store import get_model
+        store_model = get_model(resolved_model)
+        if store_model:
+            store_api_base = store_model.get("api_base")
+            store_api_key = store_model.get("api_key")
+    except Exception:
+        pass
+
     if ui_cfg.get("ai_provider") == "cloud" or resolved_model in cloud_litellm_models:
         license_data = _load_license_data()
         license_key = license_data.get("license_key", "")
@@ -410,11 +422,17 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
         merged["custom_llm_provider"] = "openai"
         merged.setdefault("timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
         merged.setdefault("request_timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
-    elif is_ollama_cloud_model(resolved_model):
-        merged.setdefault("api_base", OLLAMA_CLOUD_API_BASE)
-        merged.setdefault("api_key", os.getenv("OLLAMA_API_KEY", ""))
-        merged.setdefault("timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
-        merged.setdefault("request_timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
+    else:
+        if store_api_base:
+            merged.setdefault("api_base", store_api_base)
+        if store_api_key:
+            merged.setdefault("api_key", store_api_key)
+
+        if is_ollama_cloud_model(resolved_model):
+            merged.setdefault("api_base", OLLAMA_CLOUD_API_BASE)
+            merged.setdefault("api_key", os.getenv("OLLAMA_API_KEY", ""))
+            merged.setdefault("timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
+            merged.setdefault("request_timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
 
     for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
         merged.pop(field, None)

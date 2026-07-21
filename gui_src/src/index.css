@@ -1678,3 +1678,79 @@ select {
   width: 100%;
   height: 100%;
 }
+
+/* ── react-pdf annotation layer fixes ───────────────────────────────────────
+ *
+ * Context: react-pdf v10 renders highlight/underline/squiggly annotations as
+ * absolutely-positioned <section> elements inside .annotationLayer. By default
+ * AnnotationLayer.css gives every section pointer-events:auto which blocks text
+ * selection underneath. pdfjs also sets background-color inline with full-opacity
+ * yellow, completely hiding the canvas text.
+ *
+ * Fixes applied:
+ *   1. All annotation sections that are not interactive (links, widgets) get
+ *      pointer-events:none so text underneath can be selected.
+ *   2. .highlightAnnotation sections get mix-blend-mode:multiply so the yellow
+ *      tint overlays the canvas text instead of hiding it.
+ *   3. The page wrapper div gets isolation:isolate so the multiply blend target
+ *      is the WHITE page background, not the dark editor — yellow × white = yellow
+ *      tint while dark text remains dark and readable.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/* The page wrapper must form an isolated stacking context so that
+   mix-blend-mode on annotations blends against the WHITE page, not the
+   dark editor background. isolation:isolate is also set inline in JSX. */
+.pdf-page-wrapper {
+  isolation: isolate;
+  background-color: white !important;
+}
+
+/* Also ensure .react-pdf__Page has a white background. If it is transparent,
+   mix-blend-mode: multiply on its children (annotations) blends against 
+   transparent, which becomes opaque yellow when composited later. */
+.react-pdf__Page {
+  background-color: white !important;
+}
+
+/* The .annotationLayer has z-index: 3 which creates a stacking context.
+   This means mix-blend-mode on its children will NOT blend with the canvas.
+   We MUST apply mix-blend-mode to the entire annotation layer so it blends
+   with the canvas beneath it. We also add opacity as a foolproof fallback. */
+.annotationLayer {
+  mix-blend-mode: multiply !important;
+  opacity: 0.6;
+}
+
+/* Disable pointer-events on every annotation section; re-enable only for
+   interactive ones. Use !important because AnnotationLayer.css sets
+   .annotationLayer section { pointer-events: auto } unconditionally. */
+.annotationLayer section,
+.annotationLayer .highlightAnnotation {
+  pointer-events: none !important;
+}
+
+.annotationLayer .linkAnnotation,
+.annotationLayer :is(.buttonWidgetAnnotation,
+                      .checkboxWidgetAnnotation,
+                      .radioButtonWidgetAnnotation,
+                      .textWidgetAnnotation,
+                      .choiceWidgetAnnotation) {
+  pointer-events: auto !important;
+}
+
+
+/* Sometimes PDF.js renders the text of the highlight annotation itself.
+   Make sure it stays transparent so it doesn't create garbled double-text. */
+.annotationLayer .highlightAnnotation * {
+  color: transparent !important;
+}
+
+.annotationLayer .underlineAnnotation,
+.annotationLayer .squigglyAnnotation,
+.annotationLayer .strikeoutAnnotation {
+  mix-blend-mode: multiply !important;
+  opacity: 0.8;
+}
+
+
+

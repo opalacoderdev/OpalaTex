@@ -163,11 +163,14 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
             return _("err_ollama_model_not_found", model=model.replace("ollama/", ""))
         return _("err_model_not_found", model=model)
 
-    if "connection" in low or "connect" in low:
-        return _("err_connection_failed").format(model=model)
-
     if "authentication" in low or "api key" in low or "unauthorized" in low:
         return _("err_auth_failed").format(model=model)
+
+    if "retired" in low:
+        return f"O modelo {model} foi descontinuado (retired) e não pode mais ser utilizado."
+
+    if "connection" in low or "connect" in low:
+        return _("err_connection_failed").format(model=model)
 
     if "context" in low and ("length" in low or "window" in low or "exceed" in low):
         return _("err_context_exceeded").format(model=model)
