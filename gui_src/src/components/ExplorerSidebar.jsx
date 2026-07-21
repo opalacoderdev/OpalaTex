@@ -1,5 +1,5 @@
-import React from 'react';
-import { Plus, Settings, Trash2, RefreshCw, ExternalLink, FolderOpen } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Plus, Settings, Trash2, RefreshCw, ExternalLink, FolderOpen, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import FileNode from './FileNode';
 
@@ -31,6 +31,20 @@ export default function ExplorerSidebar({
   handleDeleteProject,
 }) {
   const { t } = useTranslation();
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -62,60 +76,171 @@ export default function ExplorerSidebar({
       )}
 
       {/* Projects list */}
-      <div className="vscode-sidebar-section">
+      <div className="vscode-sidebar-section" style={{ borderBottom: '1px solid var(--vscode-border)', paddingBottom: '10px' }}>
         <div className="vscode-sidebar-section-title">{t('explorerSidebar.selectProject')}</div>
-        <div className="overflow-y-auto" style={{ maxHeight: '140px' }}>
-          {projects.map(p => {
-            const isActive = activeProject && activeProject.name === p.name;
-            return (
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', padding: '0 4px', position: 'relative' }} ref={dropdownRef}>
+          {/* Main Dropdown Button */}
+          <div style={{ flex: 1, position: 'relative' }}>
+            <button
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="vscode-settings-input"
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '4px 8px',
+                height: '26px',
+                fontSize: '12px',
+                cursor: 'pointer',
+                textAlign: 'left',
+                border: '1px solid var(--vscode-dropdown-border, var(--vscode-border, #3c3c3c))',
+                background: 'var(--vscode-dropdown-background, var(--vscode-input-bg, #252526))',
+                color: 'var(--vscode-dropdown-foreground, var(--vscode-input-fg, #cccccc))',
+                borderRadius: '2px',
+              }}
+            >
+              <span className="truncate" style={{ fontWeight: '500' }}>
+                {activeProject ? (activeProject.project_name || activeProject.name) : t('explorerSidebar.selectProjectPlaceholder', 'Selecionar projeto...')}
+              </span>
+              <ChevronDown size={14} style={{ opacity: 0.7, flexShrink: 0, marginLeft: '4px' }} />
+            </button>
+
+            {isDropdownOpen && (
               <div
-                key={p.name}
-                onClick={() => handleSelectProject(p)}
-                className={`vscode-project-item ${isActive ? 'active' : ''}`}
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  marginTop: '2px',
+                  background: 'var(--vscode-dropdown-background, var(--vscode-sidebar-bg, #252526))',
+                  border: '1px solid var(--vscode-dropdown-border, var(--vscode-border, #3c3c3c))',
+                  borderRadius: '3px',
+                  boxShadow: '0 4px 8px rgba(0, 0, 0, 0.3)',
+                  zIndex: 100,
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                }}
               >
-                <div className="truncate flex-1">
-                  <div style={{ fontSize: '13px', fontWeight: '500' }} className="truncate">
-                    {p.project_name || p.name}
+                {projects.length === 0 ? (
+                  <div style={{ padding: '6px 10px', fontSize: '11px', color: '#808080', fontStyle: 'italic' }}>
+                    {t('explorerSidebar.noProjects', 'Nenhum projeto encontrado')}
                   </div>
-                  <div style={{ fontSize: '10px', color: '#808080' }} className="truncate">
-                    {p.project_path}
-                  </div>
-                </div>
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    try {
-                      await fetch('/api/file/open-explorer', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ projectPath: p.project_path })
-                      });
-                    } catch (err) {
-                      console.error('Failed to open explorer:', err);
-                    }
-                  }}
-                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0', padding: '2px 4px' }}
-                  title="Abrir pasta no Sistema Operacional"
-                >
-                  <ExternalLink size={12} />
-                </button>
-                <button
-                  onClick={(e) => openEditModal(e, p)}
-                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0', padding: '2px 4px' }}
-                  title={t('explorerSidebar.configureProject')}
-                >
-                  <Settings size={12} />
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.name); }}
-                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0', padding: '2px 4px' }}
-                  title={t('explorerSidebar.removeProject')}
-                >
-                  <Trash2 size={12} />
-                </button>
+                ) : (
+                  projects.map(p => {
+                    const isActive = activeProject && activeProject.name === p.name;
+                    return (
+                      <div
+                        key={p.name}
+                        onClick={() => {
+                          handleSelectProject(p);
+                          setIsDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: '6px 10px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '2px',
+                          borderBottom: '1px solid rgba(255,255,255,0.03)',
+                          background: isActive ? 'var(--vscode-list-activeSelectionBackground, var(--vscode-accent, #007acc))' : 'transparent',
+                          color: isActive ? 'var(--vscode-list-activeSelectionForeground, #ffffff)' : 'var(--vscode-dropdown-foreground, var(--vscode-input-fg, #cccccc))',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive) e.currentTarget.style.background = 'var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08))';
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive) e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <div style={{ fontSize: '12px', fontWeight: '500' }} className="truncate">
+                          {p.project_name || p.name}
+                        </div>
+                        <div style={{ fontSize: '10px', color: isActive ? 'rgba(255,255,255,0.7)' : '#808080' }} className="truncate">
+                          {p.project_path}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
-            );
-          })}
+            )}
+          </div>
+
+          {/* Action buttons for the active project */}
+          {activeProject && (
+            <div style={{ display: 'flex', gap: '2px', flexShrink: 0 }}>
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await fetch('/api/file/open-explorer', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ projectPath: activeProject.project_path })
+                    });
+                  } catch (err) {
+                    console.error('Failed to open explorer:', err);
+                  }
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#a0a0a0',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '3px',
+                }}
+                title={t('explorerSidebar.openFolder', 'Abrir pasta no Sistema Operacional')}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#ffffff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#a0a0a0'; }}
+              >
+                <ExternalLink size={14} />
+              </button>
+              <button
+                onClick={(e) => openEditModal(e, activeProject)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#a0a0a0',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '3px',
+                }}
+                title={t('explorerSidebar.configureProject')}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#ffffff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#a0a0a0'; }}
+              >
+                <Settings size={14} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); handleDeleteProject(activeProject.name); }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#a0a0a0',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '3px',
+                }}
+                title={t('explorerSidebar.removeProject')}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#ffffff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#a0a0a0'; }}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

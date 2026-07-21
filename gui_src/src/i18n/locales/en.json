@@ -62,6 +62,7 @@
     "selectProject": "Select Project",
     "configureProject": "Configure project",
     "removeProject": "Remove project",
+    "openFolder": "Open folder in OS",
     "workspaceFiles": "Workspace Files",
     "refreshFiles": "Refresh files",
     "selectProjectToExplore": "Select a project to explore."

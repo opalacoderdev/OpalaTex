@@ -24,7 +24,7 @@
   "activityBar": {
     "explorer": "Explorer",
     "chatMode": "Modo Chat",
-    "editMode": "Modo de Edicao",
+    "editMode": "Modo Edição",
     "reviewMode": "Modo Review",
     "sourceControl": "Source Control",
     "opalatexCodes": "OpalaTex Chat",
@@ -62,6 +62,7 @@
     "selectProject": "Selecione o Projeto",
     "configureProject": "Configurar projeto",
     "removeProject": "Remover projeto",
+    "openFolder": "Abrir pasta no Sistema Operacional",
     "workspaceFiles": "Workspace Files",
     "refreshFiles": "Atualizar arquivos",
     "selectProjectToExplore": "Selecione um projeto para explorar."
