@@ -381,8 +381,13 @@ export default function SettingsModal({
                 </div>
               </div>
 
+            </>
+          )}
+
+          {settingsTab === 'dependencies' && (
+            <>
               {/* Install Tectonic */}
-              <div className="flex flex-col" style={{ gap: '6px', borderTop: '1px solid var(--vscode-border)', paddingTop: '12px', marginTop: '6px' }}>
+              <div className="flex flex-col" style={{ gap: '6px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.installTectonicTitle')}</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
@@ -419,6 +424,7 @@ export default function SettingsModal({
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('settingsModal.installTectonicHint')}</span>
               </div>
 
+              {/* Install Pandoc */}
               <div className="flex flex-col" style={{ gap: '6px', borderTop: '1px solid var(--vscode-border)', paddingTop: '12px', marginTop: '6px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.installPandocTitle')}</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -455,10 +461,46 @@ export default function SettingsModal({
                 )}
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('settingsModal.installPandocHint')}</span>
               </div>
-
-
             </>
-          ) : (
+          )}
+
+          {FEATURES.enableCloudAccount && settingsTab === 'license' && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              padding: '12px',
+              border: '1px solid var(--vscode-border)',
+              borderRadius: '6px',
+              backgroundColor: 'var(--vscode-sidebar-bg)'
+            }}>
+              <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.softwareSerial')}</span>
+              <input
+                type="text"
+                readOnly
+                value={licenseData?.key || t('settingsModal.noSoftwareSerial')}
+                className="vscode-settings-input"
+                style={{
+                  width: '100%',
+                  fontFamily: 'monospace',
+                  color: licenseData?.key ? 'var(--vscode-text-fg)' : 'var(--vscode-description-fg, #aaaaaa)',
+                  cursor: 'default'
+                }}
+              />
+              <span style={{ fontSize: '11px', color: 'var(--vscode-description-fg, #aaaaaa)', lineHeight: '1.4' }}>
+                {t('settingsModal.softwareSerialHint')}
+              </span>
+              <button
+                className="vscode-button"
+                style={{ alignSelf: 'flex-start' }}
+                onClick={onReplaceSerial}
+              >
+                {t('settingsModal.replaceSoftwareSerial')}
+              </button>
+            </div>
+          )}
+
+          {settingsTab === 'about' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', color: 'var(--vscode-text-fg)' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.version')}</span>
