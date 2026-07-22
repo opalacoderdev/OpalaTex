@@ -20,41 +20,43 @@ LaTeX compilation is performed locally with Tectonic. Local editor features do n
 
 ## Install a packaged release
 
-The installer downloads the current package into the user's profile, creates application shortcuts, and does not require an administrator shell. Review a remote script before executing it if your environment requires stricter supply-chain controls.
+The installer downloads the current OpalaTex Community release from GitHub Releases, extracts it into the user profile, creates shortcuts, and does not require administrator privileges.
 
-### Windows (PowerShell)
+### Linux / macOS (Terminal One-Liner via `curl`)
 
-Run PowerShell and execute:
-
-```powershell
-irm https://opalacoder.com/install.ps1 | iex
-```
-
-Alternatively, download `install.ps1`, inspect it, and run it locally:
-
-```powershell
-Invoke-WebRequest https://opalacoder.com/install.ps1 -OutFile install.ps1
-Get-Content .\install.ps1
-.\install.ps1
-```
-
-The application is installed under `%LOCALAPPDATA%\OpalaTex`. The installer adds its executable directory to the user `PATH` and creates shortcuts on the Desktop and Start menu.
-
-### Linux (Bash)
+Run terminal and execute:
 
 ```bash
-curl -fsSL https://opalacoder.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/opalatexdev/OpalaTex/main/install.sh | bash
 ```
 
 To inspect the script first:
 
 ```bash
-curl -fsSL https://opalacoder.com/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/opalatexdev/OpalaTex/main/install.sh -o install.sh
 less install.sh
 bash install.sh
 ```
 
-The application is installed under `~/.local/share/OpalaTex`, with a command symlink in `~/.local/bin` and a desktop launcher in `~/.local/share/applications`.
+The application is installed under `~/.local/share/OpalaTex`, with a command symlink in `~/.local/bin/opalatex` and a desktop launcher in `~/.local/share/applications/opalatex.desktop`.
+
+### Windows (PowerShell One-Liner via `irm`)
+
+Open PowerShell and execute:
+
+```powershell
+irm https://raw.githubusercontent.com/opalatexdev/OpalaTex/main/install.ps1 | iex
+```
+
+Alternatively, download and inspect `install.ps1` before running:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/opalatexdev/OpalaTex/main/install.ps1 -OutFile install.ps1
+Get-Content .\install.ps1
+.\install.ps1
+```
+
+The application is installed under `%LOCALAPPDATA%\OpalaTex`. The installer adds its executable directory to the user `PATH` and creates shortcuts on the Desktop and Start menu.
 
 ## Development setup
 

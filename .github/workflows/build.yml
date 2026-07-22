@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Release OpalaTex Community
 
 on:
   push:
@@ -22,11 +22,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
       - name: Build Windows
         if: matrix.os == 'windows-latest'
@@ -38,19 +38,41 @@ jobs:
           chmod +x build_exe.sh
           ./build_exe.sh
 
-      - name: Upload Artifact (Windows)
+      - name: Package Release Assets (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          Compress-Archive -Path dist\OpalaTex\* -DestinationPath OpalaTex-windows-x64.zip -Force
+
+      - name: Package Release Assets (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          tar -czf OpalaTex-linux-x64.tar.gz -C dist/OpalaTex .
+
+      - name: Package Release Assets (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          zip -r OpalaTex-macos-x64.zip dist/OpalaTex/
+
+      - name: Upload Windows Asset
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: OpalaTex-Windows
-          path: dist/OpalaTex/
+          name: OpalaTex-windows-x64
+          path: OpalaTex-windows-x64.zip
 
-      - name: Upload Artifact (Linux/macOS)
-        if: matrix.os != 'windows-latest'
+      - name: Upload Linux Asset
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: OpalaTex-${{ matrix.os }}
-          path: dist/OpalaTex/
+          name: OpalaTex-linux-x64
+          path: OpalaTex-linux-x64.tar.gz
+
+      - name: Upload macOS Asset
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpalaTex-macos-x64
+          path: OpalaTex-macos-x64.zip
 
   release:
     needs: build
@@ -60,21 +82,14 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: release-assets
 
-      - name: Zip artifacts for release
-        run: |
-          cd artifacts
-          zip -r OpalaTex-Windows.zip OpalaTex-Windows/
-          zip -r OpalaTex-Ubuntu.zip OpalaTex-ubuntu-latest/
-          zip -r OpalaTex-macOS.zip OpalaTex-macos-latest/
-
-      - name: Create Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/OpalaTex-Windows.zip
-            artifacts/OpalaTex-Ubuntu.zip
-            artifacts/OpalaTex-macOS.zip
+            release-assets/OpalaTex-windows-x64/OpalaTex-windows-x64.zip
+            release-assets/OpalaTex-linux-x64/OpalaTex-linux-x64.tar.gz
+            release-assets/OpalaTex-macos-x64/OpalaTex-macos-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

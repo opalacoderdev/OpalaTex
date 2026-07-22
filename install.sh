@@ -1,38 +1,66 @@
 #!/usr/bin/env bash
 set -e
 
-# Atalhos criados:
-#   - Symlink em ~/.local/bin/opalatex             (acesso pelo terminal)
-#   - Arquivo .desktop em ~/.local/share/applications/opalatex.desktop
-#     (launcher gráfico: GNOME / KDE / XFCE)
+# OpalaTex Community Edition Linux Installer via Terminal (curl | bash)
 
 echo "=========================================="
-echo "Instalador do OpalaTex para Linux"
+echo "      Instalador do OpalaTex (Community)  "
 echo "=========================================="
 
 INSTALL_DIR="$HOME/.local/share/OpalaTex"
 BIN_DIR="$HOME/.local/bin"
 TEMP_FILE="/tmp/opalatex_release.tar.gz"
-DOWNLOAD_URL="https://opalacoder.com/downloads/OpalaTex-linux-x64.tar.gz"
 
-echo "Baixando a última versão do OpalaTex..."
-curl -fsSL "$DOWNLOAD_URL" -o "$TEMP_FILE"
+REPO_OWNER="opalatexdev"
+REPO_NAME="OpalaTex"
 
-echo "Preparando diretórios em $INSTALL_DIR..."
+# Determinar URL de Download (Release do GitHub ou customizada)
+if [ -n "$OPALATEX_DOWNLOAD_URL" ]; then
+    DOWNLOAD_URL="$OPALATEX_DOWNLOAD_URL"
+else
+    echo "Buscando a última versão no GitHub ($REPO_OWNER/$REPO_NAME)..."
+    LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    
+    if [ -n "$LATEST_TAG" ]; then
+        DOWNLOAD_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/$LATEST_TAG/OpalaTex-linux-x64.tar.gz"
+    else
+        # Fallback direto para a release latest
+        DOWNLOAD_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest/download/OpalaTex-linux-x64.tar.gz"
+    fi
+fi
+
+echo "Baixando OpalaTex de: $DOWNLOAD_URL"
+if ! curl -fsSL "$DOWNLOAD_URL" -o "$TEMP_FILE"; then
+    echo "Erro ao baixar de $DOWNLOAD_URL. Tentando arquivo .zip..."
+    DOWNLOAD_URL="${DOWNLOAD_URL%.tar.gz}.zip"
+    TEMP_FILE="/tmp/opalatex_release.zip"
+    curl -fsSL "$DOWNLOAD_URL" -o "$TEMP_FILE"
+fi
+
+echo "Preparando diretório de instalação em $INSTALL_DIR..."
 rm -rf "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
 echo "Extraindo arquivos..."
-tar -xzf "$TEMP_FILE" -C "$INSTALL_DIR" --strip-components=1
+if [[ "$TEMP_FILE" == *.tar.gz ]]; then
+    tar -xzf "$TEMP_FILE" -C "$INSTALL_DIR" --strip-components=1 2>/dev/null || tar -xzf "$TEMP_FILE" -C "$INSTALL_DIR"
+elif [[ "$TEMP_FILE" == *.zip ]]; then
+    unzip -q -o "$TEMP_FILE" -d "$INSTALL_DIR"
+fi
+
+# Se houver subpasta extraída, mover conteúdo para a raiz do INSTALL_DIR
+if [ -d "$INSTALL_DIR/OpalaTex" ] && [ -f "$INSTALL_DIR/OpalaTex/OpalaTex" ]; then
+    mv "$INSTALL_DIR/OpalaTex/"* "$INSTALL_DIR/" 2>/dev/null || true
+fi
 
 echo "Criando symlink em $BIN_DIR..."
 mkdir -p "$BIN_DIR"
-# Remove o symlink se existir e recria
 rm -f "$BIN_DIR/opalatex"
 ln -s "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex"
+chmod +x "$INSTALL_DIR/OpalaTex" 2>/dev/null || true
 chmod +x "$BIN_DIR/opalatex"
 
-# Criar arquivo .desktop para launchers gráficos (GNOME / KDE / XFCE)
+# Criar atalho .desktop para iniciadores de aplicativos (GNOME/KDE/XFCE)
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
 
@@ -41,55 +69,35 @@ cat > "$DESKTOP_DIR/opalatex.desktop" << EOF
 Version=1.0
 Type=Application
 Name=OpalaTex
-Comment=OpalaTex AI Assistant
+Comment=OpalaTex Open-Source AI LaTeX IDE
 Exec=$INSTALL_DIR/OpalaTex
 Icon=$INSTALL_DIR/icon.png
-Terminal=true
-Categories=Utility;Development;
+Terminal=false
+Categories=Utility;Development;TextEditor;
 EOF
 
 chmod +x "$DESKTOP_DIR/opalatex.desktop"
 
-# Registrar a entrada imediatamente (se disponivel)
 if command -v update-desktop-database &>/dev/null; then
-    update-desktop-database "$DESKTOP_DIR"
+    update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
 fi
 
-echo "  -> Terminal: $BIN_DIR/opalatex"
-echo "  -> Launcher: $DESKTOP_DIR/opalatex.desktop"
-
-# Verifica se ~/.local/bin está no PATH
+# Adicionar ~/.local/bin ao PATH se necessário
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-    echo "Adicionando $BIN_DIR ao seu PATH automaticamente..."
-    
-    # Adiciona no ~/.bashrc
-    if [ -f "$HOME/.bashrc" ]; then
-        if ! grep -q "$BIN_DIR" "$HOME/.bashrc"; then
-            echo -e "\n# Adicionado pelo instalador do OpalaTex\nexport PATH=\"$BIN_DIR:\$PATH\"" >> "$HOME/.bashrc"
-        fi
+    echo "Adicionando $BIN_DIR ao PATH..."
+    if [ -f "$HOME/.bashrc" ] && ! grep -q "$BIN_DIR" "$HOME/.bashrc"; then
+        echo -e "\n# OpalaTex PATH\nexport PATH=\"$BIN_DIR:\$PATH\"" >> "$HOME/.bashrc"
     fi
-    
-    # Adiciona no ~/.zshrc se existir
-    if [ -f "$HOME/.zshrc" ]; then
-        if ! grep -q "$BIN_DIR" "$HOME/.zshrc"; then
-            echo -e "\n# Adicionado pelo instalador do OpalaTex\nexport PATH=\"$BIN_DIR:\$PATH\"" >> "$HOME/.zshrc"
-        fi
+    if [ -f "$HOME/.zshrc" ] && ! grep -q "$BIN_DIR" "$HOME/.zshrc"; then
+        echo -e "\n# OpalaTex PATH\nexport PATH=\"$BIN_DIR:\$PATH\"" >> "$HOME/.zshrc"
     fi
-    
-    echo "PATH atualizado com sucesso!"
 fi
 
-echo "Limpando arquivos temporários..."
 rm -f "$TEMP_FILE"
 
 echo ""
 echo "=========================================="
-echo "OpalaTex instalado com sucesso!"
-echo ""
-echo "Atalhos criados:"
-echo "  - Terminal (symlink):  opalatex"
-echo "  - Launcher gráfico:   Procure por 'OpalaTex' no seu menu de aplicativos"
-echo ""
-echo "Para iniciar pelo terminal, abra um novo terminal e digite:"
-echo "  opalatex"
+echo "   OpalaTex instalado com sucesso!       "
 echo "=========================================="
+echo "Comando no terminal: opalatex"
+echo "Atalho no menu de aplicativos criado."
