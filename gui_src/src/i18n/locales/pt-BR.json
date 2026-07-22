@@ -521,6 +521,8 @@
   },
   "settingsModal": {
     "title": "CONFIGURAÇÕES DA IDE",
+    "tabGeneral": "Geral",
+    "tabDependencies": "Dependências",
     "tabPreferences": "Preferências",
     "tabAbout": "Sobre",
     "language": "Idioma da Interface",

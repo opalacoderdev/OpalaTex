@@ -112,7 +112,7 @@ export default function SettingsModal({
               borderBottom: settingsTab === 'general' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
             }}
           >
-            {t('settingsModal.tabGeneral')}
+            {t('settingsModal.tabGeneral', 'General')}
           </button>
           <button
             onClick={() => setSettingsTab('dependencies')}
@@ -122,7 +122,7 @@ export default function SettingsModal({
               borderBottom: settingsTab === 'dependencies' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
             }}
           >
-            {t('settingsModal.tabDependencies')}
+            {t('settingsModal.tabDependencies', 'Dependencies')}
           </button>
           {FEATURES.enableCloudAccount && (
             <button
@@ -514,39 +514,6 @@ export default function SettingsModal({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.license')}</span>
                 <span style={{ fontSize: '13px', color: 'var(--vscode-text-fg)' }}>MIT</span>
-              </div>
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                padding: '12px',
-                border: '1px solid var(--vscode-border)',
-                borderRadius: '6px',
-                backgroundColor: 'var(--vscode-sidebar-bg)'
-              }}>
-                <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.softwareSerial')}</span>
-                <input
-                  type="text"
-                  readOnly
-                  value={licenseData?.key || t('settingsModal.noSoftwareSerial')}
-                  className="vscode-settings-input"
-                  style={{
-                    width: '100%',
-                    fontFamily: 'monospace',
-                    color: licenseData?.key ? 'var(--vscode-text-fg)' : 'var(--vscode-description-fg, #aaaaaa)',
-                    cursor: 'default'
-                  }}
-                />
-                <span style={{ fontSize: '11px', color: 'var(--vscode-description-fg, #aaaaaa)', lineHeight: '1.4' }}>
-                  {t('settingsModal.softwareSerialHint')}
-                </span>
-                <button
-                  className="vscode-button"
-                  style={{ alignSelf: 'flex-start' }}
-                  onClick={onReplaceSerial}
-                >
-                  {t('settingsModal.replaceSoftwareSerial')}
-                </button>
               </div>
               <div style={{
                 display: 'flex',

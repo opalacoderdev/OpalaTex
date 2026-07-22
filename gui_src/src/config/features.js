@@ -1,11 +1,11 @@
 /**
- * Application feature flags for OpalaTex Cloud build.
+ * Application feature flags for OpalaTex Community Edition.
  */
 
 export const FEATURES = {
-  enableCloudAccount: true,
-  enableCloudBalance: true,
-  enableCloudModels: true,
+  enableCloudAccount: false,
+  enableCloudBalance: false,
+  enableCloudModels: false,
 };
 
 export default FEATURES;

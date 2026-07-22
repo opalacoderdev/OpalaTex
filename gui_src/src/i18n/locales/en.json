@@ -523,6 +523,8 @@
   },
   "settingsModal": {
     "title": "SETTINGS",
+    "tabGeneral": "General",
+    "tabDependencies": "Dependencies",
     "tabPreferences": "Preferences",
     "tabAbout": "About",
     "language": "Interface Language",
