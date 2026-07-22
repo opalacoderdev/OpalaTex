@@ -254,6 +254,7 @@ export default function App() {
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedNodes, setSelectedNodes] = useState(new Set());
+  const [renamingNodePath, setRenamingNodePath] = useState(null);
   const [fileContent, setFileContent] = useState('');
   // Always-current ref for fileContent — used in async closures and useEffect
   // callbacks where capturing fileContent directly would produce a stale value.
@@ -1532,43 +1533,49 @@ export default function App() {
 
   const handleRenameNode = (node) => {
     if (!activeProject || !node) return;
-    setConfirmRequest({
-      type: 'ask',
-      rows: 1,
-      prompt: t('app.renamePrompt', { path: node.path }),
-      default: node.path,
-      callback: async (newPath) => {
-        if (!newPath || newPath === node.path) return;
-        try {
-          const res = await fetch('/api/file/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, oldPath: node.path, newPath }) });
-          if (res.ok) {
-            addLog('info', t('app.itemRenamed', { itemType: t(node.isDirectory ? 'app.itemTypeDirectory' : 'app.itemTypeFile'), oldPath: node.path, newPath }));
-            if (!node.isDirectory) {
-              setOpenFiles(prev => dedupeOpenFileList(prev.map(f => sameFilePath(f, node.path) ? newPath : f), newPath));
-              setFileContents(prev => {
-                const n = { ...prev };
-                const oldKey = Object.keys(n).find(k => sameFilePath(k, node.path));
-                if (oldKey !== undefined) { n[newPath] = n[oldKey]; delete n[oldKey]; }
-                return n;
-              });
-              setOriginalFileContents(prev => {
-                const n = { ...prev };
-                const oldKey = Object.keys(n).find(k => sameFilePath(k, node.path));
-                if (oldKey !== undefined) { n[newPath] = n[oldKey]; delete n[oldKey]; }
-                return n;
-              });
-              if (sameFilePath(selectedFile, node.path)) setSelectedFile(newPath);
-            } else {
-              setOpenFiles(prev => dedupeOpenFileList(prev.map(f => replaceFilePathPrefix(f, node.path, newPath)), newPath));
-              setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
-              setOriginalFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
-              if (isFileInsidePath(selectedFile, node.path)) setSelectedFile(prev => replaceFilePathPrefix(prev, node.path, newPath));
-            }
-            await fetchFiles();
-          } else { const e = await res.json(); addLog('error', t('app.fileRenameError', { error: e.error })); }
-        } catch (err) { addLog('error', t('app.renameError', { error: err.message })); }
+    setRenamingNodePath(node.path);
+  };
+
+  const executeRenameNode = async (node, newPath) => {
+    setRenamingNodePath(null);
+    if (!activeProject || !node || !newPath || newPath === node.path) return;
+    try {
+      const res = await fetch('/api/file/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath: activeProject.project_path, oldPath: node.path, newPath })
+      });
+      if (res.ok) {
+        addLog('info', t('app.itemRenamed', { itemType: t(node.isDirectory ? 'app.itemTypeDirectory' : 'app.itemTypeFile'), oldPath: node.path, newPath }));
+        if (!node.isDirectory) {
+          setOpenFiles(prev => dedupeOpenFileList(prev.map(f => sameFilePath(f, node.path) ? newPath : f), newPath));
+          setFileContents(prev => {
+            const n = { ...prev };
+            const oldKey = Object.keys(n).find(k => sameFilePath(k, node.path));
+            if (oldKey !== undefined) { n[newPath] = n[oldKey]; delete n[oldKey]; }
+            return n;
+          });
+          setOriginalFileContents(prev => {
+            const n = { ...prev };
+            const oldKey = Object.keys(n).find(k => sameFilePath(k, node.path));
+            if (oldKey !== undefined) { n[newPath] = n[oldKey]; delete n[oldKey]; }
+            return n;
+          });
+          if (sameFilePath(selectedFile, node.path)) setSelectedFile(newPath);
+        } else {
+          setOpenFiles(prev => dedupeOpenFileList(prev.map(f => replaceFilePathPrefix(f, node.path, newPath)), newPath));
+          setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
+          setOriginalFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
+          if (isFileInsidePath(selectedFile, node.path)) setSelectedFile(prev => replaceFilePathPrefix(prev, node.path, newPath));
+        }
+        await fetchFiles();
+      } else {
+        const e = await res.json();
+        addLog('error', t('app.fileRenameError', { error: e.error }));
       }
-    });
+    } catch (err) {
+      addLog('error', t('app.renameError', { error: err.message }));
+    }
   };
 
   const handleSetMainFile = async (node) => {
@@ -2958,6 +2965,9 @@ export default function App() {
                 fetchFiles={fetchFiles}
                 openEditModal={openEditModal}
                 handleDeleteProject={handleDeleteProject}
+                renamingNodePath={renamingNodePath}
+                setRenamingNodePath={setRenamingNodePath}
+                executeRenameNode={executeRenameNode}
               />
             ) : (
               <GitSidebar
@@ -3024,6 +3034,9 @@ export default function App() {
                 fetchFiles={fetchFiles}
                 openEditModal={openEditModal}
                 handleDeleteProject={handleDeleteProject}
+                renamingNodePath={renamingNodePath}
+                setRenamingNodePath={setRenamingNodePath}
+                executeRenameNode={executeRenameNode}
               />
             </div>
           </aside>

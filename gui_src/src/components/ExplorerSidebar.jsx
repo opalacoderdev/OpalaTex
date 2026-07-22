@@ -29,6 +29,9 @@ export default function ExplorerSidebar({
   fetchFiles,
   openEditModal,
   handleDeleteProject,
+  renamingNodePath,
+  setRenamingNodePath,
+  executeRenameNode,
 }) {
   const { t } = useTranslation();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -261,7 +264,14 @@ export default function ExplorerSidebar({
           setDragOverPath(null);
           if (draggedNode) handleMoveNode(draggedNode.path, '', draggedNode.isDirectory);
         }}
-        style={dragOverPath === '__root__' ? { border: '2px dashed #007acc', backgroundColor: 'rgba(0, 122, 204, 0.05)' } : {}}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'F2' && selectedFile && !renamingNodePath && setRenamingNodePath) {
+            e.preventDefault();
+            setRenamingNodePath(selectedFile);
+          }
+        }}
+        style={dragOverPath === '__root__' ? { border: '2px dashed #007acc', backgroundColor: 'rgba(0, 122, 204, 0.05)', outline: 'none' } : { outline: 'none' }}
       >
         <div className="vscode-sidebar-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{t('explorerSidebar.workspaceFiles')}</span>
@@ -310,6 +320,9 @@ export default function ExplorerSidebar({
                 dragOverPath={dragOverPath}
                 setDragOverPath={setDragOverPath}
                 handleMoveNode={handleMoveNode}
+                renamingNodePath={renamingNodePath}
+                setRenamingNodePath={setRenamingNodePath}
+                executeRenameNode={executeRenameNode}
               />
             ))}
           </div>
