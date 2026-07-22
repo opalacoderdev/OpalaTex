@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './CustomDialogProvider';
 import i18n from '../../i18n/index.js';
 import { safeSetLocalStorage } from '../../utils/storage';
-// Language preference is persisted server-side via /api/settings/language (survives webview restarts)
+import { FEATURES } from '../../config/features';
 
 // IDE global settings modal (theme, font size, tab size, word wrap, optional deps).
 export default function SettingsModal({
@@ -68,21 +68,15 @@ export default function SettingsModal({
       .then(r => r.ok ? r.json() : null)
       .then(cfg => {
         if (cfg?.provider !== undefined) setAiProvider(cfg.provider);
-        if (cfg?.cloud_model !== undefined) {
-          const normalized = normalizeCloudModel(cfg.cloud_model);
-          setCloudModel(normalized);
-          onCloudModelChange?.(normalized);
-        }
       })
       .catch(() => { });
   }, []);
 
-  const saveAiProviderSettings = (provider, model) => {
-    const normalizedModel = normalizeCloudModel(model);
+  const saveAiProviderSettings = (providerValue, cloudModelValue) => {
     fetch('/api/settings/ai-provider', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, cloud_model: normalizedModel }),
+      body: JSON.stringify({ provider: providerValue, cloud_model: cloudModelValue }),
     }).catch(() => { });
   };
 
@@ -96,40 +90,67 @@ export default function SettingsModal({
 
   return (
     <div className="vscode-modal-overlay">
-      <div className="vscode-modal" style={{ maxWidth: '440px', width: '90%' }}>
+      <div className="vscode-modal flex flex-col" style={{ width: '640px', maxHeight: '85vh', padding: 0 }}>
         {/* Header */}
-        <div className="vscode-sidebar-header" style={{ padding: '10px 16px' }}>
-          <span className="vscode-sidebar-title" style={{ color: 'var(--vscode-text-fg)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Settings size={14} style={{ color: '#007acc' }} />
-            {t('settingsModal.title')}
-          </span>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0' }}>
-            <X size={14} />
+        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-titlebar-bg)' }}>
+          <div className="flex items-center" style={{ gap: '8px' }}>
+            <Settings size={16} />
+            <span style={{ fontWeight: 'bold', fontSize: '13px' }}>{t('settingsModal.title')}</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--vscode-text-fg)', cursor: 'pointer', padding: '2px' }}>
+            <X size={16} />
           </button>
         </div>
 
-        {/* Tab selector */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-tab-inactive-bg)' }}>
-          {['preferences', 'about'].map(tab => (
+        {/* Tabs */}
+        <div className="flex px-4" style={{ borderBottom: '1px solid var(--vscode-border)', gap: '16px', backgroundColor: 'var(--vscode-titlebar-bg)' }}>
+          <button
+            onClick={() => setSettingsTab('general')}
+            style={{
+              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: settingsTab === 'general' ? 'bold' : 'normal',
+              color: settingsTab === 'general' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
+              borderBottom: settingsTab === 'general' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
+            }}
+          >
+            {t('settingsModal.tabGeneral')}
+          </button>
+          <button
+            onClick={() => setSettingsTab('dependencies')}
+            style={{
+              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: settingsTab === 'dependencies' ? 'bold' : 'normal',
+              color: settingsTab === 'dependencies' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
+              borderBottom: settingsTab === 'dependencies' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
+            }}
+          >
+            {t('settingsModal.tabDependencies')}
+          </button>
+          {FEATURES.enableCloudAccount && (
             <button
-              key={tab}
-              onClick={() => setSettingsTab(tab)}
+              onClick={() => setSettingsTab('license')}
               style={{
-                flex: 1, padding: '8px',
-                background: settingsTab === tab ? 'var(--vscode-tab-active-bg)' : 'transparent',
-                border: 'none',
-                borderBottom: settingsTab === tab ? '2px solid var(--vscode-active-border)' : 'none',
-                color: settingsTab === tab ? 'var(--vscode-text-fg)' : '#808080',
-                fontWeight: 'bold', fontSize: '11px', textTransform: 'uppercase', cursor: 'pointer',
+                background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: settingsTab === 'license' ? 'bold' : 'normal',
+                color: settingsTab === 'license' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
+                borderBottom: settingsTab === 'license' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
               }}
             >
-              {tab === 'preferences' ? t('settingsModal.tabPreferences') : t('settingsModal.tabAbout')}
+              {t('settingsModal.tabAccount', 'Opala Cloud Account')}
             </button>
-          ))}
+          )}
+          <button
+            onClick={() => setSettingsTab('about')}
+            style={{
+              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: settingsTab === 'about' ? 'bold' : 'normal',
+              color: settingsTab === 'about' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
+              borderBottom: settingsTab === 'about' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
+            }}
+          >
+            {t('settingsModal.tabAbout')}
+          </button>
         </div>
 
-        <div className="flex flex-col overflow-y-auto flex-1" style={{ padding: '16px', gap: '14px' }}>
-          {settingsTab === 'preferences' ? (
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col" style={{ gap: '16px' }}>
+          {settingsTab === 'general' && (
             <>
               {/* Language */}
               <div className="flex flex-col" style={{ gap: '6px' }}>
@@ -137,16 +158,15 @@ export default function SettingsModal({
                 <select
                   value={selectedLang}
                   onChange={(e) => {
-                    const val = e.target.value;
-                    setSelectedLang(val);
-                    i18n.changeLanguage(val || navigator.language || 'en');
-                    if (onLanguageChange) onLanguageChange(val);
+                    const newLang = e.target.value;
+                    setSelectedLang(newLang);
+                    onLanguageChange?.(newLang);
                   }}
                   className="vscode-settings-input"
                   style={{ width: '100%' }}
                 >
-                  <option value="">{t('settingsModal.languageSystem')}</option>
-                  <option value="pt-BR">{t('settingsModal.languagePtBR')}</option>
+                  <option value="">{t('settingsModal.languageAuto')}</option>
+                  <option value="pt-BR">{t('settingsModal.languagePt')}</option>
                   <option value="en">{t('settingsModal.languageEn')}</option>
                 </select>
               </div>
@@ -166,7 +186,9 @@ export default function SettingsModal({
                   style={{ width: '100%' }}
                 >
                   <option value="local">{t('settingsModal.aiProviderLocal')}</option>
-                  <option value="cloud">{t('settingsModal.aiProviderCloud')}</option>
+                  {FEATURES.enableCloudAccount && (
+                    <option value="cloud">{t('settingsModal.aiProviderCloud')}</option>
+                  )}
                 </select>
                 <span style={{ fontSize: '11px', color: '#888888' }}>
                   {t('settingsModal.aiProviderHint')}

@@ -2,6 +2,7 @@ import React from 'react';
 import { Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
+import { FEATURES } from '../config/features';
 
 // Bottom status bar (VSCode-style footer).
 export default function StatusBar({ activeProject, isAgentRunning, licenseData, onOpenLicense }) {
@@ -12,6 +13,8 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
   const [aiProvider, setAiProvider] = React.useState('local');
 
   React.useEffect(() => {
+    if (!FEATURES.enableCloudBalance) return;
+
     // Check AI Provider and Token Balance every 10 seconds if cloud is active
     const checkBalance = () => {
       fetch('/api/settings/ai-provider')
@@ -64,7 +67,7 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
         )}
         
         {/* Cloud registration badge */}
-        {licenseData?.status === 'REGISTERED' && (
+        {FEATURES.enableCloudAccount && licenseData?.status === 'REGISTERED' && (
           <div 
             onClick={onOpenLicense}
             className="flex items-center cursor-pointer hover:bg-white/10 px-2 py-0.5 rounded transition-colors" 
@@ -79,18 +82,22 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
       </div>
 
       <div className="flex items-center" style={{ gap: '12px' }}>
-        <button 
-          onClick={handleRechargeClick}
-          className="flex items-center underline cursor-pointer"
-          style={{ gap: '4px', color: '#ffffff', fontSize: '12px', fontWeight: 'bold', padding: '2px 6px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', border: 'none' }}
-          title={t('statusBar.buyCreditsTitle', 'Comprar mais créditos de IA ou Assinatura')}
-        >
-          {t('statusBar.buyCredits', '☁️ Comprar Créditos')}
-        </button>
-        
-        <span style={{ color: '#a3be8c', fontWeight: 'bold' }}>
-          {t('statusBar.balance', { amount: tokenBalance !== null ? (tokenBalance >= 1000000 ? (tokenBalance/1000000).toFixed(1).replace('.0','') + 'M' : tokenBalance >= 1000 ? (tokenBalance/1000).toFixed(1).replace('.0','') + 'K' : tokenBalance.toLocaleString()) : '...' })}
-        </span>
+        {FEATURES.enableCloudBalance && (
+          <>
+            <button 
+              onClick={handleRechargeClick}
+              className="flex items-center underline cursor-pointer"
+              style={{ gap: '4px', color: '#ffffff', fontSize: '12px', fontWeight: 'bold', padding: '2px 6px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', border: 'none' }}
+              title={t('statusBar.buyCreditsTitle', 'Comprar mais créditos de IA ou Assinatura')}
+            >
+              {t('statusBar.buyCredits', '☁️ Comprar Créditos')}
+            </button>
+            
+            <span style={{ color: '#a3be8c', fontWeight: 'bold' }}>
+              {t('statusBar.balance', { amount: tokenBalance !== null ? (tokenBalance >= 1000000 ? (tokenBalance/1000000).toFixed(1).replace('.0','') + 'M' : tokenBalance >= 1000 ? (tokenBalance/1000).toFixed(1).replace('.0','') + 'K' : tokenBalance.toLocaleString()) : '...' })}
+            </span>
+          </>
+        )}
         
         <span>UTF-8</span>
         <span>LF</span>

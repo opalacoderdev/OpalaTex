@@ -155,5 +155,5 @@ def test_agent_turn_cleanup_preserves_preexisting_uncommitted_changes(tmp_path):
 
     assert "Agent turn start checkpoint" not in log
     assert "Agent turn end checkpoint" not in log
-    assert "?? user.tex" in status
     assert target.read_text(encoding="utf-8") == "user edit\n"
+

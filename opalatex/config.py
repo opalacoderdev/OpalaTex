@@ -316,29 +316,32 @@ def get_agent_response_mode(agent_name: str, default: str = "last") -> str:
 
 def get_agent_model(agent_name: str, default: str | None = None) -> str:
     """Return the model configured for *agent_name* in agents.yaml, or *default*."""
-    from opalatex.cloud_client import DEFAULT_CLOUD_MODEL_ALIAS, is_cloud_model_alias, resolve_cloud_model_alias
+    from opalatex.extensions import get_extension_manager
+    ext = get_extension_manager().cloud
 
     override = _get_agent_overrides().get(agent_name, {}).get("model")
-    override = resolve_cloud_model_alias(override)
     if override:
-        return override
+        resolved = ext.resolve_cloud_model(override)
+        if resolved:
+            return resolved
     
     cfg = _get_agents_config()
     dyn_default = cfg.get("default", DEFAULT_MODEL)
     model = default if default is not None else dyn_default
 
-    cloud_alias_selected = is_cloud_model_alias(model)
-    model = resolve_cloud_model_alias(model)
+    cloud_alias_selected = ext.is_cloud_model(model)
+    resolved_model = ext.resolve_cloud_model(model)
+    if resolved_model != model:
+        model = resolved_model
 
-    # Apply Cloud Provider Override
+    # Apply Cloud Provider Override if cloud extension is active
     from opalatex.ui_settings import load_ui_settings
     ui_cfg = load_ui_settings()
-    if ui_cfg.get("ai_provider") == "cloud":
+    if get_extension_manager().has_cloud and ui_cfg.get("ai_provider") == "cloud":
         if cloud_alias_selected:
             return model
-        from opalatex.cloud_client import normalize_cloud_model_alias
-        cloud_model = normalize_cloud_model_alias(ui_cfg.get("cloud_model"), DEFAULT_CLOUD_MODEL_ALIAS)
-        return resolve_cloud_model_alias(cloud_model)
+        cloud_model = ext.normalize_cloud_model(ui_cfg.get("cloud_model"), "OpalaTexCloud")
+        return ext.resolve_cloud_model(cloud_model)
         
     return model
 

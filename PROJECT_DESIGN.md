@@ -38,22 +38,21 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
 - **Agent Orchestrator (`opalatex/memgpt_runtime.py`)**: Built on top of the **AgenticBlocks.IO** framework. It implements a MemGPT-like memory architecture where the primary agent manages short-term and long-term memory, dispatches actions to modular "skills" (`opalatex/skills.py`), and exposes editor/file/document tools to the model.
 - **JSON IPC Bridge (`opalatex/agent_stdin.py`)**: Owns the streamed agent run lifecycle for the IDE. It receives `/api/opalatex/run` payloads, persists user-visible chat history, normalizes attachments, coordinates pending GUI input requests, records agent activity for interruption/resume, and emits structured events back to the front-end.
 - **LiteLLM / Tool-Call Compatibility Layer (`opalatex/litellm_compat.py`)**: Wraps AgenticBlocks LLM calls at the OpalaTex boundary. It sanitizes provider kwargs, repairs transport/history issues such as orphan tool messages and concatenated JSON tool calls, and adds bounded loop breakers for repeated schema validation failures. It must not silently convert an invalid tool call into a different semantic action.
-- **Cloud API Client (`opalatex/cloud_client.py`)**: Defines the public desktop-to-OpalaWebPage API contract. It centralizes registration validation, balance lookup, and the chat proxy URL. The remote service remains authoritative for credits, billing, and provider access.
+- **Plugin and Extension System (`opalatex/extensions.py`)**: Defines `CloudExtensionInterface` and the `ExtensionManager` singleton. In Community mode, OpalaTex runs completely offline without any cloud dependencies. Optional extensions (such as `OpalaTexCloud`) dynamically register cloud models, custom licensing, and cloud proxy endpoints at build/runtime.
 - **Project Store and Attachments**:
   - `opalatex/project_store.py`: Persists project metadata, chat history, branches, message attachments, core memory snapshots, and agent activity needed for resume context.
   - `opalatex/attachments.py`: Converts uploaded images and supported documents into normalized descriptors, extracts document text when possible, preserves originals for supported formats, and avoids forwarding unsupported binary payloads to text-only models.
 - **VCS & Compilation Managers**:
   - `opalatex/vcs.py`: Implements user-facing Git features and internal shadow checkpoints around agent turns. Mutating file tools do not create their own checkpoints; the agent run creates start/end checkpoints only when needed.
   - `opalatex/latex_compiler.py`: Handles compiling LaTeX using Tectonic (`tectonic` CLI), supporting full, partial (chapter/file), and fast single-pass draft compilation (`tectonic -X compile` with `-r 0`).
-  - `opalatex/synctex_parser.py`: Maps PDF rendering view back to the corresponding LaTeX lines.
+  - `synctex_parser.py`: Maps PDF rendering view back to the corresponding LaTeX lines.
 - **Document Export Tools**:
   - `create_docx_file` and `create_pptx_file` are exposed through the agent tool registry for generated Word and PowerPoint artifacts. They should be used instead of asking an agent to write raw binary office files.
 
-### 2.2 Client-Side Cloud Registration (`opalatex/licensing.py`)
-- **Storage**: Legacy-named Cloud registration keys are cached in `~/.opalatex/license.dat` using lightweight XOR obfuscation. This is compatibility storage, not a security boundary.
-- **Registration only**: Registration identifies an OpalaWebPage account for cloud services. It never locks or authorizes local OpalaTex features.
-- **Remote authority**: Registering a key requires a successful authenticated validation request to OpalaWebPage. The local file is only a cache; the server remains authoritative for credits, billing, and cloud access.
-- **No trial or paid software license**: OpalaTex has no trial expiration, license sale, or local anti-tamper gate. Older trial metadata is ignored for application access.
+### 2.2 Community Edition & Optional Cloud Extension
+- **100% Offline & Open-Source (MIT)**: The core OpalaTex Community Edition repository contains no proprietary cloud proxy calls, no cloud account tracking, and no hardcoded credit meter logic. All editing and AI features function via Ollama and user-configured providers.
+- **Pluggable Architecture**: The private `OpalaTexCloud` project builds upon OpalaTex Community via an automated overlay script in CI that injects the `opalatex_cloud` extension package and enables cloud UI feature flags (`gui_src/src/config/features.js`).
+
 
 ### 2.3 Open-Source Support and Donations
 - **License**: The repository includes the standard MIT License in `LICENSE`, matching `pyproject.toml` metadata.

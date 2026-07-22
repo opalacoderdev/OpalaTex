@@ -4,15 +4,11 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .config import get_opalatex_home
-from .cloud_client import CLOUD_FLASH_MODEL_ALIAS, DEFAULT_CLOUD_MODEL_ALIAS
+from .extensions import get_extension_manager
 
 _MODELS_STORE_PATH = Path(get_opalatex_home()) / "models.json"
 
 _DEFAULT_MODELS = [
-    # OpalaTex Cloud Model
-    { "id": DEFAULT_CLOUD_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Live", "api_key": "", "api_base": "" },
-    { "id": CLOUD_FLASH_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Flash (4x credits)", "api_key": "", "api_base": "" },
-
     # OpenAI Models
     { "id": "openai/gpt-5.5", "provider": "openai", "name": "gpt-5.5", "api_key": "", "api_base": "" },
     { "id": "openai/gpt-5.5-pro", "provider": "openai", "name": "gpt-5.5-pro", "api_key": "", "api_base": "" },
@@ -66,31 +62,32 @@ def load_models() -> List[Dict[str, Any]]:
         models = list(_DEFAULT_MODELS)
         loaded_defaults = True
         
-    # Ensure managed Opala Cloud aliases are in the list and have updated names.
-    managed_cloud_models = [
-        { "id": DEFAULT_CLOUD_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Live", "api_key": "", "api_base": "" },
-        { "id": CLOUD_FLASH_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Flash (4x credits)", "api_key": "", "api_base": "" },
-    ]
-    existing_ids = {m.get("id"): m for m in models if isinstance(m, dict)}
-    insert_at = 0
-    for cloud_model in managed_cloud_models:
-        cloud_id = cloud_model["id"]
-        if cloud_id not in existing_ids:
-            models.insert(insert_at, cloud_model)
-            insert_at += 1
-            existing_ids[cloud_id] = cloud_model
-            loaded_defaults = True
-        else:
-            existing_entry = existing_ids[cloud_id]
-            if existing_entry.get("name") != cloud_model["name"] or existing_entry.get("provider") != cloud_model["provider"]:
-                existing_entry["name"] = cloud_model["name"]
-                existing_entry["provider"] = cloud_model["provider"]
+    # Inject cloud models if a cloud extension is active
+    ext_mgr = get_extension_manager()
+    if ext_mgr.has_cloud:
+        managed_cloud_models = ext_mgr.cloud.get_cloud_models()
+        existing_ids = {m.get("id"): m for m in models if isinstance(m, dict)}
+        insert_at = 0
+        for cloud_model in managed_cloud_models:
+            cloud_id = cloud_model["id"]
+            if cloud_id not in existing_ids:
+                models.insert(insert_at, cloud_model)
+                insert_at += 1
+                existing_ids[cloud_id] = cloud_model
                 loaded_defaults = True
+            else:
+                existing_entry = existing_ids[cloud_id]
+                if existing_entry.get("name") != cloud_model["name"] or existing_entry.get("provider") != cloud_model["provider"]:
+                    existing_entry["name"] = cloud_model["name"]
+                    existing_entry["provider"] = cloud_model["provider"]
+                    loaded_defaults = True
         
     if loaded_defaults:
         save_models(models)
         
     return models
+
+
 
 def save_models(models: List[Dict[str, Any]]) -> None:
     """Save models list to the global store."""
