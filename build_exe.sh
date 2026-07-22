@@ -7,6 +7,7 @@ echo "=========================================="
 
 echo -e "\n[1/4] Instalando dependencias e PyInstaller..."
 pip install pyinstaller wheel setuptools
+pip install .
 
 echo -e "\n[2/4] Construindo o frontend (React/Vite)..."
 pushd gui_src > /dev/null

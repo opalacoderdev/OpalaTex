@@ -6,6 +6,7 @@ Write-Host "=========================================="
 
 Write-Host "`n[1/4] Instalando PyInstaller e dependencias..."
 pip install pyinstaller wheel setuptools
+pip install .
 
 Write-Host "`n[2/4] Construindo o frontend (React/Vite)..."
 Push-Location gui_src
