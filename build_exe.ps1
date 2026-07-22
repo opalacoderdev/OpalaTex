@@ -4,6 +4,12 @@ Write-Host "=========================================="
 Write-Host "       OpalaTex - Build do Executavel       "
 Write-Host "=========================================="
 
+$VenvScripts = "$PSScriptRoot\.venv\Scripts"
+if (Test-Path "$VenvScripts\python.exe") {
+    Write-Host "[Ambiente] Ativando virtualenv em $VenvScripts"
+    $env:PATH = "$VenvScripts;$env:PATH"
+}
+
 Write-Host "`n[1/4] Instalando PyInstaller e dependencias..."
 pip install pyinstaller wheel setuptools
 pip install .

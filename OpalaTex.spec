@@ -32,6 +32,16 @@ tmp_ret = collect_all('instructor')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('agenticblocks')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+try:
+    import webview
+except ImportError:
+    raise RuntimeError(
+        "ERROR: 'webview' (pywebview) is not installed in the active Python environment! "
+        "Please build using the project virtual environment (.venv) or run 'pip install pywebview'."
+    )
+
+tmp_ret = collect_all('qtpy')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('webview')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pythonnet')
