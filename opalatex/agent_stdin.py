@@ -95,6 +95,14 @@ litellm.route_all_chat_openai_to_responses = False
 # filter so it doesn't pollute the console without affecting other warnings.
 try:
     litellm.register_model({
+        "openai/gemini-3.5-flash-lite": {
+            "litellm_provider": "openai",
+            "mode": "chat",
+            "input_cost_per_token": 0.0,
+            "output_cost_per_token": 0.0,
+            "cache_creation_input_token_cost": 0.0,
+            "cache_read_input_token_cost": 0.0,
+        },
         "openai/gemini-3.1-flash-lite": {
             "litellm_provider": "openai",
             "mode": "chat",
@@ -257,6 +265,17 @@ def _extract_worker_summary_from_tool_result(content: str) -> str:
     if lines and lines[0].strip().startswith("(Tools used by worker:"):
         summary = "\n".join(lines[1:]).strip()
     return summary
+
+
+def _response_with_thought(response: str, thought_chunks: list[str]) -> str:
+    """Return the persisted chat content, preserving the turn thought snapshot."""
+    thought = "".join(thought_chunks).strip()
+    text = _strip_empty_think_blocks(str(response or "")).strip()
+    if not thought:
+        return text
+    if text.startswith("<think>") or text.startswith("```thought"):
+        return text
+    return f"<think>\n{thought}\n</think>\n\n{text}".strip()
 
 
 def _visible_chat_response(response: str) -> str:
@@ -1319,15 +1338,15 @@ async def handle_run(data: dict):
 
             #print(f"[DIAG-PY] response[:200] = {repr(response[:200])}", flush=True)
 
-            chat_response = _visible_chat_response(response)
+            persisted_response = _response_with_thought(response, thought_chunks)
             assistant_message_id = None
 
             # Save assistant response and achievements
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
                 if tools_mod.TURN_ACHIEVEMENTS:
                     current_store.append_message(current_project, "system", f"Achievements logged during this turn:\n{tools_mod.TURN_ACHIEVEMENTS}")
-                if chat_response:
-                    assistant_message_id = current_store.append_message(current_project, "assistant", chat_response)
+                if persisted_response:
+                    assistant_message_id = current_store.append_message(current_project, "assistant", persisted_response)
                 # Revert any temporary mode changes (like create_plan setting mode to 'auto')
                 if 'initial_project_mode' in locals() and initial_project_mode:
                     current_project.mode = initial_project_mode
@@ -1335,7 +1354,7 @@ async def handle_run(data: dict):
 
             response_payload = {"response": response}
             if agent_type in ("orchestrator", "chat_orchestrator"):
-                response_payload["persisted_response"] = chat_response
+                response_payload["persisted_response"] = persisted_response
                 if assistant_message_id is not None:
                     response_payload["message_id"] = assistant_message_id
             print_event("agent_response", response_payload)

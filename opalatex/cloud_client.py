@@ -23,8 +23,8 @@ CLOUD_FLASH_MODEL_ALIAS = "OpalaTexCloudGemini35Flash"
 
 CLOUD_MODEL_ALIASES = {
     DEFAULT_CLOUD_MODEL_ALIAS: {
-        "litellm_model": "openai/gemini-3.1-flash-lite",
-        "provider_model": "gemini-3.1-flash-lite",
+        "litellm_model": "openai/gemini-3.5-flash-lite",
+        "provider_model": "gemini-3.5-flash-lite",
         "credit_multiplier": 1,
     },
     CLOUD_FLASH_MODEL_ALIAS: {

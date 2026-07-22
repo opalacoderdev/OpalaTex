@@ -19,6 +19,7 @@ from opalatex.agent_stdin import (
     _friendly_llm_error,
     _looks_like_degenerate_thought,
     _record_turn_thought,
+    _response_with_thought,
     _sanitize_model_response,
     _visible_chat_response,
     _worker_summary_response,
@@ -243,7 +244,13 @@ def test_worker_summary_response_uses_recorded_worker_message_when_agent_has_no_
     clear_worker_message_buffer()
 
 
-def test_visible_chat_response_never_persists_thought_blocks():
+def test_response_with_thought_combines_thoughts_and_response():
+    assert _response_with_thought("Done.", ["Thinking 1\n", "Thinking 2"]) == "<think>\nThinking 1\nThinking 2\n</think>\n\nDone."
+    assert _response_with_thought("Done.", []) == "Done."
+    assert _response_with_thought("<think>\nAlready wrapped\n</think>\n\nDone.", ["Thought"]) == "<think>\nAlready wrapped\n</think>\n\nDone."
+
+
+def test_visible_chat_response_strips_thought_blocks():
     assert _visible_chat_response("Done.") == "Done."
     assert _visible_chat_response("<think>\nold\n</think>\n\nDone.") == "Done."
     assert _visible_chat_response("<think>\n\n</think>\n\nDone.") == "Done."
@@ -254,6 +261,7 @@ def test_visible_chat_response_strips_reasoning_channels():
         "<|channel|>analysis<|message|>private note<|end|>"
         "<|channel|>final<|message|>Visible answer."
     ) == "Visible answer."
+
 
 
 def test_sanitize_model_response_moves_channel_thought_to_snapshot():
@@ -533,7 +541,7 @@ async def test_handle_run_does_not_duplicate_user_message_on_failed_retries(monk
 
 
 @pytest.mark.asyncio
-async def test_handle_run_keeps_thought_snapshot_out_of_chat_history(monkeypatch, tmp_path):
+async def test_handle_run_persists_thought_snapshot_in_chat_history(monkeypatch, tmp_path):
     import opalatex.agent_stdin as stdin_mod
 
     events = []
@@ -579,16 +587,17 @@ async def test_handle_run_keeps_thought_snapshot_out_of_chat_history(monkeypatch
     })
 
     assistant_messages = [content for role, content in saved_messages if role == "assistant"]
-    assert assistant_messages == ["The file was saved."]
+    expected_persisted = "<think>\nI should save the file.\n</think>\n\nThe file was saved."
+    assert assistant_messages == [expected_persisted]
 
     agent_responses = [data["response"] for event, data in events if event == "agent_response"]
     assert agent_responses == ["The file was saved."]
     persisted_responses = [data["persisted_response"] for event, data in events if event == "agent_response"]
-    assert persisted_responses == ["The file was saved."]
+    assert persisted_responses == [expected_persisted]
 
 
 @pytest.mark.asyncio
-async def test_handle_run_keeps_auxiliary_thought_events_out_of_chat_history(monkeypatch, tmp_path):
+async def test_handle_run_persists_auxiliary_thought_events_in_chat_history(monkeypatch, tmp_path):
     import opalatex.agent_stdin as stdin_mod
 
     events = []
@@ -639,7 +648,9 @@ async def test_handle_run_keeps_auxiliary_thought_events_out_of_chat_history(mon
     })
 
     assistant_messages = [content for role, content in saved_messages if role == "assistant"]
-    assert assistant_messages == ["The file was saved."]
+    assert len(assistant_messages) == 1
+    assert "<think>" in assistant_messages[0]
+    assert "Received successful return from tool 'write_file'" in assistant_messages[0]
 
     agent_responses = [payload["response"] for payload in events if payload["event"] == "agent_response"]
     assert agent_responses == ["The file was saved."]

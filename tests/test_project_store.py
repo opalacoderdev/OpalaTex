@@ -79,7 +79,7 @@ def test_create_cloud_model_defaults_num_ctx_to_65536(store, tmp_path):
     p = store.create(
         **_base_args(
             name="cloud_ctx",
-            model="gemini/gemini-3.1-flash-lite",
+            model="gemini/gemini-3.5-flash-lite",
             project_path=str(project_dir),
         )
     )
@@ -122,7 +122,7 @@ def test_create_preserves_explicit_num_ctx(store, tmp_path):
     p = store.create(
         **_base_args(
             name="explicit_ctx",
-            model="gemini/gemini-3.1-flash-lite",
+            model="gemini/gemini-3.5-flash-lite",
             project_path=str(project_dir),
             model_params={"num_ctx": 32768},
         )
@@ -138,7 +138,7 @@ def test_create_explicit_worker_model_gets_own_context_default(store, tmp_path):
         **_base_args(
             name="worker_ctx",
             model="ollama/gemma4:12b",
-            worker_model="gemini/gemini-3.1-flash-lite",
+            worker_model="gemini/gemini-3.5-flash-lite",
             project_path=str(project_dir),
         )
     )

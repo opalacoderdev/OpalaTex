@@ -66,19 +66,26 @@ def load_models() -> List[Dict[str, Any]]:
         models = list(_DEFAULT_MODELS)
         loaded_defaults = True
         
-    # Ensure managed Opala Cloud aliases are in the list.
+    # Ensure managed Opala Cloud aliases are in the list and have updated names.
     managed_cloud_models = [
         { "id": DEFAULT_CLOUD_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Live", "api_key": "", "api_base": "" },
         { "id": CLOUD_FLASH_MODEL_ALIAS, "provider": "OpalaTex", "name": "OpalaTex Flash (4x credits)", "api_key": "", "api_base": "" },
     ]
-    existing_ids = {m.get("id") for m in models}
+    existing_ids = {m.get("id"): m for m in models if isinstance(m, dict)}
     insert_at = 0
     for cloud_model in managed_cloud_models:
-        if cloud_model["id"] not in existing_ids:
+        cloud_id = cloud_model["id"]
+        if cloud_id not in existing_ids:
             models.insert(insert_at, cloud_model)
             insert_at += 1
-            existing_ids.add(cloud_model["id"])
+            existing_ids[cloud_id] = cloud_model
             loaded_defaults = True
+        else:
+            existing_entry = existing_ids[cloud_id]
+            if existing_entry.get("name") != cloud_model["name"] or existing_entry.get("provider") != cloud_model["provider"]:
+                existing_entry["name"] = cloud_model["name"]
+                existing_entry["provider"] = cloud_model["provider"]
+                loaded_defaults = True
         
     if loaded_defaults:
         save_models(models)

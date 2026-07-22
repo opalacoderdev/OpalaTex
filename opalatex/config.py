@@ -127,7 +127,7 @@ def _get_agents_config() -> dict:
 # Evaluated at module load to serve as CLI defaults (will read ~/.opalatex/agents.yaml if present)
 _initial_cfg = _get_agents_config()
 DEFAULT_MODEL = _initial_cfg.get("default", os.getenv("OPALATEX_MODEL", "ollama/gemma4:12b"))
-WORKER_MODEL = _initial_cfg.get("worker", _initial_cfg.get("alternative", "gemini/gemini-3.1-flash-lite"))
+WORKER_MODEL = _initial_cfg.get("worker", _initial_cfg.get("alternative", "gemini/gemini-3.5-flash-lite"))
 DEFAULT_LITELLM_TIMEOUT_SECONDS = 600.0
 
 def _get_llm_defaults():

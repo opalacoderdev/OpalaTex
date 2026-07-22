@@ -78,8 +78,8 @@ def test_opalatex_cloud_model_mapping_and_overrides():
     from unittest.mock import patch
 
     # 1. Test model name mapping in get_agent_model
-    assert get_agent_model("memgpt", default="OpalaTexCloud") == "openai/gemini-3.1-flash-lite"
-    assert get_agent_model("worker", default="OpalaTexCloud") == "openai/gemini-3.1-flash-lite"
+    assert get_agent_model("memgpt", default="OpalaTexCloud") == "openai/gemini-3.5-flash-lite"
+    assert get_agent_model("worker", default="OpalaTexCloud") == "openai/gemini-3.5-flash-lite"
     assert get_agent_model("memgpt", default="OpalaTexCloudGemini35Flash") == "openai/gemini-3.5-flash"
 
     # 2. Test get_agent_llm_kwargs overrides for OpalaTexCloud model
