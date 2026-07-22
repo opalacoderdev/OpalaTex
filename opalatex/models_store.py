@@ -62,7 +62,7 @@ def load_models() -> List[Dict[str, Any]]:
         models = list(_DEFAULT_MODELS)
         loaded_defaults = True
         
-    # Inject cloud models if a cloud extension is active
+    # Inject cloud models if a cloud extension is active, or filter them out if in Community mode
     ext_mgr = get_extension_manager()
     if ext_mgr.has_cloud:
         managed_cloud_models = ext_mgr.cloud.get_cloud_models()
@@ -81,6 +81,14 @@ def load_models() -> List[Dict[str, Any]]:
                     existing_entry["name"] = cloud_model["name"]
                     existing_entry["provider"] = cloud_model["provider"]
                     loaded_defaults = True
+    else:
+        filtered = [
+            m for m in models
+            if isinstance(m, dict) and m.get("provider") not in ("opalatex", "opalatex_cloud") and not str(m.get("id", "")).startswith("opalatex/")
+        ]
+        if len(filtered) != len(models):
+            models = filtered
+            loaded_defaults = True
         
     if loaded_defaults:
         save_models(models)
