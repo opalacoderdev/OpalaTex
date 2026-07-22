@@ -44,7 +44,7 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
   - `opalatex/attachments.py`: Converts uploaded images and supported documents into normalized descriptors, extracts document text when possible, preserves originals for supported formats, and avoids forwarding unsupported binary payloads to text-only models.
 - **VCS & Compilation Managers**:
   - `opalatex/vcs.py`: Implements user-facing Git features and internal shadow checkpoints around agent turns. Mutating file tools do not create their own checkpoints; the agent run creates start/end checkpoints only when needed.
-  - `opalatex/latex_compiler.py`: Handles compiling LaTeX using standard tools (`pdflatex`, `latexmk`).
+  - `opalatex/latex_compiler.py`: Handles compiling LaTeX using Tectonic (`tectonic` CLI), supporting full, partial (chapter/file), and fast single-pass draft compilation (`tectonic -X compile` with `-r 0`).
   - `opalatex/synctex_parser.py`: Maps PDF rendering view back to the corresponding LaTeX lines.
 - **Document Export Tools**:
   - `create_docx_file` and `create_pptx_file` are exposed through the agent tool registry for generated Word and PowerPoint artifacts. They should be used instead of asking an agent to write raw binary office files.
@@ -96,7 +96,10 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
 - **Chat surface (`gui_src/src/components/ChatPanel.jsx`)**: Renders user/assistant messages, attachment previews, pending upload state, retry/edit flows, interruption controls, and confirmation modals. It hides internal resume scaffolding behind user-friendly continuation labels.
 - **Main app coordinator (`gui_src/src/App.jsx`)**: Coordinates project state, chat streaming, active agent status, checkpoints, compile/PDF state, document panels, and i18n strings.
 - **Activity and problem reporting**: Thinking streams and captured problems are UI-level diagnostics for the user. Raw transport records should be hidden or summarized when they are only useful for debugging.
-- **Document panels**: DOCX/PPTX generation and editing surfaces are part of the desktop client experience; generated artifacts should be surfaced through purpose-built tools and panels rather than raw binary editing.
+- **Document panels & File Routing**:
+  - Text and source code files (`.tex`, `.py`, `.js`, `.json`, `.md`, `.txt`, etc.) open in the Monaco editor / RichText / Markdown preview.
+  - Native document formats (`.pdf`, `.docx`, `.pptx`) open in dedicated viewer/editor panels (`PdfPreview`, `DocxEditorPanel`, `PptxEditorPanel`).
+  - Unsupported binary/media formats (`.png`, `.jpg`, `.mp4`, `.zip`, `.xlsx`, `.exe`, etc.) automatically open in the operating system's default application via `/api/file/open-explorer` rather than attempting to open as raw text in the editor.
 
 ### 2.9 UI Consistency, Dialogs, and Internationalization
 - **Forbid Native Browser Dialogs**: Agents must never call native browser dialogs (`window.alert`, `window.confirm`, `window.prompt`, or their shorthand equivalents) anywhere in the frontend codebase. Doing so in webview environments exposes unsightly headers (like IP addresses or "JavaScript") and breaks visual styling.

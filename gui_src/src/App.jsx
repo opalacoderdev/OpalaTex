@@ -185,7 +185,30 @@ const extractInlineReplacementBlock = (text) => {
 
 const isBinaryEditorFile = (filePath) => {
   if (!filePath) return false;
-  return /\.(docx|pptx)$/i.test(String(filePath));
+  return /\.(docx|pptx|pdf)$/i.test(String(filePath));
+};
+
+const SYSTEM_APP_EXTENSIONS = new Set([
+  // Images
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico', 'tiff', 'tif', 'psd', 'ai', 'raw', 'cr2', 'nef', 'heic', 'heif',
+  // Audio
+  'mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma', 'opus', 'mid', 'midi',
+  // Video
+  'mp4', 'webm', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'm4v', '3gp',
+  // Archives
+  'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'tgz', 'iso', 'cab', 'dmg', 'pkg',
+  // Non-supported Office / Documents
+  'doc', 'ppt', 'xls', 'xlsx', 'xlsm', 'odt', 'ods', 'odp', 'epub', 'pages', 'numbers', 'key',
+  // Executables / Binaries / Compiled / Database / Libraries
+  'exe', 'dll', 'so', 'dylib', 'bin', 'dat', 'db', 'sqlite', 'sqlite3', 'pyc', 'pyo', 'pyd', 'o', 'obj', 'a', 'lib', 'class', 'jar', 'war', 'ear', 'apk', 'msi', 'deb', 'rpm'
+]);
+
+const isUnsupportedSystemFile = (filePath) => {
+  if (!filePath) return false;
+  const parts = String(filePath).split('.');
+  if (parts.length <= 1) return false;
+  const ext = parts.pop().toLowerCase();
+  return SYSTEM_APP_EXTENSIONS.has(ext);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1279,6 +1302,11 @@ export default function App() {
     if (!activeProject) return;
     setIsBottomMaximized(false);
     if (selectedFile) setFileContents(prev => ({ ...prev, [selectedFile]: fileContent }));
+    if (isUnsupportedSystemFile(filePath)) {
+      handleOpenInSystem(filePath);
+      addLog('info', t('app.openedInSystemApp', { path: filePath }));
+      return;
+    }
     if (isBinaryEditorFile(filePath)) {
       setOpenFiles(prev => {
         const deduped = dedupeOpenFileList(prev, filePath);
@@ -1822,11 +1850,12 @@ export default function App() {
   const handleOpenInSystem = async (node) => {
     setContextMenu(null);
     if (!activeProject || !node) return;
+    const targetPath = typeof node === 'string' ? node : (node.path || node);
     try {
       await fetch('/api/file/open-explorer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectPath: activeProject.project_path, filePath: node.path })
+        body: JSON.stringify({ projectPath: activeProject.project_path, filePath: targetPath })
       });
     } catch (err) {
       console.error('Failed to open in system:', err);

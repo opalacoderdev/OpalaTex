@@ -805,11 +805,13 @@ class AsyncHTTPServer:
             project_name = str(data.get('projectName', '') or '').strip()
             requested_main_file = str(data.get('mainFile', '') or '').strip()
             partial = bool(data.get('partial', False))
+            draft = bool(data.get('draft', False))
             compile_debug = {
                 "debug_version": LATEX_COMPILE_DEBUG_VERSION,
                 "backend_file": __file__,
                 "compiler_file": getattr(latex_compiler, "__file__", ""),
                 "partial": partial,
+                "draft": draft,
                 "request_file_path": file_path,
                 "project_path": project_path,
                 "project_name": project_name,
@@ -888,14 +890,14 @@ class AsyncHTTPServer:
             # run compilation
             if partial:
                 compile_debug["compile_function"] = "compile_latex_partial"
-                result = compile_latex_partial(content, full_path, main_file, project_path, include_pdf_base64=False)
+                result = compile_latex_partial(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft)
                 compile_debug["partial_result_success"] = result.get("success")
                 compile_debug["partial_mode"] = result.get("partial_mode", "")
                 if not result.get("success"):
                     partial_log = result.get("log") or "Partial compilation failed."
                     compile_debug["partial_fallback_reason"] = partial_log[:2000]
                     compile_debug["compile_function"] = "compile_latex_partial_then_compile_latex"
-                    fallback = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False)
+                    fallback = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft)
                     fallback["partial_fallback_reason"] = partial_log
                     if not fallback.get("success"):
                         fallback["log"] = (
@@ -905,7 +907,7 @@ class AsyncHTTPServer:
                     result = fallback
             else:
                 compile_debug["compile_function"] = "compile_latex"
-                result = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False)
+                result = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft)
 
             result["compiled_main_file"] = main_file
             compile_debug["result_success"] = result.get("success")

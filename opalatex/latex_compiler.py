@@ -453,7 +453,7 @@ def _disable_non_target_direct_includes(main_content: str, main_dir: str, target
 
 
 def compile_latex_partial(tex_content: str, file_path: str, main_file: str, project_dir: str,
-                          include_pdf_base64: bool = True) -> dict:
+                          include_pdf_base64: bool = True, draft: bool = False) -> dict:
     """
     Compile only the current included/input file while preserving SyncTeX.
 
@@ -478,7 +478,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
     main_dir = os.path.dirname(abs_main)
 
     if os.path.normcase(abs_file) == os.path.normcase(abs_main):
-        result = compile_latex(tex_content, file_path, main_file, project_dir, include_pdf_base64)
+        result = compile_latex(tex_content, file_path, main_file, project_dir, include_pdf_base64, draft=draft)
         result["partial"] = False
         result["partial_mode"] = "main"
         return result
@@ -552,15 +552,28 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
 
         copied_artifacts = _copy_partial_shared_artifacts(main_dir, main_file, preview_stem)
 
-        tectonic_args = [
-            tectonic_cmd,
-            "--synctex",
-            "--keep-intermediates",
-            "--keep-logs",
-            "-c",
-            "minimal",
-            preview_tex,
-        ]
+        if draft:
+            tectonic_args = [
+                tectonic_cmd,
+                "-X",
+                "compile",
+                "--synctex",
+                "--keep-intermediates",
+                "--keep-logs",
+                "-r",
+                "0",
+                preview_tex,
+            ]
+        else:
+            tectonic_args = [
+                tectonic_cmd,
+                "--synctex",
+                "--keep-intermediates",
+                "--keep-logs",
+                "-c",
+                "minimal",
+                preview_tex,
+            ]
 
         def run_tectonic():
             return subprocess.run(
@@ -613,6 +626,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
             "compiler_debug": {
                 "engine": "tectonic",
                 "command": tectonic_args,
+                "draft": draft,
                 "cwd": main_dir,
                 "input_tex": preview_tex,
                 "main_file": main_file,
@@ -644,7 +658,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
 
 
 def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", project_dir: str = "",
-                  include_pdf_base64: bool = True) -> dict:
+                  include_pdf_base64: bool = True, draft: bool = False) -> dict:
     """
     Compiles LaTeX content using Tectonic.
     Returns a dictionary with:
@@ -683,15 +697,28 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
         
         try:
             compile_started = time.perf_counter()
-            tectonic_args = [
-                tectonic_cmd,
-                "--synctex",
-                "--keep-intermediates",
-                "--keep-logs",
-                "-c",
-                "minimal",
-                abs_main_file,
-            ]
+            if draft:
+                tectonic_args = [
+                    tectonic_cmd,
+                    "-X",
+                    "compile",
+                    "--synctex",
+                    "--keep-intermediates",
+                    "--keep-logs",
+                    "-r",
+                    "0",
+                    abs_main_file,
+                ]
+            else:
+                tectonic_args = [
+                    tectonic_cmd,
+                    "--synctex",
+                    "--keep-intermediates",
+                    "--keep-logs",
+                    "-c",
+                    "minimal",
+                    abs_main_file,
+                ]
             result = subprocess.run(
                 tectonic_args,
                 cwd=project_dir,
@@ -730,6 +757,7 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
                 "compiler_debug": {
                     "engine": "tectonic",
                     "command": tectonic_args,
+                    "draft": draft,
                     "cwd": project_dir,
                     "input_tex": abs_main_file,
                     "main_file": main_file,
@@ -770,8 +798,20 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
             
         # Run tectonic
         compile_started = time.perf_counter()
-        result = subprocess.run(
-            [
+        if draft:
+            tectonic_args = [
+                tectonic_cmd,
+                "-X",
+                "compile",
+                "--synctex",
+                "--keep-intermediates",
+                "--keep-logs",
+                "-r",
+                "0",
+                tex_file_path,
+            ]
+        else:
+            tectonic_args = [
                 tectonic_cmd,
                 "--synctex",
                 "--keep-intermediates",
@@ -779,7 +819,9 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
                 "-c",
                 "minimal",
                 tex_file_path,
-            ],
+            ]
+        result = subprocess.run(
+            tectonic_args,
             cwd=temp_dir,
             capture_output=True,
             encoding="utf-8",

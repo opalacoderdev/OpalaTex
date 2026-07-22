@@ -1,6 +1,6 @@
 import { Suspense, lazy, useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText, HelpCircle, MoreHorizontal } from 'lucide-react';
+import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText, HelpCircle, MoreHorizontal, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { getLanguage } from '../utils/language';
@@ -264,7 +264,7 @@ export default function EditorPanel({
     }
   }, [selectedFile, jumpToLine, setJumpToLine]);
 
-  const handleCompile = async (skipSave = false, partial = false) => {
+  const handleCompile = async (skipSave = false, partial = false, draft = false) => {
     setIsCompiling(true);
     setPdfErrorLog('');
     setCleanMessage('');
@@ -291,6 +291,7 @@ export default function EditorPanel({
           projectName: activeProject?.name || '',
           mainFile: activeProject?.main_file || '',
           partial,
+          draft,
         })
       });
       const data = await res.json();
@@ -890,6 +891,17 @@ export default function EditorPanel({
               aria-label={t('editorPanel.compilePartial')}
             >
               {(isCompiling || isSaving) ? <RefreshCw size={14} className="animate-spin" /> : <FileText size={14} />}
+            </button>
+          )}
+          {isTexFile && isTectonicAvailable && (
+            <button
+              onClick={() => handleCompile(false, false, true)}
+              disabled={isCompiling || isSaving}
+              className="vscode-editor-action-btn"
+              title={t('editorPanel.compileDraftTooltip')}
+              aria-label={t('editorPanel.compileDraft')}
+            >
+              {(isCompiling || isSaving) ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
             </button>
           )}
           {isTexFile && (
