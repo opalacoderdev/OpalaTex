@@ -1,4 +1,4 @@
-# --- Project-specific ---
+# --- Environment & Local Config ---
 *.env
 .env
 *.env*
@@ -6,9 +6,11 @@
 *.venv
 node_modules/
 plan.md
+build_staging*
 
-# --- Project runtime data ---
+# --- Project runtime & Cloud overlay isolation ---
 .opalacoder/
+opalatex_cloud/
 
 # --- Generated frontend build ---
 /opalatex/gui/
@@ -28,6 +30,13 @@ __pycache__/
 *.scr
 *.sys
 
+# --- Archive and Release Artifacts ---
+*.zip
+*.tar.gz
+*.7z
+*.rar
+*.gz
+
 # --- Distribution and packaging ---
 .Python
 build/
@@ -38,15 +47,6 @@ eggs/
 .eggs/
 lib/
 lib64/
-!/gui_src/vendor/docx-editor/react/lib/
-/gui_src/vendor/docx-editor/react/lib/*
-!/gui_src/vendor/docx-editor/react/lib/utils.ts
-!/gui_src/vendor/pptx-react-viewer/packages/react/src/lib/
-/gui_src/vendor/pptx-react-viewer/packages/react/src/lib/*
-!/gui_src/vendor/pptx-react-viewer/packages/react/src/lib/canvas-export.ts
-!/gui_src/vendor/pptx-react-viewer/packages/react/dist/
-/gui_src/vendor/pptx-react-viewer/packages/react/dist/*
-!/gui_src/vendor/pptx-react-viewer/packages/react/dist/pptx-viewer.css
 parts/
 sdist/
 var/
@@ -73,8 +73,8 @@ MANIFEST
 # --- PyInstaller ---
 *.manifest
 *.spec
-!LinuxOpalaCoder.spec
-!OpalaCoder.spec
+!OpalaTex.spec
+!OpalaTexCloud.spec
 
 # --- Installer and packaging inputs ---
 *.iss
@@ -110,10 +110,6 @@ id_ed25519.*
 .secrets/
 secrets/
 
-# --- Installer logs ---
-pip-log.txt
-pip-delete-this-directory.txt
-
 # --- Testing and coverage ---
 htmlcov/
 .tox/
@@ -129,18 +125,12 @@ coverage.xml
 .pytest_cache/
 cover/
 
-# --- Translations ---
-*.mo
-*.pot
-
-# --- Databases ---
+# --- Databases & Logs ---
 *.sqlite
 *.sqlite3
 *.sqlite3-journal
 *.sqlite-shm
 *.sqlite-wal
-
-# --- Logging ---
 *.log
 
 # --- Virtual environments ---
@@ -149,42 +139,6 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-
-# --- Jupyter ---
-.ipynb_checkpoints
-
-# --- IPython ---
-profile_default/
-ipython_config.py
-
-# --- PEP 582 ---
-__pypackages__/
-
-# --- Type checkers ---
-.mypy_cache/
-.dmypy.json
-dmypy.json
-.pyre/
-.pytype/
-
-# --- Build tools ---
-.pybuilder/
-target/
-cython_debug/
-docs/_build/
-/site
-
-# --- Miscellaneous Python tools ---
-.scrapy
-instance/
-.webassets-cache
-celerybeat-schedule
-celerybeat.pid
-*.sage.py
-.spyderproject
-.spyproject
-.ropeproject
-local_settings.py
 
 # --- IDEs and editors ---
 .vscode/
