@@ -84,7 +84,9 @@ def load_models() -> List[Dict[str, Any]]:
     else:
         filtered = [
             m for m in models
-            if isinstance(m, dict) and m.get("provider") not in ("opalatex", "opalatex_cloud") and not str(m.get("id", "")).startswith("opalatex/")
+            if isinstance(m, dict)
+            and str(m.get("provider", "")).lower() not in ("opalatex", "opalatex_cloud")
+            and not str(m.get("id", "")).lower().startswith("opalatex")
         ]
         if len(filtered) != len(models):
             models = filtered
