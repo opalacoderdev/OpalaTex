@@ -43,6 +43,10 @@ export default function SettingsModal({
   const [tectonicInstallMessage, setTectonicInstallMessage] = React.useState('');
   const [pandocInstallMessage, setPandocInstallMessage] = React.useState('');
 
+  const activeTab = (settingsTab === 'preferences' || !['general', 'dependencies', 'license', 'about'].includes(settingsTab))
+    ? 'general'
+    : settingsTab;
+
   const cloudModelOptions = [
     { value: 'OpalaTexCloud', label: t('editProjectModal.opalaCloudLiteOption', 'OpalaTex Live (standard credit use)') },
     { value: 'OpalaTexCloudGemini35Flash', label: t('editProjectModal.opalaCloudFlashOption', 'OpalaTex Flash (4x credit use)') },
@@ -107,9 +111,9 @@ export default function SettingsModal({
           <button
             onClick={() => setSettingsTab('general')}
             style={{
-              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: settingsTab === 'general' ? 'bold' : 'normal',
-              color: settingsTab === 'general' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
-              borderBottom: settingsTab === 'general' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
+              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: activeTab === 'general' ? 'bold' : 'normal',
+              color: activeTab === 'general' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
+              borderBottom: activeTab === 'general' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
             }}
           >
             {t('settingsModal.tabGeneral', 'General')}
@@ -117,9 +121,9 @@ export default function SettingsModal({
           <button
             onClick={() => setSettingsTab('dependencies')}
             style={{
-              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: settingsTab === 'dependencies' ? 'bold' : 'normal',
-              color: settingsTab === 'dependencies' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
-              borderBottom: settingsTab === 'dependencies' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
+              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: activeTab === 'dependencies' ? 'bold' : 'normal',
+              color: activeTab === 'dependencies' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
+              borderBottom: activeTab === 'dependencies' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
             }}
           >
             {t('settingsModal.tabDependencies', 'Dependencies')}
@@ -128,9 +132,9 @@ export default function SettingsModal({
             <button
               onClick={() => setSettingsTab('license')}
               style={{
-                background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: settingsTab === 'license' ? 'bold' : 'normal',
-                color: settingsTab === 'license' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
-                borderBottom: settingsTab === 'license' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
+                background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: activeTab === 'license' ? 'bold' : 'normal',
+                color: activeTab === 'license' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
+                borderBottom: activeTab === 'license' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
               }}
             >
               {t('settingsModal.tabAccount', 'Opala Cloud Account')}
@@ -139,9 +143,9 @@ export default function SettingsModal({
           <button
             onClick={() => setSettingsTab('about')}
             style={{
-              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: settingsTab === 'about' ? 'bold' : 'normal',
-              color: settingsTab === 'about' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
-              borderBottom: settingsTab === 'about' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
+              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: activeTab === 'about' ? 'bold' : 'normal',
+              color: activeTab === 'about' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
+              borderBottom: activeTab === 'about' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
             }}
           >
             {t('settingsModal.tabAbout')}
@@ -150,7 +154,7 @@ export default function SettingsModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 flex flex-col" style={{ gap: '16px' }}>
-          {settingsTab === 'general' && (
+          {activeTab === 'general' && (
             <>
               {/* Language */}
               <div className="flex flex-col" style={{ gap: '6px' }}>
@@ -160,14 +164,16 @@ export default function SettingsModal({
                   onChange={(e) => {
                     const newLang = e.target.value;
                     setSelectedLang(newLang);
+                    const targetLang = newLang || (navigator.language.startsWith('pt') ? 'pt-BR' : 'en');
+                    i18n.changeLanguage(targetLang);
                     onLanguageChange?.(newLang);
                   }}
                   className="vscode-settings-input"
                   style={{ width: '100%' }}
                 >
-                  <option value="">{t('settingsModal.languageAuto')}</option>
-                  <option value="pt-BR">{t('settingsModal.languagePt')}</option>
-                  <option value="en">{t('settingsModal.languageEn')}</option>
+                  <option value="">{t('settingsModal.languageSystem', 'System (automatic)')}</option>
+                  <option value="pt-BR">{t('settingsModal.languagePtBR', 'Português (Brasil)')}</option>
+                  <option value="en">{t('settingsModal.languageEn', 'English')}</option>
                 </select>
               </div>
 
@@ -384,7 +390,7 @@ export default function SettingsModal({
             </>
           )}
 
-          {settingsTab === 'dependencies' && (
+          {activeTab === 'dependencies' && (
             <>
               {/* Install Tectonic */}
               <div className="flex flex-col" style={{ gap: '6px' }}>
@@ -464,7 +470,7 @@ export default function SettingsModal({
             </>
           )}
 
-          {FEATURES.enableCloudAccount && settingsTab === 'license' && (
+          {FEATURES.enableCloudAccount && activeTab === 'license' && (
             <div style={{
               display: 'flex',
               flexDirection: 'column',
@@ -500,7 +506,7 @@ export default function SettingsModal({
             </div>
           )}
 
-          {settingsTab === 'about' && (
+          {activeTab === 'about' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', color: 'var(--vscode-text-fg)' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.version')}</span>

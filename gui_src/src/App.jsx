@@ -384,7 +384,7 @@ export default function App() {
   const [editingModelModalData, setEditingModelModalData] = useState(null);
 
   // ── IDE settings ──────────────────────────────────────────────────────────
-  const [settingsTab, setSettingsTab] = useState('preferences');
+  const [settingsTab, setSettingsTab] = useState('general');
   const [activeChatId, setActiveChatId] = useState('main');
   const [chats, setChats] = useState([]);
   const [theme, setTheme] = useState(() => safeGetLocalStorage('theme', 'dark'));
