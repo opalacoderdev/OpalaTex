@@ -19,16 +19,22 @@ class CloudExtensionInterface:
     name: str = "CloudExtension"
 
     def is_cloud_model(self, model: str | None) -> bool:
-        return False
+        from opalatex.cloud_client import is_cloud_model_alias
+        return is_cloud_model_alias(model)
 
     def normalize_cloud_model(self, model: str | None, default_alias: str | None = None) -> str:
-        return model or ""
+        from opalatex.cloud_client import normalize_cloud_model_alias
+        return normalize_cloud_model_alias(model, default_alias)
 
     def resolve_cloud_model(self, model: str | None) -> str:
-        return model or ""
+        from opalatex.cloud_client import resolve_cloud_model_alias
+        return resolve_cloud_model_alias(model)
 
     def get_cloud_models(self) -> List[Dict[str, Any]]:
-        return []
+        return [
+            {"id": "OpalaTexCloud", "provider": "OpalaTex", "name": "OpalaTex Live", "api_key": "", "api_base": ""},
+            {"id": "OpalaTexCloudGemini35Flash", "provider": "OpalaTex", "name": "OpalaTex Flash (4x credits)", "api_key": "", "api_base": ""},
+        ]
 
     def get_cloud_client(self) -> Any | None:
         return None

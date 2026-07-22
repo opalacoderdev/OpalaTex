@@ -62,10 +62,10 @@ def load_models() -> List[Dict[str, Any]]:
         models = list(_DEFAULT_MODELS)
         loaded_defaults = True
         
-    # Inject cloud models if a cloud extension is active, or filter them out if in Community mode
+    # Inject cloud models if provided by cloud extension, or filter them out if empty
     ext_mgr = get_extension_manager()
-    if ext_mgr.has_cloud:
-        managed_cloud_models = ext_mgr.cloud.get_cloud_models()
+    managed_cloud_models = ext_mgr.cloud.get_cloud_models()
+    if managed_cloud_models:
         existing_ids = {m.get("id"): m for m in models if isinstance(m, dict)}
         insert_at = 0
         for cloud_model in managed_cloud_models:

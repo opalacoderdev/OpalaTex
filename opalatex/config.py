@@ -334,10 +334,10 @@ def get_agent_model(agent_name: str, default: str | None = None) -> str:
     if resolved_model != model:
         model = resolved_model
 
-    # Apply Cloud Provider Override if cloud extension is active
+    # Apply Cloud Provider Override
     from opalatex.ui_settings import load_ui_settings
     ui_cfg = load_ui_settings()
-    if get_extension_manager().has_cloud and ui_cfg.get("ai_provider") == "cloud":
+    if ui_cfg.get("ai_provider") == "cloud":
         if cloud_alias_selected:
             return model
         cloud_model = ext.normalize_cloud_model(ui_cfg.get("cloud_model"), "OpalaTexCloud")

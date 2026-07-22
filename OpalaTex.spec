@@ -3,7 +3,11 @@ from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import copy_metadata
 
 datas = [('opalatex/gui', 'opalatex/gui'), ('opalatex/icon.png', 'opalatex'), ('opalatex/assetstore', 'opalatex/assetstore'), ('opalatex/templates', 'opalatex/templates'), ('bin', 'bin'), ('config.yaml', '.'), ('skills', 'skills'), ('version_info.txt', '.')]
-binaries = [('C:\\Users\\gilza\\projetos\\OpalaTex\\.venv\\Lib\\site-packages\\winpty\\winpty-agent.exe', 'winpty')]
+import os
+import winpty
+
+winpty_agent = os.path.join(os.path.dirname(winpty.__file__), 'winpty-agent.exe')
+binaries = [(winpty_agent, 'winpty')] if os.path.exists(winpty_agent) else []
 hiddenimports = []
 datas += copy_metadata('tiktoken')
 tmp_ret = collect_all('litellm')
