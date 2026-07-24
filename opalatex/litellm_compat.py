@@ -84,10 +84,16 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
     if getattr(agent, "_opalatex_litellm_compat_wrapped", False):
         return agent
 
+    agent_name = str(getattr(agent, "name", "") or "")
+    if agent_name == "worker" or agent_name.startswith("skill_"):
+        object.__setattr__(agent, "use_shared_router", False)
+
     original: Callable[..., Any] = agent._acompletion
     original_run: Callable[..., Any] | None = getattr(agent, "run", None)
 
     async def _acompletion_with_compat(messages: list[dict[str, Any]], **kwargs: Any) -> Any:
+        if agent_name == "worker" or agent_name.startswith("skill_"):
+            object.__setattr__(agent, "use_shared_router", False)
         model = getattr(agent, "model", "") or kwargs.get("model", "")
         kwargs = sanitize_litellm_kwargs_for_model(model, kwargs)
         kwargs.setdefault("drop_params", True)

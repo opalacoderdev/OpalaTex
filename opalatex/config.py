@@ -347,10 +347,24 @@ def get_agent_model(agent_name: str, default: str | None = None) -> str:
     if resolved_model != model:
         model = resolved_model
 
-    # Apply Cloud Provider Override
+    explicit_project_worker = False
+    try:
+        from .tools import _PROJECT_SESSION
+        explicit_project_worker = (
+            agent_name == "worker"
+            and _PROJECT_SESSION is not None
+            and bool(getattr(_PROJECT_SESSION, "worker_model", ""))
+        )
+    except Exception:
+        explicit_project_worker = False
+
+    # Apply Cloud Provider Override. A worker model explicitly configured on
+    # the project is allowed to differ from the orchestrator/provider selection.
     from opalatex.ui_settings import load_ui_settings
     ui_cfg = load_ui_settings()
     if ext_mgr.has_cloud and ui_cfg.get("ai_provider") == "cloud":
+        if explicit_project_worker and not cloud_alias_selected:
+            return model
         if cloud_alias_selected:
             return model
         cloud_model = ext.normalize_cloud_model(ui_cfg.get("cloud_model"), "OpalaTexCloud")
@@ -376,6 +390,10 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     try:
         from .tools import _PROJECT_SESSION
         if _PROJECT_SESSION:
+            explicit_worker_model = (
+                agent_name == "worker"
+                and bool(getattr(_PROJECT_SESSION, "worker_model", ""))
+            )
             if agent_name == "worker" and hasattr(_PROJECT_SESSION, "worker_model_params") and _PROJECT_SESSION.worker_model_params:
                 clean_params = {k: v for k, v in _PROJECT_SESSION.worker_model_params.items() if v is not None}
                 merged.update(clean_params)
@@ -388,12 +406,12 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
             
             if w_api_base:
                 merged["api_base"] = w_api_base
-            elif getattr(_PROJECT_SESSION, "api_base", None):
+            elif not explicit_worker_model and getattr(_PROJECT_SESSION, "api_base", None):
                 merged["api_base"] = _PROJECT_SESSION.api_base
                 
             if w_api_key:
                 merged["api_key"] = w_api_key
-            elif getattr(_PROJECT_SESSION, "api_key", None):
+            elif not explicit_worker_model and getattr(_PROJECT_SESSION, "api_key", None):
                 merged["api_key"] = _PROJECT_SESSION.api_key
     except Exception:
         pass
@@ -403,11 +421,13 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     from opalatex.licensing import _load_license_data
     ui_cfg = load_ui_settings()
     session_model = None
+    explicit_project_worker = False
     try:
         from .tools import _PROJECT_SESSION
         if _PROJECT_SESSION:
             if agent_name == "worker" and hasattr(_PROJECT_SESSION, "worker_model") and _PROJECT_SESSION.worker_model:
                 session_model = _PROJECT_SESSION.worker_model
+                explicit_project_worker = True
             elif hasattr(_PROJECT_SESSION, "model") and _PROJECT_SESSION.model:
                 session_model = _PROJECT_SESSION.model
     except Exception:
@@ -431,7 +451,12 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     from opalatex.extensions import get_extension_manager
     cloud_provider_active = get_extension_manager().has_cloud and ui_cfg.get("ai_provider") == "cloud"
 
-    if cloud_provider_active or resolved_model in cloud_litellm_models:
+    use_cloud_proxy = (
+        resolved_model in cloud_litellm_models
+        or (cloud_provider_active and not explicit_project_worker)
+    )
+
+    if use_cloud_proxy:
         license_data = _load_license_data()
         license_key = license_data.get("license_key", "")
         # Force OpenAI format to proxy through our custom server

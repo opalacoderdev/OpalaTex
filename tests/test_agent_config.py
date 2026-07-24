@@ -215,6 +215,55 @@ def test_stale_cloud_provider_is_ignored_without_cloud_extension():
     assert kwargs.get("custom_llm_provider") != "openai"
 
 
+def test_cloud_provider_does_not_override_explicit_worker_model(monkeypatch):
+    """A project worker may use a different provider from the orchestrator."""
+    from opalatex.config import get_agent_llm_kwargs, get_agent_model
+    from unittest.mock import patch
+
+    class FakeExtensionManager:
+        has_cloud = True
+
+        class cloud:
+            @staticmethod
+            def is_cloud_model(model):
+                return model in {"OpalaTexCloud", "OpalaTexCloudGemini35Flash"}
+
+            @staticmethod
+            def normalize_cloud_model(model, default_alias=None):
+                return model or default_alias or "OpalaTexCloud"
+
+            @staticmethod
+            def resolve_cloud_model(model):
+                return {
+                    "OpalaTexCloud": "openai/gemini-3.5-flash-lite",
+                    "OpalaTexCloudGemini35Flash": "openai/gemini-3.5-flash",
+                }.get(model, model)
+
+    class FakeSession:
+        model = "openrouter/qwen/qwen3.7-plus"
+        worker_model = "ollama/gemma4:26b"
+        model_params = {"num_ctx": 65536}
+        worker_model_params = {"num_ctx": 8192, "think": False}
+        api_base = ""
+        api_key = "orchestrator-key"
+        worker_api_base = ""
+        worker_api_key = ""
+
+    with patch("opalatex.extensions.get_extension_manager", return_value=FakeExtensionManager()):
+        with patch(
+            "opalatex.ui_settings.load_ui_settings",
+            return_value={"ai_provider": "cloud", "cloud_model": "OpalaTexCloud"},
+        ):
+            with patch("opalatex.models_store.get_model", return_value=None):
+                with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+                    assert get_agent_model("worker", default=FakeSession.worker_model) == "ollama/gemma4:26b"
+                    kwargs = get_agent_llm_kwargs("worker")
+
+    assert kwargs.get("api_base") != "https://opalacoder.com/api/chat-proxy"
+    assert kwargs.get("custom_llm_provider") != "openai"
+    assert kwargs.get("api_key") != "orchestrator-key"
+
+
 def test_ollama_cloud_model_uses_remote_api_base_by_default(monkeypatch):
     """Ollama cloud-tagged models must not silently fall back to localhost."""
     from opalatex.config import get_agent_llm_kwargs

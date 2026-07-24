@@ -801,6 +801,29 @@ export default function App() {
     }, 10);
   };
 
+  const createChatForTask = async (chatName) => {
+    if (!activeProject) return null;
+    const res = await fetch('/api/chat/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_name: activeProject.name, chat_name: chatName }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || t('app.createChatFailed', 'Failed to create chat'));
+    }
+    const data = await res.json();
+    const chatId = data.id;
+    setChats(prev => prev.some(chat => chat.id === chatId) ? prev : [...prev, data]);
+    setActiveChatId(chatId);
+    setActiveProject(prev => prev ? { ...prev, current_chat_id: chatId } : null);
+    localStorage.setItem(`lastChat_${activeProject.name}`, chatId);
+    const greeting = activeProject.project_name || activeProject.name;
+    const baseMessages = [{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }];
+    setChatMessages(baseMessages);
+    return { chatId, baseMessages };
+  };
+
   useEffect(() => {
     if (!activeProject || !selectedFile) return;
     if (isBinaryEditorFile(selectedFile)) {
@@ -1098,6 +1121,23 @@ export default function App() {
       '````',
       '',
       'Please correct the project files based on the error above. After editing, explain which file(s) changed and whether the user should compile again.',
+    ].filter(part => part !== '').join('\n');
+  };
+
+  const buildLatexFixDisplayText = (problem) => {
+    const log = problem?.log || problem?.message || t('app.latexCompileFailed', 'LaTeX compilation failed.');
+    const filePath = problem?.filePath || selectedFile || '';
+    const compiledMainFile = problem?.compiledMainFile || activeProject?.main_file || problem?.mainFile || '';
+    return [
+      t('app.fixLatexDisplayPrompt', 'Fix LaTeX compilation error'),
+      '',
+      filePath ? `${t('app.selectedFileLabel', 'Selected file')}: ${filePath}` : '',
+      compiledMainFile ? `${t('app.compiledMainFileLabel', 'Compiled main file')}: ${compiledMainFile}` : '',
+      '',
+      `${t('app.compilerErrorLogLabel', 'Compiler error log')}:`,
+      '```text',
+      compactForLatexFixPrompt(log, 4000),
+      '```',
     ].filter(part => part !== '').join('\n');
   };
 
@@ -2322,7 +2362,15 @@ export default function App() {
           command: 'run', agent: 'chat_orchestrator', prompt: requestPrompt,
           display_prompt: displayText || userText || '',
           project_name: activeProject.name, project_path: activeProject.project_path,
-          model: activeProject.model, current_file: selectedFile || '',
+          model: activeProject.model,
+          worker_model: activeProject.worker_model,
+          api_key: activeProject.api_key,
+          api_base: activeProject.api_base,
+          worker_api_key: activeProject.worker_api_key,
+          worker_api_base: activeProject.worker_api_base,
+          model_params: activeProject.model_params,
+          worker_model_params: activeProject.worker_model_params,
+          current_file: selectedFile || '',
           editor_content: fileContent || '', selected_text: selectedText || '',
           lang: i18n.language || 'en',
           chat_id: targetChatId,
@@ -2356,11 +2404,20 @@ export default function App() {
   const handleFixLatexProblem = async (problem) => {
     if (!activeProject || isAgentRunning || !problem) return;
     setIsChatVisible(true);
-    const prompt = buildLatexFixPrompt(problem);
-    await handleSendMessage(null, null, {
-      overrideText: prompt,
-      displayText: t('app.fixLatexDisplayPrompt', 'Fix LaTeX compilation error'),
-    });
+    try {
+      const prompt = buildLatexFixPrompt(problem);
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const chatName = `${t('app.fixLatexChatName', 'Fix LaTeX error')} ${timestamp}`;
+      const { chatId, baseMessages } = await createChatForTask(chatName);
+      await handleSendMessage(null, null, {
+        overrideText: prompt,
+        displayText: buildLatexFixDisplayText(problem),
+        chatIdOverride: chatId,
+        baseMessages,
+      });
+    } catch (err) {
+      addLog('error', t('app.fixLatexChatCreateFailed', 'Failed to create a new chat for the LaTeX fix: {{error}}', { error: err.message }));
+    }
   };
 
   const handleEditUserMessage = async (messageIndex, originalMessage, editedContent) => {

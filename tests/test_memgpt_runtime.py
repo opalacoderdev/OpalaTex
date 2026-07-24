@@ -39,9 +39,10 @@ def test_resolve_skill_model():
     assert resolve_skill_model({"model": "worker"}, "ollama/x", "gemini/proj-worker") == "gemini/proj-worker"
     # "alternative" is also supported for backwards compatibility.
     assert resolve_skill_model({"model": "alternative"}, "ollama/x", "gemini/proj-worker") == "gemini/proj-worker"
-    # Explicit id used as-is; absent → project model.
+    # Explicit id used as-is; absent → worker model, falling back to project model.
     assert resolve_skill_model({"model": "ollama/custom"}, "ollama/x") == "ollama/custom"
     assert resolve_skill_model({"model": ""}, "ollama/proj") == "ollama/proj"
+    assert resolve_skill_model({}, "openrouter/qwen/qwen3.7-plus", "ollama/gemma4:26b") == "ollama/gemma4:26b"
     assert resolve_skill_model({}, None) == DEFAULT_MODEL
 
 
@@ -146,6 +147,43 @@ def test_run_skill_returns_blocked_result_in_plan_mode(tmp_path):
 
     assert result.startswith("[BLOCKED] run_skill is not available")
     assert "create_plan" in result
+
+
+def test_run_skill_worker_disables_shared_router(tmp_path, monkeypatch):
+    """Worker sub-agents must not reuse a LiteLLM Router created for the orchestrator."""
+    from opalatex.memgpt_runtime import AgentOutput
+    import opalatex.memgpt_runtime as runtime
+
+    captured = {}
+
+    class FakeLLMAgentBlock:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.on_iteration = None
+            self.on_thinking = None
+            self.on_chunk = None
+
+        async def run(self, _input):
+            return AgentOutput(response="done", tool_calls_made=0)
+
+    monkeypatch.setattr(runtime, "LLMAgentBlock", FakeLLMAgentBlock)
+    project = _project(tmp_path)
+    project.worker_model = "ollama/gemma4:26b"
+    m = build_chat_orchestrator(project, None)
+    run_skill = build_run_skill_tool(
+        m,
+        str(tmp_path),
+        project_model=project.model,
+        project_worker=project.worker_model,
+        _project_ref=project,
+    )
+    raw = getattr(run_skill, "_func", None) or run_skill
+
+    result = asyncio.run(raw("command-line", "inspect the project"))
+
+    assert "done" in result
+    assert captured["model"] == "ollama/gemma4:26b"
+    assert captured["use_shared_router"] is False
 
 
 

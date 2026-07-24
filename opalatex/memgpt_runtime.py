@@ -91,12 +91,13 @@ def resolve_skill_model(skill_meta: dict, project_model: str | None,
                         project_worker: str | None = None) -> str:
     """Resolve the model for a skill's sub-agent from the SKILL.md `model` field.
 
-    "default" → the project's main model; "worker" (or "alternative") → the project's worker
-    model (or the project's main model when the worker model is empty).
+    Missing/empty or "worker" (or "alternative") → the project's worker model
+    (or the project's main model when the worker model is empty).
+    "default" → the project's main model.
     """
     raw = (skill_meta.get("model") or "").strip()
     if not raw:
-        return project_model or DEFAULT_MODEL
+        return project_worker or project_model or DEFAULT_MODEL
     if raw == "default":
         return project_model or DEFAULT_MODEL
     if raw in ("alternative", "worker"):
@@ -401,6 +402,7 @@ def build_run_skill_tool(
             model=model,
             tools=tools,
             model_kwargs=worker_kwargs,
+            use_shared_router=False,
             max_iterations=worker_agent_params.get("max_iterations", None),
             max_tool_calls=worker_agent_params.get("max_tool_calls", 40),
             loop_detection=worker_agent_params.get("loop_detection", True),
@@ -412,6 +414,11 @@ def build_run_skill_tool(
         wrap_agent_litellm_compat(sub_agent)
 
         from opalatex.agent_stdin import _record_turn_thought, print_event
+
+        object.__setattr__(sub_agent, "model", model)
+        object.__setattr__(sub_agent, "model_kargs", worker_kwargs)
+        object.__setattr__(sub_agent, "model_kwargs", worker_kwargs)
+        object.__setattr__(sub_agent, "use_shared_router", False)
         
         if worker_kwargs.get("stream", False):
             thought_chunks = []

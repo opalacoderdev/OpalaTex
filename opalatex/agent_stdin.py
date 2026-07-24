@@ -689,6 +689,23 @@ async def handle_load_project(data: dict):
             project_name=project_name,
             project_path=os.path.abspath(project_path),
         )
+
+    if data.get("model"):
+        current_project.model = data["model"]
+    if "worker_model" in data:
+        current_project.worker_model = data.get("worker_model") or ""
+    if "api_key" in data:
+        current_project.api_key = data.get("api_key") or ""
+    if "api_base" in data:
+        current_project.api_base = data.get("api_base") or ""
+    if "worker_api_key" in data:
+        current_project.worker_api_key = data.get("worker_api_key") or ""
+    if "worker_api_base" in data:
+        current_project.worker_api_base = data.get("worker_api_base") or ""
+    if isinstance(data.get("model_params"), dict):
+        current_project.model_params = data["model_params"]
+    if isinstance(data.get("worker_model_params"), dict):
+        current_project.worker_model_params = data["worker_model_params"]
     
     # Initialize workspace context
     set_project_context(current_project, current_store)
@@ -699,7 +716,9 @@ async def handle_load_project(data: dict):
     print_event("project_loaded", {
         "project_name": current_project.project_name,
         "project_path": current_project.project_path,
-        "skills": current_project.skills
+        "skills": current_project.skills,
+        "model": current_project.model,
+        "worker_model": current_project.worker_model,
     })
 
 async def handle_slash_command(data: dict) -> dict:
@@ -1036,6 +1055,8 @@ async def handle_run(data: dict):
         _is_cloud = load_ui_settings().get("ai_provider") == "cloud"
         if agent_kwargs.get("tool_role_workaround") is None:
             agent_kwargs["tool_role_workaround"] = "user" if _model.startswith("ollama") else None
+        if _agent_name == "worker":
+            agent_kwargs["use_shared_router"] = False
         #print(system_prompt)
         agent = LLMAgentBlock(
             name=agent_type or "custom_agent",
