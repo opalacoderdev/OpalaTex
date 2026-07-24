@@ -10,6 +10,10 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
+const PDF_DOCUMENT_OPTIONS = {
+  verbosity: pdfjs.VerbosityLevel.ERRORS,
+};
+
 const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady }, ref) => {
   const { t } = useTranslation();
   const [numPages, setNumPages] = useState(null);
@@ -35,6 +39,11 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const navigationHistoryRef = useRef([]);
 
   const searchNeedle = searchQuery.trim().toLowerCase();
+  const hasSearchNeedle = searchNeedle.length > 0;
+
+  const isTerminatedPdfWorkerError = (err) => (
+    String(err?.message || err || '').toLowerCase().includes('worker task was terminated')
+  );
 
   const countMatches = (text, needle) => {
     if (!text || !needle) return 0;
@@ -332,7 +341,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
 
     const loadPageText = async () => {
       const pdfDocument = pdfDocumentRef.current;
-      if (!pdfDocument || !numPages || (!isSearchOpen && !searchNeedle)) {
+      if (!pdfDocument || !numPages || !isSearchOpen || !hasSearchNeedle) {
         setPdfTextPages([]);
         return;
       }
@@ -341,8 +350,10 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         const pages = [];
         for (let pageNumber = 1; pageNumber <= numPages; pageNumber += 1) {
           const page = await pdfDocument.getPage(pageNumber);
+          if (cancelled) return;
           const viewport = page.getViewport({ scale: 1 });
           const textContent = await page.getTextContent();
+          if (cancelled) return;
           // Store both plain text (for search counting) and raw items (for highlight rects)
           pages.push({
             text: textContent.items.map((item) => item.str || '').join(' '),
@@ -355,6 +366,9 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
           setPdfTextPages(pages);
         }
       } catch (err) {
+        if (cancelled || isTerminatedPdfWorkerError(err)) {
+          return;
+        }
         console.error('PDF text extraction failed:', err);
         if (!cancelled) {
           setPdfTextPages([]);
@@ -367,7 +381,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     return () => {
       cancelled = true;
     };
-  }, [numPages, pdfUrl, isSearchOpen, searchNeedle]);
+  }, [numPages, pdfUrl, isSearchOpen, hasSearchNeedle]);
 
   useEffect(() => {
     if (!searchNeedle || !pdfTextPages.length) {
@@ -1007,6 +1021,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         {pdfUrl && (
           <Document
             file={pdfUrl}
+            options={PDF_DOCUMENT_OPTIONS}
             onLoadSuccess={onDocumentLoadSuccess}
             loading={<div style={{ color: 'var(--vscode-text-fg)' }}>{t('pdfPreview.loadingPdf')}</div>}
             error={<div style={{ color: 'var(--vscode-errorForeground)' }}>{t('pdfPreview.loadError')}</div>}

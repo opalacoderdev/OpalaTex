@@ -43,7 +43,9 @@
     "rechargeSessionError": "Falha ao gerar sessão de recarga. Status: {{status}}. Resposta: {{data}}",
     "networkError": "Erro de rede ao contactar a API: {{message}}",
     "cloudRegisteredTitle": "Serial de instalação do Opala Cloud",
-    "cloudRegistered": "SERIAL OPALA PRONTO"
+    "cloudRegistered": "SERIAL OPALA PRONTO",
+    "cloudAd": "OpalaTex Cloud",
+    "cloudAdTitle": "Abrir OpalaTex Cloud"
   },
   "topBar": {
     "actionsGroup": "Ações",

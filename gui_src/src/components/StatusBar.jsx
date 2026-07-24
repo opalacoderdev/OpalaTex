@@ -50,6 +50,16 @@ export default function StatusBar({ activeProject, isAgentRunning, licenseData, 
 
   return (
     <footer className="vscode-statusbar">
+      <a
+        className="vscode-statusbar-cloud-ad"
+        href="https://www.opalacoder.com"
+        target="_blank"
+        rel="noreferrer"
+        title={t('statusBar.cloudAdTitle')}
+      >
+        {t('statusBar.cloudAd')}
+      </a>
+
       <div className="flex items-center" style={{ gap: '16px' }}>
         <div className="flex items-center" style={{ gap: '6px' }}>
           <Info size={11} />

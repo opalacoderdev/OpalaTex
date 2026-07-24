@@ -43,7 +43,9 @@
     "rechargeSessionError": "Failed to generate recharge session. Status: {{status}}. Response: {{data}}",
     "networkError": "Network error while contacting API: {{message}}",
     "cloudRegisteredTitle": "Opala Cloud installation serial",
-    "cloudRegistered": "OPALA SERIAL READY"
+    "cloudRegistered": "OPALA SERIAL READY",
+    "cloudAd": "OpalaTex Cloud",
+    "cloudAdTitle": "Open OpalaTex Cloud"
   },
   "topBar": {
     "actionsGroup": "Actions",
