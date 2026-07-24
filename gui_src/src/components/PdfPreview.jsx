@@ -3,7 +3,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare, Sparkles } from 'lucide-react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -14,7 +14,7 @@ const PDF_DOCUMENT_OPTIONS = {
   verbosity: pdfjs.VerbosityLevel.ERRORS,
 };
 
-const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady }, ref) => {
+const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, isAgentRunning = false }, ref) => {
   const { t } = useTranslation();
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
@@ -569,6 +569,19 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
               <h2 className="text-xl font-semibold" style={{ color: 'var(--vscode-errorForeground)' }}>{t('pdfPreview.compileErrorTitle')}</h2>
               <p className="text-sm mt-1" style={{ color: 'var(--vscode-descriptionForeground, #888)' }}>{t('pdfPreview.compileErrorDescription')}</p>
             </div>
+            {latexCompileProblem && onFixLatexProblem && (
+              <button
+                type="button"
+                className="vscode-button"
+                onClick={() => onFixLatexProblem(latexCompileProblem)}
+                disabled={isAgentRunning}
+                title={isAgentRunning ? t('bottomPanel.fixWithAiBusy') : t('bottomPanel.fixWithAiTitle')}
+                style={{ marginLeft: 'auto', padding: '6px 10px', fontSize: '12px', flexShrink: 0 }}
+              >
+                <Sparkles size={13} />
+                <span>{t('bottomPanel.fixWithAi')}</span>
+              </button>
+            )}
           </div>
           
           <div className="p-6">

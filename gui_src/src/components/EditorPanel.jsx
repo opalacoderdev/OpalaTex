@@ -50,6 +50,10 @@ export default function EditorPanel({
   triggerCompileRequest,
   onBinaryFileSaved,
   onRegisterBinarySave,
+  onLatexCompileError,
+  onLatexCompileSuccess,
+  onFixLatexProblem,
+  isAgentRunning,
 }) {
   const { t } = useTranslation();
   const { showAlert } = useCustomDialog();
@@ -108,6 +112,7 @@ export default function EditorPanel({
   const [pdfUrl, setPdfUrl] = useState(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [pdfErrorLog, setPdfErrorLog] = useState('');
+  const [latexCompileProblem, setLatexCompileProblem] = useState(null);
   const [compileTiming, setCompileTiming] = useState(null);
   const [cleanMessage, setCleanMessage] = useState('');
   const [isTectonicAvailable, setIsTectonicAvailable] = useState(true);
@@ -297,6 +302,14 @@ export default function EditorPanel({
       const data = await res.json();
       if (data.timing) setCompileTiming(data.timing);
       if (data.success) {
+        setLatexCompileProblem(null);
+        onLatexCompileSuccess?.({
+          filePath: selectedFile,
+          compiledMainFile: data.compiled_main_file || '',
+          compileDebug: data.compile_debug || {},
+          partial,
+          draft,
+        });
         if (compileLine && compileFile && compileProjectPath) {
           pendingPdfSyncRef.current = {
             line: compileLine,
@@ -307,12 +320,67 @@ export default function EditorPanel({
         lastCompiledContentsRef.current[compileFile] = fileContent;
         setPdfUrl(data.pdf_url || `/api/latex/pdf?ts=${Date.now()}`);
       } else {
-        setPdfErrorLog(data.log);
+        const problem = {
+          source: 'latex_compile',
+          filePath: selectedFile,
+          fileContent,
+          projectPath: activeProject?.project_path || '',
+          projectName: activeProject?.name || '',
+          mainFile: activeProject?.main_file || '',
+          compiledMainFile: data.compiled_main_file || '',
+          log: data.log || 'LaTeX compilation failed.',
+          message: data.log || 'LaTeX compilation failed.',
+          compileDebug: data.compile_debug || {},
+          partial: Boolean(partial),
+          draft: Boolean(draft),
+        };
+        setPdfErrorLog(problem.log);
+        setLatexCompileProblem(problem);
+        onLatexCompileError?.({
+          filePath: selectedFile,
+          fileContent,
+          projectPath: activeProject?.project_path || '',
+          projectName: activeProject?.name || '',
+          mainFile: activeProject?.main_file || '',
+          compiledMainFile: data.compiled_main_file || '',
+          log: data.log || 'LaTeX compilation failed.',
+          compileDebug: data.compile_debug || {},
+          partial,
+          draft,
+        });
         if (data.pdf_url || data.pdf_base64) setPdfUrl(data.pdf_url || `/api/latex/pdf?ts=${Date.now()}`);
         else setPdfUrl(null);
       }
     } catch (err) {
-      setPdfErrorLog('Failed to connect to backend: ' + err.message);
+      const message = 'Failed to connect to backend: ' + err.message;
+      const problem = {
+        source: 'latex_compile',
+        filePath: selectedFile,
+        fileContent,
+        projectPath: activeProject?.project_path || '',
+        projectName: activeProject?.name || '',
+        mainFile: activeProject?.main_file || '',
+        compiledMainFile: '',
+        log: message,
+        message,
+        compileDebug: {},
+        partial: Boolean(partial),
+        draft: Boolean(draft),
+      };
+      setPdfErrorLog(message);
+      setLatexCompileProblem(problem);
+      onLatexCompileError?.({
+        filePath: selectedFile,
+        fileContent,
+        projectPath: activeProject?.project_path || '',
+        projectName: activeProject?.name || '',
+        mainFile: activeProject?.main_file || '',
+        compiledMainFile: '',
+        log: message,
+        compileDebug: {},
+        partial,
+        draft,
+      });
       setPdfUrl(null);
     } finally {
       setIsCompiling(false);
@@ -1262,6 +1330,9 @@ export default function EditorPanel({
               onSyncTexNavigate={handleSyncTexNavigate}
               onDocumentReady={handlePdfDocumentReady}
               onCollapse={() => setIsPdfPreviewCollapsed(true)}
+              latexCompileProblem={latexCompileProblem}
+              onFixLatexProblem={onFixLatexProblem}
+              isAgentRunning={isAgentRunning}
             />
           </div>
           </Split>

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 
 const REVIEW_HISTORY_PAGE_SIZE = 10;
+const ALL_DIFF_FILES = '__all__';
 
 const MSG_AGENT_START = 'Agent turn start checkpoint';
 const MSG_AGENT_END   = 'Agent turn end checkpoint';
@@ -50,6 +51,26 @@ function buildStatusMeta(t) {
     C:  { label: 'C', color: '#9cdcfe', title: t('gitSidebar.statusCopied') },
     '??': { label: 'U', color: '#73c991', title: t('gitSidebar.statusUntracked') },
   };
+}
+
+function parseDiffFileOptions(diff) {
+  if (!diff) return [];
+  const files = [];
+  const seen = new Set();
+  for (const line of diff.split('\n')) {
+    if (!line.startsWith('diff --git ')) continue;
+    const match = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+    if (!match) continue;
+    const path = match[2] === '/dev/null' ? match[1] : match[2];
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    files.push(path);
+  }
+  return files;
+}
+
+function commitDiffCacheKey(baseKey, filePath = ALL_DIFF_FILES) {
+  return filePath === ALL_DIFF_FILES ? baseKey : `${baseKey}::${filePath}`;
 }
 
 function DiffViewer({ diff, wrapLines = false }) {
@@ -168,6 +189,7 @@ export default function GitSidebar({
   const [expandedCommitDiffs, setExpandedCommitDiffs] = useState({});
   const [commitDiffs, setCommitDiffs] = useState({});
   const [loadingCommitDiffs, setLoadingCommitDiffs] = useState({});
+  const [selectedCommitDiffFiles, setSelectedCommitDiffFiles] = useState({});
   const [restoringCommit, setRestoringCommit] = useState('');
   const [commits, setCommits] = useState([]);
   const [loadingLog, setLoadingLog] = useState(false);
@@ -223,6 +245,8 @@ export default function GitSidebar({
     setDiffs({});
     setExpandedCommitDiffs({});
     setCommitDiffs({});
+    setLoadingCommitDiffs({});
+    setSelectedCommitDiffFiles({});
   }, [projectPath, gitRootPath]);
 
   useEffect(() => {
@@ -275,24 +299,36 @@ export default function GitSidebar({
     if (!hadFailure) fetchGitStatus();
   };
 
+  const fetchCommitDiff = useCallback(async (commitHash, endCommitHash, filePath = ALL_DIFF_FILES) => {
+    const baseKey = endCommitHash ? `${commitHash}..${endCommitHash}` : commitHash;
+    const cacheKey = commitDiffCacheKey(baseKey, filePath);
+    if (commitDiffs[cacheKey] !== undefined || loadingCommitDiffs[cacheKey]) return;
+    setLoadingCommitDiffs(prev => ({ ...prev, [cacheKey]: true }));
+    try {
+      const params = new URLSearchParams(endCommitHash
+        ? gitQuery({ commit: commitHash, endCommit: endCommitHash })
+        : gitQuery({ commit: commitHash }));
+      if (filePath !== ALL_DIFF_FILES) params.set('filePath', filePath);
+      const res = await fetch(`/api/git/diff?${params}`);
+      if (res.ok) {
+        const d = await res.json();
+        setCommitDiffs(prev => ({ ...prev, [cacheKey]: d.diff || '' }));
+      }
+    } catch { /* ignore */ }
+    finally { setLoadingCommitDiffs(prev => ({ ...prev, [cacheKey]: false })); }
+  }, [commitDiffs, gitQuery, loadingCommitDiffs]);
+
   const toggleCommitDiff = async (commitHash, endCommitHash) => {
     const key = endCommitHash ? `${commitHash}..${endCommitHash}` : commitHash;
     const next = !expandedCommitDiffs[key];
     setExpandedCommitDiffs(prev => ({ ...prev, [key]: next }));
-    if (next && !commitDiffs[key]) {
-      setLoadingCommitDiffs(prev => ({ ...prev, [key]: true }));
-      try {
-        const params = endCommitHash
-          ? gitQuery({ commit: commitHash, endCommit: endCommitHash })
-          : gitQuery({ commit: commitHash });
-        const res = await fetch(`/api/git/diff?${params}`);
-        if (res.ok) {
-          const d = await res.json();
-          setCommitDiffs(prev => ({ ...prev, [key]: d.diff || '' }));
-        }
-      } catch { /* ignore */ }
-      finally { setLoadingCommitDiffs(prev => ({ ...prev, [key]: false })); }
-    }
+    if (next) fetchCommitDiff(commitHash, endCommitHash);
+  };
+
+  const selectCommitDiffFile = async (commitHash, endCommitHash, filePath) => {
+    const key = endCommitHash ? `${commitHash}..${endCommitHash}` : commitHash;
+    setSelectedCommitDiffFiles(prev => ({ ...prev, [key]: filePath }));
+    await fetchCommitDiff(commitHash, endCommitHash, filePath);
   };
 
   const restoreCommit = async (commit) => {
@@ -368,6 +404,44 @@ export default function GitSidebar({
       </div>
     );
   };
+
+  function CommitDiffPanel({ commitHash, endCommitHash, wrapLines = false }) {
+    const baseKey = endCommitHash ? `${commitHash}..${endCommitHash}` : commitHash;
+    const selectedFile = selectedCommitDiffFiles[baseKey] || ALL_DIFF_FILES;
+    const selectedKey = commitDiffCacheKey(baseKey, selectedFile);
+    const fullDiff = commitDiffs[baseKey] || '';
+    const currentDiff = commitDiffs[selectedKey] || '';
+    const loading = !!loadingCommitDiffs[selectedKey];
+    const fileOptions = parseDiffFileOptions(fullDiff);
+
+    return (
+      <>
+        {fileOptions.length > 1 && (
+          <div className="git-review-file-filter">
+            <label htmlFor={`git-review-file-${baseKey}`}>
+              {t('gitSidebar.reviewFileFilter')}
+            </label>
+            <select
+              id={`git-review-file-${baseKey}`}
+              value={selectedFile}
+              onChange={(e) => selectCommitDiffFile(commitHash, endCommitHash, e.target.value)}
+              className="vscode-settings-input git-review-file-select"
+            >
+              <option value={ALL_DIFF_FILES}>{t('gitSidebar.reviewAllFiles')}</option>
+              {fileOptions.map(filePath => (
+                <option key={filePath} value={filePath}>{filePath}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {loading ? (
+          <div style={{ fontSize: '11px', color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
+        ) : (
+          <DiffViewer diff={currentDiff} wrapLines={wrapLines} />
+        )}
+      </>
+    );
+  }
 
   function AgentTurnRow({ item }) {
     const turnKey = `${item.start.hash}..${item.end.hash}`;
@@ -464,11 +538,7 @@ export default function GitSidebar({
         {/* Net diff (toggled by Diff button) */}
         {isExpanded && (
           <div style={{ marginTop: '8px' }}>
-            {loadingCommitDiffs[turnKey] ? (
-              <div style={{ fontSize: '11px', color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
-            ) : (
-              <DiffViewer diff={commitDiffs[turnKey]} wrapLines />
-            )}
+            <CommitDiffPanel commitHash={item.start.hash} endCommitHash={item.end.hash} wrapLines />
           </div>
         )}
 
@@ -514,11 +584,7 @@ export default function GitSidebar({
                       </div>
                       {expandedCommitDiffs[tool.hash] && (
                         <div style={{ marginTop: '4px' }}>
-                          {loadingCommitDiffs[tool.hash] ? (
-                            <div style={{ color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
-                          ) : (
-                            <DiffViewer diff={commitDiffs[tool.hash]} wrapLines />
-                          )}
+                          <CommitDiffPanel commitHash={tool.hash} wrapLines />
                         </div>
                       )}
                     </div>
@@ -588,11 +654,7 @@ export default function GitSidebar({
                   </div>
                   {expandedCommitDiffs[c.hash] && (
                     <div style={{ marginTop: '8px', paddingLeft: reviewMode ? '0' : '12px' }}>
-                      {loadingCommitDiffs[c.hash] ? (
-                        <div style={{ fontSize: '11px', color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
-                      ) : (
-                        <DiffViewer diff={commitDiffs[c.hash]} wrapLines={reviewMode} />
-                      )}
+                      <CommitDiffPanel commitHash={c.hash} wrapLines={reviewMode} />
                     </div>
                   )}
                 </div>

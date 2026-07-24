@@ -1028,7 +1028,7 @@ export default function App() {
       return trimToLimit(next, panelMaxLines);
     });
 
-  const addProblem = ({ tool = t('app.agentTool', 'Agent'), message, severity = 'error' }) => {
+  const addProblem = ({ tool = t('app.agentTool', 'Agent'), message, severity = 'error', ...metadata }) => {
     if (!message) return;
     setProblems(prev => trimToLimit([
       ...prev,
@@ -1038,8 +1038,91 @@ export default function App() {
         message,
         severity,
         timestamp: new Date().toLocaleTimeString(),
+        ...metadata,
       },
     ], panelMaxLines));
+  };
+
+  const compactForLatexFixPrompt = (value, limit) => {
+    const text = String(value || '');
+    if (text.length <= limit) return text;
+    return `${text.slice(0, limit)}\n[truncated ${text.length - limit} characters]`;
+  };
+
+  const summarizeCompileTarget = (compileDebug = {}) => {
+    const target = compileDebug.selected_main_rel || compileDebug.selected_main_file || '';
+    const input = compileDebug.compiler_input_tex || '';
+    const cwd = compileDebug.compiler_cwd || '';
+    const returncode = compileDebug.compiler_returncode;
+    return [
+      target ? `Selected main file: ${target}` : '',
+      input ? `Compiler input: ${input}` : '',
+      cwd ? `Compiler working directory: ${cwd}` : '',
+      returncode !== undefined && returncode !== '' ? `Compiler return code: ${returncode}` : '',
+    ].filter(Boolean).join('\n');
+  };
+
+  const buildLatexFixPrompt = (problem) => {
+    const filePath = problem.filePath || selectedFile || '';
+    const compiledMainFile = problem.compiledMainFile || activeProject?.main_file || '';
+    const compileDebug = problem.compileDebug || {};
+    const compileTarget = summarizeCompileTarget(compileDebug);
+    const articleContent = problem.fileContent ?? fileContent ?? '';
+    const log = problem.log || problem.message || '';
+    const compileMode = problem.partial ? 'partial compilation' : 'full compilation';
+    const draftMode = problem.draft ? 'draft mode enabled' : 'draft mode disabled';
+
+    return [
+      'Task: Fix the LaTeX compilation error in this OpalaTex project.',
+      '',
+      'Use the chat_orchestrator workflow: diagnose the compiler error, inspect project files when needed, edit the relevant file(s) with the available tools, and finish with a concise summary of what changed.',
+      'Do not guess silently. If the log points to a different file than the selected file, prioritize the compiler location and read that file before editing.',
+      '',
+      'Project context:',
+      `- Project: ${activeProject?.project_name || activeProject?.name || problem.projectName || '(unknown)'}`,
+      `- Project path: ${activeProject?.project_path || problem.projectPath || ''}`,
+      `- Selected article/file: ${filePath || '(none)'}`,
+      `- Configured main file: ${activeProject?.main_file || problem.mainFile || '(none)'}`,
+      `- Compiled main file: ${compiledMainFile || '(unresolved)'}`,
+      `- Mode: ${compileMode}; ${draftMode}`,
+      compileTarget ? `\nCompiler target details:\n${compileTarget}` : '',
+      '',
+      'Compiler error log:',
+      '````text',
+      compactForLatexFixPrompt(log, 20000),
+      '````',
+      '',
+      'Selected article/file content at the time of compilation:',
+      '````latex',
+      compactForLatexFixPrompt(articleContent, 60000),
+      '````',
+      '',
+      'Please correct the project files based on the error above. After editing, explain which file(s) changed and whether the user should compile again.',
+    ].filter(part => part !== '').join('\n');
+  };
+
+  const handleLatexCompileSuccess = () => {
+    setProblems(prev => prev.filter(problem => problem.source !== 'latex_compile'));
+  };
+
+  const handleLatexCompileError = (details) => {
+    setProblems(prev => prev.filter(problem => problem.source !== 'latex_compile'));
+    addProblem({
+      tool: t('app.latexCompilerTool', 'LaTeX compiler'),
+      message: details.log || t('app.latexCompileFailed', 'LaTeX compilation failed.'),
+      severity: 'error',
+      source: 'latex_compile',
+      filePath: details.filePath || '',
+      fileContent: details.fileContent || '',
+      projectPath: details.projectPath || '',
+      projectName: details.projectName || '',
+      mainFile: details.mainFile || '',
+      compiledMainFile: details.compiledMainFile || '',
+      log: details.log || '',
+      compileDebug: details.compileDebug || {},
+      partial: Boolean(details.partial),
+      draft: Boolean(details.draft),
+    });
   };
 
   // ── API calls ─────────────────────────────────────────────────────────────
@@ -2270,6 +2353,16 @@ export default function App() {
     } finally { setIsAgentRunning(false); fetchFiles(); fetchProblems(); }
   };
 
+  const handleFixLatexProblem = async (problem) => {
+    if (!activeProject || isAgentRunning || !problem) return;
+    setIsChatVisible(true);
+    const prompt = buildLatexFixPrompt(problem);
+    await handleSendMessage(null, null, {
+      overrideText: prompt,
+      displayText: t('app.fixLatexDisplayPrompt', 'Fix LaTeX compilation error'),
+    });
+  };
+
   const handleEditUserMessage = async (messageIndex, originalMessage, editedContent) => {
     if (!activeProject || isAgentRunning || !originalMessage || originalMessage.role !== 'user') return;
     const nextContent = (editedContent || '').trim();
@@ -3140,6 +3233,10 @@ export default function App() {
               onRegisterBinarySave={(handler) => {
                 binarySaveHandlerRef.current = handler;
               }}
+              onLatexCompileError={handleLatexCompileError}
+              onLatexCompileSuccess={handleLatexCompileSuccess}
+              onFixLatexProblem={handleFixLatexProblem}
+              isAgentRunning={isAgentRunning}
             />
           )}
 

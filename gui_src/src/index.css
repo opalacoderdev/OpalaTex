@@ -371,6 +371,21 @@
   font-size: 12px;
   border: 1px solid var(--vscode-border);
 }
+.git-review-file-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+.git-review-file-select {
+  min-width: 180px;
+  max-width: min(100%, 520px);
+  height: 26px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
 .git-review-pagination {
   display: flex;
   align-items: center;

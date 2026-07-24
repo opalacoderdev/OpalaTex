@@ -128,7 +128,9 @@
     "agentCheckpointUndoing": "Undoing...",
     "agentCheckpointUndoTitle": "Undo this agent turn",
     "agentCheckpointUndoConfirm": "Undo this agent turn?\n\nThe project will revert to the state before the agent ran.\n\nCheckpoint: {{short}}",
-    "agentCheckpointUndoFailed": "Failed to undo agent turn: {{error}}"
+    "agentCheckpointUndoFailed": "Failed to undo agent turn: {{error}}",
+    "reviewFileFilter": "File",
+    "reviewAllFiles": "All files"
   },
 
   "editorPanel": {
@@ -379,6 +381,9 @@
     "noLogs": "No logs generated. Send a prompt in the chat to start...",
     "noProblems": "No problems detected.",
     "errorIn": "Error in {{tool}}:",
+    "fixWithAi": "Fix with AI",
+    "fixWithAiTitle": "Ask OpalaTex to fix this LaTeX compilation error",
+    "fixWithAiBusy": "Wait for the current agent run to finish before fixing this error",
     "noThinking": "No thoughts generated yet. Run a prompt to see agent reasoning...",
     "setProjectForTerminal": "Set a project/workspace to enable the terminal."
   },
@@ -710,6 +715,9 @@
     "processingCompleted": "Processing completed.",
     "waitingConfirmation": "🔔 Waiting for confirmation: {{prompt}}",
     "agentTool": "Agent",
+    "latexCompilerTool": "LaTeX compiler",
+    "latexCompileFailed": "LaTeX compilation failed.",
+    "fixLatexDisplayPrompt": "Fix LaTeX compilation error",
     "agentError": "🔴 Agent Error: {{message}}",
     "inlineAgentTool": "Inline agent",
     "inlineAgentErrorAlert": "OpalaTex could not generate inline content: {{message}}",

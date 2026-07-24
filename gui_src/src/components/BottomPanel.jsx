@@ -245,10 +245,12 @@ export default function BottomPanel({
                 ) : (
                   problems.map((prob) => (
                     <div key={prob.id} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', borderBottom: '1px solid var(--vscode-border)', padding: '6px 0' }}>
-                      <AlertCircle size={14} className="text-[#f48771]" style={{ flexShrink: 0, marginTop: '2px' }} />
-                      <div>
-                        <div style={{ fontWeight: 'bold', color: '#f48771', marginBottom: '2px' }}>
-                          [{prob.timestamp}] {t('bottomPanel.errorIn', { tool: prob.tool })}
+                      <AlertCircle size={14} style={{ color: 'var(--vscode-errorForeground)', flexShrink: 0, marginTop: '2px' }} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '2px' }}>
+                          <div style={{ fontWeight: 'bold', color: 'var(--vscode-errorForeground)' }}>
+                            [{prob.timestamp}] {t('bottomPanel.errorIn', { tool: prob.tool })}
+                          </div>
                         </div>
                         <pre style={{ whiteSpace: 'pre-wrap', margin: 0, color: 'var(--vscode-text-fg)', fontSize: '12px', fontFamily: 'inherit' }}>
                           {prob.message}

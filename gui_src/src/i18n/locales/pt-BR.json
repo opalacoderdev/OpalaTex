@@ -128,7 +128,9 @@
     "agentCheckpointUndoing": "Desfazendo...",
     "agentCheckpointUndoTitle": "Desfazer este turno do agente",
     "agentCheckpointUndoConfirm": "Desfazer este turno do agente?\n\nO projeto voltará ao estado anterior à execução do agente.\n\nCheckpoint: {{short}}",
-    "agentCheckpointUndoFailed": "Falha ao desfazer turno do agente: {{error}}"
+    "agentCheckpointUndoFailed": "Falha ao desfazer turno do agente: {{error}}",
+    "reviewFileFilter": "Arquivo",
+    "reviewAllFiles": "Todos os arquivos"
   },
   "editorPanel": {
     "emptyRichText": "Nenhum conteúdo editável. Abra um arquivo .tex com o corpo do documento.",
@@ -378,6 +380,9 @@
     "noLogs": "Nenhum log gerado. Envie uma instrução no chat para iniciar...",
     "noProblems": "Nenhum problema detectado.",
     "errorIn": "Erro em {{tool}}:",
+    "fixWithAi": "Corrigir com IA",
+    "fixWithAiTitle": "Pedir ao OpalaTex para corrigir este erro de compilacao LaTeX",
+    "fixWithAiBusy": "Aguarde o agente atual terminar antes de corrigir este erro",
     "noThinking": "Nenhum pensamento gerado ainda. Execute uma instrução para ver o raciocínio do agente...",
     "setProjectForTerminal": "Defina um projeto/workspace para habilitar o terminal."
   },
@@ -708,6 +713,9 @@
     "processingCompleted": "Processamento concluído.",
     "waitingConfirmation": "🔔 Aguardando confirmação: {{prompt}}",
     "agentTool": "Agente",
+    "latexCompilerTool": "Compilador LaTeX",
+    "latexCompileFailed": "A compilacao LaTeX falhou.",
+    "fixLatexDisplayPrompt": "Corrigir erro de compilacao LaTeX",
     "agentError": "🔴 Erro do Agente: {{message}}",
     "inlineAgentTool": "Agente inline",
     "inlineAgentErrorAlert": "O OpalaTex não conseguiu gerar conteúdo inline: {{message}}",

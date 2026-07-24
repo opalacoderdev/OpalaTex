@@ -2979,8 +2979,12 @@ class AsyncHTTPServer:
                         if verify_end.returncode != 0:
                             self.send_response(writer, 400, b'{"error":"Invalid endCommit"}', "application/json")
                             return
+                        diff_args = ["diff", commit_hash, end_commit_hash]
+                        if file_path_param:
+                            repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
+                            diff_args += ["--", repo_file_path]
                         res = subprocess.run(
-                            git_cmd + ["diff", commit_hash, end_commit_hash],
+                            git_cmd + diff_args,
                             cwd=git_ctx["cwd"],
                             capture_output=True,
                             **utf8_text_kwargs(),
@@ -2993,15 +2997,23 @@ class AsyncHTTPServer:
                             **utf8_text_kwargs(),
                         )
                         if parent.returncode == 0:
+                            diff_args = ["diff", f"{commit_hash}^", commit_hash]
+                            if file_path_param:
+                                repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
+                                diff_args += ["--", repo_file_path]
                             res = subprocess.run(
-                                git_cmd + ["diff", f"{commit_hash}^", commit_hash],
+                                git_cmd + diff_args,
                                 cwd=git_ctx["cwd"],
                                 capture_output=True,
                                 **utf8_text_kwargs(),
                             )
                         else:
+                            show_args = ["show", "--format=", "--find-renames", commit_hash]
+                            if file_path_param:
+                                repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
+                                show_args += ["--", repo_file_path]
                             res = subprocess.run(
-                                git_cmd + ["show", "--format=", "--find-renames", commit_hash],
+                                git_cmd + show_args,
                                 cwd=git_ctx["cwd"],
                                 capture_output=True,
                                 **utf8_text_kwargs(),
