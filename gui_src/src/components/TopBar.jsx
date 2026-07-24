@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Cpu, RefreshCw, Settings2, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { FEATURES } from '../config/features';
 
 export default function TopBar({
   activeProject,
@@ -94,7 +95,7 @@ export default function TopBar({
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Settings2 size={14} style={{ color: 'var(--vscode-descriptionForeground, #888888)' }} title={t('topBar.orchestratorModel')} />
           <span style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground, #888888)' }}>{t('topBar.orchestrator')}:</span>
-          {globalAiProvider === 'cloud' ? (
+          {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
             <select
               className="vscode-settings-input"
               style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px', opacity: 0.8 }}
@@ -120,7 +121,7 @@ export default function TopBar({
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Cpu size={14} style={{ color: 'var(--vscode-descriptionForeground, #888888)' }} title={t('topBar.workerModel')} />
           <span style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground, #888888)' }}>{t('topBar.worker')}:</span>
-          {globalAiProvider === 'cloud' ? (
+          {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
             <select
               className="vscode-settings-input"
               style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px', opacity: 0.8 }}

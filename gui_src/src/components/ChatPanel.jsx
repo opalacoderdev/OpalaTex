@@ -7,6 +7,37 @@ import { readClipboard } from '../utils/clipboard.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
+import { FEATURES } from '../config/features';
+
+const normalizeForErrorMatch = (value) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase();
+
+const stripThinkBlocksForErrorMatch = (content = '') => (
+  String(content || '').replace(/<think>[\s\S]*?(<\/think>|$)/gi, '')
+);
+
+const isRetryableAssistantErrorMessage = (msg, displayContent) => {
+  if (msg?.is_error === true) return true;
+  const raw = stripThinkBlocksForErrorMatch(displayContent || msg?.content || '');
+  const normalized = normalizeForErrorMatch(raw);
+  const start = normalized.replace(/^[^\p{L}\p{N}]+/u, '');
+  return (
+    normalized.includes('agent error') ||
+    normalized.includes('erro do agente') ||
+    start.startsWith('error:') ||
+    start.startsWith('erro:') ||
+    start.startsWith('failed') ||
+    start.startsWith('failure') ||
+    start.startsWith('falha') ||
+    normalized.includes('cota de uso') ||
+    normalized.includes('creditos suficientes') ||
+    normalized.includes('insufficient ai credits') ||
+    normalized.includes('critical worker crash') ||
+    normalized.includes('err_connection_failed')
+  );
+};
 
 // Right-side chat panel for interacting with the OpalaTex agent.
 export default function ChatPanel({
@@ -838,7 +869,7 @@ export default function ChatPanel({
         <div style={modelSelectorGroupStyle}>
           <Settings2 size={12} style={{ color: 'var(--vscode-descriptionForeground)' }} />
           <span style={modelSelectorLabelStyle}>{t('chatPanel.orchestrator', 'Orchestrator')}:</span>
-          {globalAiProvider === 'cloud' ? (
+          {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
             <select
               className="vscode-settings-input"
               style={{ ...modelSelectorInputStyle, opacity: 0.8 }}
@@ -875,7 +906,7 @@ export default function ChatPanel({
         <div style={modelSelectorGroupStyle}>
           <Cpu size={12} style={{ color: 'var(--vscode-descriptionForeground)' }} />
           <span style={modelSelectorLabelStyle}>{t('chatPanel.worker', 'Worker')}:</span>
-          {globalAiProvider === 'cloud' ? (
+          {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
             <select
               className="vscode-settings-input"
               style={{ ...modelSelectorInputStyle, opacity: 0.8 }}
@@ -1123,7 +1154,65 @@ export default function ChatPanel({
       {/* Message history */}
       <div className="vscode-chat-history" ref={historyRef} onContextMenu={onContextMenu} style={{ zoom: chatZoom, ['--chat-font-scale']: chatZoom }}>
         {chatMessages.map((msg, i) => {
+          const isSystem = msg.role === 'system';
+          if (isSystem) {
+            const isLastSystemAfterUserOnly = i === chatMessages.length - 1 && !chatMessages.slice(i + 1).some(m => m.role === 'user' || m.role === 'assistant');
+            let previousUserMsg = null;
+            if (isLastSystemAfterUserOnly) {
+              for (let j = i - 1; j >= 0; j--) {
+                if (chatMessages[j].role === 'assistant') break;
+                if (chatMessages[j].role === 'user') {
+                  previousUserMsg = chatMessages[j];
+                  break;
+                }
+              }
+            }
+            return (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', margin: '12px 0', clear: 'both' }}>
+                <div style={{
+                  fontSize: '11px',
+                  color: 'var(--vscode-descriptionForeground, #a0a0a0)',
+                  background: 'var(--vscode-badge-background, rgba(255, 255, 255, 0.06))',
+                  border: '1px solid var(--vscode-border, rgba(255, 255, 255, 0.12))',
+                  borderRadius: '12px',
+                  padding: '4px 14px',
+                  maxWidth: '85%',
+                  wordBreak: 'break-word',
+                  textAlign: 'center',
+                  lineHeight: '1.4'
+                }}>
+                  {msg.content}
+                </div>
+                {previousUserMsg && !isAgentRunning && (
+                  <button
+                    type="button"
+                    onClick={() => onGenerateResponseForUserMessage?.(chatMessages.indexOf(previousUserMsg), previousUserMsg)}
+                    style={{
+                      padding: '7px 11px',
+                      background: 'var(--vscode-button-background, #0e639c)',
+                      color: 'var(--vscode-button-foreground, #ffffff)',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '7px',
+                      width: 'fit-content',
+                      boxShadow: '0 1px 0 rgba(255,255,255,0.08) inset',
+                    }}
+                    title={t('chatPanel.tryAgain', 'Tentar Novamente')}
+                  >
+                    <RefreshCw size={14} />
+                    {t('chatPanel.tryAgain', 'Tentar Novamente')}
+                  </button>
+                )}
+              </div>
+            );
+          }
+
           const isUser = msg.role === 'user';
+          const isLastUserOrAssistantMessage = !chatMessages.slice(i + 1).some(m => m.role === 'user' || m.role === 'assistant');
           const isLastMessage = i === chatMessages.length - 1;
           const canGenerateResponse = isUser && isLastMessage && !isAgentRunning && editingMessageIndex !== i;
           const atts = msg._attachments || [];
@@ -1147,8 +1236,10 @@ export default function ChatPanel({
           );
           const legacyErrorProbe = contentWithoutThink(displayContent);
           const shouldShowTryAgain = !isUser && (
+            isRetryableAssistantErrorMessage(msg, displayContent) ||
             msg.is_error === true ||
-            /^\s*(🔴|ðŸ”´)\s*(Agent Error|Erro do Agente|Erro:|Error:|Falha|Failure|Failed|Falha na execução)/i.test(legacyErrorProbe)
+            /^\s*(🔴|ðŸ”´|\u{1F534})\s*(Agent Error|Erro do Agente|Erro:|Error:|Falha|Failure|Failed|Falha na execução)/i.test(legacyErrorProbe) ||
+            /Erro do Agente|Agent Error|cota de uso|créditos suficientes|Insufficient AI credits|CRITICAL WORKER CRASH/i.test(legacyErrorProbe)
           );
 
           let lastUserMsgBeforeThis = null;
@@ -1304,7 +1395,7 @@ export default function ChatPanel({
                 ) : (
                   formatMessageContent(displayContent, activeProject?.project_path)
                 )}
-                {shouldShowTryAgain && isLastMessage && !isAgentRunning && lastUserMsgBeforeThis && (
+                {shouldShowTryAgain && isLastUserOrAssistantMessage && !isAgentRunning && lastUserMsgBeforeThis && (
                   <button
                     onClick={() => handleSendMessage(null, lastUserMsgBeforeThis)}
                     style={{
@@ -1325,7 +1416,7 @@ export default function ChatPanel({
                     <RefreshCw size={14} /> {t('chatPanel.tryAgain', 'Tentar Novamente')}
                   </button>
                 )}
-                {isInterrupted && isLastMessage && !isAgentRunning && (
+                {isInterrupted && isLastUserOrAssistantMessage && !isAgentRunning && (
                   <button
                     onClick={() => handleSendMessage(null, null, {
                       resumeInterrupted: true,

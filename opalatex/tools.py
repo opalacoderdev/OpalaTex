@@ -100,6 +100,9 @@ def set_project_context(session, store=None) -> None:
     _PROJECT_STORE = store
     if session:
         _PROJECT_PATH = os.path.abspath(session.project_path) if getattr(session, "project_path", "") else os.getcwd()
+        # Snapshot the mode at context-set time so create_plan() can reference it
+        # in audit messages even after the mode has already changed.
+        session._initial_mode = getattr(session, "mode", "auto")
 
         # Ensure .opalatex/ is ignored by the user's own git so internal
         # files (editor state, skill requests) never appear in their git status.
@@ -1224,6 +1227,21 @@ def search_conversation_history(query: str, limit: int = 5) -> str:
     except Exception as e:
         raise ValueError(f"Error searching Archival Memory: {e}")
 
+def _record_mode_event(content: str) -> None:
+    """Append a system-level state-change event to the chat history immediately.
+
+    This is a fire-and-forget helper: it must never raise, because it is called
+    inside tool functions and an exception here would surface as a tool error.
+    """
+    if not _PROJECT_SESSION or not _PROJECT_STORE:
+        return
+    try:
+        _PROJECT_STORE.append_message(_PROJECT_SESSION, "system", content)
+        _PROJECT_STORE.save(_PROJECT_SESSION)
+    except Exception:
+        pass  # never let history recording crash the tool
+
+
 @opalatex_tool(
     name="create_plan",
     is_safe=True,
@@ -1280,12 +1298,25 @@ async def create_plan(plan_content: str) -> str:
         _gui_input_pending.pop(req_id, None)
     
     if approved:
+        prev_mode = getattr(_PROJECT_SESSION, "_initial_mode", "plan")
         _PROJECT_SESSION.mode = "auto"
         if edited_plan != plan_content:
             _PROJECT_SESSION.plan_text = edited_plan
-            # We don't save to db yet, it'll be saved at the end of the turn by agent_stdin
+        # Record approval immediately in chat history so the agent has an
+        # unambiguous audit trail even if the turn is interrupted afterward.
+        _record_mode_event(
+            f"[PLAN APPROVED] The user approved the proposed plan. "
+            f"Mode changed: '{prev_mode}' → 'auto'. "
+            "The agent must proceed to execute the plan without asking for approval again."
+        )
         return f"The user APPROVED the plan. The system is now in 'auto' mode. Proceed to execute the plan.\n\nPlan Content:\n{edited_plan}"
     else:
+        # Record rejection immediately in chat history
+        _record_mode_event(
+            "[PLAN REJECTED] The user rejected the proposed plan. "
+            "The agent must NOT proceed with execution. "
+            "Wait for user feedback before proposing a new plan."
+        )
         # Throw an error to halt the agent immediately and prevent it from continuing
         raise ValueError("The user REJECTED the plan. Wait for the user to provide feedback in the chat.")
 

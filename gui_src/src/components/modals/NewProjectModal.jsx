@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, FolderOpen } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import { useModelValidation } from './useModelValidation';
+import { FEATURES } from '../../config/features';
 
 // Modal for registering a new project.
 export default function NewProjectModal({
@@ -227,7 +228,7 @@ export default function NewProjectModal({
             <>
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.aiModel')}</label>
-                {globalAiProvider === 'cloud' ? (
+                {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
                   <>
                     <select
                       className="vscode-settings-input"
@@ -256,7 +257,7 @@ export default function NewProjectModal({
                       style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
                     <datalist id="default-models">
-                      <option value="OpalaTexCloud" />
+                      {FEATURES.enableCloudModels && <option value="OpalaTexCloud" />}
                       {(globalModels || []).map(m => (
                         <option key={`new-model-${m.id}`} value={m.id} />
                       ))}
@@ -269,7 +270,7 @@ export default function NewProjectModal({
                     </datalist>
                   </>
                 )}
-                {globalAiProvider !== 'cloud' && (
+                {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
                   <>
                     {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
                     {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
@@ -278,7 +279,7 @@ export default function NewProjectModal({
                 )}
               </div>
 
-              {globalAiProvider !== 'cloud' && (
+              {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
                 <>
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
@@ -338,7 +339,7 @@ export default function NewProjectModal({
             <>
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerModel')}</label>
-                {globalAiProvider === 'cloud' ? (
+                {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
                   <>
                     <select
                       className="vscode-settings-input"
@@ -366,7 +367,7 @@ export default function NewProjectModal({
                       style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
                     <datalist id="default-worker-models">
-                      <option value="OpalaTexCloud" />
+                      {FEATURES.enableCloudModels && <option value="OpalaTexCloud" />}
                       {(globalModels || []).map(m => (
                         <option key={`new-worker-model-${m.id}`} value={m.id} />
                       ))}
@@ -379,7 +380,7 @@ export default function NewProjectModal({
                     </datalist>
                   </>
                 )}
-                {globalAiProvider !== 'cloud' && (
+                {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
                   <>
                     {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
                     {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
@@ -388,7 +389,7 @@ export default function NewProjectModal({
                 )}
               </div>
 
-              {globalAiProvider !== 'cloud' && (
+              {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
                     <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiKey')}</label>

@@ -27,19 +27,26 @@ PLANNING_AGENTS = [
 ]
 
 
+from unittest.mock import patch
+
+
 @pytest.mark.parametrize("agent", PLANNING_AGENTS + ["memgpt"])
 def test_orchestrator_agents_enable_thinking_by_default(agent):
     """Orchestrator and memgpt have think=True so the user sees reasoning traces."""
-    kwargs = get_agent_llm_kwargs(agent)
-    assert kwargs.get("think") is True
+    with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+        with patch("opalatex.tools._PROJECT_SESSION", None):
+            kwargs = get_agent_llm_kwargs(agent)
+            assert kwargs.get("think") is True
 
 
 @pytest.mark.parametrize("agent", TOOL_CALL_AGENTS + SUBAGENT_AGENTS)
 def test_subagents_do_not_enable_thinking_by_default(agent):
     """Workers and planning sub-agents default think=False to avoid long reasoning
     streams that can block the agent run indefinitely on complex inputs."""
-    kwargs = get_agent_llm_kwargs(agent)
-    assert not kwargs.get("think")
+    with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+        with patch("opalatex.tools._PROJECT_SESSION", None):
+            kwargs = get_agent_llm_kwargs(agent)
+            assert not kwargs.get("think")
 
 
 def test_orchestrator_has_large_num_ctx():
@@ -77,10 +84,30 @@ def test_opalatex_cloud_model_mapping_and_overrides():
     from opalatex.config import get_agent_model, get_agent_llm_kwargs
     from unittest.mock import patch
 
-    # 1. Test model name mapping in get_agent_model
-    assert get_agent_model("memgpt", default="OpalaTexCloud") == "openai/gemini-3.5-flash-lite"
-    assert get_agent_model("worker", default="OpalaTexCloud") == "openai/gemini-3.5-flash-lite"
-    assert get_agent_model("memgpt", default="OpalaTexCloudGemini35Flash") == "openai/gemini-3.5-flash"
+    class FakeExtensionManager:
+        has_cloud = True
+
+        class cloud:
+            @staticmethod
+            def is_cloud_model(model):
+                return model in {"OpalaTexCloud", "OpalaTexCloudGemini35Flash"}
+
+            @staticmethod
+            def normalize_cloud_model(model, default_alias=None):
+                return model or default_alias or "OpalaTexCloud"
+
+            @staticmethod
+            def resolve_cloud_model(model):
+                return {
+                    "OpalaTexCloud": "openai/gemini-3.5-flash-lite",
+                    "OpalaTexCloudGemini35Flash": "openai/gemini-3.5-flash",
+                }.get(model, model)
+
+    # 1. Test model name mapping in get_agent_model when the Cloud extension is installed
+    with patch("opalatex.extensions.get_extension_manager", return_value=FakeExtensionManager()):
+        assert get_agent_model("memgpt", default="OpalaTexCloud") == "openai/gemini-3.5-flash-lite"
+        assert get_agent_model("worker", default="OpalaTexCloud") == "openai/gemini-3.5-flash-lite"
+        assert get_agent_model("memgpt", default="OpalaTexCloudGemini35Flash") == "openai/gemini-3.5-flash"
 
     # 2. Test get_agent_llm_kwargs overrides for OpalaTexCloud model
     class FakeSession:
@@ -88,11 +115,12 @@ def test_opalatex_cloud_model_mapping_and_overrides():
         model_params = {}
         project_path = "/fake/path"
 
-    with patch("opalatex.licensing._load_license_data", return_value={"license_key": "OPALA-TEST-KEY"}):
-        with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
-            # Even if ai_provider is local, selecting OpalaTexCloud should override kwargs
-            with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
-                kwargs = get_agent_llm_kwargs("memgpt")
+    with patch("opalatex.extensions.get_extension_manager", return_value=FakeExtensionManager()):
+        with patch("opalatex.licensing._load_license_data", return_value={"license_key": "OPALA-TEST-KEY"}):
+            with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+                # Even if ai_provider is local, selecting OpalaTexCloud should override kwargs
+                with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+                    kwargs = get_agent_llm_kwargs("memgpt")
     assert kwargs["api_base"] == "https://opalacoder.com/api/chat-proxy"
     assert kwargs["api_key"] == "OPALA-TEST-KEY"
     assert kwargs["custom_llm_provider"] == "openai"
@@ -105,10 +133,11 @@ def test_opalatex_cloud_model_mapping_and_overrides():
         model_params = {}
         project_path = "/fake/path"
 
-    with patch("opalatex.licensing._load_license_data", return_value={"license_key": "OPALA-TEST-KEY"}):
-        with patch("opalatex.tools._PROJECT_SESSION", FlashSession()):
-            with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
-                flash_kwargs = get_agent_llm_kwargs("memgpt")
+    with patch("opalatex.extensions.get_extension_manager", return_value=FakeExtensionManager()):
+        with patch("opalatex.licensing._load_license_data", return_value={"license_key": "OPALA-TEST-KEY"}):
+            with patch("opalatex.tools._PROJECT_SESSION", FlashSession()):
+                with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+                    flash_kwargs = get_agent_llm_kwargs("memgpt")
 
     assert flash_kwargs["api_base"] == "https://opalacoder.com/api/chat-proxy"
     assert flash_kwargs["api_key"] == "OPALA-TEST-KEY"
@@ -122,11 +151,68 @@ def test_cloud_provider_uses_global_cloud_model_setting():
     from opalatex.config import get_agent_model
     from unittest.mock import patch
 
-    with patch(
-        "opalatex.ui_settings.load_ui_settings",
-        return_value={"ai_provider": "cloud", "cloud_model": "OpalaTexCloudGemini35Flash"},
-    ):
-        assert get_agent_model("memgpt", default="ollama/gemma4:12b") == "openai/gemini-3.5-flash"
+    class FakeExtensionManager:
+        has_cloud = True
+
+        class cloud:
+            @staticmethod
+            def is_cloud_model(model):
+                return model in {"OpalaTexCloud", "OpalaTexCloudGemini35Flash"}
+
+            @staticmethod
+            def normalize_cloud_model(model, default_alias=None):
+                return model or default_alias or "OpalaTexCloud"
+
+            @staticmethod
+            def resolve_cloud_model(model):
+                return {
+                    "OpalaTexCloud": "openai/gemini-3.5-flash-lite",
+                    "OpalaTexCloudGemini35Flash": "openai/gemini-3.5-flash",
+                }.get(model, model)
+
+    with patch("opalatex.extensions.get_extension_manager", return_value=FakeExtensionManager()):
+        with patch(
+            "opalatex.ui_settings.load_ui_settings",
+            return_value={"ai_provider": "cloud", "cloud_model": "OpalaTexCloudGemini35Flash"},
+        ):
+            assert get_agent_model("memgpt", default="ollama/gemma4:12b") == "openai/gemini-3.5-flash"
+
+
+def test_stale_cloud_provider_is_ignored_without_cloud_extension():
+    """Community mode must not route local or BYOK models through Opala Cloud."""
+    from opalatex.config import get_agent_llm_kwargs, get_agent_model
+    from unittest.mock import patch
+
+    class FakeExtensionManager:
+        has_cloud = False
+
+        class cloud:
+            @staticmethod
+            def is_cloud_model(model):
+                return model in {"OpalaTexCloud", "OpalaTexCloudGemini35Flash"}
+
+            @staticmethod
+            def normalize_cloud_model(model, default_alias=None):
+                return model or default_alias or "OpalaTexCloud"
+
+            @staticmethod
+            def resolve_cloud_model(model):
+                return {
+                    "OpalaTexCloud": "openai/gemini-3.5-flash-lite",
+                    "OpalaTexCloudGemini35Flash": "openai/gemini-3.5-flash",
+                }.get(model, model)
+
+    with patch("opalatex.extensions.get_extension_manager", return_value=FakeExtensionManager()):
+        with patch(
+            "opalatex.ui_settings.load_ui_settings",
+            return_value={"ai_provider": "cloud", "cloud_model": "OpalaTexCloud"},
+        ):
+            with patch("opalatex.models_store.get_model", return_value=None):
+                assert get_agent_model("worker", default="ollama/gemma4:31b") == "ollama/gemma4:31b"
+                kwargs = get_agent_llm_kwargs("worker")
+
+    assert kwargs.get("api_base") != "https://opalacoder.com/api/chat-proxy"
+    assert kwargs.get("custom_llm_provider") != "openai"
 
 
 def test_ollama_cloud_model_uses_remote_api_base_by_default(monkeypatch):

@@ -28,7 +28,8 @@
     "reviewMode": "Review Mode",
     "sourceControl": "Source Control",
     "opalatexCodes": "OpalaTex Chat",
-    "settings": "Settings"
+    "settings": "Settings",
+    "hardware": "Hardware"
   },
   "statusBar": {
     "workspace": "Workspace: {{name}}",
@@ -65,7 +66,10 @@
     "openFolder": "Open folder in OS",
     "workspaceFiles": "Workspace Files",
     "refreshFiles": "Refresh files",
-    "selectProjectToExplore": "Select a project to explore."
+    "selectProjectToExplore": "Select a project to explore.",
+    "importProject": "Import Project",
+    "selectProjectPlaceholder": "Select project...",
+    "noProjects": "No projects found"
   },
   "gitSidebar": {
     "header": "SOURCE CONTROL",
@@ -126,6 +130,7 @@
   },
 
   "editorPanel": {
+    "emptyRichText": "No editable content. Open a .tex file with a document body.",
     "noFileOpen": "No File Open",
     "openFileHint": "Open a file from the left sidebar.",
     "enableDiff": "Enable Diff (Git)",
@@ -340,7 +345,9 @@
     "hideThink": "Hide <think>",
     "hideThinkTooltip": "Hide <think> blocks from chat",
     "tryAgain": "Try Again",
-    "continue": "Continue"
+    "continue": "Continue",
+    "attachFile": "Attach image, PDF, DOCX, or PPTX",
+    "uploadingFiles": "Processing attachment..."
   },
   "chatSidebar": {
     "newChat": "New Chat",
@@ -350,7 +357,9 @@
     "deletePrompt": "Delete this chat and its entire history?",
     "delete": "Delete",
     "chatHistory": "Chat History",
-    "removeChat": "Remove Chat"
+    "removeChat": "Remove Chat",
+    "renameChat": "Rename Chat",
+    "renamePrompt": "New chat name:"
   },
   "bottomPanel": {
     "outputTab": "OUTPUT",
@@ -527,6 +536,7 @@
     "tabDependencies": "Dependencies",
     "tabPreferences": "Preferences",
     "tabAbout": "About",
+    "tabAccount": "Opala Cloud Account",
     "language": "Interface Language",
     "aiProvider": "AI Provider",
     "aiProviderHint": "Choose how Artificial Intelligence will be provided.",
@@ -627,7 +637,11 @@
   "confirmModal": {
     "title": "Confirmation Required",
     "no": "No",
-    "yes": "Yes"
+    "yes": "Yes",
+    "always": "Always Allow",
+    "cancel": "Cancel",
+    "editPlan": "Edit Plan",
+    "preview": "Preview"
   },
   "editModelsModal": {
     "title": "Edit Models / Providers",
@@ -844,7 +858,21 @@
     "delete": "Delete",
     "edit": "Edit",
     "save": "Save",
-    "noCredits": "Insufficient balance to use the cloud. Please add credits."
+    "noCredits": "Insufficient balance to use the cloud. Please add credits.",
+    "optionNone": "None",
+    "optionLow": "Low",
+    "optionMedium": "Medium",
+    "optionHigh": "High",
+    "optionXHigh": "Extra high",
+    "optionTrue": "True",
+    "optionFalse": "False",
+    "optionAll": "All"
+  },
+  "chat": {
+    "searchChats": "Search Chats",
+    "searchPlaceholder": "Type to search chat content...",
+    "searching": "Searching...",
+    "noResults": "No results found."
   },
   "deleteProjectModal": {
     "title": "Remove Project",

@@ -3,7 +3,66 @@ import { useTranslation } from 'react-i18next';
 
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
+import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
+
+const markdownComponents = {
+  p: ({ children }) => (
+    <p style={{ margin: '8px 0', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+      {children}
+    </p>
+  ),
+  pre: ({ children }) => (
+    <pre style={{
+      margin: '8px 0',
+      padding: '10px',
+      background: 'var(--vscode-input-bg, #2d2d2d)',
+      borderRadius: '4px',
+      overflowX: 'auto',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word',
+      overflowWrap: 'break-word',
+      fontSize: '13px',
+      fontFamily: 'var(--vscode-editor-font, monospace)'
+    }}>
+      {children}
+    </pre>
+  ),
+  code: ({ inline, className, children }) => {
+    if (inline) {
+      return (
+        <code style={{
+          padding: '2px 4px',
+          borderRadius: '3px',
+          fontFamily: 'var(--vscode-editor-font, monospace)',
+          fontSize: '12px',
+          background: 'var(--vscode-input-bg, #2d2d2d)',
+          color: 'var(--vscode-textPreformat-foreground, #d7ba7d)',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          overflowWrap: 'break-word'
+        }}>
+          {children}
+        </code>
+      );
+    }
+    return (
+      <code style={{
+        fontFamily: 'var(--vscode-editor-font, monospace)',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        overflowWrap: 'break-word'
+      }}>
+        {children}
+      </code>
+    );
+  },
+  li: ({ children }) => (
+    <li style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+      {children}
+    </li>
+  )
+};
 
 // Modal displayed when the backend emits an input_request (Yes/No confirmation).
 export default function ConfirmModal({ confirmRequest, onConfirm }) {
@@ -79,12 +138,16 @@ export default function ConfirmModal({ confirmRequest, onConfirm }) {
               fontSize: '14px',
               color: 'var(--vscode-text-fg)',
               display: 'flex',
-              flexDirection: 'column'
+              flexDirection: 'column',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              overflowWrap: 'break-word'
             }}>
               {isEditing ? (
                 <textarea
                   value={editedText}
                   onChange={(e) => setEditedText(e.target.value)}
+                  wrap="soft"
                   style={{
                     flex: 1,
                     width: '100%',
@@ -96,11 +159,18 @@ export default function ConfirmModal({ confirmRequest, onConfirm }) {
                     fontSize: '14px',
                     fontFamily: 'var(--vscode-editor-font)',
                     resize: 'none',
-                    outline: 'none'
+                    outline: 'none',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'break-word'
                   }}
                 />
               ) : (
-                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, { strict: "ignore" }]]}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkMath, remarkGfm]}
+                  rehypePlugins={[[rehypeKatex, { strict: "ignore" }]]}
+                  components={markdownComponents}
+                >
                   {editedText}
                 </ReactMarkdown>
               )}

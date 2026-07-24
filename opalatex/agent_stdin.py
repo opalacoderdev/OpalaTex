@@ -268,14 +268,9 @@ def _extract_worker_summary_from_tool_result(content: str) -> str:
 
 
 def _response_with_thought(response: str, thought_chunks: list[str]) -> str:
-    """Return the persisted chat content, preserving the turn thought snapshot."""
-    thought = "".join(thought_chunks).strip()
+    """Return the content safe to persist in chat history."""
     text = _strip_empty_think_blocks(str(response or "")).strip()
-    if not thought:
-        return text
-    if text.startswith("<think>") or text.startswith("```thought"):
-        return text
-    return f"<think>\n{thought}\n</think>\n\n{text}".strip()
+    return _visible_chat_response(text)
 
 
 def _visible_chat_response(response: str) -> str:
@@ -917,6 +912,15 @@ async def handle_run(data: dict):
     initial_project_mode = None
     if current_project:
         initial_project_mode = current_project.mode
+        # Record the mode at the start of this turn in chat history.
+        # This gives the agent a reliable audit trail entry for every turn,
+        # independent of what mode the system prompt currently injects.
+        if current_store and agent_type in ("orchestrator", "chat_orchestrator"):
+            current_store.append_message(
+                current_project,
+                "system",
+                f"[MODE] Agent turn started. Current mode: '{initial_project_mode}'.",
+            )
 
     if current_project and current_project.project_path:
         state_dir = os.path.join(current_project.project_path, ".opalatex")
@@ -1347,9 +1351,23 @@ async def handle_run(data: dict):
                     current_store.append_message(current_project, "system", f"Achievements logged during this turn:\n{tools_mod.TURN_ACHIEVEMENTS}")
                 if persisted_response:
                     assistant_message_id = current_store.append_message(current_project, "assistant", persisted_response)
-                # Revert any temporary mode changes (like create_plan setting mode to 'auto')
+                # Persist plan approval: if create_plan() switched mode to 'auto' this turn,
+                # keep that change so the next turn knows the plan was already approved.
+                # Only revert genuinely transient mode changes that were NOT plan approvals.
                 if 'initial_project_mode' in locals() and initial_project_mode:
-                    current_project.mode = initial_project_mode
+                    if current_project.mode == "auto" and initial_project_mode != "auto":
+                        # Plan was approved — the _record_mode_event() inside create_plan()
+                        # already wrote the [PLAN APPROVED] entry. Keep 'auto'.
+                        pass
+                    elif current_project.mode != initial_project_mode:
+                        # Some other transient change — revert and record it.
+                        current_store.append_message(
+                            current_project,
+                            "system",
+                            f"[MODE] Transient mode change ('{current_project.mode}') reverted to "
+                            f"'{initial_project_mode}' at end of turn.",
+                        )
+                        current_project.mode = initial_project_mode
                 current_store.save(current_project)
 
             response_payload = {"response": response}
@@ -1366,6 +1384,16 @@ async def handle_run(data: dict):
             import traceback
             err_msg = traceback.format_exc()
             user_msg = _friendly_llm_error(e, current_project)
+            if (
+                current_store
+                and current_project
+                and agent_type in ("orchestrator", "chat_orchestrator")
+            ):
+                current_store.append_message(
+                    current_project,
+                    "assistant",
+                    f"Agent Error: {user_msg}",
+                )
             print_event("error", {"message": user_msg, "trace": err_msg})
     finally:
         if turn_checkpoint_id and turn_checkpoint_project_path:

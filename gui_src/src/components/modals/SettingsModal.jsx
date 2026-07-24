@@ -71,7 +71,10 @@ export default function SettingsModal({
     fetch('/api/settings/ai-provider')
       .then(r => r.ok ? r.json() : null)
       .then(cfg => {
-        if (cfg?.provider !== undefined) setAiProvider(cfg.provider);
+        if (cfg?.provider !== undefined) {
+          const effectiveProvider = (!FEATURES.enableCloudAccount && cfg.provider === 'cloud') ? 'local' : cfg.provider;
+          setAiProvider(effectiveProvider);
+        }
       })
       .catch(() => { });
   }, []);
@@ -201,7 +204,7 @@ export default function SettingsModal({
                 </span>
               </div>
 
-              {aiProvider === 'cloud' && (
+              {FEATURES.enableCloudModels && FEATURES.enableCloudAccount && aiProvider === 'cloud' && (
                 <div className="flex flex-col" style={{ gap: '6px' }}>
                   <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.cloudModel')}</label>
                   <select
@@ -345,31 +348,31 @@ export default function SettingsModal({
                     <select className="vscode-settings-input"
                       value={ephemeralParams?.reasoning_effort || 'none'}
                       onChange={e => updateEphemeralParam('reasoning_effort', e.target.value)}>
-                      <option value="none">{t('common.optionNone')}</option>
-                      <option value="low">{t('common.optionLow')}</option>
-                      <option value="medium">{t('common.optionMedium')}</option>
-                      <option value="high">{t('common.optionHigh')}</option>
-                      <option value="xhigh">{t('common.optionXHigh')}</option>
+                      <option value="none">{t('common.optionNone', 'None')}</option>
+                      <option value="low">{t('common.optionLow', 'Low')}</option>
+                      <option value="medium">{t('common.optionMedium', 'Medium')}</option>
+                      <option value="high">{t('common.optionHigh', 'High')}</option>
+                      <option value="xhigh">{t('common.optionXHigh', 'Extra high')}</option>
                     </select>
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralThink')}</label>
+                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralThink', 'Think Parameter')}</label>
                     <select className="vscode-settings-input"
                       value={ephemeralParams?.think === undefined ? 'false' : (ephemeralParams.think ? 'true' : 'false')}
                       onChange={e => {
                         updateEphemeralParam('think', e.target.value === 'true');
                       }}>
-                      <option value="true">{t('common.optionTrue')}</option>
-                      <option value="false">{t('common.optionFalse')}</option>
+                      <option value="true">{t('common.optionTrue', 'True')}</option>
+                      <option value="false">{t('common.optionFalse', 'False')}</option>
                     </select>
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralResponseMode')}</label>
+                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralResponseMode', 'Response Mode')}</label>
                     <select className="vscode-settings-input"
                       value={ephemeralParams?.response_mode || 'last'}
                       onChange={e => updateEphemeralParam('response_mode', e.target.value)}>
-                      <option value="last">{t('settingsModal.ephemeralLastDefault')}</option>
-                      <option value="all">{t('common.optionAll')}</option>
+                      <option value="last">{t('settingsModal.ephemeralLastDefault', 'last (default)')}</option>
+                      <option value="all">{t('common.optionAll', 'All')}</option>
                     </select>
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>

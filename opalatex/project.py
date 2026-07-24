@@ -7,8 +7,20 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .config import DEFAULT_DB_PATH, apply_default_num_ctx
+from .config import DEFAULT_DB_PATH, DEFAULT_MODEL, apply_default_num_ctx
 from .api_keys import get_env_var_for_model
+
+
+def _available_project_model(model: str | None) -> str:
+    value = str(model or "")
+    try:
+        from .extensions import get_extension_manager
+        ext_mgr = get_extension_manager()
+        if not ext_mgr.has_cloud and ext_mgr.cloud.is_cloud_model(value):
+            return DEFAULT_MODEL
+    except Exception:
+        pass
+    return value
 
 
 def _env_base_var_for_model(model: str) -> str:
@@ -273,6 +285,8 @@ class ProjectStore:
             res = []
             for r in rows:
                 d = dict(r)
+                d["model"] = _available_project_model(d.get("model"))
+                d["worker_model"] = _available_project_model(d.get("worker_model"))
                 d["use_shared_memory"] = bool(d.get("use_shared_memory", True))
                 partial, full = _normalize_compile_on_save(
                     bool(d.get("compile_on_save_partial", True)),
@@ -566,8 +580,8 @@ class ProjectStore:
                 chats=chats,
                 current_chat_id=chat_id,
                 mode=row["mode"],
-                model=row["model"],
-                worker_model=row["worker_model"] if "worker_model" in row.keys() else (row["alternative_model"] if "alternative_model" in row.keys() else ""),
+                model=_available_project_model(row["model"]),
+                worker_model=_available_project_model(row["worker_model"] if "worker_model" in row.keys() else (row["alternative_model"] if "alternative_model" in row.keys() else "")),
                 project_name=row["project_name"],
                 project_path=row["project_path"],
                 skills=json.loads(row["skills"]),

@@ -3,6 +3,8 @@ import '@xterm/xterm/css/xterm.css';
 import { useTranslation } from 'react-i18next';
 import i18n from './i18n/index.js';
 
+import { FEATURES } from './config/features';
+
 // Utils
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
 
@@ -398,7 +400,17 @@ export default function App() {
     fetch('/api/settings/ai-provider')
       .then(r => r.ok ? r.json() : null)
       .then(cfg => {
-        if (cfg?.provider) setGlobalAiProvider(cfg.provider);
+        if (cfg?.provider) {
+          const effectiveProvider = (!FEATURES.enableCloudAccount && cfg.provider === 'cloud') ? 'local' : cfg.provider;
+          setGlobalAiProvider(effectiveProvider);
+          if (!FEATURES.enableCloudAccount && cfg.provider === 'cloud') {
+            fetch('/api/settings/ai-provider', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ provider: 'local', cloud_model: cfg.cloud_model || 'OpalaTexCloud' }),
+            }).catch(() => { });
+          }
+        }
         if (cfg?.cloud_model) setGlobalCloudModel(normalizeCloudModelId(cfg.cloud_model));
       })
       .catch(() => { });
@@ -2016,7 +2028,7 @@ export default function App() {
 
         setChatMessages(prev => {
           const last = prev[prev.length - 1];
-          const baseContent = data.persisted_response || responseText;
+          const baseContent = responseText;
           const finalContent = baseContent;
           if (last?.role === 'assistant' && last.content === finalContent) return prev;
           return [...prev, {

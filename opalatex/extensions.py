@@ -46,7 +46,8 @@ class CloudExtensionInterface:
 class DefaultCommunityExtension(CloudExtensionInterface):
     """Default fallback extension when no cloud extension is installed (Community Mode)."""
 
-    pass
+    def get_cloud_models(self) -> List[Dict[str, Any]]:
+        return []
 
 
 class ExtensionManager:

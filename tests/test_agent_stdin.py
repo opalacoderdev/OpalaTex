@@ -244,10 +244,10 @@ def test_worker_summary_response_uses_recorded_worker_message_when_agent_has_no_
     clear_worker_message_buffer()
 
 
-def test_response_with_thought_combines_thoughts_and_response():
-    assert _response_with_thought("Done.", ["Thinking 1\n", "Thinking 2"]) == "<think>\nThinking 1\nThinking 2\n</think>\n\nDone."
+def test_response_with_thought_returns_visible_chat_content_only():
+    assert _response_with_thought("Done.", ["Thinking 1\n", "Thinking 2"]) == "Done."
     assert _response_with_thought("Done.", []) == "Done."
-    assert _response_with_thought("<think>\nAlready wrapped\n</think>\n\nDone.", ["Thought"]) == "<think>\nAlready wrapped\n</think>\n\nDone."
+    assert _response_with_thought("<think>\nAlready wrapped\n</think>\n\nDone.", ["Thought"]) == "Done."
 
 
 def test_visible_chat_response_strips_thought_blocks():
@@ -467,7 +467,9 @@ async def test_handle_run_reports_error_when_orchestrator_never_sends_message(mo
     })
 
     assistant_messages = [content for role, content in saved_messages if role == "assistant"]
-    assert assistant_messages == []
+    assert assistant_messages == [
+        "Agent Error: The agent finished without calling send_message after automatic correction attempts. No fallback response was saved."
+    ]
 
     agent_responses = [data["response"] for event, data in events if event == "agent_response"]
     assert agent_responses == []
@@ -529,10 +531,21 @@ async def test_handle_run_does_not_duplicate_user_message_on_failed_retries(monk
     await stdin_mod.handle_run(payload)
 
     loaded = store.load("proj", chat_id=project.current_chat_id)
-    assert [(m["role"], m["content"]) for m in loaded.history] == [
-        ("user", "review main.tex")
+    # User message must appear exactly once (no duplicates despite 3 retried calls)
+    user_messages = [(m["role"], m["content"]) for m in loaded.history if m["role"] == "user"]
+    assert user_messages == [("user", "review main.tex")]
+    assert loaded.history[0].get("client_message_id") == "client-turn-1" or any(
+        m.get("client_message_id") == "client-turn-1" for m in loaded.history if m["role"] == "user"
+    )
+    # Each handle_run call records a [MODE] system entry at turn start
+    mode_messages = [m for m in loaded.history if m["role"] == "system" and m["content"].startswith("[MODE] Agent turn started")]
+    assert len(mode_messages) == 3, f"Expected 3 [MODE] entries, got {len(mode_messages)}"
+    assistant_errors = [m["content"] for m in loaded.history if m["role"] == "assistant"]
+    assert assistant_errors == [
+        "Agent Error: simulated api failure",
+        "Agent Error: simulated api failure",
+        "Agent Error: simulated api failure",
     ]
-    assert loaded.history[0]["client_message_id"] == "client-turn-1"
     assert [data["message"] for event, data in events if event == "error"] == [
         "simulated api failure",
         "simulated api failure",
@@ -540,8 +553,9 @@ async def test_handle_run_does_not_duplicate_user_message_on_failed_retries(monk
     ]
 
 
+
 @pytest.mark.asyncio
-async def test_handle_run_persists_thought_snapshot_in_chat_history(monkeypatch, tmp_path):
+async def test_handle_run_persists_visible_response_without_thought_snapshot(monkeypatch, tmp_path):
     import opalatex.agent_stdin as stdin_mod
 
     events = []
@@ -587,7 +601,7 @@ async def test_handle_run_persists_thought_snapshot_in_chat_history(monkeypatch,
     })
 
     assistant_messages = [content for role, content in saved_messages if role == "assistant"]
-    expected_persisted = "<think>\nI should save the file.\n</think>\n\nThe file was saved."
+    expected_persisted = "The file was saved."
     assert assistant_messages == [expected_persisted]
 
     agent_responses = [data["response"] for event, data in events if event == "agent_response"]
@@ -597,7 +611,7 @@ async def test_handle_run_persists_thought_snapshot_in_chat_history(monkeypatch,
 
 
 @pytest.mark.asyncio
-async def test_handle_run_persists_auxiliary_thought_events_in_chat_history(monkeypatch, tmp_path):
+async def test_handle_run_does_not_persist_auxiliary_thought_events_in_chat_history(monkeypatch, tmp_path):
     import opalatex.agent_stdin as stdin_mod
 
     events = []
@@ -649,8 +663,9 @@ async def test_handle_run_persists_auxiliary_thought_events_in_chat_history(monk
 
     assistant_messages = [content for role, content in saved_messages if role == "assistant"]
     assert len(assistant_messages) == 1
-    assert "<think>" in assistant_messages[0]
-    assert "Received successful return from tool 'write_file'" in assistant_messages[0]
+    assert assistant_messages[0] == "The file was saved."
+    assert "<think>" not in assistant_messages[0]
+    assert "Received successful return from tool 'write_file'" not in assistant_messages[0]
 
     agent_responses = [payload["response"] for payload in events if payload["event"] == "agent_response"]
     assert agent_responses == ["The file was saved."]

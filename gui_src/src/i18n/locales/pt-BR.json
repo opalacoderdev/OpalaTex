@@ -28,7 +28,8 @@
     "reviewMode": "Modo Review",
     "sourceControl": "Source Control",
     "opalatexCodes": "OpalaTex Chat",
-    "settings": "Configurações"
+    "settings": "Configurações",
+    "hardware": "Hardware"
   },
   "statusBar": {
     "workspace": "Workspace: {{name}}",
@@ -65,7 +66,10 @@
     "openFolder": "Abrir pasta no Sistema Operacional",
     "workspaceFiles": "Workspace Files",
     "refreshFiles": "Atualizar arquivos",
-    "selectProjectToExplore": "Selecione um projeto para explorar."
+    "selectProjectToExplore": "Selecione um projeto para explorar.",
+    "importProject": "Importar Projeto",
+    "selectProjectPlaceholder": "Selecionar projeto...",
+    "noProjects": "Nenhum projeto encontrado"
   },
   "gitSidebar": {
     "header": "SOURCE CONTROL",
@@ -125,7 +129,8 @@
     "agentCheckpointUndoFailed": "Falha ao desfazer turno do agente: {{error}}"
   },
   "editorPanel": {
-    "noFileOpen": "Nenhum Arquivo Aberto",
+    "emptyRichText": "Nenhum conteúdo editável. Abra um arquivo .tex com o corpo do documento.",
+    "noFileOpen": "Sem Arquivo Aberto",
     "openFileHint": "Abra um arquivo na barra lateral esquerda.",
     "enableDiff": "Habilitar Diff (Git)",
     "disableDiff": "Desabilitar Diff",
@@ -339,7 +344,9 @@
     "hideThink": "Ocultar <think>",
     "hideThinkTooltip": "Ocultar blocos <think> do chat",
     "tryAgain": "Tentar Novamente",
-    "continue": "Continuar"
+    "continue": "Continuar",
+    "attachFile": "Anexar imagem, PDF, DOCX ou PPTX",
+    "uploadingFiles": "Processando anexo..."
   },
   "chatSidebar": {
     "newChat": "Novo Chat",
@@ -349,7 +356,9 @@
     "deletePrompt": "Deletar este chat e todo o seu histórico?",
     "delete": "Deletar",
     "chatHistory": "Histórico de Chats",
-    "removeChat": "Remover Chat"
+    "removeChat": "Remover Chat",
+    "renameChat": "Renomear Chat",
+    "renamePrompt": "Novo nome do chat:"
   },
   "bottomPanel": {
     "outputTab": "OUTPUT",
@@ -525,6 +534,7 @@
     "tabDependencies": "Dependências",
     "tabPreferences": "Preferências",
     "tabAbout": "Sobre",
+    "tabAccount": "Conta Opala Cloud",
     "language": "Idioma da Interface",
     "aiProvider": "Provedor de Inteligência Artificial",
     "aiProviderHint": "Escolha como a Inteligência Artificial será fornecida.",
@@ -625,7 +635,11 @@
   "confirmModal": {
     "title": "Confirmação Necessária",
     "no": "Não",
-    "yes": "Sim"
+    "yes": "Sim",
+    "always": "Sempre Permitir",
+    "cancel": "Cancelar",
+    "editPlan": "Editar Plano",
+    "preview": "Visualizar"
   },
   "editModelsModal": {
     "title": "Editar Modelos / Provedores",
@@ -842,7 +856,21 @@
     "delete": "Excluir",
     "edit": "Editar",
     "save": "Salvar",
-    "noCredits": "Sem saldo suficiente para usar a cloud. Por favor adicione créditos."
+    "noCredits": "Sem saldo suficiente para usar a cloud. Por favor adicione créditos.",
+    "optionNone": "Nenhum",
+    "optionLow": "Baixo",
+    "optionMedium": "Médio",
+    "optionHigh": "Alto",
+    "optionXHigh": "Muito Alto",
+    "optionTrue": "Verdadeiro",
+    "optionFalse": "Falso",
+    "optionAll": "Todos"
+  },
+  "chat": {
+    "searchChats": "Buscar Chats",
+    "searchPlaceholder": "Digite para pesquisar o conteúdo do chat...",
+    "searching": "Pesquisando...",
+    "noResults": "Nenhum resultado encontrado."
   },
   "deleteProjectModal": {
     "title": "Remover Projeto",

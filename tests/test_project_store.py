@@ -58,6 +58,29 @@ def test_create_does_not_duplicate_opalatex(store):
     assert p.skills.count("opalatex") == 1
 
 
+def test_stale_cloud_project_model_loads_as_default_in_community(store, tmp_path):
+    """Community mode must not surface stale Opala Cloud aliases from old projects."""
+    from opalatex.config import DEFAULT_MODEL
+
+    project_dir = tmp_path / "stale_cloud"
+    store.create(
+        **_base_args(
+            name="stale_cloud",
+            model="OpalaTexCloud",
+            worker_model="OpalaTexCloudGemini35Flash",
+            project_path=str(project_dir),
+        )
+    )
+
+    loaded = store.load("stale_cloud")
+    listed = store.list_projects()[0]
+
+    assert loaded.model == DEFAULT_MODEL
+    assert loaded.worker_model == DEFAULT_MODEL
+    assert listed["model"] == DEFAULT_MODEL
+    assert listed["worker_model"] == DEFAULT_MODEL
+
+
 def test_create_local_model_defaults_num_ctx_to_8192(store, tmp_path):
     project_dir = tmp_path / "local_ctx"
     p = store.create(

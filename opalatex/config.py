@@ -130,6 +130,13 @@ DEFAULT_MODEL = _initial_cfg.get("default", os.getenv("OPALATEX_MODEL", "ollama/
 WORKER_MODEL = _initial_cfg.get("worker", _initial_cfg.get("alternative", "gemini/gemini-3.5-flash-lite"))
 DEFAULT_LITELLM_TIMEOUT_SECONDS = 600.0
 
+
+def _community_model_fallback() -> str:
+    """Return a non-cloud model for stale Community-mode Cloud aliases."""
+    if str(DEFAULT_MODEL or "").startswith("OpalaTexCloud"):
+        return "ollama/gemma4:12b"
+    return DEFAULT_MODEL
+
 def _get_llm_defaults():
     cfg = _get_agents_config()
     return {
@@ -317,10 +324,13 @@ def get_agent_response_mode(agent_name: str, default: str = "last") -> str:
 def get_agent_model(agent_name: str, default: str | None = None) -> str:
     """Return the model configured for *agent_name* in agents.yaml, or *default*."""
     from opalatex.extensions import get_extension_manager
-    ext = get_extension_manager().cloud
+    ext_mgr = get_extension_manager()
+    ext = ext_mgr.cloud
 
     override = _get_agent_overrides().get(agent_name, {}).get("model")
     if override:
+        if not ext_mgr.has_cloud and ext.is_cloud_model(override):
+            return _community_model_fallback()
         resolved = ext.resolve_cloud_model(override)
         if resolved:
             return resolved
@@ -330,6 +340,9 @@ def get_agent_model(agent_name: str, default: str | None = None) -> str:
     model = default if default is not None else dyn_default
 
     cloud_alias_selected = ext.is_cloud_model(model)
+    if cloud_alias_selected and not ext_mgr.has_cloud:
+        return _community_model_fallback()
+
     resolved_model = ext.resolve_cloud_model(model)
     if resolved_model != model:
         model = resolved_model
@@ -337,7 +350,7 @@ def get_agent_model(agent_name: str, default: str | None = None) -> str:
     # Apply Cloud Provider Override
     from opalatex.ui_settings import load_ui_settings
     ui_cfg = load_ui_settings()
-    if ui_cfg.get("ai_provider") == "cloud":
+    if ext_mgr.has_cloud and ui_cfg.get("ai_provider") == "cloud":
         if cloud_alias_selected:
             return model
         cloud_model = ext.normalize_cloud_model(ui_cfg.get("cloud_model"), "OpalaTexCloud")
@@ -415,7 +428,10 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     except Exception:
         pass
 
-    if ui_cfg.get("ai_provider") == "cloud" or resolved_model in cloud_litellm_models:
+    from opalatex.extensions import get_extension_manager
+    cloud_provider_active = get_extension_manager().has_cloud and ui_cfg.get("ai_provider") == "cloud"
+
+    if cloud_provider_active or resolved_model in cloud_litellm_models:
         license_data = _load_license_data()
         license_key = license_data.get("license_key", "")
         # Force OpenAI format to proxy through our custom server

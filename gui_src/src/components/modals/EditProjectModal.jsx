@@ -3,6 +3,7 @@ import { X, Settings, Check, FolderOpen } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
 import { useModelValidation } from './useModelValidation';
 import { useCustomDialog } from './CustomDialogProvider';
+import { FEATURES } from '../../config/features';
 
 // Numeric input helper to avoid repetition in the advanced params grid.
 function ParamNumber({ label, value, onChange, step, min, max, placeholder }) {
@@ -441,7 +442,7 @@ export default function EditProjectModal({
             <>
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.mainModel')}</label>
-                {globalAiProvider === 'cloud' ? (
+                {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
                   <>
                     <select
                       className="vscode-settings-input"
@@ -470,7 +471,7 @@ export default function EditProjectModal({
                       style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
                     <datalist id="edit-models">
-                      <option value="OpalaTexCloud" />
+                      {FEATURES.enableCloudModels && <option value="OpalaTexCloud" />}
                       {(globalModels || []).map(m => (
                         <option key={`edit-model-${m.id}`} value={m.id} />
                       ))}
@@ -488,7 +489,7 @@ export default function EditProjectModal({
               </div>
 
               {/* API credentials (main model) */}
-              {globalAiProvider !== 'cloud' && (
+              {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
                 <>
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
@@ -564,11 +565,11 @@ export default function EditProjectModal({
                             onChange={e => setParam('reasoning_effort', e.target.value || undefined)}
                           >
                             <option value="">{t('editProjectModal.defaultOption')}</option>
-                            <option value="none">{t('common.optionNone')}</option>
-                            <option value="low">{t('common.optionLow')}</option>
-                            <option value="medium">{t('common.optionMedium')}</option>
-                            <option value="high">{t('common.optionHigh')}</option>
-                            <option value="xhigh">{t('common.optionXHigh')}</option>
+                            <option value="none">{t('common.optionNone', 'None')}</option>
+                            <option value="low">{t('common.optionLow', 'Low')}</option>
+                            <option value="medium">{t('common.optionMedium', 'Medium')}</option>
+                            <option value="high">{t('common.optionHigh', 'High')}</option>
+                            <option value="xhigh">{t('common.optionXHigh', 'Extra high')}</option>
                           </select>
                         </div>
 
@@ -665,7 +666,7 @@ export default function EditProjectModal({
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerModel')}</label>
                 </div>
-                {globalAiProvider === 'cloud' ? (
+                {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
                   <>
                     <select
                       className="vscode-settings-input"
@@ -705,7 +706,7 @@ export default function EditProjectModal({
                     </datalist>
                   </div>
                 )}
-                {globalAiProvider !== 'cloud' && (
+                {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                     {workerHardware ? (
                       <span style={{ fontSize: '10px', color: '#888888' }}>
@@ -718,7 +719,7 @@ export default function EditProjectModal({
                 )}
               </div>
 
-              {globalAiProvider !== 'cloud' && (
+              {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
                 <>
                   {/* Worker API Key */}
                   <div className="flex flex-col" style={{ gap: '4px' }}>
@@ -804,11 +805,11 @@ export default function EditProjectModal({
                             onChange={e => setParam('reasoning_effort', e.target.value || undefined, true)}
                           >
                             <option value="">{t('editProjectModal.defaultOption')}</option>
-                            <option value="none">{t('common.optionNone')}</option>
-                            <option value="low">{t('common.optionLow')}</option>
-                            <option value="medium">{t('common.optionMedium')}</option>
-                            <option value="high">{t('common.optionHigh')}</option>
-                            <option value="xhigh">{t('common.optionXHigh')}</option>
+                            <option value="none">{t('common.optionNone', 'None')}</option>
+                            <option value="low">{t('common.optionLow', 'Low')}</option>
+                            <option value="medium">{t('common.optionMedium', 'Medium')}</option>
+                            <option value="high">{t('common.optionHigh', 'High')}</option>
+                            <option value="xhigh">{t('common.optionXHigh', 'Extra high')}</option>
                           </select>
                         </div>
 
