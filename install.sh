@@ -86,21 +86,6 @@ get_download_url() {
         return 0
     fi
 
-    echo "Checking the latest GitHub release ($REPO_OWNER/$REPO_NAME)..." >&2
-    local release_json
-    if ! release_json="$(curl -fsSL \
-        -H "Accept: application/vnd.github+json" \
-        -H "User-Agent: OpalaTex-Installer" \
-        "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest")"; then
-        echo "Could not query the latest GitHub release." >&2
-        return 1
-    fi
-
-    if ! printf '%s' "$release_json" | grep -Fq "\"name\": \"$ASSET_NAME\""; then
-        echo "The latest GitHub release does not contain $ASSET_NAME. Create a tagged release with this asset before running this installer." >&2
-        return 1
-    fi
-
     local latest_url="https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest/download/$ASSET_NAME"
     printf '%s\n' "$latest_url"
 }
