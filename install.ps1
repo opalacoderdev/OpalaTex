@@ -1,12 +1,12 @@
 # =========================================================
-# Script de Instalação do OpalaTex (Community) para Windows via PowerShell
-# Uso: irm https://raw.githubusercontent.com/opalatexdev/OpalaTex/main/install.ps1 | iex
+# OpalaTex Community Windows installer for PowerShell
+# Usage: irm https://raw.githubusercontent.com/opalacoderdev/OpalaTex/master/install.ps1 | iex
 # =========================================================
 
 $ErrorActionPreference = "Stop"
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "     Instalador do OpalaTex (Community)   " -ForegroundColor Cyan
+Write-Host "     OpalaTex Installer (Community)       " -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
 $installDir = "$env:LOCALAPPDATA\OpalaTex"
@@ -14,34 +14,80 @@ $tempZip    = "$env:TEMP\opalatex_release.zip"
 $repoOwner  = "opalacoderdev"
 $repoName   = "OpalaTex"
 
-# Determinar URL de download no GitHub Releases
-if ($env:OPALATEX_DOWNLOAD_URL) {
-    $downloadUrl = $env:OPALATEX_DOWNLOAD_URL
-} else {
-    Write-Host "Consultando ultima release do GitHub ($repoOwner/$repoName)..." -ForegroundColor Yellow
-    try {
-        $releaseApi = Invoke-RestMethod -Uri "https://api.github.com/repos/$repoOwner/$repoName/releases/latest" -Headers @{ "User-Agent" = "OpalaTex-Installer" }
-        $asset = $releaseApi.assets | Where-Object { $_.name -like "*windows*.zip" } | Select-Object -First 1
-        if ($asset) {
-            $downloadUrl = $asset.browser_download_url
-        } else {
-            #$downloadUrl = "https://github.com/$repoOwner/$repoName/releases/latest/download/OpalaTex-windows-x64.zip"
-            $downloadUrl = "https://github.com/$repoOwner/$repoName/actions/runs/30160673363/artifacts/8620257277"
+$headers = @{
+    "Accept"               = "application/vnd.github+json"
+    "User-Agent"           = "OpalaTex-Installer"
+    "X-GitHub-Api-Version" = "2022-11-28"
+}
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+function Get-OpalaTexDownloadUrl {
+    if ($env:OPALATEX_DOWNLOAD_URL) {
+        if ($env:OPALATEX_DOWNLOAD_URL -match "/actions/runs/.*/artifacts/") {
+            throw "OPALATEX_DOWNLOAD_URL points to a GitHub Actions artifact. Please use a GitHub Release asset URL instead."
         }
-    } catch {
-        $downloadUrl = "https://github.com/$repoOwner/$repoName/actions/runs/30160673363/artifacts/8620257277"
+        return $env:OPALATEX_DOWNLOAD_URL
+    }
+
+    Write-Host "Checking the latest GitHub release ($repoOwner/$repoName)..." -ForegroundColor Yellow
+    $releaseApi = Invoke-RestMethod -Uri "https://api.github.com/repos/$repoOwner/$repoName/releases/latest" -Headers $headers
+    $asset = $releaseApi.assets |
+        Where-Object { $_.name -eq "OpalaTex-windows-x64.zip" -and $_.state -eq "uploaded" } |
+        Select-Object -First 1
+
+    if (-not $asset) {
+        throw "The latest GitHub release does not contain OpalaTex-windows-x64.zip. Create a tagged release with the Windows asset before running this installer."
+    }
+
+    if ($asset.browser_download_url -match "/actions/runs/.*/artifacts/") {
+        throw "The latest Windows download points to a GitHub Actions artifact instead of a GitHub Release asset."
+    }
+
+    return $asset.browser_download_url
+}
+
+function Invoke-DownloadWithRetry {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$OutFile
+    )
+
+    $maxAttempts = 3
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            if (Test-Path $OutFile) {
+                Remove-Item -Path $OutFile -Force
+            }
+
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -Headers $headers -UseBasicParsing -MaximumRedirection 10
+
+            if ((Test-Path $OutFile) -and ((Get-Item $OutFile).Length -gt 0)) {
+                return
+            }
+
+            throw "Download completed but the output file is empty."
+        } catch {
+            if ($attempt -eq $maxAttempts) {
+                throw "Failed to download OpalaTex after $maxAttempts attempts. Last error: $($_.Exception.Message)"
+            }
+
+            Write-Host "Download failed. Retrying ($attempt/$maxAttempts)..." -ForegroundColor Yellow
+            Start-Sleep -Seconds (2 * $attempt)
+        }
     }
 }
 
-Write-Host "Baixando OpalaTex de: $downloadUrl" -ForegroundColor Yellow
+$downloadUrl = Get-OpalaTexDownloadUrl
+Write-Host "Downloading OpalaTex from: $downloadUrl" -ForegroundColor Yellow
 
 if (-not (Test-Path $installDir)) {
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 }
 
-Invoke-WebRequest -Uri $downloadUrl -OutFile $tempZip -UseBasicParsing
+Invoke-DownloadWithRetry -Uri $downloadUrl -OutFile $tempZip
 
-Write-Host "Extraindo arquivos em $installDir..." -ForegroundColor Yellow
+Write-Host "Extracting files to $installDir..." -ForegroundColor Yellow
 Expand-Archive -Path $tempZip -DestinationPath $installDir -Force
 
 $exeDir = "$installDir\OpalaTex"
@@ -49,17 +95,17 @@ if (-not (Test-Path "$exeDir\OpalaTex.exe")) {
     $exeDir = $installDir
 }
 
-# Adicionar a pasta do OpalaTex no PATH do usuário
+# Add the OpalaTex executable directory to the user PATH.
 $userPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::User)
 if ($userPath -notlike "*$exeDir*") {
-    Write-Host "Adicionando OpalaTex ao PATH..." -ForegroundColor Yellow
+    Write-Host "Adding OpalaTex to PATH..." -ForegroundColor Yellow
     $newPath = "$userPath;$exeDir"
     [Environment]::SetEnvironmentVariable("Path", $newPath, [EnvironmentVariableTarget]::User)
     $env:Path = "$env:Path;$exeDir"
 }
 
-# Criar atalhos (Desktop e Menu Iniciar)
-Write-Host "Criando atalhos no Desktop e Menu Iniciar..." -ForegroundColor Yellow
+# Create Desktop and Start menu shortcuts.
+Write-Host "Creating Desktop and Start menu shortcuts..." -ForegroundColor Yellow
 $exePath  = "$exeDir\OpalaTex.exe"
 $wshShell = New-Object -ComObject WScript.Shell
 
@@ -86,7 +132,7 @@ Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Green
-Write-Host "  OpalaTex instalado com sucesso!        " -ForegroundColor Green
+Write-Host "  OpalaTex installed successfully!       " -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
-Write-Host "Comando no terminal: opalatex" -ForegroundColor Cyan
-Write-Host "Atalhos criados na Area de Trabalho e Menu Iniciar." -ForegroundColor Cyan
+Write-Host "Terminal command: opalatex" -ForegroundColor Cyan
+Write-Host "Shortcuts were created on the Desktop and Start menu." -ForegroundColor Cyan
