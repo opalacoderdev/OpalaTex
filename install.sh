@@ -11,7 +11,7 @@ INSTALL_DIR="$HOME/.local/share/OpalaTex"
 BIN_DIR="$HOME/.local/bin"
 TEMP_FILE="/tmp/opalatex_release.tar.gz"
 
-REPO_OWNER="opalatexdev"
+REPO_OWNER="opalacoderdev"
 REPO_NAME="OpalaTex"
 
 # Determinar URL de Download (Release do GitHub ou customizada)

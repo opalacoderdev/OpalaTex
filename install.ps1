@@ -11,7 +11,7 @@ Write-Host "==========================================" -ForegroundColor Cyan
 
 $installDir = "$env:LOCALAPPDATA\OpalaTex"
 $tempZip    = "$env:TEMP\opalatex_release.zip"
-$repoOwner  = "opalatexdev"
+$repoOwner  = "opalacoderdev"
 $repoName   = "OpalaTex"
 
 # Determinar URL de download no GitHub Releases
