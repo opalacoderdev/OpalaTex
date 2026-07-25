@@ -3,11 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import copy_metadata
 
 datas = [('opalatex/gui', 'opalatex/gui'), ('opalatex/icon.png', 'opalatex'), ('opalatex/assetstore', 'opalatex/assetstore'), ('opalatex/templates', 'opalatex/templates'), ('bin', 'bin'), ('config.yaml', '.'), ('skills', 'skills'), ('version_info.txt', '.')]
-import os
-import winpty
-
-winpty_agent = os.path.join(os.path.dirname(winpty.__file__), 'winpty-agent.exe')
-binaries = [(winpty_agent, 'winpty')] if os.path.exists(winpty_agent) else []
+binaries = [('C:\\Users\\gilza\\projetos\\OpalaTex\\.venv\\Lib\\site-packages\\winpty\\winpty-agent.exe', 'winpty')]
 hiddenimports = []
 datas += copy_metadata('tiktoken')
 tmp_ret = collect_all('litellm')
@@ -31,16 +27,6 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('instructor')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('agenticblocks')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-try:
-    import webview
-except ImportError:
-    raise RuntimeError(
-        "ERROR: 'webview' (pywebview) is not installed in the active Python environment! "
-        "Please build using the project virtual environment (.venv) or run 'pip install pywebview'."
-    )
-
-tmp_ret = collect_all('qtpy')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('webview')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
