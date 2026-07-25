@@ -25,10 +25,11 @@ if ($env:OPALATEX_DOWNLOAD_URL) {
         if ($asset) {
             $downloadUrl = $asset.browser_download_url
         } else {
-            $downloadUrl = "https://github.com/$repoOwner/$repoName/releases/latest/download/OpalaTex-windows-x64.zip"
+            #$downloadUrl = "https://github.com/$repoOwner/$repoName/releases/latest/download/OpalaTex-windows-x64.zip"
+            $downloadUrl = "https://github.com/$repoOwner/$repoName/actions/runs/30160673363/artifacts/8620257277"
         }
     } catch {
-        $downloadUrl = "https://github.com/$repoOwner/$repoName/releases/latest/download/OpalaTex-windows-x64.zip"
+        $downloadUrl = "https://github.com/$repoOwner/$repoName/actions/runs/30160673363/artifacts/8620257277"
     }
 }
 
