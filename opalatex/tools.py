@@ -876,7 +876,7 @@ async def ask_human(question: str) -> str:
     description=(
         "Return a compact overview of the current project: directory tree (max depth defined by parameter max_depth, DEFAULT/MINIMUM 5), "
         "file count by type, and a summary of key files (README, package.json, requirements.txt, etc.). "
-        "Call this at the start of any task to understand the project before acting. ALWAYS specify max_depth of at least 5."
+        "Use this when the project structure or target file is unknown. Skip it when the user or context already identifies the file to inspect or edit."
     ),
 )
 def get_project_overview(max_depth:int = 5) -> str:
@@ -1237,7 +1237,6 @@ def _record_mode_event(content: str) -> None:
         return
     try:
         _PROJECT_STORE.append_message(_PROJECT_SESSION, "system", content)
-        _PROJECT_STORE.save(_PROJECT_SESSION)
     except Exception:
         pass  # never let history recording crash the tool
 
@@ -1302,14 +1301,14 @@ async def create_plan(plan_content: str) -> str:
         _PROJECT_SESSION.mode = "auto"
         if edited_plan != plan_content:
             _PROJECT_SESSION.plan_text = edited_plan
-        # Record approval immediately in chat history so the agent has an
-        # unambiguous audit trail even if the turn is interrupted afterward.
+        # Record approval immediately in chat history. Do not save the whole
+        # project here, because the mode is only temporarily auto for this turn.
         _record_mode_event(
             f"[PLAN APPROVED] The user approved the proposed plan. "
-            f"Mode changed: '{prev_mode}' → 'auto'. "
-            "The agent must proceed to execute the plan without asking for approval again."
+            f"Temporary mode for this turn: '{prev_mode}' -> 'auto'. "
+            "The project mode must be restored at the end of the turn."
         )
-        return f"The user APPROVED the plan. The system is now in 'auto' mode. Proceed to execute the plan.\n\nPlan Content:\n{edited_plan}"
+        return f"The user APPROVED the plan. The system is temporarily in 'auto' mode for this turn only. Proceed to execute the plan.\n\nPlan Content:\n{edited_plan}"
     else:
         # Record rejection immediately in chat history
         _record_mode_event(

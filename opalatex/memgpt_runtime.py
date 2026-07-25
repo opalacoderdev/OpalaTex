@@ -43,6 +43,9 @@ from .tools import (
     analyze_image,
     create_docx_file,
     create_pptx_file,
+    read_content_pos,
+    replace_content_range,
+    write_content_pos,
     set_project_context,
 )
 from .config import (
@@ -65,6 +68,52 @@ from .skills import (
 from .tools import get_available_tools
 
 CHAT_ORCHESTRATOR_SKILL = "chat-orchestrator"
+MAX_FAILED_SKILL_ATTEMPTS = 2
+
+
+def _is_failed_worker_result(result: Any) -> bool:
+    text = str(result or "")
+    lowered = text.lower()
+    return (
+        "[critical worker crash]" in lowered
+        or "[aviso: o worker terminou sem um resumo claro" in lowered
+        or "tools used by worker: 0" in lowered
+        or "0 chamadas de ferramenta" in lowered
+        or "tool-call json parsing failed" in lowered
+    )
+
+
+def _recent_failed_skill_attempts(memgpt: MemGPTAgentBlock, skill_name: str) -> int:
+    attempts = 0
+    for run in reversed(getattr(memgpt, "_skill_run_history", [])):
+        if run.get("skill") != skill_name:
+            break
+        if not _is_failed_worker_result(run.get("result", "")):
+            break
+        attempts += 1
+    return attempts
+
+
+def _sanitize_skill_result_for_prompt(result: Any, *, limit: int = 500) -> str:
+    text = str(result or "").strip()
+    lowered = text.lower()
+    if "error parsing tool call" in lowered and "unexpected end of json input" in lowered:
+        return "[CRITICAL WORKER CRASH: model produced invalid/truncated JSON tool-call arguments.]"
+    if "[aviso: o worker terminou sem um resumo claro" in lowered:
+        return "[WORKER NO-ACTION: worker finished without a clear summary or tool calls.]"
+    if len(text) > limit:
+        return text[:limit] + "... [truncated]"
+    return text
+
+
+def _tool_calls_count(tool_calls: Any) -> int | None:
+    if isinstance(tool_calls, bool):
+        return int(tool_calls)
+    if isinstance(tool_calls, int):
+        return tool_calls
+    if isinstance(tool_calls, str) and tool_calls.isdigit():
+        return int(tool_calls)
+    return None
 
 
 
@@ -338,8 +387,8 @@ def build_run_skill_tool(
             "Do NOT output any preamble, apologies, or confirmation text (like 'Sure, I will do that'). Any response containing ONLY conversational text will immediately terminate your execution, preventing you from calling any tools. ALWAYS call a tool first.\n"
             "--------------------------------------------\n\n"
             "Your specific tools are:\n"
-            "  - get_project_overview: Returns the project's folder and file structure. Use it to explore the workspace and locate files.\n"
-            "  - read_file: Reads the complete contents of a file. Use it to inspect code or text files entirely.\n"
+            "  - get_project_overview: Returns the project's folder and file structure. Use it only when the target file is unknown.\n"
+            "  - read_file: Reads the complete contents of a file. Use it only for small files or when full-file context is truly needed.\n"
             "  - read_content_pos: Reads a specific snippet of a file by providing start and end line numbers. Use it for targeted reading of large files.\n"
             "  - write_file: Writes or completely overwrites a file. Use it to create new files or replace existing ones entirely. NEVER use run_command with echo/cat to write files.\n"
             "  - write_content_pos: Inserts content before a specific 1-indexed line in an existing file.\n"
@@ -357,6 +406,9 @@ def build_run_skill_tool(
             f"{request_hint}"
             f"IMPORTANT: To save any file content (HTML, JSON, code, Markdown, etc.) ALWAYS use the write_file tool. "
             f"RECOMMENDATION FOR TERMINATION AND send_message:\n"
+            f"- If MEMGPT CONTEXT/INSTRUCTIONS contains an explicit command or script to execute, your first tool call should be run_command with that command.\n"
+            f"- If MEMGPT CONTEXT/INSTRUCTIONS already identifies the target file, line range, or edit, do not call get_project_overview first.\n"
+            f"- For large .tex, .log, or source files, never call read_file just to find a section or marker; use run_command with rg/grep/nl or use read_content_pos for a known range.\n"
             f"- Calling send_message OR returning a final text response terminates your execution immediately.\n"
             f"- If you need to do X, do it RIGHT NOW using your tools in this exact same turn. Only terminate when the entire requested task is completely finished, or if you are completely blocked and need human input. Inform final response to user.\n"
             f"- If your task requires using multiple tools (like reading files, running commands, or writing code), do not call send_message first. Use the tools to complete the work, and then call send_message to report the final result.\n"
@@ -491,7 +543,7 @@ def build_run_skill_tool(
                         "```json\n"
                         "{\n"
                         "  \"name\": \"read_file\",\n"
-                        "  \"arguments\": {\"AbsolutePath\": \"path/to/file.py\"}\n"
+                        "  \"arguments\": {\"path\": \"path/to/file.py\"}\n"
                         "}\n"
                         "```\n"
                         "To talk to the user (ONLY if strictly needed to communicate):\n"
@@ -523,6 +575,16 @@ def build_run_skill_tool(
         # Inject previous attempts for the same skill to keep a Markovian state
         if not hasattr(memgpt, "_skill_run_history"):
             memgpt._skill_run_history = []
+
+        failed_attempts = _recent_failed_skill_attempts(memgpt, skill_name)
+        if failed_attempts >= MAX_FAILED_SKILL_ATTEMPTS:
+            return (
+                f"[SYSTEM ALERT] WORKER LOOP BREAKER: The '{skill_name}' skill has failed "
+                f"{failed_attempts} consecutive times without completing useful tool work. "
+                "Do NOT call this same worker again for this task. Use your direct tools if "
+                "available, reduce the task to a smaller verified action, or call send_message "
+                "with a concise blocker explanation."
+            )
             
         # Check for macro-loop
         for run in memgpt._skill_run_history:
@@ -533,7 +595,11 @@ def build_run_skill_tool(
         attempt_count = 1
         for run in memgpt._skill_run_history:
             if run["skill"] == skill_name:
-                previous_runs += f"--- Previous attempt {attempt_count} ---\nContext given: {run['context'][:200]}...\nResult/Report: {run['result']}\n\n"
+                previous_runs += (
+                    f"--- Previous attempt {attempt_count} ---\n"
+                    f"Context given: {str(run.get('context', ''))[:200]}...\n"
+                    f"Result/Report: {_sanitize_skill_result_for_prompt(run.get('result', ''))}\n\n"
+                )
                 attempt_count += 1
                 
         previous_runs_block = ""
@@ -559,8 +625,13 @@ def build_run_skill_tool(
         worker_summary = "\n".join(getattr(memgpt, "_current_worker_messages", []))
         if not worker_summary.strip():
             worker_summary = out_text
+            tool_call_count = _tool_calls_count(tool_calls)
             # Se o worker calou a boca e o texto for genérico, alertar o orquestrador que ele pode ter estourado o limite.
-            if not worker_summary.strip() or "max iterations reached" in worker_summary.lower():
+            if (
+                tool_call_count == 0
+                or not worker_summary.strip()
+                or "max iterations reached" in worker_summary.lower()
+            ):
                 worker_summary = f"[AVISO: O worker terminou sem um resumo claro. Ele realizou {tool_calls} chamadas de ferramenta e o último texto gerado foi: {out_text}]"
 
         memgpt._last_worker_summary = worker_summary
@@ -598,11 +669,11 @@ def _chat_orchestrator_body(project_path: str) -> str:
         "You are the OpalaTex chat-orchestrator. You operate in a strict TOOL-ONLY environment.\n"
         "1. The runtime prepends today's date to this prompt. If the user asks for recent, latest, current, future-dated, or otherwise time-sensitive information, you MUST use web_search before answering, refusing, or delegating. You MUST NOT hallucinate dates or assume something did not happen without first searching the web.\n" 
         "2. You MUST NEVER reply to the user with plain conversational text. If you want to communicate with the user (to provide analysis, code snippets, or report completion), YOU MUST use the 'send_message' tool with a non-empty message.\n"
-        "3. You CAN and SHOULD use your tools (like read_file, write_file, web_search, get_project_overview, search_conversation_history) to investigate the user's request and diagnose the problem first.\n"
+        "3. You CAN and SHOULD use your tools (like read_file, read_content_pos, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly.\n"
         "4. If the user asks for something that you don't know, you can use web_search to find relevant information. If the user asks for something in the project, you can use get_project_overview to explore the project structure and read_file to read files.\n"
         "5. Whenever the user asks a question involving dates, time, recent events, latest events, sports, news, public figures, APIs, or potentially anachronistic information, you must search the web for updated information.\n"
-        "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', or 'edit_file'. If you need to list, search, or read files directly, use get_project_overview or read_file directly.\n"
-        "7. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan. If the task IS complete, you MUST call 'send_message' with a non-empty final result for the user.\n"
+        "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', 'edit_file', or 'run_cmd'. If you need to list, search, read, or make a precise line edit directly, use get_project_overview, read_file, read_content_pos, replace_content_range, or write_content_pos.\n"
+        "7. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If the worker changed files, verify the changed location with read_file/read_content_pos before reporting success. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan unless a worker loop breaker tells you to stop. If the task IS complete, you MUST call 'send_message' with a non-empty final result for the user.\n"
         "8. Every invocation of run_skill spawns a completely stateless, ephemeral sub-agent. The worker starts fresh with no memory of prior runs. You MUST NOT try to converse/coordinate with the worker across multiple turns or promise to provide details in a 'next step'. Provide all instructions and details in a single run_skill call.\n"
         "9. If you need to edit or write a large file (more than ~100-200 lines), do NOT instruct the worker to use write_file with the entire content, as LLM output limits will truncate the tool call. Instead, instruct it to use replace_content_range for specific line ranges, write_content_pos only for insertion before a specific line, or write a small Python search-and-replace script and run it using run_command.\n"
         "NEVER assume something didn't happen without first searching the web using the web_search tool.\n"
@@ -722,6 +793,9 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     orchestrator_tools = [
         wrap_tool(read_core_memory), 
         wrap_tool(read_file), 
+        wrap_tool(read_content_pos),
+        wrap_tool(write_content_pos),
+        wrap_tool(replace_content_range),
         wrap_tool(get_project_overview), 
         wrap_tool(append_core_memory), 
         wrap_tool(search_conversation_history), 
@@ -809,7 +883,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
                     "```json\n"
                     "{\n"
                     "  \"name\": \"read_file\",\n"
-                    "  \"arguments\": {\"AbsolutePath\": \"path/to/file.py\"}\n"
+                    "  \"arguments\": {\"path\": \"path/to/file.py\"}\n"
                     "}\n"
                     "```\n"
                     "To talk to the user (ONLY if strictly needed to communicate):\n"

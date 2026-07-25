@@ -48,6 +48,7 @@ export default function EditorPanel({
   jumpToLine,
   setJumpToLine,
   triggerCompileRequest,
+  onCompileRequestHandled,
   onBinaryFileSaved,
   onRegisterBinarySave,
   onLatexCompileError,
@@ -123,6 +124,7 @@ export default function EditorPanel({
   const [isCleaningLatex, setIsCleaningLatex] = useState(false);
   const pendingPdfSyncRef = useRef(null);
   const lastCompiledContentsRef = useRef({});
+  const lastHandledCompileRequestIdRef = useRef(null);
 
   const findFirstModifiedLine = (oldText, newText) => {
     const normOld = (oldText || '').replace(/\r\n/g, '\n');
@@ -468,9 +470,17 @@ export default function EditorPanel({
   };
 
   useEffect(() => {
-    if (triggerCompileRequest?.id) {
-      handleCompile(true, triggerCompileRequest.partial === true);
-    }
+    const requestId = triggerCompileRequest?.id;
+    if (!requestId || lastHandledCompileRequestIdRef.current === requestId) return;
+    lastHandledCompileRequestIdRef.current = requestId;
+
+    void (async () => {
+      try {
+        await handleCompile(true, triggerCompileRequest.partial === true);
+      } finally {
+        onCompileRequestHandled?.(requestId);
+      }
+    })();
   }, [triggerCompileRequest]);
 
   useEffect(() => {

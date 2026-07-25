@@ -842,23 +842,86 @@ class ProjectStore:
         with _conn(self.db_path) as conn:
             conn.execute("UPDATE project_chats SET name = ? WHERE project = ? AND id = ?", (new_name, name, chat_id))
 
-    def branch_chat(self, name: str, source_chat_id: str, new_chat_id: str, new_chat_name: str, message_index: int) -> None:
+    def _resolve_chat_message_id(
+        self,
+        conn,
+        name: str,
+        source_chat_id: str,
+        message_id: int | None = None,
+        client_message_id: str = "",
+    ) -> int | None:
+        if message_id is not None:
+            row = conn.execute(
+                "SELECT id FROM project_history WHERE project = ? AND chat_id = ? AND id = ?",
+                (name, source_chat_id, int(message_id)),
+            ).fetchone()
+            if row is None:
+                raise ValueError("message_id is outside the source chat history")
+            return int(row["id"])
+
+        clean_client_message_id = str(client_message_id or "").strip()
+        if clean_client_message_id:
+            row = conn.execute(
+                """
+                SELECT id FROM project_history
+                WHERE project = ? AND chat_id = ? AND client_message_id = ?
+                """,
+                (name, source_chat_id, clean_client_message_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError("client_message_id is outside the source chat history")
+            return int(row["id"])
+
+        return None
+
+    def branch_chat(
+        self,
+        name: str,
+        source_chat_id: str,
+        new_chat_id: str,
+        new_chat_name: str,
+        message_index: int,
+        message_id: int | None = None,
+        client_message_id: str = "",
+    ) -> None:
         with _conn(self.db_path) as conn:
             now = datetime.now(timezone.utc).isoformat()
             
-            # 1. Obter core memory do chat original
+            # 1. Get core memory from the original chat.
             row = conn.execute("SELECT core_memory FROM project_chats WHERE project = ? AND id = ?", (name, source_chat_id)).fetchone()
             core_memory = row["core_memory"] if row else ""
             
-            # 2. Criar novo chat
+            # 2. Create the new chat.
             conn.execute("INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)", 
                          (new_chat_id, name, new_chat_name, now, core_memory))
             
-            # 3. Copiar histórico até message_index
-            history = conn.execute(
-                "SELECT role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id LIMIT ?",
-                (name, source_chat_id, message_index + 1)
-            ).fetchall()
+            # 3. Copy history through the selected persisted message.
+            # Prefer stable message ids because UI indexes may omit stored system
+            # audit entries such as [MODE] messages.
+            target_message_id = self._resolve_chat_message_id(
+                conn,
+                name,
+                source_chat_id,
+                message_id=message_id,
+                client_message_id=client_message_id,
+            )
+            if target_message_id is not None:
+                history = conn.execute(
+                    """
+                    SELECT role, content, timestamp, attachments
+                    FROM project_history
+                    WHERE project = ? AND chat_id = ? AND id <= ?
+                    ORDER BY id
+                    """,
+                    (name, source_chat_id, target_message_id),
+                ).fetchall()
+            else:
+                if message_index < 0:
+                    raise ValueError("message_index must be >= 0")
+                history = conn.execute(
+                    "SELECT role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id LIMIT ?",
+                    (name, source_chat_id, message_index + 1),
+                ).fetchall()
             
             for hist_row in history:
                 conn.execute(

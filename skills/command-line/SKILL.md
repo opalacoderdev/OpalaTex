@@ -7,7 +7,7 @@ description: Executes command-line operations to read, create, insert text, remo
 
 This skill provides the sub-agent with tools to manipulate files and directories securely, restricted to the project directory.
 
-**FINDING FILES (CRITICAL):** Do not try to guess where files are located in the project. Always use tools like `get_project_overview` to find the correct file paths. As a last resort, if you cannot find the file, stop your turn and use the `send_message` tool to ask the user for the file's location.
+**FINDING FILES (CRITICAL):** Do not guess file locations. If the file path is unknown, use targeted discovery such as `get_project_overview` or `run_command` with `rg --files`. If the orchestrator context already gives the exact file path, line range, or command to run, execute that directly and do not call `get_project_overview` first. As a last resort, if you cannot find the file, stop your turn and use the `send_message` tool to ask the user for the file's location.
 
 ## AVAILABLE TOOLS
 
@@ -51,6 +51,7 @@ Examples:
 read_file("tictactoe.html")
 read_file("src/utils.js")
 ```
+Do not use `read_file` on large `.tex`, `.log`, or source files just to locate a section, label, or line range. Use `run_command` with `rg`/`grep`/`nl` or use `read_content_pos` once the line range is known.
 
 3. read_content_pos: use read_content_pos for directly access file content at a specific line range without shell. For example:
 ```
@@ -111,6 +112,7 @@ Example:
 ```
 get_project_overview(5)
 ```
+Use this only when the project structure is unknown. Skip it when the task already identifies the target file or provides an explicit command.
 
 10. search_conversation_history: use search_conversation_history for directly search conversation history without shell. For example:
 ```

@@ -1529,6 +1529,13 @@ export default function App() {
       addLog('error', t('app.fileSaveFailedPath', { path: selectedFile }));
       return false;
     }
+    const savedDiskContent = diskFileContentsRef.current[selectedFile];
+    if (typeof savedDiskContent === 'string' && savedDiskContent === fileContent) {
+      setFileContents(prev => (
+        prev[selectedFile] === fileContent ? prev : { ...prev, [selectedFile]: fileContent }
+      ));
+      return true;
+    }
     setIsSaving(true);
     try {
       const res = await fetch('/api/file/write', {
@@ -3282,6 +3289,11 @@ export default function App() {
               }}
               activeProject={activeProject}
               triggerCompileRequest={triggerCompileRequest}
+              onCompileRequestHandled={(requestId) => {
+                setTriggerCompileRequest(prev => (
+                  prev?.id === requestId ? null : prev
+                ));
+              }}
               onBinaryFileSaved={(filePath) => {
                 addLog('info', t('app.fileSaved', { path: filePath }));
                 fetchGitStatus();

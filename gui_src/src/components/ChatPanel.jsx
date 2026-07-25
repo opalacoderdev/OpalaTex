@@ -508,7 +508,7 @@ export default function ChatPanel({
     URL.revokeObjectURL(url);
   };
 
-  const handleBranchChat = async (messageIndex) => {
+  const handleBranchChat = async (messageIndex, message) => {
     const newChatName = await showPrompt(t('chatPanel.branchPrompt', 'Name for the new chat (branch):'));
     if (!newChatName) return;
  
@@ -525,7 +525,9 @@ export default function ChatPanel({
           project_name: projectName,
           source_chat_id: activeChatId,
           new_chat_name: newChatName,
-          message_index: Math.max(0, persistedMessageIndex)
+          message_index: Math.max(0, persistedMessageIndex),
+          message_id: message?.id,
+          client_message_id: message?.client_message_id || ''
         })
       });
       
@@ -1291,7 +1293,7 @@ export default function ChatPanel({
                   </button>
                 )}
                 <button
-                  onClick={() => handleBranchChat(i)}
+                  onClick={() => handleBranchChat(i, msg)}
                   style={{
                     background: 'transparent',
                     border: 'none',

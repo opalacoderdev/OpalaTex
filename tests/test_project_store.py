@@ -12,6 +12,8 @@ Verifies:
 import os
 import tempfile
 import pytest
+import asyncio
+import uuid
 
 from opalatex.project import ProjectData, ProjectStore
 
@@ -34,6 +36,11 @@ def _base_args(**overrides):
     )
     defaults.update(overrides)
     return defaults
+
+
+def _tmp_store():
+    db_path = os.path.join(tempfile.gettempdir(), f"opalatex-test-{uuid.uuid4().hex}.db")
+    return ProjectStore(db_path=db_path)
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +409,115 @@ def test_branch_chat_copies_attachments(store):
 
     loaded = store.load("myproj", chat_id="branch-1")
     assert loaded.history[0]["_attachments"] == [att]
+
+
+def test_branch_chat_by_message_id_is_not_shifted_by_mode_entries(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    source_chat = p.current_chat_id
+    for mode in ("auto", "auto", "plan"):
+        store.append_message(p, "system", f"[MODE] Agent turn started. Current mode: '{mode}'.")
+    store.append_message(p, "user", "review main.tex", client_message_id="client-turn-1")
+    assistant_id = store.append_message(p, "assistant", "Here is the review.")
+
+    store.branch_chat(
+        "myproj",
+        source_chat,
+        "branch-1",
+        "Branch",
+        2,
+        message_id=assistant_id,
+    )
+
+    loaded = store.load("myproj", chat_id="branch-1")
+    assert [m["content"] for m in loaded.history] == [
+        "[MODE] Agent turn started. Current mode: 'auto'.",
+        "[MODE] Agent turn started. Current mode: 'auto'.",
+        "[MODE] Agent turn started. Current mode: 'plan'.",
+        "review main.tex",
+        "Here is the review.",
+    ]
+
+
+def test_branch_chat_by_client_message_id_targets_user_message(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    source_chat = p.current_chat_id
+    store.append_message(p, "system", "[MODE] Agent turn started. Current mode: 'auto'.")
+    store.append_message(p, "user", "review main.tex", client_message_id="client-turn-1")
+    store.append_message(p, "assistant", "Here is the review.")
+
+    store.branch_chat(
+        "myproj",
+        source_chat,
+        "branch-1",
+        "Branch",
+        0,
+        client_message_id="client-turn-1",
+    )
+
+    loaded = store.load("myproj", chat_id="branch-1")
+    assert [m["content"] for m in loaded.history] == [
+        "[MODE] Agent turn started. Current mode: 'auto'.",
+        "review main.tex",
+    ]
+
+
+@pytest.mark.parametrize("initial_mode", ["plan", "edit"])
+def test_restore_transient_project_mode_never_persists_auto(initial_mode):
+    store = _tmp_store()
+    store.create(**_base_args(mode=initial_mode))
+    project = store.load("myproj")
+    project.mode = "auto"
+
+    import opalatex.agent_stdin as agent_stdin
+
+    previous_project = agent_stdin.current_project
+    previous_store = agent_stdin.current_store
+    try:
+        agent_stdin.current_project = project
+        agent_stdin.current_store = store
+
+        agent_stdin._restore_transient_project_mode(initial_mode, "chat_orchestrator")
+
+        assert project.mode == initial_mode
+        assert store.load("myproj").mode == initial_mode
+        assert any(
+            "Transient mode change ('auto') restored" in message["content"]
+            for message in project.history
+        )
+    finally:
+        agent_stdin.current_project = previous_project
+        agent_stdin.current_store = previous_store
+
+
+def test_create_plan_temporary_auto_does_not_save_project_mode(monkeypatch):
+    store = _tmp_store()
+    store.create(**_base_args(mode="plan"))
+    project = store.load("myproj")
+
+    import opalatex.tools as tools
+    import opalatex.agent_stdin as agent_stdin
+
+    async def run_approved_plan():
+        raw_create_plan = getattr(tools.create_plan, "_func", None) or tools.create_plan
+        task = asyncio.create_task(raw_create_plan("1. Inspect\n2. Edit"))
+        while not agent_stdin._gui_input_pending:
+            await asyncio.sleep(0)
+        pending = next(iter(agent_stdin._gui_input_pending.values()))
+        pending.set_result('{"response":"yes"}')
+        return await task
+
+    monkeypatch.setattr(agent_stdin, "print_event", lambda *_args, **_kwargs: None)
+    tools.set_project_context(project, store)
+    try:
+        result = asyncio.run(run_approved_plan())
+
+        assert "temporarily in 'auto' mode" in result
+        assert project.mode == "auto"
+        assert store.load("myproj").mode == "plan"
+    finally:
+        tools.set_project_context(None, None)
 
 
 def test_truncate_chat_history_from_index_removes_suffix(store):

@@ -18,6 +18,9 @@ from opalatex.memgpt_runtime import (
     build_run_skill_tool,
     make_intercepted_send_message,
     _current_date_instruction,
+    _recent_failed_skill_attempts,
+    _sanitize_skill_result_for_prompt,
+    _tool_calls_count,
 )
 from opalatex.project import ProjectData
 from opalatex.config import DEFAULT_MODEL, WORKER_MODEL
@@ -51,6 +54,13 @@ def test_build_chat_orchestrator_has_run_skill_and_memory_tools(tmp_path):
     names = {getattr(t, "name", None) for t in m.tools}
     assert "run_skill" in names
     assert {"read_core_memory", "append_core_memory", "search_conversation_history"} <= names
+
+
+def test_chat_orchestrator_exposes_surgical_edit_tools(tmp_path):
+    m = build_chat_orchestrator(_project(tmp_path), None)
+    names = {getattr(t, "name", None) for t in m.tools}
+    assert {"read_content_pos", "replace_content_range", "write_content_pos"} <= names
+    assert "replace_content_range" in m.system_prompt
 
 
 def test_chat_orchestrator_exposes_document_creation_tools(tmp_path):
@@ -149,25 +159,76 @@ def test_run_skill_returns_blocked_result_in_plan_mode(tmp_path):
     assert "create_plan" in result
 
 
+def test_run_skill_breaks_consecutive_failed_worker_loop(tmp_path):
+    m = build_chat_orchestrator(_project(tmp_path), None)
+    m._skill_run_history = [
+        {
+            "skill": "command-line",
+            "context": "attempt 1",
+            "result": "[AVISO: O worker terminou sem um resumo claro. Ele realizou 0 chamadas de ferramenta e o último texto gerado foi: ]",
+        },
+        {
+            "skill": "command-line",
+            "context": "attempt 2",
+            "result": "[CRITICAL WORKER CRASH] A exceção não tratada interrompeu o worker: litellm.APIConnectionError",
+        },
+    ]
+    run_skill = build_run_skill_tool(m, str(tmp_path), "ollama/proj")
+    raw = getattr(run_skill, "_func", None) or run_skill
+
+    result = asyncio.run(raw("command-line", "attempt 3"))
+
+    assert "WORKER LOOP BREAKER" in result
+    assert "Do NOT call this same worker again" in result
+    assert _recent_failed_skill_attempts(m, "command-line") == 2
+
+
+def test_sanitize_skill_result_for_prompt_removes_raw_tool_json():
+    result = (
+        "[CRITICAL WORKER CRASH] litellm.APIConnectionError: OllamaException - "
+        "{\"error\":\"error parsing tool call: raw='{\\\"name\\\":\\\"write_file\\\","
+        "\\\"arguments\\\":{\\\"content\\\":\\\"very long code\\\"}', err=unexpected end of JSON input\"}"
+    )
+
+    sanitized = _sanitize_skill_result_for_prompt(result)
+
+    assert sanitized == "[CRITICAL WORKER CRASH: model produced invalid/truncated JSON tool-call arguments.]"
+    assert "write_file" not in sanitized
+
+
+def test_tool_calls_count_accepts_int_like_values():
+    assert _tool_calls_count(0) == 0
+    assert _tool_calls_count("2") == 2
+    assert _tool_calls_count("?") is None
+
+
 def test_run_skill_worker_disables_shared_router(tmp_path, monkeypatch):
     """Worker sub-agents must not reuse a LiteLLM Router created for the orchestrator."""
-    from opalatex.memgpt_runtime import AgentOutput
     import opalatex.memgpt_runtime as runtime
+    from types import SimpleNamespace
 
     captured = {}
 
     class FakeLLMAgentBlock:
         def __init__(self, **kwargs):
             captured.update(kwargs)
+            self.name = kwargs.get("name", "")
+            self.model = kwargs.get("model", "")
+            self.tools = kwargs.get("tools", [])
+            self.model_kwargs = kwargs.get("model_kwargs", {})
             self.on_iteration = None
             self.on_thinking = None
             self.on_chunk = None
 
+        async def _acompletion(self, _messages, **_kwargs):
+            return SimpleNamespace(choices=[])
+
         async def run(self, _input):
-            return AgentOutput(response="done", tool_calls_made=0)
+            return SimpleNamespace(response="done", tool_calls_made=1)
 
     monkeypatch.setattr(runtime, "LLMAgentBlock", FakeLLMAgentBlock)
     project = _project(tmp_path)
+    project.mode = "auto"
     project.worker_model = "ollama/gemma4:26b"
     m = build_chat_orchestrator(project, None)
     run_skill = build_run_skill_tool(

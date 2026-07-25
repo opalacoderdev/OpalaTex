@@ -2229,14 +2229,24 @@ class AsyncHTTPServer:
             source_chat_id = data.get("source_chat_id")
             new_chat_name = data.get("new_chat_name")
             message_index = data.get("message_index")
+            message_id = data.get("message_id")
+            client_message_id = data.get("client_message_id") or ""
             
-            if not project_name or not source_chat_id or not new_chat_name or message_index is None:
-                self.send_response(writer, 400, b'{"error":"project_name, source_chat_id, new_chat_name and message_index required"}', "application/json")
+            if not project_name or not source_chat_id or not new_chat_name or (message_index is None and message_id is None and not client_message_id):
+                self.send_response(writer, 400, b'{"error":"project_name, source_chat_id, new_chat_name and message_index/message_id required"}', "application/json")
                 return
                 
             new_chat_id = str(uuid.uuid4())
             try:
-                store.branch_chat(project_name, source_chat_id, new_chat_id, new_chat_name, int(message_index))
+                store.branch_chat(
+                    project_name,
+                    source_chat_id,
+                    new_chat_id,
+                    new_chat_name,
+                    int(message_index or 0),
+                    message_id=int(message_id) if message_id is not None else None,
+                    client_message_id=client_message_id,
+                )
                 self.send_response(writer, 200, json.dumps({"status": "success", "new_chat_id": new_chat_id}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")

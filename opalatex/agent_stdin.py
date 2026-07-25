@@ -907,6 +907,27 @@ async def handle_slash_command_continue(data: dict) -> dict:
     return {"status": "done", "messages": []}
 
 
+def _restore_transient_project_mode(initial_project_mode: str | None, agent_type: str) -> None:
+    """Restore mode changes that are allowed only during the active agent turn."""
+    if not current_project or not initial_project_mode:
+        return
+    if agent_type not in ("orchestrator", "chat_orchestrator"):
+        return
+    if current_project.mode == initial_project_mode:
+        return
+
+    previous_mode = current_project.mode
+    current_project.mode = initial_project_mode
+    if current_store:
+        current_store.append_message(
+            current_project,
+            "system",
+            f"[MODE] Transient mode change ('{previous_mode}') restored to "
+            f"'{initial_project_mode}' at end of turn.",
+        )
+        current_store.save(current_project)
+
+
 async def handle_run(data: dict):
     global current_project, current_store, current_memgpt
     
@@ -1372,23 +1393,7 @@ async def handle_run(data: dict):
                     current_store.append_message(current_project, "system", f"Achievements logged during this turn:\n{tools_mod.TURN_ACHIEVEMENTS}")
                 if persisted_response:
                     assistant_message_id = current_store.append_message(current_project, "assistant", persisted_response)
-                # Persist plan approval: if create_plan() switched mode to 'auto' this turn,
-                # keep that change so the next turn knows the plan was already approved.
-                # Only revert genuinely transient mode changes that were NOT plan approvals.
-                if 'initial_project_mode' in locals() and initial_project_mode:
-                    if current_project.mode == "auto" and initial_project_mode != "auto":
-                        # Plan was approved — the _record_mode_event() inside create_plan()
-                        # already wrote the [PLAN APPROVED] entry. Keep 'auto'.
-                        pass
-                    elif current_project.mode != initial_project_mode:
-                        # Some other transient change — revert and record it.
-                        current_store.append_message(
-                            current_project,
-                            "system",
-                            f"[MODE] Transient mode change ('{current_project.mode}') reverted to "
-                            f"'{initial_project_mode}' at end of turn.",
-                        )
-                        current_project.mode = initial_project_mode
+                _restore_transient_project_mode(initial_project_mode, agent_type)
                 current_store.save(current_project)
 
             response_payload = {"response": response}
@@ -1426,6 +1431,10 @@ async def handle_run(data: dict):
         T._async_confirm_hook = orig_async_confirm_hook
         T._async_ask_hook = orig_async_ask_hook
         _ACTIVE_THOUGHT_CHUNKS = None
+        _restore_transient_project_mode(
+            locals().get("initial_project_mode"),
+            locals().get("agent_type", ""),
+        )
 
     print_event("agent_finished", {})
 
