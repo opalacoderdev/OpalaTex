@@ -27,13 +27,13 @@ The installer downloads the current OpalaTex Community release from GitHub Relea
 Run terminal and execute:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/opalatexdev/OpalaTex/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/opalacoderdev/OpalaTex/master/install.sh | bash
 ```
 
 To inspect the script first:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/opalatexdev/OpalaTex/main/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/opalacoderdev/OpalaTex/master/install.sh -o install.sh
 less install.sh
 bash install.sh
 ```
@@ -45,13 +45,13 @@ The application is installed under `~/.local/share/OpalaTex`, with a command sym
 Open PowerShell and execute:
 
 ```powershell
-irm https://raw.githubusercontent.com/opalatexdev/OpalaTex/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/opalacoderdev/OpalaTex/master/install.ps1 | iex
 ```
 
 Alternatively, download and inspect `install.ps1` before running:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/opalatexdev/OpalaTex/main/install.ps1 -OutFile install.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/opalacoderdev/OpalaTex/master/install.ps1 -OutFile install.ps1
 Get-Content .\install.ps1
 .\install.ps1
 ```
@@ -65,7 +65,7 @@ Requirements: Python 3.10 or newer, Node.js/npm, and Git.
 ### PowerShell
 
 ```powershell
-git clone https://github.com/opalatexdev/OpalaTex.git
+git clone https://github.com/opalacoderdev/OpalaTex.git
 cd OpalaTex
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -81,7 +81,7 @@ If script execution is disabled for the current PowerShell process, run `Set-Exe
 ### Bash (Linux/macOS)
 
 ```bash
-git clone https://github.com/opalatexdev/OpalaTex.git
+git clone https://github.com/opalacoderdev/OpalaTex.git
 cd OpalaTex
 python3 -m venv .venv
 source .venv/bin/activate

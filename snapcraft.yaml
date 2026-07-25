@@ -85,6 +85,7 @@ parts:
       - libegl1
       - libevent-2.1-7t64
       - libfontconfig1
+      - libfreetype6
       - libgssapi-krb5-2
       - libgbm1
       - libgl1
