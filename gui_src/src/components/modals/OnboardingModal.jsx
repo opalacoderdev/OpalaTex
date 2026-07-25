@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, Monitor, Cloud, Terminal, CheckCircle, X, Settings2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import FEATURES from '../../config/features';
 
 export default function OnboardingModal({ onClose, onComplete }) {
   const { t, i18n } = useTranslation();
@@ -9,9 +10,9 @@ export default function OnboardingModal({ onClose, onComplete }) {
   const [ollamaStatus, setOllamaStatus] = useState(null);
   const [isInstalling, setIsInstalling] = useState(false);
 
-  const [apiProvider, setApiProvider] = useState('ollama/gemma4:31b-cloud');
+  const [apiProvider, setApiProvider] = useState('gemini/gemini-flash-lite-latest');
   const [apiKey, setApiKey] = useState('');
-  const [apiBase, setApiBase] = useState('https://ollama.com');
+  const [apiBase, setApiBase] = useState('');
 
   const [licenseStatus, setLicenseStatus] = useState(null);
 
@@ -26,10 +27,12 @@ export default function OnboardingModal({ onClose, onComplete }) {
       .then(data => setOllamaStatus(data))
       .catch(console.error);
 
-    fetch('/api/license/status')
-      .then(res => res.json())
-      .then(data => setLicenseStatus(data))
-      .catch(console.error);
+    if (FEATURES.enableCloudAccount) {
+      fetch('/api/license/status')
+        .then(res => res.json())
+        .then(data => setLicenseStatus(data))
+        .catch(console.error);
+    }
   }, []);
 
   const finishOnboarding = async (config, provider = 'local') => {
@@ -173,43 +176,46 @@ export default function OnboardingModal({ onClose, onComplete }) {
               </div>
             )}
 
-            {/* Open-source and Cloud credits section */}
-            {!licenseStatus?.key ? (
-              <div style={{ backgroundColor: '#2d1e2f', padding: '14px', borderRadius: '8px', border: '1px solid #4a2f4d', marginBottom: '20px' }}>
-                <h3 style={{ color: '#dca4e0', margin: '0 0 6px 0', fontSize: '15px', fontWeight: 'bold' }}>
-                  {t('onboarding.openSourceTitle')}
-                </h3>
-                <p style={{ color: '#ccc', margin: '0 0 12px 0', fontSize: '13px', lineHeight: '1.4' }}>
-                  {t('onboarding.openSourceDesc')}
-                </p>
-                <button 
-                  className="vscode-button"
-                  style={{ padding: '8px 16px', fontSize: '13px', borderRadius: '4px', backgroundColor: '#8a2be2', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                  onClick={() => { const lang = i18n.language || 'en'; window.open(`https://opalacoder.com/?lang=${lang}#products`, '_blank'); }}
-                >
-                  {t('onboarding.buyCreditsBtn')}
-                </button>
-              </div>
-            ) : (
-              <div style={{ backgroundColor: '#1e282e', padding: '14px', borderRadius: '8px', border: '1px solid #2e3e48', marginBottom: '20px' }}>
-                <h3 style={{ color: '#4fc3f7', margin: '0 0 4px 0', fontSize: '15px', fontWeight: 'bold' }}>
-                  {t('onboarding.registeredAccount')}
-                </h3>
-                <p style={{ color: '#ccc', margin: 0, fontSize: '13px', fontFamily: 'monospace' }}>
-                  {licenseStatus?.key}
-                </p>
-              </div>
+            {FEATURES.enableCloudAccount && (
+              !licenseStatus?.key ? (
+                <div style={{ backgroundColor: '#2d1e2f', padding: '14px', borderRadius: '8px', border: '1px solid #4a2f4d', marginBottom: '20px' }}>
+                  <h3 style={{ color: '#dca4e0', margin: '0 0 6px 0', fontSize: '15px', fontWeight: 'bold' }}>
+                    {t('onboarding.openSourceTitle')}
+                  </h3>
+                  <p style={{ color: '#ccc', margin: '0 0 12px 0', fontSize: '13px', lineHeight: '1.4' }}>
+                    {t('onboarding.openSourceDesc')}
+                  </p>
+                  <button 
+                    className="vscode-button"
+                    style={{ padding: '8px 16px', fontSize: '13px', borderRadius: '4px', backgroundColor: '#8a2be2', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                    onClick={() => { const lang = i18n.language || 'en'; window.open(`https://opalacoder.com/?lang=${lang}#products`, '_blank'); }}
+                  >
+                    {t('onboarding.buyCreditsBtn')}
+                  </button>
+                </div>
+              ) : (
+                <div style={{ backgroundColor: '#1e282e', padding: '14px', borderRadius: '8px', border: '1px solid #2e3e48', marginBottom: '20px' }}>
+                  <h3 style={{ color: '#4fc3f7', margin: '0 0 4px 0', fontSize: '15px', fontWeight: 'bold' }}>
+                    {t('onboarding.registeredAccount')}
+                  </h3>
+                  <p style={{ color: '#ccc', margin: 0, fontSize: '13px', fontFamily: 'monospace' }}>
+                    {licenseStatus?.key}
+                  </p>
+                </div>
+              )
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <button 
-                className="vscode-button" 
-                style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#007acc' }}
-                onClick={handleOpalaCloud}
-              >
-                <Cloud size={18} />
-                {t('onboarding.useCloudRecommended', 'Use Opala Cloud (Recommended)')}
-              </button>
+              {FEATURES.enableCloudAccount && (
+                <button 
+                  className="vscode-button" 
+                  style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#007acc' }}
+                  onClick={handleOpalaCloud}
+                >
+                  <Cloud size={18} />
+                  {t('onboarding.useCloudRecommended', 'Use Opala Cloud (Recommended)')}
+                </button>
+              )}
 
               <button 
                 className="vscode-button" 
@@ -320,7 +326,9 @@ export default function OnboardingModal({ onClose, onComplete }) {
                     setApiBase('');
                   }
                 }} style={{ width: '100%' }}>
-                  <option value="ollama/gemma4:31b-cloud">{t('onboarding.providerOllamaCloud')}</option>
+                  {FEATURES.enableCloudModels && (
+                    <option value="ollama/gemma4:31b-cloud">{t('onboarding.providerOllamaCloud')}</option>
+                  )}
                   <option value="gemini/gemini-flash-lite-latest">{t('onboarding.providerGemini')}</option>
                   <option value="anthropic/claude-3-5-sonnet-latest">{t('onboarding.providerAnthropic')}</option>
                 </select>
