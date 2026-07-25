@@ -1,66 +1,137 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-# OpalaTex Community Edition Linux Installer via Terminal (curl | bash)
+# OpalaTex Community installer for Linux and macOS.
 
 echo "=========================================="
-echo "      Instalador do OpalaTex (Community)  "
+echo "      OpalaTex Installer (Community)      "
 echo "=========================================="
 
 INSTALL_DIR="$HOME/.local/share/OpalaTex"
 BIN_DIR="$HOME/.local/bin"
-TEMP_FILE="/tmp/opalatex_release.tar.gz"
-
 REPO_OWNER="opalacoderdev"
 REPO_NAME="OpalaTex"
 
-# Determinar URL de Download (Release do GitHub ou customizada)
-if [ -n "$OPALATEX_DOWNLOAD_URL" ]; then
-    DOWNLOAD_URL="$OPALATEX_DOWNLOAD_URL"
-else
-    echo "Buscando a última versão no GitHub ($REPO_OWNER/$REPO_NAME)..."
-    LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    
-    if [ -n "$LATEST_TAG" ]; then
-        DOWNLOAD_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/$LATEST_TAG/OpalaTex-linux-x64.tar.gz"
-    else
-        # Fallback direto para a release latest
-        DOWNLOAD_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest/download/OpalaTex-linux-x64.tar.gz"
+OS_NAME="$(uname -s)"
+ARCH_NAME="$(uname -m)"
+
+case "$OS_NAME" in
+    Linux)
+        ASSET_NAME="OpalaTex-linux-x64.tar.gz"
+        TEMP_FILE="/tmp/opalatex_release.tar.gz"
+        ;;
+    Darwin)
+        ASSET_NAME="OpalaTex-macos-x64.zip"
+        TEMP_FILE="/tmp/opalatex_release.zip"
+        ;;
+    *)
+        echo "Unsupported operating system: $OS_NAME" >&2
+        exit 1
+        ;;
+esac
+
+case "$ARCH_NAME" in
+    x86_64|amd64)
+        ;;
+    *)
+        echo "Unsupported CPU architecture: $ARCH_NAME. This installer currently requires an x64 release asset." >&2
+        exit 1
+        ;;
+esac
+
+if ! command -v curl >/dev/null 2>&1; then
+    echo "curl is required to install OpalaTex." >&2
+    exit 1
+fi
+
+if [[ "$ASSET_NAME" == *.zip ]] && ! command -v unzip >/dev/null 2>&1; then
+    echo "unzip is required to install OpalaTex on macOS." >&2
+    exit 1
+fi
+
+download_with_retry() {
+    local url="$1"
+    local output="$2"
+    local max_attempts=3
+    local attempt
+
+    for attempt in $(seq 1 "$max_attempts"); do
+        rm -f "$output"
+        if curl -fL --retry 2 --retry-delay 2 \
+            -H "Accept: application/octet-stream" \
+            -H "User-Agent: OpalaTex-Installer" \
+            "$url" -o "$output"; then
+            if [[ -s "$output" ]]; then
+                return 0
+            fi
+        fi
+
+        if [[ "$attempt" -eq "$max_attempts" ]]; then
+            echo "Failed to download OpalaTex after $max_attempts attempts." >&2
+            return 1
+        fi
+
+        echo "Download failed. Retrying ($attempt/$max_attempts)..."
+        sleep $((2 * attempt))
+    done
+}
+
+get_download_url() {
+    if [[ -n "${OPALATEX_DOWNLOAD_URL:-}" ]]; then
+        if [[ "$OPALATEX_DOWNLOAD_URL" == *"/actions/runs/"*"/artifacts/"* ]]; then
+            echo "OPALATEX_DOWNLOAD_URL points to a GitHub Actions artifact. Use a GitHub Release asset URL instead." >&2
+            return 1
+        fi
+        printf '%s\n' "$OPALATEX_DOWNLOAD_URL"
+        return 0
     fi
+
+    local latest_url="https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest/download/$ASSET_NAME"
+    printf '%s\n' "$latest_url"
+}
+
+DOWNLOAD_URL="$(get_download_url)"
+
+echo "Downloading OpalaTex from: $DOWNLOAD_URL"
+if ! download_with_retry "$DOWNLOAD_URL" "$TEMP_FILE"; then
+    echo "The latest GitHub release must contain $ASSET_NAME before this installer can run." >&2
+    exit 1
 fi
 
-echo "Baixando OpalaTex de: $DOWNLOAD_URL"
-if ! curl -fsSL "$DOWNLOAD_URL" -o "$TEMP_FILE"; then
-    echo "Erro ao baixar de $DOWNLOAD_URL. Tentando arquivo .zip..."
-    DOWNLOAD_URL="${DOWNLOAD_URL%.tar.gz}.zip"
-    TEMP_FILE="/tmp/opalatex_release.zip"
-    curl -fsSL "$DOWNLOAD_URL" -o "$TEMP_FILE"
-fi
-
-echo "Preparando diretório de instalação em $INSTALL_DIR..."
+echo "Preparing install directory at $INSTALL_DIR..."
 rm -rf "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
-echo "Extraindo arquivos..."
-if [[ "$TEMP_FILE" == *.tar.gz ]]; then
-    tar -xzf "$TEMP_FILE" -C "$INSTALL_DIR" --strip-components=1 2>/dev/null || tar -xzf "$TEMP_FILE" -C "$INSTALL_DIR"
-elif [[ "$TEMP_FILE" == *.zip ]]; then
-    unzip -q -o "$TEMP_FILE" -d "$INSTALL_DIR"
+echo "Extracting files..."
+case "$TEMP_FILE" in
+    *.tar.gz)
+        tar -xzf "$TEMP_FILE" -C "$INSTALL_DIR" --strip-components=1 2>/dev/null ||
+            tar -xzf "$TEMP_FILE" -C "$INSTALL_DIR"
+        ;;
+    *.zip)
+        unzip -q -o "$TEMP_FILE" -d "$INSTALL_DIR"
+        ;;
+    *)
+        echo "Unsupported archive format: $TEMP_FILE" >&2
+        exit 1
+        ;;
+esac
+
+if [[ -d "$INSTALL_DIR/OpalaTex" && -f "$INSTALL_DIR/OpalaTex/OpalaTex" ]]; then
+    find "$INSTALL_DIR/OpalaTex" -mindepth 1 -maxdepth 1 -exec mv -f {} "$INSTALL_DIR/" \;
+    rmdir "$INSTALL_DIR/OpalaTex" 2>/dev/null || true
 fi
 
-# Se houver subpasta extraída, mover conteúdo para a raiz do INSTALL_DIR
-if [ -d "$INSTALL_DIR/OpalaTex" ] && [ -f "$INSTALL_DIR/OpalaTex/OpalaTex" ]; then
-    mv "$INSTALL_DIR/OpalaTex/"* "$INSTALL_DIR/" 2>/dev/null || true
+if [[ ! -f "$INSTALL_DIR/OpalaTex" ]]; then
+    echo "The downloaded package does not contain the OpalaTex executable." >&2
+    exit 1
 fi
 
-echo "Criando symlink em $BIN_DIR..."
+echo "Creating command symlink in $BIN_DIR..."
 mkdir -p "$BIN_DIR"
-rm -f "$BIN_DIR/opalatex"
-ln -s "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex"
-chmod +x "$INSTALL_DIR/OpalaTex" 2>/dev/null || true
-chmod +x "$BIN_DIR/opalatex"
+ln -sfn "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex"
+chmod +x "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex" 2>/dev/null || true
 
-# Criar atalho .desktop para iniciadores de aplicativos (GNOME/KDE/XFCE)
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
 
@@ -78,18 +149,17 @@ EOF
 
 chmod +x "$DESKTOP_DIR/opalatex.desktop"
 
-if command -v update-desktop-database &>/dev/null; then
+if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
 fi
 
-# Adicionar ~/.local/bin ao PATH se necessário
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-    echo "Adicionando $BIN_DIR ao PATH..."
-    if [ -f "$HOME/.bashrc" ] && ! grep -q "$BIN_DIR" "$HOME/.bashrc"; then
-        echo -e "\n# OpalaTex PATH\nexport PATH=\"$BIN_DIR:\$PATH\"" >> "$HOME/.bashrc"
+    echo "Adding $BIN_DIR to PATH..."
+    if [[ -f "$HOME/.bashrc" ]] && ! grep -q "$BIN_DIR" "$HOME/.bashrc"; then
+        printf '\n# OpalaTex PATH\nexport PATH="%s:$PATH"\n' "$BIN_DIR" >> "$HOME/.bashrc"
     fi
-    if [ -f "$HOME/.zshrc" ] && ! grep -q "$BIN_DIR" "$HOME/.zshrc"; then
-        echo -e "\n# OpalaTex PATH\nexport PATH=\"$BIN_DIR:\$PATH\"" >> "$HOME/.zshrc"
+    if [[ -f "$HOME/.zshrc" ]] && ! grep -q "$BIN_DIR" "$HOME/.zshrc"; then
+        printf '\n# OpalaTex PATH\nexport PATH="%s:$PATH"\n' "$BIN_DIR" >> "$HOME/.zshrc"
     fi
 fi
 
@@ -97,7 +167,7 @@ rm -f "$TEMP_FILE"
 
 echo ""
 echo "=========================================="
-echo "   OpalaTex instalado com sucesso!       "
+echo "   OpalaTex installed successfully!       "
 echo "=========================================="
-echo "Comando no terminal: opalatex"
-echo "Atalho no menu de aplicativos criado."
+echo "Terminal command: opalatex"
+echo "Application launcher created."
