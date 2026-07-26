@@ -59,6 +59,7 @@ export default function EditModelsModal({
                     <th style={{ padding: '8px', textAlign: 'left' }}>{t('editModelsModal.provider')}</th>
                     <th style={{ padding: '8px', textAlign: 'left' }}>{t('editModelsModal.modelName')}</th>
                     <th style={{ padding: '8px', textAlign: 'left' }}>ID</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('editModelsModal.thinking')}</th>
                     <th style={{ padding: '8px', textAlign: 'right' }}>{t('editModelsModal.actions')}</th>
                   </tr>
                 </thead>
@@ -68,6 +69,9 @@ export default function EditModelsModal({
                       <td style={{ padding: '8px' }}>{model.provider}</td>
                       <td style={{ padding: '8px' }}>{model.name}</td>
                       <td style={{ padding: '8px', color: '#888' }}>{model.id}</td>
+                      <td style={{ padding: '8px', color: model.supports_thinking ? 'var(--vscode-textLink-foreground)' : 'var(--vscode-descriptionForeground)' }}>
+                        {model.supports_thinking ? t('common.yes', 'Yes') : t('common.no', 'No')}
+                      </td>
                       <td style={{ padding: '8px', textAlign: 'right' }}>
                         <button 
                           className="vscode-bottom-panel-clear-btn" 

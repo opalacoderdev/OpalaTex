@@ -657,6 +657,7 @@
     "noModels": "No models found.",
     "provider": "Provider",
     "modelName": "Model Name",
+    "thinking": "Thinking",
     "actions": "Actions",
     "deleteConfirm": "Are you sure you want to delete {{id}}?"
   },
@@ -668,6 +669,8 @@
     "modelNameLabel": "Model Name (e.g., gemma4:12b) *",
     "apiKeyLabel": "API Key (Optional)",
     "apiBaseLabel": "API Base URL (Optional)",
+    "supportsThinkingLabel": "This model supports thinking/reasoning",
+    "supportsThinkingHint": "Keep this off unless the model documentation explicitly says it supports thinking or reasoning parameters.",
     "generatedId": "Generated ID",
     "requiredError": "Provider and Model Name are required.",
     "duplicateError": "A model with this provider and name already exists."

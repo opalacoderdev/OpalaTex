@@ -42,6 +42,11 @@ LITELLM_PARAMS = {
     "stream":              False,
 }
 
+RUNTIME_LITELLM_PARAMS = {
+    key: value for key, value in LITELLM_PARAMS.items()
+    if key != "think"
+}
+
 AGENT_PARAMS = {
     "max_heartbeats":           15,
     "max_context_tokens":       8000,
@@ -146,11 +151,12 @@ class TestUpdateProjectPersistence:
 
         kwargs = get_agent_llm_kwargs("worker")
 
-        for key, expected in LITELLM_PARAMS.items():
+        for key, expected in RUNTIME_LITELLM_PARAMS.items():
             assert key in kwargs, f"LiteLLM param '{key}' missing from get_agent_llm_kwargs()"
             assert kwargs[key] == expected, (
                 f"LiteLLM param '{key}': expected {expected!r}, got {kwargs[key]!r}"
             )
+        assert "think" not in kwargs
 
     def test_agent_constructor_params_applied(self, tmp_store):
         """Agent constructor params must appear in get_project_agent_params() after save."""
@@ -218,11 +224,12 @@ class TestUpdateProjectPersistence:
         from opalatex.memgpt_runtime import build_chat_orchestrator
         memgpt = build_chat_orchestrator(reloaded, store)
 
-        for key, expected in LITELLM_PARAMS.items():
+        for key, expected in RUNTIME_LITELLM_PARAMS.items():
             assert memgpt.model_kargs.get(key) == expected, (
                 f"MemGPT model_kargs['{key}']: expected {expected!r}, "
                 f"got {memgpt.model_kargs.get(key)!r}"
             )
+        assert "think" not in memgpt.model_kargs
 
     def test_sanitize_and_clamp_model_params(self):
         """Verify that sanitize_model_params correctly handles string numbers with commas, and clamps out of bounds values."""

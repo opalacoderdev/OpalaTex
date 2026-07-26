@@ -340,10 +340,10 @@ def build_run_skill_tool(
             )
         worker_kwargs = get_agent_llm_kwargs("worker")
         
+        model = get_agent_model("worker", model)
+        
         from .config import resolve_model_for_thinking
         model = resolve_model_for_thinking(model, worker_kwargs)
-        
-        model = get_agent_model("worker", model)
         
         # Strip /v1 from the end because Ollama native providers expect the root URL
         if worker_kwargs.get("api_base"):

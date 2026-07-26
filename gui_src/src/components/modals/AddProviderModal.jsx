@@ -14,6 +14,7 @@ export default function AddProviderModal({
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [apiBase, setApiBase] = useState('');
+  const [supportsThinking, setSupportsThinking] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -22,6 +23,9 @@ export default function AddProviderModal({
       setName(editingModel.name || '');
       setApiKey(editingModel.api_key || '');
       setApiBase(editingModel.api_base || '');
+      setSupportsThinking(!!editingModel.supports_thinking);
+    } else {
+      setSupportsThinking(false);
     }
   }, [editingModel]);
 
@@ -53,7 +57,8 @@ export default function AddProviderModal({
       provider: trimmedProvider,
       name: trimmedName,
       api_key: apiKey,
-      api_base: apiBase
+      api_base: apiBase,
+      supports_thinking: supportsThinking
     });
   };
 
@@ -117,6 +122,20 @@ export default function AddProviderModal({
                 onChange={e => setApiBase(e.target.value)}
                 placeholder="http://localhost:11434/v1"
               />
+            </div>
+
+            <div className="vscode-form-group">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={supportsThinking}
+                  onChange={e => setSupportsThinking(e.target.checked)}
+                />
+                {t('addProviderModal.supportsThinkingLabel')}
+              </label>
+              <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                {t('addProviderModal.supportsThinkingHint')}
+              </span>
             </div>
             
             {(provider && name) && (

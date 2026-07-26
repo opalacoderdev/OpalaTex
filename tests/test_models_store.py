@@ -29,6 +29,26 @@ def test_add_or_update_model_replaces_previous_id(tmp_path, monkeypatch):
     assert [model["id"] for model in saved] == [
         "ollama/new-model",
     ]
+    assert saved[0]["supports_thinking"] is False
+
+
+def test_load_models_defaults_supports_thinking_to_false(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    models_store.save_models([
+        {
+            "id": "ollama/test-model",
+            "provider": "ollama",
+            "name": "test-model",
+            "api_key": "",
+            "api_base": "http://localhost:11434/v1",
+        }
+    ])
+
+    loaded = models_store.load_models()
+
+    assert loaded[0]["supports_thinking"] is False
 
 
 def test_load_models_filters_cloud_models_in_community_mode(tmp_path, monkeypatch):

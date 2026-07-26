@@ -168,6 +168,7 @@ _INTERNAL_MODEL_PARAM_FIELDS = {
     "force_vision",
     "pdf_truncate",
     "pdf_truncate_pct",
+    "supports_thinking",
 }
 
 # LiteLLM passes these fields through to providers that do not understand them.
@@ -439,12 +440,14 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
 
     store_api_base = None
     store_api_key = None
+    store_supports_thinking = False
     try:
         from opalatex.models_store import get_model
         store_model = get_model(resolved_model)
         if store_model:
             store_api_base = store_model.get("api_base")
             store_api_key = store_model.get("api_key")
+            store_supports_thinking = bool(store_model.get("supports_thinking", False))
     except Exception:
         pass
 
@@ -481,7 +484,19 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
         merged.pop(field, None)
     merged.setdefault("think", False)
+    if not store_supports_thinking:
+        merged.pop("think", None)
     return sanitize_litellm_kwargs_for_model(resolved_model, merged)
+
+
+def model_supports_thinking(model: str | None) -> bool:
+    """Return True only when the model store explicitly enables thinking."""
+    try:
+        from opalatex.models_store import get_model
+        store_model = get_model(str(model or ""))
+        return bool(store_model and store_model.get("supports_thinking", False))
+    except Exception:
+        return False
 
 
 def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
@@ -608,6 +623,9 @@ def resolve_model_for_thinking(model: str, llm_kwargs: dict) -> str:
     appears as <think> tags inside delta.content — not in reasoning_content —
     so per-chunk on_thinking never fires.
     """
+    if "think" in llm_kwargs and not model_supports_thinking(model):
+        llm_kwargs.pop("think", None)
+        return model
     if llm_kwargs.get("think") and model.startswith("ollama/"):
         return "ollama_chat/" + model[len("ollama/"):]
     return model

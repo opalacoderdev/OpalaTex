@@ -205,6 +205,16 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
     return msg
 
 
+def _apply_model_thinking_capability(model: str, model_kwargs: dict) -> dict:
+    """Drop thinking params unless the selected model explicitly supports them."""
+    from opalatex.config import model_supports_thinking
+
+    cleaned = dict(model_kwargs or {})
+    if "think" in cleaned and not model_supports_thinking(model):
+        cleaned.pop("think", None)
+    return cleaned
+
+
 def clear_worker_message_buffer() -> None:
     """Clear worker messages captured outside the final agent_response path."""
     global _LAST_INTERMEDIATE_AGENT_RESPONSE
@@ -1062,14 +1072,14 @@ async def handle_run(data: dict):
         )
         
         _model = model or DEFAULT_MODEL
-        _model = resolve_model_for_thinking(_model, model_kwargs)
-        
         _agent_name = agent_type or "custom_agent"
         _model = get_agent_model(_agent_name, _model)
         
         # Merge global kwargs so we get the cloud API base and keys
         _global_kwargs = get_agent_llm_kwargs(_agent_name)
         _global_kwargs.update(model_kwargs)
+        _global_kwargs = _apply_model_thinking_capability(_model, _global_kwargs)
+        _model = resolve_model_for_thinking(_model, _global_kwargs)
         model_kwargs = sanitize_litellm_kwargs_for_model(_model, _global_kwargs)
 
         from opalatex.ui_settings import load_ui_settings

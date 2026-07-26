@@ -47,6 +47,13 @@ _DEFAULT_MODELS = [
     { "id": "ollama_chat/llama3.1", "provider": "ollama_chat", "name": "llama3.1", "api_key": "", "api_base": "http://localhost:11434" }
 ]
 
+
+def normalize_model_entry(model: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a model-store entry with stable optional capability defaults."""
+    entry = dict(model or {})
+    entry["supports_thinking"] = bool(entry.get("supports_thinking", False))
+    return entry
+
 def load_models() -> List[Dict[str, Any]]:
     """Load models from the global store, populating defaults if missing or empty."""
     loaded_defaults = False
@@ -59,8 +66,13 @@ def load_models() -> List[Dict[str, Any]]:
         pass
         
     if not isinstance(models, list) or len(models) == 0:
-        models = list(_DEFAULT_MODELS)
+        models = [normalize_model_entry(m) for m in _DEFAULT_MODELS]
         loaded_defaults = True
+    else:
+        normalized = [normalize_model_entry(m) for m in models if isinstance(m, dict)]
+        if normalized != models:
+            models = normalized
+            loaded_defaults = True
         
     # Inject cloud models if provided by cloud extension, or filter them out if empty
     ext_mgr = get_extension_manager()
@@ -71,15 +83,18 @@ def load_models() -> List[Dict[str, Any]]:
         for cloud_model in managed_cloud_models:
             cloud_id = cloud_model["id"]
             if cloud_id not in existing_ids:
-                models.insert(insert_at, cloud_model)
+                models.insert(insert_at, normalize_model_entry(cloud_model))
                 insert_at += 1
-                existing_ids[cloud_id] = cloud_model
+                existing_ids[cloud_id] = models[insert_at - 1]
                 loaded_defaults = True
             else:
                 existing_entry = existing_ids[cloud_id]
                 if existing_entry.get("name") != cloud_model["name"] or existing_entry.get("provider") != cloud_model["provider"]:
                     existing_entry["name"] = cloud_model["name"]
                     existing_entry["provider"] = cloud_model["provider"]
+                    loaded_defaults = True
+                if "supports_thinking" not in existing_entry:
+                    existing_entry["supports_thinking"] = False
                     loaded_defaults = True
     else:
         filtered = [
@@ -123,7 +138,7 @@ def add_or_update_model(model_data: Dict[str, Any]) -> None:
         raise ValueError("Model data must contain an 'id' field")
         
     models = load_models()
-    model_data = dict(model_data)
+    model_data = normalize_model_entry(model_data)
     previous_id = model_data.pop("previous_id", None)
     model_id = model_data["id"]
 

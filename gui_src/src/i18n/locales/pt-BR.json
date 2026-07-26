@@ -655,6 +655,7 @@
     "noModels": "Nenhum modelo encontrado.",
     "provider": "Provedor",
     "modelName": "Nome do Modelo",
+    "thinking": "Thinking",
     "actions": "Ações",
     "deleteConfirm": "Tem certeza que deseja excluir {{id}}?"
   },
@@ -666,6 +667,8 @@
     "modelNameLabel": "Nome do Modelo (ex.: gemma4:12b) *",
     "apiKeyLabel": "Chave de API (Opcional)",
     "apiBaseLabel": "URL Base da API (Opcional)",
+    "supportsThinkingLabel": "Este modelo suporta thinking/reasoning",
+    "supportsThinkingHint": "Mantenha desligado, exceto se a documentação do modelo disser explicitamente que ele suporta parâmetros de thinking ou reasoning.",
     "generatedId": "ID gerado",
     "requiredError": "Provedor e Nome do Modelo são obrigatórios.",
     "duplicateError": "Já existe um modelo com este provedor e nome."
