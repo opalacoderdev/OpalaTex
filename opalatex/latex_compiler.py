@@ -453,7 +453,8 @@ def _disable_non_target_direct_includes(main_content: str, main_dir: str, target
 
 
 def compile_latex_partial(tex_content: str, file_path: str, main_file: str, project_dir: str,
-                          include_pdf_base64: bool = True, draft: bool = False) -> dict:
+                          include_pdf_base64: bool = True, draft: bool = False,
+                          synctex: bool | None = None) -> dict:
     """
     Compile only the current included/input file while preserving SyncTeX.
 
@@ -461,6 +462,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
     or cannot be matched as an \include/\input target, it returns a clear
     failure so callers can fall back to full compilation.
     """
+    synctex_enabled = (not draft) if synctex is None else bool(synctex)
     if not file_path or not main_file or not project_dir:
         return {
             "success": False,
@@ -478,7 +480,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
     main_dir = os.path.dirname(abs_main)
 
     if os.path.normcase(abs_file) == os.path.normcase(abs_main):
-        result = compile_latex(tex_content, file_path, main_file, project_dir, include_pdf_base64, draft=draft)
+        result = compile_latex(tex_content, file_path, main_file, project_dir, include_pdf_base64, draft=draft, synctex=synctex_enabled)
         result["partial"] = False
         result["partial_mode"] = "main"
         return result
@@ -557,7 +559,6 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
                 tectonic_cmd,
                 "-X",
                 "compile",
-                "--synctex",
                 "--keep-intermediates",
                 "--keep-logs",
                 "-r",
@@ -567,13 +568,14 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
         else:
             tectonic_args = [
                 tectonic_cmd,
-                "--synctex",
                 "--keep-intermediates",
                 "--keep-logs",
                 "-c",
                 "minimal",
                 preview_tex,
             ]
+        if synctex_enabled:
+            tectonic_args.insert(3 if draft else 1, "--synctex")
 
         def run_tectonic():
             return subprocess.run(
@@ -627,6 +629,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
                 "engine": "tectonic",
                 "command": tectonic_args,
                 "draft": draft,
+                "synctex_enabled": synctex_enabled,
                 "cwd": main_dir,
                 "input_tex": preview_tex,
                 "main_file": main_file,
@@ -658,7 +661,8 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
 
 
 def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", project_dir: str = "",
-                  include_pdf_base64: bool = True, draft: bool = False) -> dict:
+                  include_pdf_base64: bool = True, draft: bool = False,
+                  synctex: bool | None = None) -> dict:
     """
     Compiles LaTeX content using Tectonic.
     Returns a dictionary with:
@@ -669,6 +673,7 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
     - timing (dict): Compile and post-processing timings in seconds
     - log (str): Output log from the compiler
     """
+    synctex_enabled = (not draft) if synctex is None else bool(synctex)
     tectonic_cmd = get_tectonic_path()
     
     # Auto-resolve project_dir and main_file when project_dir or main_file is empty but we have file_path
@@ -702,7 +707,6 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
                     tectonic_cmd,
                     "-X",
                     "compile",
-                    "--synctex",
                     "--keep-intermediates",
                     "--keep-logs",
                     "-r",
@@ -712,13 +716,14 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
             else:
                 tectonic_args = [
                     tectonic_cmd,
-                    "--synctex",
                     "--keep-intermediates",
                     "--keep-logs",
                     "-c",
                     "minimal",
                     abs_main_file,
                 ]
+            if synctex_enabled:
+                tectonic_args.insert(3 if draft else 1, "--synctex")
             result = subprocess.run(
                 tectonic_args,
                 cwd=project_dir,
@@ -758,6 +763,7 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
                     "engine": "tectonic",
                     "command": tectonic_args,
                     "draft": draft,
+                    "synctex_enabled": synctex_enabled,
                     "cwd": project_dir,
                     "input_tex": abs_main_file,
                     "main_file": main_file,
@@ -803,7 +809,6 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
                 tectonic_cmd,
                 "-X",
                 "compile",
-                "--synctex",
                 "--keep-intermediates",
                 "--keep-logs",
                 "-r",
@@ -813,13 +818,14 @@ def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", 
         else:
             tectonic_args = [
                 tectonic_cmd,
-                "--synctex",
                 "--keep-intermediates",
                 "--keep-logs",
                 "-c",
                 "minimal",
                 tex_file_path,
             ]
+        if synctex_enabled:
+            tectonic_args.insert(3 if draft else 1, "--synctex")
         result = subprocess.run(
             tectonic_args,
             cwd=temp_dir,

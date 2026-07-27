@@ -19,6 +19,7 @@ _DEFAULTS: dict[str, Any] = {
     "lang": "",  # "" means detect from OS; "en" or "pt-BR" for explicit choice
     "ai_provider": "local",
     "cloud_model": "OpalaTexCloud",
+    "draft_synctex_enabled": False,
 }
 
 
@@ -49,4 +50,3 @@ def save_ui_settings(settings: dict[str, Any]) -> None:
         settings["cloud_model"] = ext.normalize_cloud_model(settings.get("cloud_model"))
     current.update(settings)
     _SETTINGS_PATH.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
-

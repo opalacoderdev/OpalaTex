@@ -8,6 +8,7 @@ import { safeSetLocalStorage } from '../utils/storage';
 import InlinePromptOverlay from './InlinePromptOverlay';
 import EditorContextMenuOverlay from './EditorContextMenuOverlay';
 import { formatMessageContent } from '../utils/formatMessage';
+import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 import Split from 'react-split';
 import PdfPreview from './PdfPreview';
 import LatexPreview from './LatexPreview';
@@ -312,7 +313,8 @@ export default function EditorPanel({
           partial,
           draft,
         });
-        if (compileLine && compileFile && compileProjectPath) {
+        const compileSynctexEnabled = data.compile_debug?.synctex_enabled !== false;
+        if (compileLine && compileFile && compileProjectPath && compileSynctexEnabled) {
           pendingPdfSyncRef.current = {
             line: compileLine,
             filePath: compileFile,
@@ -775,7 +777,7 @@ export default function EditorPanel({
           const data = await res.json();
           text = data.text ?? '';
         } catch (_) {}
-        if (text) ed.trigger('keyboard', 'paste', { text });
+        if (text) pastePlainTextIntoMonaco(ed, text);
       },
     });
 

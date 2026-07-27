@@ -40,6 +40,7 @@ export default function SettingsModal({
   const [opalatexHome, setOpalaTexHome] = React.useState('');
   const [aiProvider, setAiProvider] = React.useState('local');
   const [cloudModel, setCloudModel] = React.useState(globalCloudModel);
+  const [draftSynctexEnabled, setDraftSynctexEnabled] = React.useState(false);
   const [tectonicInstallMessage, setTectonicInstallMessage] = React.useState('');
   const [pandocInstallMessage, setPandocInstallMessage] = React.useState('');
 
@@ -77,6 +78,15 @@ export default function SettingsModal({
         }
       })
       .catch(() => { });
+
+    fetch('/api/settings/latex')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (cfg?.draft_synctex_enabled !== undefined) {
+          setDraftSynctexEnabled(Boolean(cfg.draft_synctex_enabled));
+        }
+      })
+      .catch(() => { });
   }, []);
 
   const saveAiProviderSettings = (providerValue, cloudModelValue) => {
@@ -84,6 +94,14 @@ export default function SettingsModal({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: providerValue, cloud_model: cloudModelValue }),
+    }).catch(() => { });
+  };
+
+  const saveLatexSettings = (draftSynctexValue) => {
+    fetch('/api/settings/latex', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft_synctex_enabled: draftSynctexValue }),
     }).catch(() => { });
   };
 
@@ -265,6 +283,23 @@ export default function SettingsModal({
                   <option value="on">{t('settingsModal.wordWrapOn')}</option>
                   <option value="off">{t('settingsModal.wordWrapOff')}</option>
                 </select>
+              </div>
+
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.latexCompilation')}</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--vscode-text-fg)' }}>
+                  <input
+                    type="checkbox"
+                    checked={draftSynctexEnabled}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setDraftSynctexEnabled(checked);
+                      saveLatexSettings(checked);
+                    }}
+                  />
+                  <span>{t('settingsModal.draftSynctexEnabled')}</span>
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('settingsModal.draftSynctexHint')}</span>
               </div>
 
               {/* Panel max lines */}

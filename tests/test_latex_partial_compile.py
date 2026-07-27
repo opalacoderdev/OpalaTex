@@ -328,7 +328,7 @@ def test_partial_compile_preserves_chapter_number_for_input_chapter(monkeypatch,
     assert result["partial_mode"] == "input-wrapper"
 
 
-def test_compile_latex_draft_mode_uses_v2_cli_flags(monkeypatch, tmp_path):
+def test_compile_latex_draft_mode_uses_v2_cli_flags_without_synctex_by_default(monkeypatch, tmp_path):
     root = tmp_path / "document.tex"
     root.write_text(
         "\\documentclass{article}\n\\begin{document}\nHello Draft\n\\end{document}\n",
@@ -358,11 +358,49 @@ def test_compile_latex_draft_mode_uses_v2_cli_flags(monkeypatch, tmp_path):
 
     assert result["success"] is True
     assert captured_cmd[1:3] == ["-X", "compile"]
+    assert "--synctex" not in captured_cmd
     assert "-r" in captured_cmd and captured_cmd[captured_cmd.index("-r") + 1] == "0"
     assert result["compiler_debug"]["draft"] is True
+    assert result["compiler_debug"]["synctex_enabled"] is False
 
 
-def test_compile_latex_partial_draft_mode_uses_v2_cli_flags(monkeypatch, tmp_path):
+def test_compile_latex_draft_mode_can_enable_synctex(monkeypatch, tmp_path):
+    root = tmp_path / "document.tex"
+    root.write_text(
+        "\\documentclass{article}\n\\begin{document}\nHello Draft\n\\end{document}\n",
+        encoding="utf-8",
+    )
+
+    captured_cmd = []
+
+    monkeypatch.setattr(latex_compiler, "get_tectonic_path", lambda: "tectonic")
+
+    def fake_run(cmd, cwd, capture_output, encoding, errors):
+        nonlocal captured_cmd
+        captured_cmd = cmd
+        (tmp_path / "document.pdf").write_bytes(b"%PDF")
+        (tmp_path / "document.synctex.gz").write_bytes(b"synctex")
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(latex_compiler.subprocess, "run", fake_run)
+
+    result = latex_compiler.compile_latex(
+        root.read_text(encoding="utf-8"),
+        str(root),
+        "document.tex",
+        str(tmp_path),
+        include_pdf_base64=False,
+        draft=True,
+        synctex=True,
+    )
+
+    assert result["success"] is True
+    assert captured_cmd[1:4] == ["-X", "compile", "--synctex"]
+    assert result["synctex_path"].endswith("document.synctex.gz")
+    assert result["compiler_debug"]["synctex_enabled"] is True
+
+
+def test_compile_latex_partial_draft_mode_uses_v2_cli_flags_without_synctex_by_default(monkeypatch, tmp_path):
     main = tmp_path / "main.tex"
     chapter = tmp_path / "chapter1.tex"
     main.write_text(
@@ -394,6 +432,45 @@ def test_compile_latex_partial_draft_mode_uses_v2_cli_flags(monkeypatch, tmp_pat
 
     assert result["success"] is True
     assert captured_cmd[1:3] == ["-X", "compile"]
+    assert "--synctex" not in captured_cmd
     assert "-r" in captured_cmd and captured_cmd[captured_cmd.index("-r") + 1] == "0"
     assert result["compiler_debug"]["draft"] is True
+    assert result["compiler_debug"]["synctex_enabled"] is False
 
+
+def test_compile_latex_partial_draft_mode_can_enable_synctex(monkeypatch, tmp_path):
+    main = tmp_path / "main.tex"
+    chapter = tmp_path / "chapter1.tex"
+    main.write_text(
+        "\\documentclass{article}\n\\begin{document}\n\\input{chapter1}\n\\end{document}\n",
+        encoding="utf-8",
+    )
+    chapter.write_text("Chapter 1 text", encoding="utf-8")
+
+    captured_cmd = []
+
+    monkeypatch.setattr(latex_compiler, "get_tectonic_path", lambda: "tectonic")
+
+    def fake_run(cmd, cwd, capture_output, encoding, errors):
+        nonlocal captured_cmd
+        captured_cmd = cmd
+        (tmp_path / "opalatex_partial_chapter1.pdf").write_bytes(b"%PDF")
+        (tmp_path / "opalatex_partial_chapter1.synctex.gz").write_bytes(b"synctex")
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(latex_compiler.subprocess, "run", fake_run)
+
+    result = latex_compiler.compile_latex_partial(
+        chapter.read_text(encoding="utf-8"),
+        str(chapter),
+        "main.tex",
+        str(tmp_path),
+        include_pdf_base64=False,
+        draft=True,
+        synctex=True,
+    )
+
+    assert result["success"] is True
+    assert captured_cmd[1:4] == ["-X", "compile", "--synctex"]
+    assert result["synctex_path"].endswith("opalatex_partial_chapter1.synctex.gz")
+    assert result["compiler_debug"]["synctex_enabled"] is True

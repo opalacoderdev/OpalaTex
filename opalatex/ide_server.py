@@ -806,12 +806,18 @@ class AsyncHTTPServer:
             requested_main_file = str(data.get('mainFile', '') or '').strip()
             partial = bool(data.get('partial', False))
             draft = bool(data.get('draft', False))
+            from opalatex.ui_settings import load_ui_settings
+            ui_cfg = load_ui_settings()
+            draft_synctex_enabled = bool(ui_cfg.get("draft_synctex_enabled", False))
+            synctex_enabled = (not draft) or draft_synctex_enabled
             compile_debug = {
                 "debug_version": LATEX_COMPILE_DEBUG_VERSION,
                 "backend_file": __file__,
                 "compiler_file": getattr(latex_compiler, "__file__", ""),
                 "partial": partial,
                 "draft": draft,
+                "draft_synctex_enabled": draft_synctex_enabled,
+                "synctex_enabled": synctex_enabled,
                 "request_file_path": file_path,
                 "project_path": project_path,
                 "project_name": project_name,
@@ -890,14 +896,14 @@ class AsyncHTTPServer:
             # run compilation
             if partial:
                 compile_debug["compile_function"] = "compile_latex_partial"
-                result = compile_latex_partial(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft)
+                result = compile_latex_partial(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft, synctex=synctex_enabled)
                 compile_debug["partial_result_success"] = result.get("success")
                 compile_debug["partial_mode"] = result.get("partial_mode", "")
                 if not result.get("success"):
                     partial_log = result.get("log") or "Partial compilation failed."
                     compile_debug["partial_fallback_reason"] = partial_log[:2000]
                     compile_debug["compile_function"] = "compile_latex_partial_then_compile_latex"
-                    fallback = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft)
+                    fallback = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft, synctex=synctex_enabled)
                     fallback["partial_fallback_reason"] = partial_log
                     if not fallback.get("success"):
                         fallback["log"] = (
@@ -907,7 +913,7 @@ class AsyncHTTPServer:
                     result = fallback
             else:
                 compile_debug["compile_function"] = "compile_latex"
-                result = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft)
+                result = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft, synctex=synctex_enabled)
 
             result["compiled_main_file"] = main_file
             compile_debug["result_success"] = result.get("success")
@@ -3383,6 +3389,22 @@ class AsyncHTTPServer:
             }).encode('utf-8'), "application/json")
 
         # 7q. Token Balance — GET
+        elif path == '/api/settings/latex' and method == 'GET':
+            from opalatex.ui_settings import load_ui_settings
+            cfg = load_ui_settings()
+            self.send_response(writer, 200, json.dumps({
+                "draft_synctex_enabled": bool(cfg.get("draft_synctex_enabled", False)),
+            }).encode('utf-8'), "application/json")
+
+        elif path == '/api/settings/latex' and method == 'POST':
+            from opalatex.ui_settings import save_ui_settings
+            draft_synctex_enabled = bool(data.get("draft_synctex_enabled", False))
+            save_ui_settings({"draft_synctex_enabled": draft_synctex_enabled})
+            self.send_response(writer, 200, json.dumps({
+                "success": True,
+                "draft_synctex_enabled": draft_synctex_enabled,
+            }).encode('utf-8'), "application/json")
+
         elif path == '/api/settings/token-balance' and method == 'GET':
             from opalatex.licensing import _load_license_data
             license_data = _load_license_data()

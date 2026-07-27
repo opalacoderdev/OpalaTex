@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 
 /**
  * Custom context menu overlay for the Monaco editor.
@@ -66,7 +67,7 @@ export default function EditorContextMenuOverlay({ menu, onClose, setInlinePromp
       const res = await fetch('/api/clipboard/read');
       const data = await res.json();
       const text = data.text ?? '';
-      if (text) editor.trigger('keyboard', 'paste', { text });
+      if (text) pastePlainTextIntoMonaco(editor, text);
     } catch (_) {}
     onClose();
   };
