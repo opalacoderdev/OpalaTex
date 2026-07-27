@@ -657,6 +657,27 @@ class AsyncHTTPServer:
         writer.write(body)
         writer.close()
 
+    def send_response_with_headers(self, writer, status_code, body, content_type="text/plain", extra_headers=None):
+        status_msg = "OK" if status_code == 200 else ("Not Found" if status_code == 404 else "Error")
+        if (content_type.startswith("text/") or
+            content_type in ("application/javascript", "application/json", "image/svg+xml")):
+            if "charset=" not in content_type:
+                content_type += "; charset=utf-8"
+        headers = [
+            f"HTTP/1.1 {status_code} {status_msg}",
+            f"Content-Type: {content_type}",
+            f"Content-Length: {len(body)}",
+            "Access-Control-Allow-Origin: *",
+        ]
+        for name, value in (extra_headers or {}).items():
+            if "\r" in name or "\n" in name or "\r" in value or "\n" in value:
+                continue
+            headers.append(f"{name}: {value}")
+        headers.append("Connection: close")
+        writer.write(("\r\n".join(headers) + "\r\n\r\n").encode('utf-8'))
+        writer.write(body)
+        writer.close()
+
     def send_cors(self, writer):
         headers = (
             "HTTP/1.1 200 OK\r\n"
@@ -3063,6 +3084,62 @@ class AsyncHTTPServer:
                     res_staged = subprocess.run(git_cmd + ["diff", "--cached"], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
                     diff = res.stdout + res_staged.stdout
                 self.send_response(writer, 200, json.dumps({"diff": diff}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7g.0 Git checkpoint archive
+        elif path == '/api/git/archive':
+            project_path = query.get('projectPath', [None])[0]
+            commit_hash = query.get('commit', [None])[0]
+            is_shadow = query.get('shadow', ['false'])[0].lower() == 'true'
+            git_root_path = query.get('gitRootPath', [None])[0]
+            if not project_path or not os.path.exists(project_path):
+                self.send_response(writer, 400, b'{"error":"Invalid project path"}', "application/json")
+                return
+            if not commit_hash:
+                self.send_response(writer, 400, b'{"error":"commit is required"}', "application/json")
+                return
+            import re
+            import subprocess
+            try:
+                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                git_cmd = git_ctx["git_cmd"]
+                verify = subprocess.run(
+                    git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
+                    cwd=git_ctx["cwd"],
+                    capture_output=True,
+                    **utf8_text_kwargs(),
+                )
+                if verify.returncode != 0:
+                    self.send_response(writer, 400, b'{"error":"Invalid commit"}', "application/json")
+                    return
+                full_commit = verify.stdout.strip()
+                archive = subprocess.run(
+                    git_cmd + ["archive", "--format=zip", full_commit],
+                    cwd=git_ctx["cwd"],
+                    capture_output=True,
+                )
+                if archive.returncode != 0:
+                    error_text = (archive.stderr or archive.stdout or b"Git archive failed")
+                    if isinstance(error_text, bytes):
+                        error_text = error_text.decode("utf-8", errors="replace")
+                    raise Exception(error_text)
+                project_name = re.sub(r"[^A-Za-z0-9._-]+", "-", os.path.basename(os.path.abspath(project_path))).strip("-")
+                if not project_name:
+                    project_name = "project"
+                filename = f"{project_name}-checkpoint-{full_commit[:12]}.zip"
+                self.send_response_with_headers(
+                    writer,
+                    200,
+                    archive.stdout,
+                    "application/zip",
+                    {
+                        "Content-Disposition": f'attachment; filename="{filename}"',
+                        "Cache-Control": "no-store",
+                    },
+                )
+            except GitContextError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 

@@ -1,6 +1,8 @@
 import shutil
 import subprocess
 import json
+import io
+import zipfile
 from unittest.mock import AsyncMock
 
 import pytest
@@ -218,6 +220,82 @@ def test_opalatex_partial_artifacts_are_excluded_from_user_git(tmp_path):
     (project / "opalatex_partial_main.pdf").write_text("generated", encoding="utf-8")
 
     assert _git(project, "status", "--porcelain").stdout == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+async def test_git_archive_endpoint_downloads_checkpoint_zip(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    file_path = project / "main.tex"
+    file_path.write_text("before", encoding="utf-8")
+
+    _init_repo(project)
+    _git(project, "add", ".")
+    _git(project, "commit", "-m", "initial")
+
+    file_path.write_text("after", encoding="utf-8")
+    _git(project, "add", ".")
+    _git(project, "commit", "-m", "second")
+    commit = _git(project, "rev-parse", "HEAD").stdout.strip()
+
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    def mock_send_response_with_headers(_writer, status_code, body, content_type="text/plain", extra_headers=None):
+        responses.append((status_code, body, content_type, extra_headers or {}))
+
+    server.send_response_with_headers = mock_send_response_with_headers
+
+    await server.route_api(
+        "GET",
+        "/api/git/archive",
+        {"projectPath": [str(project)], "shadow": ["false"], "commit": [commit]},
+        {},
+        b"",
+        writer,
+    )
+
+    assert len(responses) == 1
+    status_code, body, content_type, headers = responses[0]
+    assert status_code == 200
+    assert content_type == "application/zip"
+    assert headers["Content-Disposition"].endswith(f'checkpoint-{commit[:12]}.zip"')
+
+    with zipfile.ZipFile(io.BytesIO(body)) as archive:
+        assert archive.read("main.tex").decode("utf-8") == "after"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+async def test_git_archive_endpoint_rejects_invalid_commit(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "main.tex").write_text("content", encoding="utf-8")
+    _init_repo(project)
+    _git(project, "add", ".")
+    _git(project, "commit", "-m", "initial")
+
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+
+    await server.route_api(
+        "GET",
+        "/api/git/archive",
+        {"projectPath": [str(project)], "shadow": ["false"], "commit": ["does-not-exist"]},
+        {},
+        b"",
+        writer,
+    )
+
+    assert responses == [(400, {"error": "Invalid commit"}, "application/json")]
 
 
 def test_repo_path_to_project_path_unquotes_and_unescapes():

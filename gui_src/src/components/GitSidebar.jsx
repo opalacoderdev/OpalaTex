@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye, Bot } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye, EyeOff, Bot, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 
@@ -191,6 +191,7 @@ export default function GitSidebar({
   const [loadingCommitDiffs, setLoadingCommitDiffs] = useState({});
   const [selectedCommitDiffFiles, setSelectedCommitDiffFiles] = useState({});
   const [restoringCommit, setRestoringCommit] = useState('');
+  const [downloadingCommit, setDownloadingCommit] = useState('');
   const [commits, setCommits] = useState([]);
   const [loadingLog, setLoadingLog] = useState(false);
   const [reviewPage, setReviewPage] = useState(0);
@@ -356,6 +357,34 @@ export default function GitSidebar({
     }
   };
 
+  const downloadCommitArchive = async (commit) => {
+    if (!projectPath || !commit?.hash || downloadingCommit) return;
+    setDownloadingCommit(commit.hash);
+    try {
+      const res = await fetch(`/api/git/archive?${gitQuery({ commit: commit.hash })}`);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || t('gitSidebar.downloadFailed'));
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const filenameMatch = disposition.match(/filename="([^"]+)"/);
+      const filename = filenameMatch?.[1] || `opalatex-checkpoint-${commit.short || commit.hash.slice(0, 12)}.zip`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      await showAlert(t('gitSidebar.downloadError', { error: err.message }));
+    } finally {
+      setDownloadingCommit('');
+    }
+  };
+
   const hasUnstagedChanges = gitChanges.some(f => !f.staged);
 
   const tabStyle = (tab) => ({
@@ -515,11 +544,23 @@ export default function GitSidebar({
             <button
               type="button"
               className="vscode-button secondary"
-              title={t('gitSidebar.showCommitDiff')}
+              title={isExpanded ? t('gitSidebar.collapseCommitDiff') : t('gitSidebar.showCommitDiff')}
               onClick={handleDiff}
               style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' }}
             >
-              <Eye size={12} />{t('gitSidebar.diff')}
+              {isExpanded ? <EyeOff size={12} /> : <Eye size={12} />}
+              {isExpanded ? t('gitSidebar.collapse') : t('gitSidebar.diff')}
+            </button>
+            <button
+              type="button"
+              className="vscode-button secondary"
+              title={t('gitSidebar.downloadCheckpointZip')}
+              onClick={() => downloadCommitArchive(item.end)}
+              disabled={!!downloadingCommit}
+              style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' }}
+            >
+              <Download size={12} />
+              {downloadingCommit === item.end.hash ? t('gitSidebar.downloading') : t('gitSidebar.downloadZip')}
             </button>
             <button
               type="button"
@@ -551,11 +592,31 @@ export default function GitSidebar({
                 <span style={{ color: 'var(--vscode-descriptionForeground)' }}>{t('gitSidebar.agentCheckpointBefore')}: </span>
                 <span style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{item.start.short}</span>
                 <span style={{ color: 'var(--vscode-descriptionForeground)', marginLeft: '6px' }}>{item.start.date}</span>
+                <button
+                  type="button"
+                  className="git-icon-button"
+                  title={t('gitSidebar.downloadCheckpointZip')}
+                  onClick={() => downloadCommitArchive(item.start)}
+                  disabled={!!downloadingCommit}
+                  style={{ marginLeft: '6px', verticalAlign: 'middle' }}
+                >
+                  <Download size={11} />
+                </button>
               </div>
               <div>
                 <span style={{ color: 'var(--vscode-descriptionForeground)' }}>{t('gitSidebar.agentCheckpointAfter')}: </span>
                 <span style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{item.end.short}</span>
                 <span style={{ color: 'var(--vscode-descriptionForeground)', marginLeft: '6px' }}>{item.end.date}</span>
+                <button
+                  type="button"
+                  className="git-icon-button"
+                  title={t('gitSidebar.downloadCheckpointZip')}
+                  onClick={() => downloadCommitArchive(item.end)}
+                  disabled={!!downloadingCommit}
+                  style={{ marginLeft: '6px', verticalAlign: 'middle' }}
+                >
+                  <Download size={11} />
+                </button>
               </div>
             </div>
             {/* Tool steps */}
@@ -575,11 +636,11 @@ export default function GitSidebar({
                         <button
                           type="button"
                           className="git-icon-button"
-                          title={t('gitSidebar.showCommitDiff')}
+                          title={expandedCommitDiffs[tool.hash] ? t('gitSidebar.collapseCommitDiff') : t('gitSidebar.showCommitDiff')}
                           onClick={() => toggleCommitDiff(tool.hash)}
                           style={{ flexShrink: 0 }}
                         >
-                          <Eye size={11} />
+                          {expandedCommitDiffs[tool.hash] ? <EyeOff size={11} /> : <Eye size={11} />}
                         </button>
                       </div>
                       {expandedCommitDiffs[tool.hash] && (
@@ -615,6 +676,7 @@ export default function GitSidebar({
                 return <AgentTurnRow key={`${item.start.hash}-${item.end.hash}`} item={item} />;
               }
               const c = item.commit;
+              const isCommitDiffExpanded = !!expandedCommitDiffs[c.hash];
               return (
                 <div key={c.hash || i} className={reviewMode ? 'git-review-row' : 'git-commit-row'}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
@@ -632,12 +694,26 @@ export default function GitSidebar({
                       <button
                         type="button"
                         className={reviewMode ? 'vscode-button secondary' : 'git-icon-button'}
-                        title={t('gitSidebar.showCommitDiff')}
+                        title={isCommitDiffExpanded ? t('gitSidebar.collapseCommitDiff') : t('gitSidebar.showCommitDiff')}
                         onClick={() => toggleCommitDiff(c.hash)}
                         style={reviewMode ? { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' } : undefined}
                       >
-                        <Eye size={12} /> {reviewMode && t('gitSidebar.diff')}
+                        {isCommitDiffExpanded ? <EyeOff size={12} /> : <Eye size={12} />}
+                        {reviewMode && (isCommitDiffExpanded ? t('gitSidebar.collapse') : t('gitSidebar.diff'))}
                       </button>
+                      {reviewMode && (
+                        <button
+                          type="button"
+                          className="vscode-button secondary"
+                          title={t('gitSidebar.downloadCheckpointZip')}
+                          onClick={() => downloadCommitArchive(c)}
+                          disabled={!!downloadingCommit}
+                          style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '4px 8px' }}
+                        >
+                          <Download size={12} />
+                          {downloadingCommit === c.hash ? t('gitSidebar.downloading') : t('gitSidebar.downloadZip')}
+                        </button>
+                      )}
                       {(reviewMode || effectiveUseShadowGit) && (
                         <button
                           type="button"
@@ -652,7 +728,7 @@ export default function GitSidebar({
                       )}
                     </div>
                   </div>
-                  {expandedCommitDiffs[c.hash] && (
+                  {isCommitDiffExpanded && (
                     <div style={{ marginTop: '8px', paddingLeft: reviewMode ? '0' : '12px' }}>
                       <CommitDiffPanel commitHash={c.hash} wrapLines={reviewMode} />
                     </div>
