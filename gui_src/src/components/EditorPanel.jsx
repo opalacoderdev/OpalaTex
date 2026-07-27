@@ -628,6 +628,28 @@ export default function EditorPanel({
     }
   };
 
+  const focusVisibleFindInput = useCallback((editor) => {
+    const root = editor?.getDomNode?.()?.ownerDocument || document;
+    const widgets = Array.from(root.querySelectorAll('.editor-widget.find-widget'))
+      .filter(widget => widget.getAttribute('aria-hidden') !== 'true' && !widget.inert);
+    const input = widgets
+      .map(widget => widget.querySelector('.monaco-inputbox input, input[type="text"], textarea'))
+      .find(Boolean);
+    if (!input) return false;
+    input.focus();
+    input.select?.();
+    return true;
+  }, []);
+
+  const focusFindInputAfterOpen = useCallback((editor) => {
+    const tryFocus = () => focusVisibleFindInput(editor);
+    requestAnimationFrame(() => {
+      if (tryFocus()) return;
+      setTimeout(tryFocus, 0);
+      setTimeout(tryFocus, 50);
+    });
+  }, [focusVisibleFindInput]);
+
   // Wrap the external mount handler so we can also register the context-menu
   // actions and the Ctrl+L shortcut ourselves.
   const handleMount = (editor, monaco) => {
@@ -672,6 +694,14 @@ export default function EditorPanel({
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyJ,
       () => {
         if (onToggleTerminalRef.current) onToggleTerminalRef.current();
+      }
+    );
+
+    actualEditor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyF,
+      () => {
+        actualEditor.getAction('actions.find')?.run();
+        focusFindInputAfterOpen(actualEditor);
       }
     );
 

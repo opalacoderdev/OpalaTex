@@ -263,6 +263,21 @@ def is_local_model(model: str | None, api_base: str | None = "") -> bool:
     return False
 
 
+def normalize_ollama_api_base_for_litellm(model: str | None, api_base: str | None) -> str:
+    """Return the Ollama root URL expected by LiteLLM native Ollama providers."""
+    value = str(api_base or "").strip()
+    model_id = str(model or "").lower()
+    if not value or not (
+        model_id.startswith("ollama/") or model_id.startswith("ollama_chat/")
+    ):
+        return value
+    if value.endswith("/v1"):
+        return value[:-3]
+    if value.endswith("/v1/"):
+        return value[:-4]
+    return value
+
+
 def default_num_ctx_for_model(model: str | None, api_base: str | None = "") -> int:
     """Return the predictable default context window for a model selection."""
     return LOCAL_MODEL_CONTEXT_TOKENS if is_local_model(model, api_base) else CLOUD_MODEL_CONTEXT_TOKENS

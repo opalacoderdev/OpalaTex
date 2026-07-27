@@ -1850,7 +1850,7 @@ class AsyncHTTPServer:
 
         # 5. Create Project
         elif path == '/api/opalatex/create-project' and method == 'POST':
-            from opalatex.config import DEFAULT_DB_PATH, DEFAULT_MODEL
+            from opalatex.config import DEFAULT_DB_PATH, DEFAULT_MODEL, is_local_model
             from opalatex.project import ProjectStore
             store = ProjectStore(db_path=DEFAULT_DB_PATH)
             
@@ -1947,7 +1947,7 @@ class AsyncHTTPServer:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
                 return
                 
-            if model and model.startswith("ollama/"):
+            if model and model.startswith("ollama/") and is_local_model(model, api_base):
                 m_name = model.split("ollama/", 1)[1]
                 import threading
                 import subprocess
@@ -2521,7 +2521,8 @@ class AsyncHTTPServer:
 
             store.save(project)
             
-            if project.model and project.model.startswith("ollama/"):
+            from opalatex.config import is_local_model
+            if project.model and project.model.startswith("ollama/") and is_local_model(project.model, getattr(project, "api_base", "")):
                 m_name = project.model.split("ollama/", 1)[1]
                 import threading
                 import subprocess

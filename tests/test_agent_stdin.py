@@ -139,6 +139,32 @@ def test_ollama_model_not_found_error_is_localized():
     assert "O modelo `gemma` não foi encontrado localmente" in pt_msg
 
 
+def test_remote_ollama_model_not_found_error_does_not_claim_local_download():
+    from opalatex.i18n import set_lang
+
+    project = SimpleNamespace(model="ollama/gpt-oss:20b", api_base="http://100.85.255.111:11434/v1")
+    exc = Exception("model not found, try pulling it first")
+
+    set_lang("en")
+    msg = _friendly_llm_error(exc, project)
+
+    assert "was not found locally" not in msg
+    assert "Model ollama/gpt-oss:20b was not found" in msg
+
+
+def test_ollama_404_page_not_found_is_reported_as_connection_error():
+    from opalatex.i18n import set_lang
+
+    project = SimpleNamespace(model="ollama/gpt-oss:20b", api_base="http://100.85.255.111:11434/v1")
+    exc = Exception("OllamaException - 404 page not found")
+
+    set_lang("en")
+    msg = _friendly_llm_error(exc, project)
+
+    assert "was not found locally" not in msg
+    assert "Could not connect to ollama/gpt-oss:20b" in msg
+
+
 def test_insufficient_quota_error_is_localized():
     from opalatex.i18n import set_lang
     project = SimpleNamespace(model="openai/gpt-5.5")
@@ -302,6 +328,57 @@ def test_sanitize_model_response_treats_thought_only_channel_as_empty_response()
 
     assert visible == ""
     assert thoughts == ["Wait, I see what happened."]
+
+
+@pytest.mark.asyncio
+async def test_handle_run_inline_normalizes_remote_ollama_api_base(monkeypatch):
+    import opalatex.agent_stdin as stdin_mod
+    import opalatex.config as config_mod
+    import opalatex.litellm_compat as compat_mod
+
+    captured = {}
+    events = []
+
+    class FakeInlineAgent:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.name = kwargs["name"]
+            self.model = kwargs["model"]
+            self.model_kargs = kwargs["model_kwargs"]
+            self.model_kwargs = kwargs["model_kwargs"]
+            self.internal_history = []
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, agent_input):
+            return SimpleNamespace(response="````content\nok\n````")
+
+    monkeypatch.setattr(stdin_mod, "LLMAgentBlock", FakeInlineAgent)
+    monkeypatch.setattr(compat_mod, "wrap_agent_litellm_compat", lambda agent: agent)
+    monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(config_mod, "get_agent_model", lambda _agent_name, default=None: default)
+    monkeypatch.setattr(
+        config_mod,
+        "get_agent_llm_kwargs",
+        lambda _agent_name: {"api_base": "http://100.85.255.111:11434/v1"},
+    )
+    monkeypatch.setattr(config_mod, "model_supports_thinking", lambda _model: False)
+    monkeypatch.setattr(stdin_mod, "current_project", None)
+    monkeypatch.setattr(stdin_mod, "current_store", None)
+    monkeypatch.setattr(stdin_mod, "current_memgpt", None)
+
+    await stdin_mod.handle_run({
+        "agent": "inline_editor",
+        "model": "ollama/gpt-oss:20b",
+        "system_prompt": "Return a replacement.",
+        "prompt": "Replace this text.",
+        "tools": [],
+    })
+
+    assert captured["model"] == "ollama/gpt-oss:20b"
+    assert captured["model_kwargs"]["api_base"] == "http://100.85.255.111:11434"
+    assert ("agent_response", {"response": "````content\nok\n````"}) in events
 
 
 @pytest.mark.asyncio

@@ -150,6 +150,7 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
     msg = str(exc)
     low = msg.lower()
     model = getattr(project, "model", None) or "the configured model"
+    api_base = getattr(project, "api_base", "") or ""
 
     if "unexpected keyword argument" in low or "got an unexpected" in low:
         # Extract the parameter name from messages like: "got an unexpected keyword argument 'reasoning_effort'"
@@ -166,8 +167,12 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
 
     from opalatex.i18n import _
 
+    if "404 page not found" in low:
+        return _("err_connection_failed").format(model=model)
+
     if "not found" in low or "pull" in low or "try pulling it first" in low:
-        if model.startswith("ollama/"):
+        from opalatex.config import is_local_model
+        if model.startswith("ollama/") and is_local_model(model, api_base):
             return _("err_ollama_model_not_found", model=model.replace("ollama/", ""))
         return _("err_model_not_found", model=model)
 
@@ -1068,6 +1073,7 @@ async def handle_run(data: dict):
             resolve_model_for_thinking,
             get_agent_model,
             get_agent_llm_kwargs,
+            normalize_ollama_api_base_for_litellm,
             sanitize_litellm_kwargs_for_model,
         )
         
@@ -1081,6 +1087,11 @@ async def handle_run(data: dict):
         _global_kwargs = _apply_model_thinking_capability(_model, _global_kwargs)
         _model = resolve_model_for_thinking(_model, _global_kwargs)
         model_kwargs = sanitize_litellm_kwargs_for_model(_model, _global_kwargs)
+        if model_kwargs.get("api_base"):
+            model_kwargs["api_base"] = normalize_ollama_api_base_for_litellm(
+                _model,
+                model_kwargs["api_base"],
+            )
 
         from opalatex.ui_settings import load_ui_settings
         _is_cloud = load_ui_settings().get("ai_provider") == "cloud"

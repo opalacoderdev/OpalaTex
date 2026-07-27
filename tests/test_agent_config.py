@@ -300,6 +300,23 @@ def test_ollama_cloud_model_uses_remote_api_base_by_default(monkeypatch):
     assert kwargs["request_timeout"] == 600.0
 
 
+def test_normalize_ollama_api_base_for_litellm_strips_v1_suffix():
+    from opalatex.config import normalize_ollama_api_base_for_litellm
+
+    assert normalize_ollama_api_base_for_litellm(
+        "ollama/gpt-oss:20b",
+        "http://100.85.255.111:11434/v1",
+    ) == "http://100.85.255.111:11434"
+    assert normalize_ollama_api_base_for_litellm(
+        "ollama_chat/gpt-oss:20b",
+        "http://100.85.255.111:11434/v1/",
+    ) == "http://100.85.255.111:11434"
+    assert normalize_ollama_api_base_for_litellm(
+        "openai/gpt-5.5",
+        "http://example.test/v1",
+    ) == "http://example.test/v1"
+
+
 def test_resolve_model_for_thinking_requires_model_capability():
     from opalatex.config import resolve_model_for_thinking
     from unittest.mock import patch

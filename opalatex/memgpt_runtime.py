@@ -607,6 +607,19 @@ def build_run_skill_tool(
             previous_runs_block = f"\n[PREVIOUS ATTEMPTS HISTORY]\nYou have been called before in this session for the '{skill_name}' skill. Do NOT repeat failed approaches. Here are your previous attempts:\n{previous_runs}"
 
         prompt = f"RECENT CHAT HISTORY:\n{recent_history}{achievements_block}{previous_runs_block}\n\nMEMGPT CONTEXT/INSTRUCTIONS:\n{context}"
+        worker_checkpoint_id = None
+        worker_checkpoint_project_path = None
+        try:
+            from opalatex.config import get_git_strategy
+            if get_git_strategy().lower() != "none":
+                from opalatex.vcs import begin_agent_turn_checkpoint
+                worker_checkpoint_project_path = project_path
+                worker_checkpoint_id = begin_agent_turn_checkpoint(
+                    worker_checkpoint_project_path,
+                    f"worker:{skill_name}",
+                )
+        except Exception:
+            worker_checkpoint_id = None
         try:
             out = await sub_agent.run(AgentInput(prompt=prompt))
             out_text = out.response if hasattr(out, "response") else str(out)
@@ -614,6 +627,18 @@ def build_run_skill_tool(
         except Exception as e:
             out_text = f"[CRITICAL WORKER CRASH] A exceção não tratada interrompeu o worker: {str(e)}"
             tool_calls = "?"
+
+        finally:
+            if worker_checkpoint_id and worker_checkpoint_project_path:
+                try:
+                    from opalatex.vcs import finalize_agent_turn_checkpoint
+                    finalize_agent_turn_checkpoint(
+                        worker_checkpoint_project_path,
+                        worker_checkpoint_id,
+                        f"worker:{skill_name}",
+                    )
+                except Exception:
+                    pass
 
         #if "<<NEED_INPUT>>" in out_text:
         #    parts = out_text.split("<<NEED_INPUT>>", 1)

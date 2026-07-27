@@ -7,11 +7,29 @@ import subprocess
 import threading
 from abc import ABC, abstractmethod
 from typing import List, Callable
-from agenticblocks.core.function_block import as_tool
 
-from . import terminal as T
 from .subprocess_utils import utf8_text_kwargs
-from .tools import AGENT_PROGRESS, _preview, get_project_path
+
+
+def _get_project_path() -> str:
+    try:
+        from .tools import get_project_path
+        return get_project_path()
+    except Exception:
+        return os.getcwd()
+
+
+def _preview(value: object, max_len: int = 60) -> str:
+    text = str(value).replace("\n", " ")
+    return text[:max_len] + "..." if len(text) > max_len else text
+
+
+def _update_agent_progress(tool_name: str, args_preview: str = "") -> None:
+    try:
+        from .tools import AGENT_PROGRESS
+        AGENT_PROGRESS.update(tool_name, args_preview)
+    except Exception:
+        pass
 
 SHADOW_GITIGNORE_PATTERNS = [
     ".env",
@@ -91,7 +109,7 @@ class VersionControlStrategy(ABC):
 def _run_shadow_git(command: str | list[str], project_path: str | None = None) -> subprocess.CompletedProcess:
     """Run a Git command using the internal shadow git directory."""
     if project_path is None:
-        project_path = get_project_path()
+        project_path = _get_project_path()
     shadow_dir = os.path.join(project_path, ".opalatex", ".shadowgit")
     command_args = command if isinstance(command, list) else shlex.split(command)
     full_cmd = ["git", f"--git-dir={shadow_dir}", f"--work-tree={project_path}", *command_args]
@@ -198,7 +216,7 @@ def _auto_checkpoint(message: str, project_path: str | None = None):
 def auto_checkpoint_if_changed(message: str, project_path: str | None = None) -> bool:
     """Create a shadow-git checkpoint only when the work tree has changes."""
     if project_path is None:
-        project_path = get_project_path()
+        project_path = _get_project_path()
     project_path = os.path.abspath(project_path)
     if not project_path or not os.path.isdir(project_path):
         return False
@@ -236,10 +254,17 @@ def _remove_agent_turn_checkpoints(project_path: str, start_checkpoint: str) -> 
     return True
 
 
-def begin_agent_turn_checkpoint(project_path: str | None = None) -> str | None:
+def _agent_checkpoint_message(phase: str, agent_label: str | None = None) -> str:
+    base = f"Agent turn {phase} checkpoint"
+    if agent_label:
+        return f"{base}: {agent_label}"
+    return base
+
+
+def begin_agent_turn_checkpoint(project_path: str | None = None, agent_label: str | None = None) -> str | None:
     """Create a deterministic start checkpoint for an agent turn."""
     if project_path is None:
-        project_path = get_project_path()
+        project_path = _get_project_path()
     project_path = os.path.abspath(project_path)
     if not project_path or not os.path.isdir(project_path):
         return None
@@ -249,7 +274,7 @@ def begin_agent_turn_checkpoint(project_path: str | None = None) -> str | None:
             _init_shadow_git(project_path)
             _run_shadow_git("add .", project_path)
             res = _run_shadow_git(
-                ["commit", "--allow-empty", "-m", "Agent turn start checkpoint"],
+                ["commit", "--allow-empty", "-m", _agent_checkpoint_message("start", agent_label)],
                 project_path,
             )
             if res.returncode != 0:
@@ -262,10 +287,14 @@ def begin_agent_turn_checkpoint(project_path: str | None = None) -> str | None:
             return None
 
 
-def finalize_agent_turn_checkpoint(project_path: str | None = None, start_checkpoint: str | None = None) -> bool:
+def finalize_agent_turn_checkpoint(
+    project_path: str | None = None,
+    start_checkpoint: str | None = None,
+    agent_label: str | None = None,
+) -> bool:
     """Create an end checkpoint and discard the turn checkpoints when no net diff exists."""
     if project_path is None:
-        project_path = get_project_path()
+        project_path = _get_project_path()
     project_path = os.path.abspath(project_path)
     if not project_path or not os.path.isdir(project_path):
         return False
@@ -275,7 +304,7 @@ def finalize_agent_turn_checkpoint(project_path: str | None = None, start_checkp
             _init_shadow_git(project_path)
             _run_shadow_git("add .", project_path)
             res = _run_shadow_git(
-                ["commit", "--allow-empty", "-m", "Agent turn end checkpoint"],
+                ["commit", "--allow-empty", "-m", _agent_checkpoint_message("end", agent_label)],
                 project_path,
             )
             if res.returncode != 0:
@@ -291,26 +320,41 @@ def finalize_agent_turn_checkpoint(project_path: str | None = None, start_checkp
             return False
 
 
-@as_tool(name="git_status", description="Get the status of the internal version control. Shows modified/added files.")
 def git_status() -> str:
-    AGENT_PROGRESS.update("git_status")
+    _update_agent_progress("git_status")
     res = _run_shadow_git("status -s")
     return res.stdout if res.stdout.strip() else "Working tree clean."
 
-@as_tool(name="git_diff", description="Get the diff of the internal version control to see exact code changes.")
 def git_diff() -> str:
-    AGENT_PROGRESS.update("git_diff")
+    _update_agent_progress("git_diff")
     res = _run_shadow_git("diff")
     return res.stdout if res.stdout.strip() else "No changes."
 
-@as_tool(name="git_commit", description="Commit all current changes to the internal version control. Use this to save milestones.")
 def git_commit(message: str) -> str:
-    AGENT_PROGRESS.update("git_commit", _preview(message))
+    _update_agent_progress("git_commit", _preview(message))
     _run_shadow_git("add .")
     res = _run_shadow_git(["commit", "-m", message])
     if res.returncode == 0:
         return f"Successfully committed: {message}"
     return f"Failed to commit or nothing to commit. Output: {res.stderr or res.stdout}"
+
+
+def _agent_git_tools() -> List[Callable]:
+    from agenticblocks.core.function_block import as_tool
+    return [
+        as_tool(
+            name="git_status",
+            description="Get the status of the internal version control. Shows modified/added files.",
+        )(git_status),
+        as_tool(
+            name="git_diff",
+            description="Get the diff of the internal version control to see exact code changes.",
+        )(git_diff),
+        as_tool(
+            name="git_commit",
+            description="Commit all current changes to the internal version control. Use this to save milestones.",
+        )(git_commit),
+    ]
 
 
 # ─── Concrete Strategies ──────────────────────────────────────────────────────
@@ -385,7 +429,7 @@ class HybridGitStrategy(VersionControlStrategy):
         _auto_checkpoint(f"Post-run checkpoint: {status}. {msg}", self.project_path)
 
     def get_tools(self) -> List[Callable]:
-        return [git_status, git_diff, git_commit]
+        return _agent_git_tools()
 
     def manual_commit(self, message: str) -> tuple[bool, str]:
         _run_shadow_git("add .", self.project_path)
@@ -440,7 +484,7 @@ class AgentDrivenGitStrategy(VersionControlStrategy):
         pass
 
     def get_tools(self) -> List[Callable]:
-        return [git_status, git_diff, git_commit]
+        return _agent_git_tools()
 
     def manual_commit(self, message: str) -> tuple[bool, str]:
         _run_shadow_git("add .", self.project_path)

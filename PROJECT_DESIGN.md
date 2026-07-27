@@ -43,7 +43,7 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
   - `opalatex/project_store.py`: Persists project metadata, chat history, branches, message attachments, core memory snapshots, and agent activity needed for resume context.
   - `opalatex/attachments.py`: Converts uploaded images and supported documents into normalized descriptors, extracts document text when possible, preserves originals for supported formats, and avoids forwarding unsupported binary payloads to text-only models.
 - **VCS & Compilation Managers**:
-  - `opalatex/vcs.py`: Implements user-facing Git features and internal shadow checkpoints around agent turns. Mutating file tools do not create their own checkpoints; the agent run creates start/end checkpoints only when needed.
+  - `opalatex/vcs.py`: Implements user-facing Git features and internal shadow checkpoints around agent turns. Mutating file tools do not create their own checkpoints; each participating agent run, including ephemeral `run_skill` workers, creates labeled start/end checkpoints only when needed.
   - `opalatex/latex_compiler.py`: Handles compiling LaTeX using Tectonic (`tectonic` CLI), supporting full, partial (chapter/file), and fast single-pass draft compilation (`tectonic -X compile` with `-r 0`).
   - `synctex_parser.py`: Maps PDF rendering view back to the corresponding LaTeX lines.
 - **Document Export Tools**:
