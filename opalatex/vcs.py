@@ -302,6 +302,14 @@ def finalize_agent_turn_checkpoint(
     with _SHADOW_GIT_LOCK:
         try:
             _init_shadow_git(project_path)
+            if not start_checkpoint:
+                return False
+            verify_start = _run_shadow_git(
+                ["rev-parse", "--verify", f"{start_checkpoint}^{{commit}}"],
+                project_path,
+            )
+            if verify_start.returncode != 0:
+                return False
             _run_shadow_git("add .", project_path)
             res = _run_shadow_git(
                 ["commit", "--allow-empty", "-m", _agent_checkpoint_message("end", agent_label)],
@@ -309,8 +317,6 @@ def finalize_agent_turn_checkpoint(
             )
             if res.returncode != 0:
                 return False
-            if not start_checkpoint:
-                return True
 
             diff = _run_shadow_git(["diff", "--quiet", start_checkpoint, "HEAD", "--"], project_path)
             if diff.returncode == 0:

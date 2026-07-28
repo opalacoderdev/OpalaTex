@@ -69,6 +69,33 @@ def test_print_event(monkeypatch):
     assert parsed["num"] == 123
 
 
+def test_print_event_persists_thinking_and_stream_activity(monkeypatch):
+    import opalatex.agent_stdin
+
+    saved = []
+
+    class FakeProject:
+        name = "proj"
+        current_chat_id = "main"
+
+    class FakeStore:
+        def append_activity(self, project, event, content="", agent="", payload=None):
+            saved.append((project.name, event, content, agent, payload or {}))
+            return len(saved)
+
+    monkeypatch.setattr(opalatex.agent_stdin, "current_project", FakeProject())
+    monkeypatch.setattr(opalatex.agent_stdin, "current_store", FakeStore())
+    monkeypatch.setattr(opalatex.agent_stdin, "event_hook", lambda _payload: None)
+
+    print_event("thought", {"content": "Think this through.", "agent": "chat_orchestrator"})
+    print_event("stream_chunk", {"content": "Visible stream.", "agent": "chat_orchestrator"})
+
+    assert saved == [
+        ("proj", "thought", "Think this through.", "chat_orchestrator", {"agent": "chat_orchestrator"}),
+        ("proj", "stream_chunk", "Visible stream.", "chat_orchestrator", {"agent": "chat_orchestrator"}),
+    ]
+
+
 def test_wrap_tool():
     """Verify that wrap_tool correctly wraps a sync function as an AgenticBlocks tool."""
     # Define a simple function to wrap

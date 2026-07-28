@@ -398,6 +398,31 @@ def test_append_message_is_idempotent_by_client_message_id(store):
     assert loaded.history[0]["client_message_id"] == "client-turn-1"
 
 
+def test_append_activity_persists_diagnostics_outside_chat_history(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    store.append_message(p, "user", "review main.tex")
+
+    activity_id = store.append_activity(
+        p,
+        "thought",
+        "I should inspect main.tex.",
+        agent="chat_orchestrator",
+        payload={"agent": "chat_orchestrator"},
+    )
+    store.append_activity(p, "stream_chunk", "Visible token", agent="chat_orchestrator")
+
+    loaded = store.load("myproj", chat_id=p.current_chat_id)
+    activity = store.list_activity("myproj", p.current_chat_id)
+
+    assert isinstance(activity_id, int)
+    assert [m["content"] for m in loaded.history] == ["review main.tex"]
+    assert [(item["event"], item["content"]) for item in activity] == [
+        ("thought", "I should inspect main.tex."),
+        ("stream_chunk", "Visible token"),
+    ]
+
+
 def test_branch_chat_copies_attachments(store):
     store.create(**_base_args())
     p = store.load("myproj")
@@ -534,6 +559,22 @@ def test_truncate_chat_history_from_index_removes_suffix(store):
     assert loaded.history[0]["id"] == first_id
     assert len(deleted_ids) == 2
     assert [m["content"] for m in loaded.history] == ["first"]
+
+
+def test_truncate_chat_history_from_index_removes_future_activity(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    store.append_message(p, "user", "first")
+    store.append_activity(p, "thought", "first thought", agent="chat_orchestrator")
+    store.append_message(p, "assistant", "first reply")
+    store.append_activity(p, "stream_chunk", "future stream", agent="chat_orchestrator")
+
+    store.truncate_chat_history_from_index("myproj", p.current_chat_id, 1)
+
+    activity = store.list_activity("myproj", p.current_chat_id)
+    assert [(item["event"], item["content"]) for item in activity] == [
+        ("thought", "first thought"),
+    ]
 
 
 def test_branch_chat_prefix_copies_messages_before_index(store):

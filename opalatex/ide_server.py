@@ -2342,7 +2342,8 @@ class AsyncHTTPServer:
             if not project:
                 self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
                 return
-            self.send_response(writer, 200, json.dumps({"history": project.history}).encode(), "application/json")
+            activity = store.list_activity(project_name, chat_id)
+            self.send_response(writer, 200, json.dumps({"history": project.history, "activity": activity}).encode(), "application/json")
 
         elif path == '/api/chat/list' and method == 'GET':
             from opalatex.config import DEFAULT_DB_PATH
@@ -3238,6 +3239,13 @@ class AsyncHTTPServer:
             try:
                 git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 git_cmd = git_ctx["git_cmd"]
+                if file_path_param == "__all__":
+                    if action == "stage":
+                        subprocess.run(git_cmd + ["add", "--all", "--", "."], cwd=git_ctx["cwd"], check=True)
+                    else:
+                        subprocess.run(git_cmd + ["restore", "--staged", "--", "."], cwd=git_ctx["cwd"], check=True)
+                    self.send_response(writer, 200, b'{"success":true}', "application/json")
+                    return
                 repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
                 if action == "stage":
                     subprocess.run(git_cmd + ["add", "--", repo_file_path], cwd=git_ctx["cwd"], check=True)

@@ -2,45 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye, EyeOff, Bot, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
+import { groupAgentTurns } from '../utils/gitReviewGrouping';
 
 const REVIEW_HISTORY_PAGE_SIZE = 10;
 const ALL_DIFF_FILES = '__all__';
-
-const MSG_AGENT_START = 'Agent turn start checkpoint';
-const MSG_AGENT_END   = 'Agent turn end checkpoint';
-const MSG_AGENT_TOOL  = 'Agent tool checkpoint';
-
-function groupAgentTurns(commits) {
-  const out = [];
-  let i = 0;
-  while (i < commits.length) {
-    const c = commits[i];
-    if (c.message === MSG_AGENT_END) {
-      const end = c;
-      const tools = [];
-      let j = i + 1;
-      while (j < commits.length && commits[j].message.startsWith(MSG_AGENT_TOOL)) {
-        tools.push(commits[j]);
-        j++;
-      }
-      if (j < commits.length && commits[j].message === MSG_AGENT_START) {
-        const start = commits[j];
-        out.push({ type: 'agent_turn', start, end, tools });
-        i = j + 1;
-      } else {
-        out.push({ type: 'commit', commit: end });
-        i++;
-      }
-    } else if (c.message === MSG_AGENT_START || c.message.startsWith(MSG_AGENT_TOOL)) {
-      out.push({ type: 'commit', commit: c });
-      i++;
-    } else {
-      out.push({ type: 'commit', commit: c });
-      i++;
-    }
-  }
-  return out;
-}
 
 function buildStatusMeta(t) {
   return {
@@ -170,6 +135,7 @@ export default function GitSidebar({
   isCommitting,
   handleGitCommit,
   onStageFile,
+  onStageAllFiles,
   onUnstageFile,
   onDiscardFile,
   useShadowGit,
@@ -289,15 +255,10 @@ export default function GitSidebar({
 
   const handleStageAll = async () => {
     if (!projectPath) return;
-    let hadFailure = false;
-    for (const f of gitChanges) {
-      if (!f.staged) {
-        const ok = await onStageFile(f.path);
-        if (!ok) hadFailure = true;
-      }
+    const ok = await onStageAllFiles();
+    if (ok) {
+      setDiffs({});
     }
-    setDiffs({});
-    if (!hadFailure) fetchGitStatus();
   };
 
   const fetchCommitDiff = useCallback(async (commitHash, endCommitHash, filePath = ALL_DIFF_FILES) => {

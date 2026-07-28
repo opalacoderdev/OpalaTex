@@ -157,3 +157,54 @@ def test_agent_turn_cleanup_preserves_preexisting_uncommitted_changes(tmp_path):
     assert "Agent turn end checkpoint" not in log
     assert target.read_text(encoding="utf-8") == "user edit\n"
 
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_agent_turn_finalize_without_start_does_not_create_orphan_checkpoint(tmp_path):
+    from opalatex.vcs import finalize_agent_turn_checkpoint
+
+    target = tmp_path / "agent.tex"
+    target.write_text("agent edit\n", encoding="utf-8")
+
+    assert not finalize_agent_turn_checkpoint(str(tmp_path), None)
+
+    log = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "log",
+            "--format=%s",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Agent turn end checkpoint" not in log.stdout
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_labeled_agent_turn_without_changes_removes_start_and_end(tmp_path):
+    from opalatex.vcs import begin_agent_turn_checkpoint, finalize_agent_turn_checkpoint
+
+    start_checkpoint = begin_agent_turn_checkpoint(str(tmp_path), "worker:command-line")
+    assert start_checkpoint
+    assert finalize_agent_turn_checkpoint(str(tmp_path), start_checkpoint, "worker:command-line")
+
+    log = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "log",
+            "--format=%s",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+
+    assert "Agent turn start checkpoint: worker:command-line" not in log
+    assert "Agent turn end checkpoint: worker:command-line" not in log
+

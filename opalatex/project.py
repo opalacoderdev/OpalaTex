@@ -119,6 +119,18 @@ def _init_schema(db_path: str) -> None:
                 attachments TEXT NOT NULL DEFAULT '[]',
                 FOREIGN KEY (project) REFERENCES projects(name) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS project_activity (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                project     TEXT NOT NULL,
+                chat_id     TEXT NOT NULL DEFAULT 'main',
+                timestamp   TEXT NOT NULL,
+                event       TEXT NOT NULL,
+                agent       TEXT NOT NULL DEFAULT '',
+                content     TEXT NOT NULL DEFAULT '',
+                payload     TEXT NOT NULL DEFAULT '{}',
+                FOREIGN KEY (project) REFERENCES projects(name) ON DELETE CASCADE
+            );
         """)
         
         # Migração: tentar adicionar core_memory caso não exista
@@ -207,6 +219,13 @@ def _init_schema(db_path: str) -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_project_history_client_message_id
             ON project_history(project, chat_id, client_message_id)
             WHERE client_message_id != ''
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_project_activity_chat
+            ON project_activity(project, chat_id, id)
             """
         )
 
@@ -769,13 +788,74 @@ class ProjectStore:
 
         return int(message_id)
 
+    def append_activity(
+        self,
+        project: ProjectData,
+        event: str,
+        content: str = "",
+        agent: str = "",
+        payload: dict | None = None,
+    ) -> int:
+        now = datetime.now(timezone.utc).isoformat()
+        clean_payload = payload or {}
+        with _conn(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO project_activity
+                (project, chat_id, timestamp, event, agent, content, payload)
+                VALUES (?,?,?,?,?,?,?)
+                """,
+                (
+                    project.name,
+                    project.current_chat_id,
+                    now,
+                    str(event or ""),
+                    str(agent or ""),
+                    str(content or ""),
+                    json.dumps(clean_payload, ensure_ascii=False),
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def list_activity(self, name: str, chat_id: str, limit: int = 1000) -> list[dict]:
+        safe_limit = max(1, int(limit or 1000))
+        with _conn(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, timestamp, event, agent, content, payload
+                FROM project_activity
+                WHERE project = ? AND chat_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (name, chat_id, safe_limit),
+            ).fetchall()
+
+        activity = []
+        for row in reversed(rows):
+            payload = {}
+            try:
+                payload = json.loads(row["payload"] or "{}")
+            except Exception:
+                payload = {}
+            activity.append({
+                "id": row["id"],
+                "timestamp": row["timestamp"],
+                "event": row["event"],
+                "agent": row["agent"],
+                "content": row["content"],
+                "payload": payload,
+            })
+        return activity
 
     def clear_project_history(self, name: str, chat_id: str = None) -> None:
         with _conn(self.db_path) as conn:
             if chat_id:
                 conn.execute("DELETE FROM project_history WHERE project = ? AND chat_id = ?", (name, chat_id))
+                conn.execute("DELETE FROM project_activity WHERE project = ? AND chat_id = ?", (name, chat_id))
             else:
                 conn.execute("DELETE FROM project_history WHERE project = ?", (name,))
+                conn.execute("DELETE FROM project_activity WHERE project = ?", (name,))
 
     def truncate_chat_history_from_index(self, name: str, chat_id: str, from_index: int) -> list[int]:
         if from_index < 0:
@@ -787,12 +867,22 @@ class ProjectStore:
             ).fetchall()
             if from_index >= len(rows):
                 raise ValueError("from_index is outside the chat history")
-            deleted_ids = [int(r["id"]) for r in rows[from_index:]]
+            deleted_rows = rows[from_index:]
+            deleted_ids = [int(r["id"]) for r in deleted_rows]
+            cutoff = conn.execute(
+                "SELECT timestamp FROM project_history WHERE project = ? AND chat_id = ? AND id = ?",
+                (name, chat_id, deleted_ids[0]),
+            ).fetchone()
             placeholders = ",".join("?" for _ in deleted_ids)
             conn.execute(
                 f"DELETE FROM project_history WHERE project = ? AND chat_id = ? AND id IN ({placeholders})",
                 (name, chat_id, *deleted_ids),
             )
+            if cutoff:
+                conn.execute(
+                    "DELETE FROM project_activity WHERE project = ? AND chat_id = ? AND timestamp >= ?",
+                    (name, chat_id, cutoff["timestamp"]),
+                )
         try:
             from .archival import get_collection
             collection = get_collection(name)
@@ -837,6 +927,7 @@ class ProjectStore:
         with _conn(self.db_path) as conn:
             conn.execute("DELETE FROM project_chats WHERE project = ? AND id = ?", (name, chat_id))
             conn.execute("DELETE FROM project_history WHERE project = ? AND chat_id = ?", (name, chat_id))
+            conn.execute("DELETE FROM project_activity WHERE project = ? AND chat_id = ?", (name, chat_id))
 
     def rename_chat(self, name: str, chat_id: str, new_name: str) -> None:
         with _conn(self.db_path) as conn:
@@ -936,6 +1027,35 @@ class ProjectStore:
                     )
                 )
 
+            last_timestamp = history[-1]["timestamp"] if history else None
+            if last_timestamp:
+                activity = conn.execute(
+                    """
+                    SELECT timestamp, event, agent, content, payload
+                    FROM project_activity
+                    WHERE project = ? AND chat_id = ? AND timestamp <= ?
+                    ORDER BY id
+                    """,
+                    (name, source_chat_id, last_timestamp),
+                ).fetchall()
+                for activity_row in activity:
+                    conn.execute(
+                        """
+                        INSERT INTO project_activity
+                        (project, chat_id, timestamp, event, agent, content, payload)
+                        VALUES (?,?,?,?,?,?,?)
+                        """,
+                        (
+                            name,
+                            new_chat_id,
+                            activity_row["timestamp"],
+                            activity_row["event"],
+                            activity_row["agent"],
+                            activity_row["content"],
+                            activity_row["payload"] or "{}",
+                        ),
+                    )
+
     def branch_chat_prefix(self, name: str, source_chat_id: str, new_chat_id: str, new_chat_name: str, limit: int) -> list[dict]:
         if limit < 0:
             raise ValueError("limit must be >= 0")
@@ -971,6 +1091,34 @@ class ProjectStore:
                     "timestamp": hist_row["timestamp"],
                     "_attachments": json.loads(hist_row["attachments"] or "[]"),
                 })
+            last_timestamp = history[-1]["timestamp"] if history else None
+            if last_timestamp:
+                activity = conn.execute(
+                    """
+                    SELECT timestamp, event, agent, content, payload
+                    FROM project_activity
+                    WHERE project = ? AND chat_id = ? AND timestamp <= ?
+                    ORDER BY id
+                    """,
+                    (name, source_chat_id, last_timestamp),
+                ).fetchall()
+                for activity_row in activity:
+                    conn.execute(
+                        """
+                        INSERT INTO project_activity
+                        (project, chat_id, timestamp, event, agent, content, payload)
+                        VALUES (?,?,?,?,?,?,?)
+                        """,
+                        (
+                            name,
+                            new_chat_id,
+                            activity_row["timestamp"],
+                            activity_row["event"],
+                            activity_row["agent"],
+                            activity_row["content"],
+                            activity_row["payload"] or "{}",
+                        ),
+                    )
             return copied
 
 # Backward-compat alias

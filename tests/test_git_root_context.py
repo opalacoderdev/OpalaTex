@@ -188,6 +188,52 @@ def test_discard_removes_staged_new_file(tmp_path):
     assert _git(project, "status", "--porcelain").stdout == ""
 
 
+@pytest.mark.asyncio
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+async def test_git_stage_endpoint_stages_all_changes_in_one_request(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "a.txt").write_text("a", encoding="utf-8")
+    (project / "b.txt").write_text("b", encoding="utf-8")
+
+    _init_repo(project)
+    _git(project, "add", ".")
+    _git(project, "commit", "-m", "initial")
+
+    (project / "a.txt").write_text("changed", encoding="utf-8")
+    (project / "b.txt").unlink()
+    (project / "c.txt").write_text("new", encoding="utf-8")
+
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+
+    await server.route_api(
+        "POST",
+        "/api/git/stage",
+        {},
+        {},
+        json.dumps({
+            "projectPath": str(project),
+            "filePath": "__all__",
+            "action": "stage",
+        }).encode("utf-8"),
+        writer,
+    )
+
+    assert responses == [(200, {"success": True}, "application/json")]
+    assert set(_git(project, "status", "--porcelain").stdout.splitlines()) == {
+        "M  a.txt",
+        "D  b.txt",
+        "A  c.txt",
+    }
+
+
 def test_opalatex_partial_artifacts_are_hidden_from_file_tree(tmp_path):
     project = tmp_path / "project"
     project.mkdir()

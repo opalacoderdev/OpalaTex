@@ -721,6 +721,7 @@ export default function App() {
                     const greeting = activeProject.project_name || activeProject.name;
                     setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);
                   }
+                  setTerminalLogs(activityToTerminalLogs(histData.activity || []));
                 });
               })
               .catch(err => {
@@ -791,6 +792,7 @@ export default function App() {
             } else {
               setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);
             }
+            setTerminalLogs(activityToTerminalLogs(data.activity || []));
           });
         }
       } catch (err) {
@@ -1037,6 +1039,19 @@ export default function App() {
     if (text.length <= MAX_MERGED_LOG_CHARS) return text;
     return `${text.slice(0, MAX_MERGED_LOG_CHARS)}\n[log truncated]`;
   };
+
+  const activityToTerminalLogs = (activity = []) => (
+    (activity || [])
+      .filter(item => item && ['thought', 'reflection', 'stream_chunk'].includes(item.event))
+      .map(item => ({
+        type: item.event,
+        message: clampLogMessage(item.content || item.payload?.content || ''),
+        agent: item.agent || item.payload?.agent || '',
+        timestamp: item.timestamp
+          ? new Date(item.timestamp).toLocaleTimeString()
+          : new Date().toLocaleTimeString(),
+      }))
+  );
 
   const addLog = (type, message, agent) =>
     setTerminalLogs(prev => {
@@ -1293,6 +1308,25 @@ export default function App() {
       const res = await fetch('/api/git/stage', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(gitRequestPayload({ filePath, action: 'stage' })),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || t('app.unknownError'));
+      }
+      fetchGitStatus();
+      return true;
+    } catch (err) {
+      addLog('error', t('app.stageError', { error: err.message }));
+      return false;
+    }
+  };
+
+  const handleStageAllFiles = async () => {
+    if (!activeProject) return false;
+    try {
+      const res = await fetch('/api/git/stage', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(gitRequestPayload({ filePath: '__all__', action: 'stage' })),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -3148,6 +3182,7 @@ export default function App() {
                 isCommitting={isCommitting}
                 handleGitCommit={handleGitCommit}
                 onStageFile={handleStageFile}
+                onStageAllFiles={handleStageAllFiles}
                 onUnstageFile={handleUnstageFile}
                 onDiscardFile={handleDiscardFile}
                 useShadowGit={useShadowGit}

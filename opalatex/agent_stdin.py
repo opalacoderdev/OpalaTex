@@ -445,6 +445,32 @@ def _empty_response_failure_message() -> str:
     return _("empty_response_unresolved_error")
 
 
+_PERSISTED_ACTIVITY_EVENTS = {"thought", "reflection", "stream_chunk"}
+
+
+def _persist_activity_event(event: str, data: dict) -> None:
+    """Persist panel diagnostic events outside chat message history."""
+    if event not in _PERSISTED_ACTIVITY_EVENTS:
+        return
+    store = globals().get("current_store")
+    project = globals().get("current_project")
+    if not store or not project:
+        return
+    content = data.get("content", data.get("message", ""))
+    if not str(content or "").strip():
+        return
+    try:
+        store.append_activity(
+            project,
+            event,
+            content=str(content),
+            agent=str(data.get("agent") or ""),
+            payload={k: v for k, v in data.items() if k not in {"content"}},
+        )
+    except Exception:
+        pass
+
+
 def print_event(event: str, data: dict):
     global _LAST_INTERMEDIATE_AGENT_RESPONSE
     if event == "agent_response" and data.get("intermediate"):
@@ -464,6 +490,7 @@ def print_event(event: str, data: dict):
             return
 
     payload = {"event": event, **data}
+    _persist_activity_event(event, data)
     hook = event_hook
     if not hook:
         hook = getattr(litellm, "event_hook", None)
@@ -499,7 +526,9 @@ def print_event(event: str, data: dict):
                 thought_content = f"Alert: An error occurred during execution: {data.get('message', '')}"
                 
             if thought_content and _record_turn_thought(thought_content):
-                hook({"event": "thought", "content": thought_content})
+                thought_payload = {"content": thought_content, "agent": data.get("agent")}
+                _persist_activity_event("thought", thought_payload)
+                hook({"event": "thought", **thought_payload})
         except Exception as ex:
             import sys
             sys.stderr.write(f"[DEBUG] Error invoking event hook: {ex}\n")
