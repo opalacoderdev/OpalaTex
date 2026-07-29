@@ -157,7 +157,10 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
                             msg.tool_calls = new_tcalls
             return res
         except Exception as e:
-            raise e
+            normalized = _normalize_ollama_unexpected_response_error(e)
+            if normalized is not e:
+                raise normalized from e
+            raise
 
     async def _run_with_compat(*args: Any, **kwargs: Any) -> Any:
         sanitize_agent_state(agent)
@@ -168,6 +171,43 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
         object.__setattr__(agent, "run", _run_with_compat)
     object.__setattr__(agent, "_opalatex_litellm_compat_wrapped", True)
     return agent
+
+
+def _normalize_ollama_unexpected_response_error(exc: Exception) -> Exception:
+    """Replace noisy Ollama/LiteLLM response-shape errors with a useful hint."""
+    text = str(exc)
+    low = text.lower()
+    if (
+        "ollama" not in low
+        or "keyerror" not in low
+        or "'message'" not in text
+        or "unexpected response from ollama" not in low
+    ):
+        return exc
+
+    detail = "Ollama returned an unexpected response instead of a chat message."
+    if "internal server error" in low:
+        detail = (
+            "Ollama returned HTTP 500 (Internal Server Error) instead of a chat "
+            "message."
+        )
+
+    message = (
+        f"{detail} Check that the Ollama server is healthy, the selected model "
+        "supports the requested chat/tool/thinking features, and the model "
+        "parameters are supported. Original LiteLLM error: "
+        f"{_truncate_for_error(text, 500)}"
+    )
+    try:
+        return exc.__class__(message)
+    except Exception:
+        return RuntimeError(message)
+
+
+def _truncate_for_error(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
 
 
 def sanitize_agent_state(agent: Any) -> None:

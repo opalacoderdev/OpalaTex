@@ -20,6 +20,7 @@ _DEFAULTS: dict[str, Any] = {
     "ai_provider": "local",
     "cloud_model": "OpalaTexCloud",
     "draft_synctex_enabled": False,
+    "show_hidden_workspace_files": False,
 }
 
 

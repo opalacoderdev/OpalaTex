@@ -395,6 +395,7 @@ export default function App() {
   const [editorWordWrap, setEditorWordWrap] = useState(() => safeGetLocalStorage('editorWordWrap', 'on'));
   const [globalAiProvider, setGlobalAiProvider] = useState('local');
   const [globalCloudModel, setGlobalCloudModel] = useState('OpalaTexCloud');
+  const [showHiddenWorkspaceFiles, setShowHiddenWorkspaceFiles] = useState(false);
 
   useEffect(() => {
     fetch('/api/settings/ai-provider')
@@ -412,6 +413,17 @@ export default function App() {
           }
         }
         if (cfg?.cloud_model) setGlobalCloudModel(normalizeCloudModelId(cfg.cloud_model));
+      })
+      .catch(() => { });
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/settings/workspace')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (cfg?.show_hidden_workspace_files !== undefined) {
+          setShowHiddenWorkspaceFiles(Boolean(cfg.show_hidden_workspace_files));
+        }
       })
       .catch(() => { });
   }, []);
@@ -449,15 +461,30 @@ export default function App() {
   const saveFileRef = useRef(null);
   const binarySaveHandlerRef = useRef(null);
   const diskFileContentsRef = useRef({});
+  const lastEditorInputAtRef = useRef(0);
   const importFileInputRef = useRef(null);
   const importTargetPathRef = useRef('');
 
-  // Keep fileContentRef in sync with the latest fileContent state on every render.
-  fileContentRef.current = fileContent;
+  // Keep fileContentRef in sync with committed React state. During active
+  // Monaco typing it is updated directly from the editor to avoid stale
+  // render values overwriting freshly typed text.
+  useEffect(() => {
+    fileContentRef.current = fileContent;
+  }, [fileContent]);
+
+  function getCurrentTextFileContent() {
+    if (selectedFile && !isBinaryEditorFile(selectedFile)) {
+      const editorValue = editorRef.current?.getModel?.()?.getValue?.();
+      if (typeof editorValue === 'string') return editorValue;
+    }
+    return fileContentRef.current;
+  }
 
   async function refreshSelectedFileFromDiskIfUnmodified() {
     if (!activeProject?.project_path || !selectedFile) return;
     if (isBinaryEditorFile(selectedFile)) return;
+    if (editorRef.current?.hasTextFocus?.()) return;
+    if (Date.now() - lastEditorInputAtRef.current < 1500) return;
     const lastDiskContent = diskFileContentsRef.current[selectedFile];
     if (lastDiskContent === undefined || fileContentRef.current !== lastDiskContent) return;
     try {
@@ -863,7 +890,7 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       const isCtrl = e.ctrlKey || e.metaKey;
-      if (isCtrl && e.key === 's') { e.preventDefault(); saveFile(); }
+      if (isCtrl && e.key === 's') { e.preventDefault(); saveFileRef.current?.(); }
       else if (isCtrl && e.key === 'j') {
         e.preventDefault();
         if (isBottomMaximized) {
@@ -877,7 +904,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedFile, fileContent, activeProject, isBottomMaximized, isTerminalCollapsed]);
+  }, [isBottomMaximized, isTerminalCollapsed]);
 
   useEffect(() => {
     safeSetLocalStorage('theme', theme);
@@ -1202,14 +1229,28 @@ export default function App() {
     } catch (err) { addLog('error', t('app.failedToLoadProjects', { error: err.message })); }
   };
 
-  const fetchFiles = async () => {
+  const fetchFiles = async (showHiddenOverride = showHiddenWorkspaceFiles) => {
     if (!activeProject) return;
     try {
-      const res = await fetch(`/api/files?projectPath=${encodeURIComponent(activeProject.project_path)}`);
+      const res = await fetch(`/api/files?projectPath=${encodeURIComponent(activeProject.project_path)}&showHiddenFiles=${showHiddenOverride ? 'true' : 'false'}`);
       if (res.ok) { const data = await res.json(); setFiles(data.files || []); }
       else { const e = await res.json(); addLog('error', t('app.failedToListFiles', { error: e.error })); }
     } catch (err) { addLog('error', t('app.fileCallError', { error: err.message })); }
   };
+
+  const handleShowHiddenWorkspaceFilesChange = (checked) => {
+    setShowHiddenWorkspaceFiles(checked);
+    fetch('/api/settings/workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ show_hidden_workspace_files: checked }),
+    }).catch(() => { });
+    fetchFiles(checked);
+  };
+
+  useEffect(() => {
+    if (activeProject) fetchFiles(showHiddenWorkspaceFiles);
+  }, [showHiddenWorkspaceFiles]);
 
   const fetchProblems = async () => {
     if (!activeProject) return;
@@ -1471,7 +1512,11 @@ export default function App() {
   const handleFileSelect = async (filePath, jumpLine = null) => {
     if (!activeProject) return;
     setIsBottomMaximized(false);
-    if (selectedFile) setFileContents(prev => ({ ...prev, [selectedFile]: fileContent }));
+    if (selectedFile) {
+      const currentContent = getCurrentTextFileContent();
+      setFileContents(prev => ({ ...prev, [selectedFile]: currentContent }));
+      fileContentRef.current = currentContent;
+    }
     if (isUnsupportedSystemFile(filePath)) {
       handleOpenInSystem(filePath);
       addLog('info', t('app.openedInSystemApp', { path: filePath }));
@@ -1563,10 +1608,15 @@ export default function App() {
       addLog('error', t('app.fileSaveFailedPath', { path: selectedFile }));
       return false;
     }
+    const currentContent = getCurrentTextFileContent();
+    fileContentRef.current = currentContent;
+    if (currentContent !== fileContent) {
+      setFileContent(currentContent);
+    }
     const savedDiskContent = diskFileContentsRef.current[selectedFile];
-    if (typeof savedDiskContent === 'string' && savedDiskContent === fileContent) {
+    if (typeof savedDiskContent === 'string' && savedDiskContent === currentContent) {
       setFileContents(prev => (
-        prev[selectedFile] === fileContent ? prev : { ...prev, [selectedFile]: fileContent }
+        prev[selectedFile] === currentContent ? prev : { ...prev, [selectedFile]: currentContent }
       ));
       return true;
     }
@@ -1574,12 +1624,12 @@ export default function App() {
     try {
       const res = await fetch('/api/file/write', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectPath: activeProject.project_path, filePath: selectedFile, content: fileContent }),
+        body: JSON.stringify({ projectPath: activeProject.project_path, filePath: selectedFile, content: currentContent }),
       });
       if (res.ok) {
         addLog('info', t('app.fileSaved', { path: selectedFile }));
-        diskFileContentsRef.current[selectedFile] = fileContent;
-        setFileContents(prev => ({ ...prev, [selectedFile]: fileContent }));
+        diskFileContentsRef.current[selectedFile] = currentContent;
+        setFileContents(prev => ({ ...prev, [selectedFile]: currentContent }));
 
         fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)
           .then(r => r.ok ? r.json() : null)
@@ -1623,7 +1673,11 @@ export default function App() {
 
   const handleCloseTab = (filePath, e) => {
     if (e) { e.stopPropagation(); e.preventDefault(); }
-    if (sameFilePath(selectedFile, filePath)) setFileContents(prev => ({ ...prev, [filePath]: fileContent }));
+    if (sameFilePath(selectedFile, filePath)) {
+      const currentContent = getCurrentTextFileContent();
+      fileContentRef.current = currentContent;
+      setFileContents(prev => ({ ...prev, [filePath]: currentContent }));
+    }
     setOpenFiles(prev => {
       const remaining = prev.filter(f => !sameFilePath(f, filePath));
       if (sameFilePath(selectedFile, filePath)) {
@@ -2590,6 +2644,11 @@ export default function App() {
     editorRef.current = editor;
     if (monaco) monacoRef.current = monaco;
 
+    editor.onDidChangeModelContent(() => {
+      lastEditorInputAtRef.current = Date.now();
+      fileContentRef.current = editor.getValue();
+    });
+
     editor.onKeyDown((e) => {
       const ev = e.browserEvent;
       const isCtrl = ev.ctrlKey || ev.metaKey;
@@ -3166,6 +3225,8 @@ export default function App() {
                 setDragOverPath={setDragOverPath}
                 handleMoveNode={handleMoveNode}
                 fetchFiles={fetchFiles}
+                showHiddenWorkspaceFiles={showHiddenWorkspaceFiles}
+                onShowHiddenWorkspaceFilesChange={handleShowHiddenWorkspaceFilesChange}
                 openEditModal={openEditModal}
                 handleDeleteProject={handleDeleteProject}
                 renamingNodePath={renamingNodePath}

@@ -168,6 +168,37 @@ def test_wrap_agent_litellm_compat_sanitizes_runtime_kwargs():
     assert calls["kwargs"]["drop_params"] is True
 
 
+def test_wrap_agent_litellm_compat_normalizes_ollama_keyerror_message():
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    class FakeOllamaError(Exception):
+        pass
+
+    class FakeAgent:
+        model = "ollama_chat/gemma4:12b"
+
+        async def _acompletion(self, messages, **kwargs):
+            raise FakeOllamaError(
+                "Ollama_chatException - KeyError: 'message', Got unexpected "
+                "response from Ollama: {'error': 'Internal Server Error "
+                "(ref: abc)'}"
+            )
+
+    agent = wrap_agent_litellm_compat(FakeAgent())
+
+    import asyncio
+    import pytest
+
+    with pytest.raises(FakeOllamaError) as raised:
+        asyncio.run(agent._acompletion([{"role": "user", "content": "hi"}]))
+
+    msg = str(raised.value)
+    assert "Ollama returned HTTP 500" in msg
+    assert "selected model supports the requested chat/tool/thinking features" in msg
+    assert "Original LiteLLM error" in msg
+    assert raised.value.__cause__ is not None
+
+
 def test_wrap_agent_litellm_compat_repairs_internal_history_in_place():
     from opalatex.litellm_compat import wrap_agent_litellm_compat
 

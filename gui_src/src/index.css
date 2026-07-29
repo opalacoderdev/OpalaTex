@@ -1328,8 +1328,37 @@ input:focus, select:focus, textarea:focus {
 }
 
 .pdf-preview-scroll {
+  gap: 18px;
   padding-top: 32px;
   padding-bottom: 32px;
+}
+
+.pdf-page-divider {
+  width: min(92%, 900px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.pdf-page-divider::before,
+.pdf-page-divider::after {
+  content: '';
+  height: 1px;
+  flex: 1 1 auto;
+  background: var(--vscode-border);
+}
+
+.pdf-page-divider span {
+  max-width: min(220px, 48vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pdf-preview-compile-overlay {

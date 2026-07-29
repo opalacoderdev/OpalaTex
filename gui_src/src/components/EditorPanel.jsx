@@ -511,11 +511,88 @@ export default function EditorPanel({
 
   const selectedFileRef = useRef(selectedFile);
   selectedFileRef.current = selectedFile;
+  const initialEditorContentRef = useRef(fileContent ?? '');
+
+  useEffect(() => {
+    initialEditorContentRef.current = fileContent ?? '';
+  }, [selectedFile]);
 
   const localEditorRef = useRef(null);
   const monacoRef = useRef(null);
   const editorContainerRef = useRef(null);
   const pdfPreviewRef = useRef(null);
+  const pendingEditorValueRef = useRef(null);
+  const pendingEditorFileRef = useRef(null);
+  const pendingEditorChangeTimerRef = useRef(null);
+
+  const flushPendingEditorContent = useCallback(() => {
+    if (pendingEditorChangeTimerRef.current) {
+      clearTimeout(pendingEditorChangeTimerRef.current);
+      pendingEditorChangeTimerRef.current = null;
+    }
+    if (pendingEditorValueRef.current === null) return;
+    if (pendingEditorFileRef.current !== selectedFileRef.current) {
+      pendingEditorValueRef.current = null;
+      pendingEditorFileRef.current = null;
+      return;
+    }
+    const nextValue = pendingEditorValueRef.current;
+    pendingEditorValueRef.current = null;
+    pendingEditorFileRef.current = null;
+    setFileContent(nextValue);
+  }, [setFileContent]);
+
+  const scheduleEditorContentCommit = useCallback((nextValue) => {
+    pendingEditorValueRef.current = nextValue ?? '';
+    pendingEditorFileRef.current = selectedFileRef.current;
+    if (pendingEditorChangeTimerRef.current) {
+      clearTimeout(pendingEditorChangeTimerRef.current);
+    }
+    pendingEditorChangeTimerRef.current = setTimeout(flushPendingEditorContent, 250);
+  }, [flushPendingEditorContent]);
+
+  useEffect(() => () => {
+    if (pendingEditorChangeTimerRef.current) {
+      clearTimeout(pendingEditorChangeTimerRef.current);
+      pendingEditorChangeTimerRef.current = null;
+    }
+  }, []);
+
+  const syncEditorValue = useCallback((editor, nextValue) => {
+    const model = editor?.getModel?.();
+    if (!model) return;
+    const normalizedValue = nextValue ?? '';
+    if (model.getValue() === normalizedValue) return;
+
+    if (pendingEditorChangeTimerRef.current) {
+      clearTimeout(pendingEditorChangeTimerRef.current);
+      pendingEditorChangeTimerRef.current = null;
+    }
+    pendingEditorValueRef.current = null;
+    pendingEditorFileRef.current = null;
+
+    const hadTextFocus = editor.hasTextFocus?.() || false;
+    const viewState = editor.saveViewState?.();
+    const selections = editor.getSelections?.();
+
+    model.setValue(normalizedValue);
+
+    if (viewState) {
+      editor.restoreViewState?.(viewState);
+    } else if (selections?.length) {
+      editor.setSelections?.(selections);
+    }
+    if (hadTextFocus) editor.focus();
+  }, []);
+
+  useEffect(() => {
+    if (isDiffMode || isRichTextMode || isLatexPreviewMode || isPreviewMode) return;
+    const editor = localEditorRef.current;
+    if (!editor) return;
+    if (editor.hasTextFocus?.()) return;
+    if (pendingEditorValueRef.current !== null) return;
+    syncEditorValue(editor, fileContent);
+  }, [fileContent, isDiffMode, isRichTextMode, isLatexPreviewMode, isPreviewMode, selectedFile, syncEditorValue]);
 
   const revealEditorLine = useCallback((line) => {
     if (!line || !localEditorRef.current) return false;
@@ -661,6 +738,10 @@ export default function EditorPanel({
     localEditorRef.current = actualEditor;
     monacoRef.current = monaco;
 
+    if (!isDiff) {
+      syncEditorValue(actualEditor, fileContent);
+    }
+
     if (isDiff) {
       const originalDispose = editor.dispose;
       editor.dispose = function() {
@@ -669,9 +750,13 @@ export default function EditorPanel({
       };
 
       actualEditor.onDidChangeModelContent(() => {
-        setFileContent(actualEditor.getValue());
+        scheduleEditorContentCommit(actualEditor.getValue());
       });
     }
+
+    actualEditor.onDidBlurEditorText?.(() => {
+      flushPendingEditorContent();
+    });
 
     // ── Forward Search (Ctrl+Click or Alt+Click on editor) ───────────────────────────────
     actualEditor.onMouseUp(async (e) => {
@@ -916,9 +1001,9 @@ export default function EditorPanel({
           path={selectedFile}
           language={getLanguage(selectedFile)}
           theme={theme === 'light' ? 'light' : 'vs-dark'}
-          value={fileContent}
+          defaultValue={initialEditorContentRef.current}
           beforeMount={handleBeforeMount}
-          onChange={(val) => setFileContent(val)}
+          onChange={scheduleEditorContentCommit}
           onMount={handleMount}
           options={{
             contextmenu: false,
@@ -1416,9 +1501,9 @@ export default function EditorPanel({
                 path={selectedFile}
                 language={getLanguage(selectedFile)}
                 theme={theme === 'light' ? 'light' : 'vs-dark'}
-                value={fileContent}
+                defaultValue={initialEditorContentRef.current}
                 beforeMount={handleBeforeMount}
-                onChange={(val) => setFileContent(val)}
+                onChange={scheduleEditorContentCommit}
                 onMount={handleMount}
                 options={{
                   contextmenu: false,

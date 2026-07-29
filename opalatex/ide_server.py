@@ -328,7 +328,15 @@ def _discard_git_path(git_ctx: dict, repo_file_path: str) -> None:
         os.remove(full_path)
 
 
-def get_file_tree(dir_path, root_path=None):
+def _is_workspace_hidden_by_extension(path: str, hidden_extensions: list[str] | tuple[str, ...] | None = None) -> bool:
+    from opalatex.config import get_workspace_hidden_file_extensions
+
+    filename = os.path.basename(path).lower()
+    extensions = hidden_extensions if hidden_extensions is not None else get_workspace_hidden_file_extensions()
+    return any(filename.endswith(ext) for ext in extensions)
+
+
+def get_file_tree(dir_path, root_path=None, show_hidden_files=False, hidden_extensions=None):
     if root_path is None:
         root_path = dir_path
     
@@ -354,9 +362,11 @@ def get_file_tree(dir_path, root_path=None):
                 "name": item,
                 "path": rel_path,
                 "isDirectory": True,
-                "children": get_file_tree(full_path, root_path)
+                "children": get_file_tree(full_path, root_path, show_hidden_files, hidden_extensions)
             })
         else:
+            if not show_hidden_files and _is_workspace_hidden_by_extension(item, hidden_extensions):
+                continue
             files.append({
                 "name": item,
                 "path": rel_path,
@@ -1257,6 +1267,7 @@ class AsyncHTTPServer:
         # 1. List Files
         if path == '/api/files':
             project_path = query.get('projectPath', [None])[0]
+            show_hidden_files = str(query.get('showHiddenFiles', ['false'])[0]).lower() in {"1", "true", "yes", "on"}
             if not project_path:
                 self.send_response(writer, 400, b'{"error":"projectPath parameter is required"}', "application/json")
                 return
@@ -1264,7 +1275,7 @@ class AsyncHTTPServer:
                 self.send_response(writer, 404, b'{"error":"Directory not found"}', "application/json")
                 return
             try:
-                tree = get_file_tree(project_path)
+                tree = get_file_tree(project_path, show_hidden_files=show_hidden_files)
                 self.send_response(writer, 200, json.dumps({"files": tree}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
@@ -3488,6 +3499,26 @@ class AsyncHTTPServer:
             self.send_response(writer, 200, json.dumps({
                 "success": True,
                 "draft_synctex_enabled": draft_synctex_enabled,
+            }).encode('utf-8'), "application/json")
+
+        elif path == '/api/settings/workspace' and method == 'GET':
+            from opalatex.config import get_workspace_hidden_file_extensions
+            from opalatex.ui_settings import load_ui_settings
+            cfg = load_ui_settings()
+            self.send_response(writer, 200, json.dumps({
+                "show_hidden_workspace_files": bool(cfg.get("show_hidden_workspace_files", False)),
+                "hidden_file_extensions": get_workspace_hidden_file_extensions(),
+            }).encode('utf-8'), "application/json")
+
+        elif path == '/api/settings/workspace' and method == 'POST':
+            from opalatex.config import get_workspace_hidden_file_extensions
+            from opalatex.ui_settings import save_ui_settings
+            show_hidden_workspace_files = bool(data.get("show_hidden_workspace_files", False))
+            save_ui_settings({"show_hidden_workspace_files": show_hidden_workspace_files})
+            self.send_response(writer, 200, json.dumps({
+                "success": True,
+                "show_hidden_workspace_files": show_hidden_workspace_files,
+                "hidden_file_extensions": get_workspace_hidden_file_extensions(),
             }).encode('utf-8'), "application/json")
 
         elif path == '/api/settings/token-balance' and method == 'GET':

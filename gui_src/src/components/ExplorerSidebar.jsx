@@ -27,6 +27,8 @@ export default function ExplorerSidebar({
   setDragOverPath,
   handleMoveNode,
   fetchFiles,
+  showHiddenWorkspaceFiles,
+  onShowHiddenWorkspaceFilesChange,
   openEditModal,
   handleDeleteProject,
   renamingNodePath,
@@ -276,25 +278,42 @@ export default function ExplorerSidebar({
         <div className="vscode-sidebar-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{t('explorerSidebar.workspaceFiles')}</span>
           {activeProject && (
-            <button
-              onClick={(e) => { e.stopPropagation(); fetchFiles(); }}
-              title={t('explorerSidebar.refreshFiles')}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#808080',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                padding: '2px',
-                borderRadius: '3px',
-                transition: 'color 0.2s, background-color 0.2s',
-              }}
-              onMouseOver={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'; }}
-              onMouseOut={(e) => { e.currentTarget.style.color = '#808080'; e.currentTarget.style.backgroundColor = 'transparent'; }}
-            >
-              <RefreshCw size={12} />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <label
+                title={t('explorerSidebar.showHiddenFilesTooltip')}
+                style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--vscode-descriptionForeground)', fontSize: '11px', textTransform: 'none', cursor: 'pointer' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(showHiddenWorkspaceFiles)}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    onShowHiddenWorkspaceFilesChange?.(e.target.checked);
+                  }}
+                  style={{ width: '12px', height: '12px', margin: 0 }}
+                />
+                <span>{t('explorerSidebar.showHiddenFiles')}</span>
+              </label>
+              <button
+                onClick={(e) => { e.stopPropagation(); fetchFiles(); }}
+                title={t('explorerSidebar.refreshFiles')}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#808080',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '2px',
+                  borderRadius: '3px',
+                  transition: 'color 0.2s, background-color 0.2s',
+                }}
+                onMouseOver={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'; }}
+                onMouseOut={(e) => { e.currentTarget.style.color = '#808080'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+              >
+                <RefreshCw size={12} />
+              </button>
+            </div>
           )}
         </div>
 

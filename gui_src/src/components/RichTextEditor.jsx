@@ -481,12 +481,17 @@ function QuoteBlock({ block, onEdit }) {
 function EditableLatexText({ as: Tag = 'div', text, onCommit, style, editingStyle = {} }) {
   const [isEditing, setIsEditing] = useState(false);
   const editRef = useRef(null);
+  const activationPointRef = useRef(null);
   const safeText = text || '';
 
   useEffect(() => {
     if (!isEditing || !editRef.current) return;
     const el = editRef.current;
+    el.textContent = safeText;
     el.focus();
+    const point = activationPointRef.current;
+    activationPointRef.current = null;
+    if (point && setCaretFromPoint(el, point.x, point.y)) return;
     moveCaretToEnd(el);
   }, [isEditing]);
 
@@ -494,6 +499,16 @@ function EditableLatexText({ as: Tag = 'div', text, onCommit, style, editingStyl
     setIsEditing(false);
     if (value !== safeText) onCommit(value);
   }, [onCommit, safeText]);
+
+  const beginEditingFromPointer = useCallback((event) => {
+    activationPointRef.current = { x: event.clientX, y: event.clientY };
+    setIsEditing(true);
+  }, []);
+
+  const beginEditingFromKeyboard = useCallback(() => {
+    activationPointRef.current = null;
+    setIsEditing(true);
+  }, []);
 
   if (isEditing) {
     return (
@@ -511,24 +526,23 @@ function EditableLatexText({ as: Tag = 'div', text, onCommit, style, editingStyl
           }
           if (e.key === 'Escape') {
             e.preventDefault();
+            e.currentTarget.textContent = safeText;
             setIsEditing(false);
           }
         }}
         style={{ ...style, ...editingStyle }}
-      >
-        {safeText}
-      </Tag>
+      />
     );
   }
 
   return (
     <Tag
       tabIndex={0}
-      onClick={() => setIsEditing(true)}
+      onMouseDown={beginEditingFromPointer}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          setIsEditing(true);
+          beginEditingFromKeyboard();
         }
       }}
       style={{ ...style, cursor: 'text' }}
@@ -536,6 +550,30 @@ function EditableLatexText({ as: Tag = 'div', text, onCommit, style, editingStyl
       {renderStyledLatexText(safeText)}
     </Tag>
   );
+}
+
+function setCaretFromPoint(el, x, y) {
+  const doc = el.ownerDocument || document;
+  let range = null;
+
+  if (doc.caretPositionFromPoint) {
+    const position = doc.caretPositionFromPoint(x, y);
+    if (position) {
+      range = doc.createRange();
+      range.setStart(position.offsetNode, position.offset);
+    }
+  } else if (doc.caretRangeFromPoint) {
+    range = doc.caretRangeFromPoint(x, y);
+  }
+
+  if (!range || !el.contains(range.startContainer)) return false;
+  range.collapse(true);
+
+  const selection = doc.defaultView?.getSelection?.();
+  if (!selection) return false;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
 }
 
 function moveCaretToEnd(el) {

@@ -67,6 +67,8 @@
     "removeProject": "Remove project",
     "openFolder": "Open folder in OS",
     "workspaceFiles": "Workspace Files",
+    "showHiddenFiles": "Hidden",
+    "showHiddenFilesTooltip": "Show LaTeX auxiliary files hidden by the workspace filter",
     "refreshFiles": "Refresh files",
     "selectProjectToExplore": "Select a project to explore.",
     "importProject": "Import Project",
@@ -227,7 +229,8 @@
     "noSearchResults": "No results",
     "toggleAnnotations": "Toggle PDF annotations",
     "annotationsOn": "Hide PDF annotations",
-    "annotationsOff": "Show PDF annotations"
+    "annotationsOff": "Show PDF annotations",
+    "pageDividerLabel": "Page {{page}} of {{total}}"
   },
   "docxEditor": {
     "loading": "Loading DOCX...",
@@ -568,6 +571,8 @@
     "latexCompilation": "LaTeX Compilation",
     "draftSynctexEnabled": "Generate SyncTeX in draft compile",
     "draftSynctexHint": "Draft compile skips SyncTeX by default for speed. Enable this if you need source/PDF navigation after draft builds.",
+    "workspaceFiles": "Workspace Files",
+    "hiddenFileExtensionsHint": "Hidden by default: {{extensions}}. Use the Workspace Files checkbox to show them temporarily.",
     "compileOnSave": "Compile on Save",
     "panelMaxLines": "Panel Max Lines (Output / Problems / Thinking)",
     "panelMaxLinesHint": "Maximum number of lines kept in Output, Problems and Thinking panels (100-10000). Older lines are discarded when the limit is reached.",

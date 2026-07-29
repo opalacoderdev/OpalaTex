@@ -312,6 +312,65 @@ def get_project_overview_max_depth() -> int:
     cfg = _APP_CONFIG.get("project_overview", {})
     return int(cfg.get("max_depth", 3))
 
+
+DEFAULT_WORKSPACE_HIDDEN_FILE_EXTENSIONS = [
+    ".aux",
+    ".log",
+    ".out",
+    ".toc",
+    ".lof",
+    ".lot",
+    ".fls",
+    ".fdb_latexmk",
+    ".synctex",
+    ".synctex.gz",
+    ".bbl",
+    ".blg",
+    ".bcf",
+    ".run.xml",
+    ".nav",
+    ".snm",
+    ".vrb",
+    ".xdv",
+    ".dvi",
+    ".idx",
+    ".ilg",
+    ".ind",
+    ".acn",
+    ".acr",
+    ".alg",
+    ".glg",
+    ".glo",
+    ".gls",
+    ".ist",
+    ".lol",
+    ".loa",
+    ".maf",
+    ".mtc",
+    ".mtc0",
+]
+
+
+def get_workspace_hidden_file_extensions() -> list[str]:
+    """Return file extensions hidden from the workspace tree by default."""
+    cfg = _APP_CONFIG.get("workspace_files", {})
+    raw_extensions = cfg.get("hidden_file_extensions", DEFAULT_WORKSPACE_HIDDEN_FILE_EXTENSIONS)
+    if not isinstance(raw_extensions, list):
+        return list(DEFAULT_WORKSPACE_HIDDEN_FILE_EXTENSIONS)
+
+    normalized: list[str] = []
+    seen = set()
+    for value in raw_extensions:
+        ext = str(value or "").strip().lower()
+        if not ext:
+            continue
+        if not ext.startswith("."):
+            ext = "." + ext
+        if ext not in seen:
+            normalized.append(ext)
+            seen.add(ext)
+    return normalized
+
 def get_agent_max_heartbeats(agent_name: str, default: int) -> Union[int, str]:
     """Return max_heartbeats configured for *agent_name* in agents.yaml (can be 'auto'), or *default*."""
     val = _get_agent_overrides().get(agent_name, {}).get("max_heartbeats", default)

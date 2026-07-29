@@ -1040,10 +1040,27 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
             error={<div style={{ color: 'var(--vscode-errorForeground)' }}>{t('pdfPreview.loadError')}</div>}
           >
             {Array.from(new Array(numPages || 0), (el, index) => (
-              <div 
-                key={`page_${index + 1}`} 
+              <React.Fragment key={`page_${index + 1}`}>
+                {index > 0 && (
+                  <div
+                    className="pdf-page-divider"
+                    role="separator"
+                    aria-label={t('pdfPreview.pageDividerLabel', {
+                      page: index + 1,
+                      total: numPages,
+                    })}
+                  >
+                    <span>
+                      {t('pdfPreview.pageDividerLabel', {
+                        page: index + 1,
+                        total: numPages,
+                      })}
+                    </span>
+                  </div>
+                )}
+              <div
                 data-page-number={index + 1}
-                className="pdf-page-wrapper shadow-2xl mb-8 bg-white cursor-text relative"
+                className="pdf-page-wrapper shadow-2xl bg-white cursor-text relative"
                 style={{ isolation: 'isolate' }}
                 onDoubleClick={(e) => handlePageDoubleClick(e, index + 1)}
               >
@@ -1084,6 +1101,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
                   />
                 )}
               </div>
+              </React.Fragment>
             ))}
           </Document>
         )}

@@ -13,6 +13,7 @@ from opalatex.ide_server import (
     _discard_git_path,
     _ensure_opalatex_git_excludes,
     _is_opalatex_hidden_artifact,
+    _is_workspace_hidden_by_extension,
     _project_path_to_repo_path,
     _repo_path_to_project_path,
     _resolve_git_context,
@@ -248,6 +249,35 @@ def test_opalatex_partial_artifacts_are_hidden_from_file_tree(tmp_path):
     assert "opalatex_partial_chapter.tex" not in paths
     assert "opalatex_partial_chapter.pdf" not in paths
     assert _is_opalatex_hidden_artifact("nested/opalatex_partial_chapter.aux")
+
+
+def test_latex_auxiliary_files_are_hidden_from_file_tree_by_default(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "main.tex").write_text("main", encoding="utf-8")
+    (project / "main.aux").write_text("aux", encoding="utf-8")
+    (project / "main.log").write_text("log", encoding="utf-8")
+    (project / "main.synctex.gz").write_text("synctex", encoding="utf-8")
+    (project / "main.run.xml").write_text("run xml", encoding="utf-8")
+
+    tree = get_file_tree(str(project))
+    paths = {item["path"].replace("\\", "/") for item in tree}
+
+    assert paths == {"main.tex"}
+    assert _is_workspace_hidden_by_extension("main.synctex.gz", [".synctex.gz"])
+    assert _is_workspace_hidden_by_extension("main.run.xml", [".run.xml"])
+
+
+def test_latex_auxiliary_files_can_be_shown_in_file_tree(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "main.tex").write_text("main", encoding="utf-8")
+    (project / "main.aux").write_text("aux", encoding="utf-8")
+
+    tree = get_file_tree(str(project), show_hidden_files=True)
+    paths = {item["path"].replace("\\", "/") for item in tree}
+
+    assert paths == {"main.aux", "main.tex"}
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")

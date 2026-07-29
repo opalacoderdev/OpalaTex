@@ -41,6 +41,7 @@ export default function SettingsModal({
   const [aiProvider, setAiProvider] = React.useState('local');
   const [cloudModel, setCloudModel] = React.useState(globalCloudModel);
   const [draftSynctexEnabled, setDraftSynctexEnabled] = React.useState(false);
+  const [workspaceHiddenExtensions, setWorkspaceHiddenExtensions] = React.useState([]);
   const [tectonicInstallMessage, setTectonicInstallMessage] = React.useState('');
   const [pandocInstallMessage, setPandocInstallMessage] = React.useState('');
 
@@ -84,6 +85,15 @@ export default function SettingsModal({
       .then(cfg => {
         if (cfg?.draft_synctex_enabled !== undefined) {
           setDraftSynctexEnabled(Boolean(cfg.draft_synctex_enabled));
+        }
+      })
+      .catch(() => { });
+
+    fetch('/api/settings/workspace')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (Array.isArray(cfg?.hidden_file_extensions)) {
+          setWorkspaceHiddenExtensions(cfg.hidden_file_extensions);
         }
       })
       .catch(() => { });
@@ -300,6 +310,15 @@ export default function SettingsModal({
                   <span>{t('settingsModal.draftSynctexEnabled')}</span>
                 </label>
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('settingsModal.draftSynctexHint')}</span>
+              </div>
+
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.workspaceFiles')}</label>
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)', lineHeight: 1.4 }}>
+                  {t('settingsModal.hiddenFileExtensionsHint', {
+                    extensions: workspaceHiddenExtensions.join(', '),
+                  })}
+                </span>
               </div>
 
               {/* Panel max lines */}
