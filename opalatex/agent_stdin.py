@@ -71,7 +71,6 @@ MAX_THOUGHT_CHUNK_CHARS = 4_000
 _gui_input_pending: dict = {}
 
 import litellm
-from opalatex.debug_logging import debug_llm_flow, debug_preview
 
 # Ollama (and some other local providers) don't support params like
 # presence_penalty. Drop unsupported params silently instead of crashing.
@@ -518,8 +517,6 @@ def print_event(event: str, data: dict):
             return
 
     payload = {"event": event, **data}
-    if event in {"agent_started", "agent_response", "error", "info"}:
-        debug_llm_flow("event.emit", event=event, data=data)
     _persist_activity_event(event, data)
     hook = event_hook
     if not hook:
@@ -677,11 +674,6 @@ def wrap_tool(original_tool):
             raise TypeError("wrapped_run expects a Pydantic BaseModel as its first argument or 'input' keyword argument.")
             
         dump_kwargs = input_data.model_dump()
-        debug_llm_flow(
-            "tool.call",
-            tool=name,
-            arguments=dump_kwargs,
-        )
         print_event("tool_call", {"tool": name, "arguments": dump_kwargs})
         #print(f"\n[TOOL-CALL] >>> {name} args={json.dumps(dump_kwargs, ensure_ascii=False)[:300]}", flush=True)
         
@@ -726,13 +718,6 @@ def wrap_tool(original_tool):
             print_event("problem", {"tool": name, "message": str(e), "severity": "error"})
             raise
         finally:
-            debug_llm_flow(
-                "tool.result",
-                tool=name,
-                is_error=is_error,
-                result_len=len(str(res_val)),
-                result_preview=debug_preview(res_val, limit=500),
-            )
             print_event("tool_result", {"tool": name, "result": str(res_val), "is_error": is_error})
             #print(f"[TOOL-RESULT] <<< {name} is_error={is_error} result={str(res_val)[:300]}\n", flush=True)
         return result
@@ -1030,18 +1015,6 @@ async def handle_run(data: dict):
     requested_tools = data.get("tools")
     raw_attachments = data.get("attachments", [])  # [{type, data, mime, name}]
     client_message_id = str(data.get("client_message_id") or "").strip()
-    debug_llm_flow(
-        "handle_run.start",
-        agent=agent_type,
-        requested_model=model,
-        prompt_len=len(str(raw_prompt)),
-        prompt_preview=debug_preview(raw_prompt, limit=500),
-        display_prompt_len=len(display_prompt),
-        messages_count=len(messages_history or []),
-        attachments_count=len(raw_attachments or []),
-        project_name=data.get("project_name"),
-        project_path=data.get("project_path"),
-    )
     
     # Setup project context if provided
     if "project_path" in data or "project_name" in data:
@@ -1195,14 +1168,6 @@ async def handle_run(data: dict):
 
     from opalatex.litellm_compat import wrap_agent_litellm_compat
     wrap_agent_litellm_compat(agent)
-    debug_llm_flow(
-        "handle_run.agent_ready",
-        agent=agent_type,
-        model=getattr(agent, "model", ""),
-        tools=[getattr(tool, "name", "") for tool in getattr(agent, "tools", []) or []],
-        history_len=len(getattr(agent, "internal_history", []) or []),
-        model_kwargs=getattr(agent, "model_kwargs", None) or getattr(agent, "model_kargs", None) or {},
-    )
     
     # Setup message history if provided (for custom/standard LLMAgentBlock)
     if messages_history and hasattr(agent, "internal_history"):
@@ -1238,22 +1203,10 @@ async def handle_run(data: dict):
         return stripped.startswith("{") or stripped.startswith("```json")
 
     def _on_thinking(chunk: str) -> None:
-        debug_llm_flow(
-            "agent.thinking_chunk",
-            agent=agent_type,
-            chunk_len=len(str(chunk or "")),
-            chunk_preview=debug_preview(chunk, limit=300),
-        )
         if _record_turn_thought(chunk):
             print_event("thought", {"content": chunk, "agent": agent_type, "_thought_recorded": True})
 
     def _process_visible_chunk(chunk: str) -> None:
-        debug_llm_flow(
-            "agent.stream_chunk.raw",
-            agent=agent_type,
-            chunk_len=len(str(chunk or "")),
-            chunk_preview=debug_preview(chunk, limit=300),
-        )
         think_buffer[0] += chunk
         
         while True:
@@ -1302,23 +1255,12 @@ async def handle_run(data: dict):
             return
 
         if suppress_plain_tool_json_stream[0]:
-            debug_llm_flow(
-                "agent.stream_chunk.suppressed_plain_tool_json",
-                agent=agent_type,
-                chunk_len=len(str(chunk or "")),
-                chunk_preview=debug_preview(chunk, limit=300),
-            )
             return
 
         if not stream_probe_decided[0]:
             stream_probe_pending[0] += str(chunk or "")
             if _looks_like_plain_tool_json_stream(stream_probe_pending[0]):
                 suppress_plain_tool_json_stream[0] = True
-                debug_llm_flow(
-                    "agent.stream_chunk.suppress_plain_tool_json_start",
-                    agent=agent_type,
-                    pending_preview=debug_preview(stream_probe_pending[0], limit=300),
-                )
                 stream_probe_pending[0] = ""
                 return
             if _is_possible_json_fence_prefix(stream_probe_pending[0]):
@@ -1335,15 +1277,6 @@ async def handle_run(data: dict):
     def _on_iteration(_step: int, messages: list) -> None:
         last = messages[-1] if messages else {}
         content = last.get("content") or ""
-        debug_llm_flow(
-            "agent.iteration",
-            agent=agent_type,
-            step=_step,
-            messages_count=len(messages or []),
-            last_role=last.get("role"),
-            last_content_len=len(str(content or "")),
-            last_content_preview=debug_preview(content, limit=500),
-        )
         if _should_emit_iteration_reflection(last):
             print_event("reflection", {"content": str(content), "agent": agent_type})
 
@@ -1539,32 +1472,9 @@ async def handle_run(data: dict):
                 agent._last_worker_chat_response = ""
                 agent._worker_response_emitted = False
 
-            debug_llm_flow(
-                "agent.run.request",
-                agent=agent_type,
-                model=getattr(agent, "model", ""),
-                prompt_len=len(str(prompt)),
-                prompt_preview=debug_preview(prompt, limit=700),
-                attachments_count=len(final_attachments or []),
-                meta_overrides=_meta_overrides,
-            )
             with apply_meta_params(agent, _meta_overrides):
                 resp_obj = await agent.run(AgentInput(prompt=prompt, attachments=final_attachments))
-            debug_llm_flow(
-                "agent.run.raw_response",
-                agent=agent_type,
-                response_len=len(str(getattr(resp_obj, "response", "") or "")),
-                response_preview=debug_preview(getattr(resp_obj, "response", "") or "", limit=700),
-                tool_calls_made=getattr(resp_obj, "tool_calls_made", None),
-            )
             response = _sanitize_model_response(resp_obj.response or "", thought_chunks)
-            debug_llm_flow(
-                "agent.run.sanitized_response",
-                agent=agent_type,
-                response_len=len(response),
-                response_preview=debug_preview(response, limit=700),
-                thought_chunks=len(thought_chunks),
-            )
             
             empty_response_attempts = 0
             while not response and empty_response_attempts < EMPTY_RESPONSE_MAX_CORRECTION_ATTEMPTS:
@@ -1573,42 +1483,11 @@ async def handle_run(data: dict):
                 from opalatex.i18n import _
                 print_event("info", {"message": _("empty_response_retry_info")})
                 retry_prompt = _empty_response_retry_prompt(worker_summary)
-                debug_llm_flow(
-                    "agent.empty_response.retry",
-                    agent=agent_type,
-                    attempt=empty_response_attempts,
-                    worker_summary_len=len(worker_summary),
-                    worker_summary_preview=debug_preview(worker_summary, limit=700),
-                    retry_prompt_len=len(retry_prompt),
-                    retry_prompt_preview=debug_preview(retry_prompt, limit=700),
-                )
                 with apply_meta_params(agent, _meta_overrides):
                     resp_obj = await agent.run(AgentInput(prompt=retry_prompt))
-                debug_llm_flow(
-                    "agent.empty_response.retry_raw_response",
-                    agent=agent_type,
-                    attempt=empty_response_attempts,
-                    response_len=len(str(getattr(resp_obj, "response", "") or "")),
-                    response_preview=debug_preview(getattr(resp_obj, "response", "") or "", limit=700),
-                    tool_calls_made=getattr(resp_obj, "tool_calls_made", None),
-                )
                 response = _sanitize_model_response(resp_obj.response or "", thought_chunks)
-                debug_llm_flow(
-                    "agent.empty_response.retry_sanitized_response",
-                    agent=agent_type,
-                    attempt=empty_response_attempts,
-                    response_len=len(response),
-                    response_preview=debug_preview(response, limit=700),
-                    thought_chunks=len(thought_chunks),
-                )
 
             if not response:
-                debug_llm_flow(
-                    "agent.empty_response.failed",
-                    agent=agent_type,
-                    attempts=empty_response_attempts,
-                    worker_summary_preview=debug_preview(_worker_summary_response(agent), limit=700),
-                )
                 raise RuntimeError(_empty_response_failure_message())
             
             if thought_chunks:
@@ -1649,14 +1528,6 @@ async def handle_run(data: dict):
             import traceback
             err_msg = traceback.format_exc()
             user_msg = _friendly_llm_error(e, current_project)
-            debug_llm_flow(
-                "handle_run.exception",
-                agent=agent_type,
-                error_type=type(e).__name__,
-                error=str(e),
-                friendly_message=user_msg,
-                trace_preview=debug_preview(err_msg, limit=1000),
-            )
             if (
                 current_store
                 and current_project

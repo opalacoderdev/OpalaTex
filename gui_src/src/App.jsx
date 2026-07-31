@@ -2124,9 +2124,6 @@ export default function App() {
 
   const handleAgentEvent = (eventObj) => {
     const { event, ...data } = eventObj;
-    if (data.agent === 'llm_debug' || String(data.message || '').startsWith('[OPALATEX_LLM_DEBUG')) {
-      return;
-    }
     rememberAgentEventForResume(eventObj);
     switch (event) {
       case 'server_ready': addLog('info', t('app.agentReady'), data.agent); break;

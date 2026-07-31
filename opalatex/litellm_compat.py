@@ -5,7 +5,6 @@ import json
 from typing import Any, Callable
 
 from opalatex.config import sanitize_litellm_kwargs_for_model
-from opalatex.debug_logging import debug_llm_flow, debug_preview, summarize_messages
 
 
 def sanitize_tool_call_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -96,29 +95,11 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
         if agent_name == "worker" or agent_name.startswith("skill_"):
             object.__setattr__(agent, "use_shared_router", False)
         model = getattr(agent, "model", "") or kwargs.get("model", "")
-        had_tools_before_sanitize = bool(kwargs.get("tools")) or bool(getattr(agent, "tools", []) or [])
-        incoming_stream = bool(kwargs.get("stream"))
         kwargs = sanitize_litellm_kwargs_for_model(model, kwargs)
         kwargs.setdefault("drop_params", True)
         sanitize_agent_state(agent)
         
         cleaned_messages = sanitize_tool_call_messages(messages)
-        debug_llm_flow(
-            "litellm.request",
-            agent=agent_name,
-            model=model,
-            original_messages=len(messages or []),
-            cleaned_messages=len(cleaned_messages or []),
-            messages_tail=summarize_messages(cleaned_messages),
-            kwargs={
-                key: value
-                for key, value in kwargs.items()
-                if key not in {"messages", "tools"}
-            },
-            had_tools_before_sanitize=had_tools_before_sanitize,
-            tools_in_kwargs_after_sanitize=bool(kwargs.get("tools")),
-            tools_count=len(getattr(agent, "tools", []) or []),
-        )
         if _has_repeated_tool_validation_errors(cleaned_messages):
             cleaned_messages = cleaned_messages + [{
                 "role": "system",
@@ -131,21 +112,8 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
             }]
             if _tool_name_available(getattr(agent, "tools", []), "send_message"):
                 kwargs["tool_choice"] = {"type": "function", "function": {"name": "send_message"}}
-            debug_llm_flow(
-                "litellm.request.forced_tool_choice",
-                agent=agent_name,
-                model=model,
-                tool_choice=kwargs.get("tool_choice"),
-            )
         try:
             res = await original(cleaned_messages, **kwargs)
-            debug_llm_flow(
-                "litellm.response.raw",
-                agent=agent_name,
-                model=model,
-                response_preview=_summarize_litellm_response(res),
-            )
-            _debug_empty_content_with_tokens(agent_name, model, res)
             # If it's a ChatCompletion object or model response
             if hasattr(res, "choices") and res.choices:
                 choice = res.choices[0]
@@ -186,30 +154,9 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
                                 new_tcalls.append(tc)
                         if has_split:
                             msg.tool_calls = new_tcalls
-                            debug_llm_flow(
-                                "litellm.response.split_concatenated_tool_calls",
-                                agent=agent_name,
-                                model=model,
-                                tool_calls=len(new_tcalls),
-                            )
-            debug_llm_flow(
-                "litellm.response.normalized",
-                agent=agent_name,
-                model=model,
-                response_preview=_summarize_litellm_response(res),
-            )
-            _debug_empty_content_with_tokens(agent_name, model, res)
             return res
         except Exception as e:
             normalized = _normalize_ollama_unexpected_response_error(e)
-            debug_llm_flow(
-                "litellm.exception",
-                agent=agent_name,
-                model=model,
-                error_type=type(e).__name__,
-                error=debug_preview(str(e), limit=1000),
-                normalized_error=debug_preview(str(normalized), limit=1000),
-            )
             if normalized is not e:
                 raise normalized from e
             raise
@@ -223,127 +170,6 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
         object.__setattr__(agent, "run", _run_with_compat)
     object.__setattr__(agent, "_opalatex_litellm_compat_wrapped", True)
     return agent
-
-
-def _summarize_litellm_response(res: Any) -> dict[str, Any]:
-    choices_summary: list[dict[str, Any]] = []
-    for choice in getattr(res, "choices", []) or []:
-        msg = getattr(choice, "message", None)
-        content = getattr(msg, "content", "") if msg is not None else ""
-        reasoning_content = _message_field(msg, "reasoning_content")
-        thinking = _message_field(msg, "thinking")
-        function_call = _message_field(msg, "function_call")
-        provider_specific_fields = _message_field(msg, "provider_specific_fields")
-        tool_calls = getattr(msg, "tool_calls", None) if msg is not None else None
-        choices_summary.append(
-            {
-                "finish_reason": getattr(choice, "finish_reason", None),
-                "content_len": len(str(content or "")),
-                "content_preview": debug_preview(content or "", limit=300),
-                "reasoning_content_len": len(str(reasoning_content or "")),
-                "reasoning_content_preview": debug_preview(reasoning_content or "", limit=300),
-                "thinking_len": len(str(thinking or "")),
-                "thinking_preview": debug_preview(thinking or "", limit=300),
-                "function_call": debug_preview(function_call or "", limit=300),
-                "message_keys": _message_keys(msg),
-                "provider_specific_fields": debug_preview(provider_specific_fields or "", limit=500),
-                "tool_calls": _summarize_response_tool_calls(tool_calls),
-            }
-        )
-    return {
-        "type": type(res).__name__,
-        "choices": choices_summary,
-        "usage": getattr(res, "usage", None),
-        "raw_response_preview": debug_preview(_dump_response(res), limit=1500),
-    }
-
-
-def _debug_empty_content_with_tokens(agent_name: str, model: str, res: Any) -> None:
-    usage = getattr(res, "usage", None)
-    completion_tokens = getattr(usage, "completion_tokens", None)
-    if completion_tokens is None and isinstance(usage, dict):
-        completion_tokens = usage.get("completion_tokens")
-    if not completion_tokens:
-        return
-    for choice in getattr(res, "choices", []) or []:
-        msg = getattr(choice, "message", None)
-        content = _message_field(msg, "content") or ""
-        tool_calls = _message_field(msg, "tool_calls") or []
-        if str(content) or tool_calls:
-            continue
-        debug_llm_flow(
-            "litellm.response.anomaly_empty_content_with_tokens",
-            agent=agent_name,
-            model=model,
-            finish_reason=getattr(choice, "finish_reason", None),
-            completion_tokens=completion_tokens,
-            response_preview=_summarize_litellm_response(res),
-        )
-
-
-def _message_field(msg: Any, field: str) -> Any:
-    if msg is None:
-        return None
-    if isinstance(msg, dict):
-        return msg.get(field)
-    return getattr(msg, field, None)
-
-
-def _message_keys(msg: Any) -> list[str]:
-    if msg is None:
-        return []
-    if isinstance(msg, dict):
-        return sorted(str(key) for key in msg.keys())
-    if hasattr(msg, "model_dump"):
-        try:
-            dumped = msg.model_dump()
-            if isinstance(dumped, dict):
-                return sorted(str(key) for key in dumped.keys())
-        except Exception:
-            pass
-    if hasattr(msg, "dict"):
-        try:
-            dumped = msg.dict()
-            if isinstance(dumped, dict):
-                return sorted(str(key) for key in dumped.keys())
-        except Exception:
-            pass
-    return sorted(
-        key
-        for key in dir(msg)
-        if not key.startswith("_") and key in {"content", "reasoning_content", "thinking", "tool_calls"}
-    )
-
-
-def _dump_response(res: Any) -> Any:
-    if hasattr(res, "model_dump"):
-        try:
-            return res.model_dump()
-        except Exception:
-            pass
-    if hasattr(res, "dict"):
-        try:
-            return res.dict()
-        except Exception:
-            pass
-    return str(res)
-
-
-def _summarize_response_tool_calls(tool_calls: Any) -> list[dict[str, Any]]:
-    summarized: list[dict[str, Any]] = []
-    if not isinstance(tool_calls, list):
-        return summarized
-    for call in tool_calls:
-        fn = getattr(call, "function", None)
-        summarized.append(
-            {
-                "id": getattr(call, "id", None),
-                "name": getattr(fn, "name", None),
-                "arguments_len": len(str(getattr(fn, "arguments", "") or "")),
-                "arguments_preview": debug_preview(getattr(fn, "arguments", "") or "", limit=300),
-            }
-        )
-    return summarized
 
 
 def _normalize_ollama_unexpected_response_error(exc: Exception) -> Exception:

@@ -66,7 +66,6 @@ from .skills import (
 )
 
 from .tools import get_available_tools
-from .debug_logging import debug_llm_flow, debug_preview
 
 CHAT_ORCHESTRATOR_SKILL = "chat-orchestrator"
 MAX_FAILED_SKILL_ATTEMPTS = 2
@@ -180,12 +179,6 @@ def make_intercepted_send_message(memgpt: MemGPTAgentBlock, skill_name: str):
         ),
     )
     def send_message(message: str) -> str:
-        debug_llm_flow(
-            "worker.send_message",
-            skill=skill_name,
-            message_len=len(str(message or "")),
-            message_preview=debug_preview(message, limit=700),
-        )
         # 1. Record the worker message before emitting any diagnostic event.
         if hasattr(memgpt, "_current_worker_messages"):
             memgpt._current_worker_messages.append(message)
@@ -251,13 +244,6 @@ def build_run_skill_tool(
         ),
     )
     async def run_skill(skill_name: str, context: str) -> str:
-        debug_llm_flow(
-            "run_skill.start",
-            skill=skill_name,
-            context_len=len(str(context or "")),
-            context_preview=debug_preview(context, limit=700),
-            project_path=project_path,
-        )
         # Re-assert project scope so the sub-agent's file/terminal tools act inside
         # this project even if a /load changed the global context since build time.
         if _project_ref is not None:
@@ -281,11 +267,6 @@ def build_run_skill_tool(
         skill_dir = find_skill_dir(skill_name, project_path)
         if skill_dir is None:
             active = [s["name"] for s in active_skills(project_path)]
-            debug_llm_flow(
-                "run_skill.missing_skill",
-                skill=skill_name,
-                active_skills=active,
-            )
             return (
                 f"[ERROR] Skill '{skill_name}' was not found / is not active. "
                 f"You MUST NOT invent skill names. The only active skills you can delegate to are: {active}. "
@@ -295,7 +276,6 @@ def build_run_skill_tool(
             )
         meta = parse_skill_md(skill_dir)
         if meta is None:
-            debug_llm_flow("run_skill.invalid_metadata", skill=skill_name, skill_dir=skill_dir)
             return f"[ERROR] skill '{skill_name}' has no valid SKILL.md."
 
 
@@ -487,15 +467,6 @@ def build_run_skill_tool(
         )
         from .litellm_compat import wrap_agent_litellm_compat
         wrap_agent_litellm_compat(sub_agent)
-        debug_llm_flow(
-            "run_skill.agent_ready",
-            skill=skill_name,
-            model=model,
-            tools=[getattr(tool, "name", "") for tool in tools],
-            worker_kwargs=worker_kwargs,
-            max_iterations=worker_agent_params.get("max_iterations", None),
-            max_tool_calls=worker_agent_params.get("max_tool_calls", 40),
-        )
 
         from opalatex.agent_stdin import _record_turn_thought, print_event
 
@@ -610,11 +581,6 @@ def build_run_skill_tool(
 
         failed_attempts = _recent_failed_skill_attempts(memgpt, skill_name)
         if failed_attempts >= MAX_FAILED_SKILL_ATTEMPTS:
-            debug_llm_flow(
-                "run_skill.loop_breaker",
-                skill=skill_name,
-                failed_attempts=failed_attempts,
-            )
             return (
                 f"[SYSTEM ALERT] WORKER LOOP BREAKER: The '{skill_name}' skill has failed "
                 f"{failed_attempts} consecutive times without completing useful tool work. "
@@ -626,7 +592,6 @@ def build_run_skill_tool(
         # Check for macro-loop
         for run in memgpt._skill_run_history:
             if run["skill"] == skill_name and run["context"] == context:
-                debug_llm_flow("run_skill.macro_loop", skill=skill_name)
                 return f"[SYSTEM ALERT] MACRO-LOOP DETECTED: You already delegated to '{skill_name}' with this EXACT context earlier in the session, and it failed or didn't resolve the issue. You MUST change your plan/context, use different instructions, or use 'send_message' to ask the user for help. DO NOT repeat the exact same delegation."
                 
         previous_runs = ""
@@ -645,12 +610,6 @@ def build_run_skill_tool(
             previous_runs_block = f"\n[PREVIOUS ATTEMPTS HISTORY]\nYou have been called before in this session for the '{skill_name}' skill. Do NOT repeat failed approaches. Here are your previous attempts:\n{previous_runs}"
 
         prompt = f"RECENT CHAT HISTORY:\n{recent_history}{achievements_block}{previous_runs_block}\n\nMEMGPT CONTEXT/INSTRUCTIONS:\n{context}"
-        debug_llm_flow(
-            "run_skill.request",
-            skill=skill_name,
-            prompt_len=len(prompt),
-            prompt_preview=debug_preview(prompt, limit=700),
-        )
         worker_checkpoint_id = None
         worker_checkpoint_project_path = None
         try:
@@ -668,22 +627,9 @@ def build_run_skill_tool(
             out = await sub_agent.run(AgentInput(prompt=prompt))
             out_text = out.response if hasattr(out, "response") else str(out)
             tool_calls = getattr(out, "tool_calls_made", "?")
-            debug_llm_flow(
-                "run_skill.raw_response",
-                skill=skill_name,
-                response_len=len(str(out_text or "")),
-                response_preview=debug_preview(out_text, limit=700),
-                tool_calls=tool_calls,
-            )
         except Exception as e:
             out_text = f"[CRITICAL WORKER CRASH] A exceção não tratada interrompeu o worker: {str(e)}"
             tool_calls = "?"
-            debug_llm_flow(
-                "run_skill.exception",
-                skill=skill_name,
-                error_type=type(e).__name__,
-                error=str(e),
-            )
 
         finally:
             if worker_checkpoint_id and worker_checkpoint_project_path:
@@ -717,13 +663,6 @@ def build_run_skill_tool(
                 worker_summary = f"[AVISO: O worker terminou sem um resumo claro. Ele realizou {tool_calls} chamadas de ferramenta e o último texto gerado foi: {out_text}]"
 
         memgpt._last_worker_summary = worker_summary
-        debug_llm_flow(
-            "run_skill.summary",
-            skill=skill_name,
-            tool_calls=tool_calls,
-            worker_summary_len=len(str(worker_summary or "")),
-            worker_summary_preview=debug_preview(worker_summary, limit=700),
-        )
 
         # Record this run
         memgpt._skill_run_history.append({
