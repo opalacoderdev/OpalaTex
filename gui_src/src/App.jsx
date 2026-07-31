@@ -573,13 +573,9 @@ export default function App() {
           };
           if (projectUsesMainModel) {
             payload.model = modelData.id;
-            payload.api_key = modelData.api_key || '';
-            payload.api_base = modelData.api_base || '';
           }
           if (projectUsesWorkerModel) {
             payload.worker_model = modelData.id;
-            payload.worker_api_key = modelData.api_key || '';
-            payload.worker_api_base = modelData.api_base || '';
           }
 
           const projectRes = await fetch('/api/opalatex/update-project', {
@@ -617,7 +613,6 @@ export default function App() {
   const handleProjectModelChange = async (field, value) => {
     if (!activeProject) return;
     try {
-      const selectedModelObj = globalModels.find(m => m.id === value);
       const payload = {
         project_name: activeProject.name,
         display_name: activeProject.project_name || activeProject.name,
@@ -629,10 +624,6 @@ export default function App() {
         description: activeProject.description,
         model_params: activeProject.model_params,
         worker_model_params: activeProject.worker_model_params,
-        api_key: activeProject.api_key,
-        api_base: activeProject.api_base,
-        worker_api_key: activeProject.worker_api_key,
-        worker_api_base: activeProject.worker_api_base,
         use_shared_memory: activeProject.use_shared_memory,
         chat_id: activeChatId
       };
@@ -640,16 +631,8 @@ export default function App() {
       // Update specific field (orchestrator or worker)
       if (field === 'model') {
         payload.model = value;
-        if (selectedModelObj) {
-          payload.api_key = selectedModelObj.api_key;
-          payload.api_base = selectedModelObj.api_base;
-        }
       } else if (field === 'worker_model') {
         payload.worker_model = value;
-        if (selectedModelObj) {
-          payload.worker_api_key = selectedModelObj.api_key;
-          payload.worker_api_base = selectedModelObj.api_base;
-        }
       }
 
       const res = await fetch('/api/opalatex/update-project', {
@@ -1926,7 +1909,7 @@ export default function App() {
       const projectWorkerModel = isCloudProvider ? normalizeCloudModelId(newProjWorkerModel, globalCloudModel) : newProjWorkerModel;
       const res = await fetch('/api/opalatex/create-project', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name: newProjName, project_path: finalProjectPath, description: newProjDesc, model: projectModel, worker_model: projectWorkerModel, mode: newProjMode, api_key: isCloudProvider ? '' : newProjApiKey, api_base: isCloudProvider ? '' : newProjApiBase, worker_api_key: isCloudProvider ? '' : newProjWorkerApiKey, worker_api_base: isCloudProvider ? '' : newProjWorkerApiBase, model_params: Object.keys(newProjModelParams).length ? newProjModelParams : undefined, worker_model_params: Object.keys(newProjWorkerModelParams).length ? newProjWorkerModelParams : undefined }),
+        body: JSON.stringify({ project_name: newProjName, project_path: finalProjectPath, description: newProjDesc, model: projectModel, worker_model: projectWorkerModel, mode: newProjMode, model_params: Object.keys(newProjModelParams).length ? newProjModelParams : undefined, worker_model_params: Object.keys(newProjWorkerModelParams).length ? newProjWorkerModelParams : undefined }),
       });
       if (res.ok) {
         addLog('info', t('app.projectRegistered', { name: newProjName }));
@@ -1965,9 +1948,7 @@ export default function App() {
     setEditProjError('');
     const compileOnSaveFull = fresh.compile_on_save_full === true;
     const compileOnSavePartial = !compileOnSaveFull && fresh.compile_on_save_partial !== false;
-    const selectedMainModel = globalModels.find(m => m.id === fresh.model);
-    const selectedWorkerModel = globalModels.find(m => m.id === fresh.worker_model);
-    const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', main_file: fresh.main_file || '', git_root_path: fresh.git_root_path || '', compile_on_save_partial: compileOnSavePartial, compile_on_save_full: compileOnSaveFull, model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: selectedMainModel?.api_key || fresh.api_key || '', api_base: selectedMainModel?.api_base || fresh.api_base || '', worker_api_key: selectedWorkerModel?.api_key || fresh.worker_api_key || '', worker_api_base: selectedWorkerModel?.api_base || fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
+    const newState = { name: fresh.name, project_name: fresh.project_name || fresh.name, project_path: fresh.project_path || '', main_file: fresh.main_file || '', git_root_path: fresh.git_root_path || '', compile_on_save_partial: compileOnSavePartial, compile_on_save_full: compileOnSaveFull, model: fresh.model || '', worker_model: fresh.worker_model || '', mode: fresh.mode || 'auto', description: fresh.description || '', model_params: fresh.model_params || {}, worker_model_params: fresh.worker_model_params || {}, api_key: fresh.api_key || '', api_base: fresh.api_base || '', worker_api_key: fresh.worker_api_key || '', worker_api_base: fresh.worker_api_base || '', use_shared_memory: fresh.use_shared_memory ?? false };
     setEditingProject(newState);
   };
 
@@ -1979,7 +1960,7 @@ export default function App() {
     try {
       const res = await fetch('/api/opalatex/update-project', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name: editingProject.name, display_name: editingProject.project_name, project_path: editingProject.project_path, main_file: editingProject.main_file, git_root_path: editingProject.git_root_path || '', compile_on_save_partial: editingProject.compile_on_save_partial === true && editingProject.compile_on_save_full !== true, compile_on_save_full: editingProject.compile_on_save_full === true, model: editingProject.model, worker_model: editingProject.worker_model, mode: editingProject.mode, description: editingProject.description, model_params: editingProject.model_params, worker_model_params: editingProject.worker_model_params, api_key: editingProject.api_key, api_base: editingProject.api_base, worker_api_key: editingProject.worker_api_key, worker_api_base: editingProject.worker_api_base, use_shared_memory: editingProject.use_shared_memory, chat_id: activeChatId }),
+        body: JSON.stringify({ project_name: editingProject.name, display_name: editingProject.project_name, project_path: editingProject.project_path, main_file: editingProject.main_file, git_root_path: editingProject.git_root_path || '', compile_on_save_partial: editingProject.compile_on_save_partial === true && editingProject.compile_on_save_full !== true, compile_on_save_full: editingProject.compile_on_save_full === true, model: editingProject.model, worker_model: editingProject.worker_model, mode: editingProject.mode, description: editingProject.description, model_params: editingProject.model_params, worker_model_params: editingProject.worker_model_params, use_shared_memory: editingProject.use_shared_memory, chat_id: activeChatId }),
       });
       if (res.ok) {
         const updated = await res.json();
@@ -2143,6 +2124,9 @@ export default function App() {
 
   const handleAgentEvent = (eventObj) => {
     const { event, ...data } = eventObj;
+    if (data.agent === 'llm_debug' || String(data.message || '').startsWith('[OPALATEX_LLM_DEBUG')) {
+      return;
+    }
     rememberAgentEventForResume(eventObj);
     switch (event) {
       case 'server_ready': addLog('info', t('app.agentReady'), data.agent); break;
@@ -2459,10 +2443,6 @@ export default function App() {
           project_name: activeProject.name, project_path: activeProject.project_path,
           model: activeProject.model,
           worker_model: activeProject.worker_model,
-          api_key: activeProject.api_key,
-          api_base: activeProject.api_base,
-          worker_api_key: activeProject.worker_api_key,
-          worker_api_base: activeProject.worker_api_base,
           model_params: activeProject.model_params,
           worker_model_params: activeProject.worker_model_params,
           current_file: selectedFile || '',

@@ -21,6 +21,7 @@ from opalatex.agent_stdin import (
     _record_turn_thought,
     _response_with_thought,
     _sanitize_model_response,
+    _should_emit_iteration_reflection,
     _visible_chat_response,
     _worker_summary_response,
     clear_worker_message_buffer,
@@ -355,6 +356,26 @@ def test_sanitize_model_response_treats_thought_only_channel_as_empty_response()
 
     assert visible == ""
     assert thoughts == ["Wait, I see what happened."]
+
+
+def test_iteration_reflection_only_accepts_assistant_prose():
+    assert _should_emit_iteration_reflection({
+        "role": "assistant",
+        "content": "I inspected the methodology section.",
+    })
+
+    assert not _should_emit_iteration_reflection({
+        "role": "tool",
+        "content": '{"result": "projeto_pesquisa.tex:309: \\\\section{Metodologia}"}',
+    })
+    assert not _should_emit_iteration_reflection({
+        "role": "user",
+        "content": "SYSTEM ALERT: You returned an empty response.",
+    })
+    assert not _should_emit_iteration_reflection({
+        "role": "assistant",
+        "content": '{"name": "read_file", "arguments": {"path": "main.tex"}}',
+    })
 
 
 @pytest.mark.asyncio

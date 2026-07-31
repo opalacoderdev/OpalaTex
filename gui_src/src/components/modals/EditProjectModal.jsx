@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Settings, Check, FolderOpen } from 'lucide-react';
-import { useTranslation, Trans } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import { useModelValidation } from './useModelValidation';
 import { useCustomDialog } from './CustomDialogProvider';
 import { FEATURES } from '../../config/features';
@@ -94,29 +94,14 @@ export default function EditProjectModal({
     });
   };
 
-  const applySavedModelCredentials = (value, target) => {
-    const saved = (globalModels || []).find(m => m.id === value);
+  const setProjectModel = (value, target) => {
     setEditingProject(p => {
       if (!p) return p;
       if (target === 'worker') {
-        return {
-          ...p,
-          worker_model: value,
-          ...(saved ? {
-            worker_api_key: saved.api_key || '',
-            worker_api_base: saved.api_base || ''
-          } : {})
-        };
+        return { ...p, worker_model: value };
       }
 
-      return {
-        ...p,
-        model: value,
-        ...(saved ? {
-          api_key: saved.api_key || '',
-          api_base: saved.api_base || ''
-        } : {})
-      };
+      return { ...p, model: value };
     });
   };
 
@@ -447,7 +432,7 @@ export default function EditProjectModal({
                     <select
                       className="vscode-settings-input"
                       value={normalizeCloudModel(editingProject.model)}
-                      onChange={e => applySavedModelCredentials(e.target.value, 'main')}
+                      onChange={e => setProjectModel(e.target.value, 'main')}
                     >
                       {cloudModelOptions.map(option => (
                         <option key={`edit-cloud-main-${option.value}`} value={option.value}>{option.label}</option>
@@ -466,7 +451,7 @@ export default function EditProjectModal({
                       type="text"
                       list="edit-models"
                       value={editingProject.model}
-                      onChange={e => applySavedModelCredentials(e.target.value, 'main')}
+                      onChange={e => setProjectModel(e.target.value, 'main')}
                       placeholder="gemini/gemini-2.5-flash"
                       style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
@@ -487,25 +472,6 @@ export default function EditProjectModal({
                   </>
                 )}
               </div>
-
-              {/* API credentials (main model) */}
-              {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
-                <>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.apiKey')}</label>
-                      <input type="password" value={editingProject.api_key} onChange={e => setEditingProject(p => ({ ...p, api_key: e.target.value }))} placeholder={t('editProjectModal.apiKeyPlaceholder')} />
-                    </div>
-                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.apiBase')}</label>
-                      <input type="text" value={editingProject.api_base} onChange={e => setEditingProject(p => ({ ...p, api_base: e.target.value }))} placeholder={t('editProjectModal.apiBasePlaceholder')} />
-                    </div>
-                  </div>
-                  <div style={{ fontSize: '11px', color: '#808080', marginTop: '-6px', lineHeight: '1.4' }}>
-                    <Trans i18nKey="newProjectModal.ollamaTip" components={[<span />, <strong />]} />
-                  </div>
-                </>
-              )}
 
               {/* Advanced params (collapsible) */}
               <div className="flex flex-col" style={{ marginTop: '4px' }}>
@@ -671,7 +637,7 @@ export default function EditProjectModal({
                     <select
                       className="vscode-settings-input"
                       value={normalizeCloudModel(editingProject.worker_model)}
-                      onChange={e => applySavedModelCredentials(e.target.value, 'worker')}
+                      onChange={e => setProjectModel(e.target.value, 'worker')}
                     >
                       {cloudModelOptions.map(option => (
                         <option key={`edit-cloud-worker-${option.value}`} value={option.value}>{option.label}</option>
@@ -690,7 +656,7 @@ export default function EditProjectModal({
                       list="edit-worker-models"
                       className="vscode-settings-input"
                       value={editingProject.worker_model || ''}
-                      onChange={e => applySavedModelCredentials(e.target.value, 'worker')}
+                      onChange={e => setProjectModel(e.target.value, 'worker')}
                       placeholder={t('editProjectModal.workerModelPlaceholder')}
                       style={{ flex: 1, borderColor: getBorderColor(workerModelStatus) }}
                     />
@@ -718,34 +684,6 @@ export default function EditProjectModal({
                   </div>
                 )}
               </div>
-
-              {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
-                <>
-                  {/* Worker API Key */}
-                  <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiKey')}</label>
-                    <input
-                      type="password"
-                      className="vscode-settings-input"
-                      value={editingProject.worker_api_key || ''}
-                      onChange={e => setEditingProject(p => ({ ...p, worker_api_key: e.target.value }))}
-                      placeholder={t('editProjectModal.apiKeyPlaceholder')}
-                    />
-                  </div>
-
-                  {/* Worker API Base */}
-                  <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiBase')}</label>
-                    <input
-                      type="text"
-                      className="vscode-settings-input"
-                      value={editingProject.worker_api_base || ''}
-                      onChange={e => setEditingProject(p => ({ ...p, worker_api_base: e.target.value }))}
-                      placeholder={t('editProjectModal.apiBasePlaceholder')}
-                    />
-                  </div>
-                </>
-              )}
 
               {/* Advanced params for Worker (collapsible) */}
               <div className="flex flex-col" style={{ marginTop: '4px' }}>

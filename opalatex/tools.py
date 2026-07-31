@@ -1,10 +1,12 @@
 """Tools for the OpalaTex Autonomous Agent (MemGPT pattern + HITL)."""
 import os
 import json
+import re
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from pathlib import Path
 
 import functools
@@ -708,7 +710,7 @@ import platform
 from .subprocess_utils import utf8_text_kwargs
 
 _os_info = f"{platform.system()} ({platform.release()})"
-_run_cmd_desc = f"Execute a non-interactive shell command (e.g. ls, dir, mkdir, grep, npm install). Runs inside the project directory. Returns stdout/stderr. NEVER run servers or infinite processes. NEVER use echo/printf/cat to write file content — use write_file instead. NOTE: Host OS is {_os_info}. Use the appropriate shell commands."
+_run_cmd_desc = f"Execute a non-interactive shell command (e.g. ls, dir, mkdir, npm install). Runs inside the project directory. Returns stdout/stderr. Use search_code for project text searches. NEVER run servers or infinite processes. NEVER use echo/printf/cat to write file content — use write_file instead. NOTE: Host OS is {_os_info}. Use the appropriate shell commands."
 
 @opalatex_tool(name="run_command", is_safe=False, description=_run_cmd_desc)
 def run_command(command: str) -> str:
@@ -827,24 +829,92 @@ async def run_interactive_command(command: str) -> str:
     else:
         return f"FAILURE: The user indicated that the interactive command '{command}' failed or was cancelled. Please ask the user for details if needed."
 
-@opalatex_tool(name="search_code", is_safe=True, description="Search for a specific string across all files using grep. Searches inside the project directory by default.")
-def search_code(query: str, path: str = ".") -> str:
+@opalatex_tool(
+    name="search_code",
+    is_safe=True,
+    description=(
+        "Search for text or a regular expression in project files using Python, "
+        "returning relative file paths, 1-indexed line numbers, and matching lines. "
+        "Use this to locate sections, labels, definitions, or other markers before "
+        "calling read_content_pos or replace_content_range."
+    ),
+)
+def search_code(
+    query: str,
+    path: str = ".",
+    use_regex: bool = False,
+    case_sensitive: bool = False,
+    max_results: int = 50,
+    file_pattern: str = "*",
+) -> str:
     try:
         resolved = _resolve_path(path)
     except Exception as e:
         raise ValueError(f"Error resolving path: {e}")
 
     AGENT_PROGRESS.update("search_code", f"query={_preview(query)} path={_preview(resolved)}")
+
+    if not query:
+        raise ValueError("query must not be empty.")
+    if max_results < 1:
+        raise ValueError("max_results must be a positive integer.")
+
+    root = Path(get_project_path()).resolve()
+    target = Path(resolved).resolve()
+    skipped_dirs = {".git", ".opalatex", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
+    skipped_exts = {
+        ".aux", ".bbl", ".blg", ".class", ".dll", ".exe", ".gz", ".ico", ".jar",
+        ".jpg", ".jpeg", ".log", ".mp3", ".mp4", ".pdf", ".png", ".pyc", ".so",
+        ".synctex.gz", ".zip",
+    }
+
     try:
-        res = subprocess.run(
-            f"grep -rnI --exclude-dir='.git' --exclude-dir='node_modules' --exclude-dir='__pycache__' '{query}' {resolved}",
-            shell=True,
-            capture_output=True,
-            **utf8_text_kwargs(),
-            timeout=30,
-            cwd=get_project_path(),
-        )
-        return res.stdout if res.stdout else "No matches."
+        if target.is_file():
+            candidates = [target]
+        elif target.is_dir():
+            candidates = []
+            for dirpath, dirnames, filenames in os.walk(target):
+                dirnames[:] = [d for d in dirnames if d not in skipped_dirs and not d.startswith(".")]
+                for filename in filenames:
+                    candidate = Path(dirpath) / filename
+                    if candidate.suffix.lower() in skipped_exts:
+                        continue
+                    rel_candidate = os.path.relpath(candidate, target).replace(os.sep, "/")
+                    if not (
+                        fnmatch(filename, file_pattern)
+                        or fnmatch(rel_candidate, file_pattern)
+                    ):
+                        continue
+                    candidates.append(candidate)
+        else:
+            raise ValueError(f"Error: path does not exist: {_preview(resolved)}.")
+
+        flags = 0 if case_sensitive else re.IGNORECASE
+        pattern = re.compile(query if use_regex else re.escape(query), flags)
+        matches: list[str] = []
+        searched = 0
+
+        for candidate in candidates:
+            searched += 1
+            try:
+                text = _read_text_file(str(candidate))
+            except Exception:
+                continue
+            if "\x00" in text[:4096]:
+                continue
+            rel_path = os.path.relpath(candidate, root)
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                if pattern.search(line):
+                    matches.append(f"{rel_path}:{line_number}: {line.strip()}")
+                    if len(matches) >= max_results:
+                        return (
+                            "\n".join(matches)
+                            + f"\n[search_code] Stopped after {max_results} matches."
+                        )
+
+        if not matches:
+            return f"No matches for {query!r} in {_preview(os.path.relpath(target, root))}."
+        return "\n".join(matches) + f"\n[search_code] Searched {searched} files."
     except Exception as e:
         raise ValueError(f"Error searching code in {_preview(resolved)}: {e}")
 
@@ -1100,14 +1170,23 @@ def read_content_pos(path: str, start_pos: int, end_pos: int) -> str:
     except OSError as e:
         raise ValueError(f"Error: invalid path argument ({e.strerror}).")
 
+    if start_pos < 1 or end_pos < 1:
+        raise ValueError("start_pos and end_pos must be 1-indexed positive integers.")
+    if end_pos < start_pos:
+        raise ValueError("end_pos must be greater than or equal to start_pos.")
+
     try:
         lines = _read_text_file(resolved).splitlines(keepends=True)
             
-        start_idx = max(0, start_pos - 1)
+        start_idx = start_pos - 1
         end_idx = min(len(lines), end_pos)
         
         if start_idx >= len(lines):
-            raise ValueError(f"Error: start_pos {start_pos} is beyond the end of the file (total lines: {len(lines)}).")
+            return (
+                f"No content read: start_pos {start_pos} is beyond the end of the file "
+                f"(total lines: {len(lines)}). Use start_pos <= {len(lines)} or locate "
+                "the target section before retrying."
+            )
             
         selected_lines = lines[start_idx:end_idx]
         return "".join(selected_lines)
@@ -1125,6 +1204,7 @@ def get_available_tools():
         search_conversation_history,
         update_achievements_memory,
         get_project_overview,
+        search_code,
         read_file,
         read_content_pos,
         write_file,

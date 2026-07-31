@@ -7,11 +7,12 @@ description: Executes command-line operations to read, create, insert text, remo
 
 This skill provides the sub-agent with tools to manipulate files and directories securely, restricted to the project directory.
 
-**FINDING FILES (CRITICAL):** Do not guess file locations. If the file path is unknown, use targeted discovery such as `get_project_overview` or `run_command` with `rg --files`. If the orchestrator context already gives the exact file path, line range, or command to run, execute that directly and do not call `get_project_overview` first. As a last resort, if you cannot find the file, stop your turn and use the `send_message` tool to ask the user for the file's location.
+**FINDING FILES AND TEXT (CRITICAL):** Do not guess file locations or line numbers. If the file path is unknown, use `get_project_overview`. If you need to find a section, label, function, class, or marker inside project files, use `search_code`; it is Python-based and works across operating systems. If the orchestrator context already gives the exact file path, line range, or command to run, execute that directly and do not call `get_project_overview` first. As a last resort, if you cannot find the file, stop your turn and use the `send_message` tool to ask the user for the file's location.
 
 ## AVAILABLE TOOLS
 
         get_project_overview,
+        search_code,
         read_file,
         read_content_pos,
         write_file,
@@ -51,7 +52,7 @@ Examples:
 read_file("tictactoe.html")
 read_file("src/utils.js")
 ```
-Do not use `read_file` on large `.tex`, `.log`, or source files just to locate a section, label, or line range. Use `run_command` with `rg`/`grep`/`nl` or use `read_content_pos` once the line range is known.
+Do not use `read_file` on large `.tex`, `.log`, or source files just to locate a section, label, or line range. Use `search_code` to locate the marker, then use `read_content_pos` once the line range is known.
 
 3. read_content_pos: use read_content_pos for directly access file content at a specific line range without shell. For example:
 ```
@@ -83,7 +84,13 @@ replace_content_range("tictactoe.html", 1, 10, "<content>")
 replace_content_range("src/utils.js", 10, 20, "<content>")
 ```
 
-6. run_command: use run_command to execute non-interactive shell commands (e.g. build, compile, list, grep, python/pip commands). For example:
+6. search_code: use search_code to find text or regex matches across project files without shell commands. It returns relative paths and line numbers. For example:
+```
+search_code("Metodologia", "projeto_pesquisa.tex")
+search_code("\\\\section\\{Metodologia\\}", ".", true)
+```
+
+7. run_command: use run_command to execute non-interactive shell commands (e.g. build, compile, list, python/pip commands). For example:
 ```
 run_command("<command>")
 ```
@@ -95,26 +102,26 @@ run_command("uv pip install django")
 ```
 WARNING: Do NOT use `run_command` for commands that require user input (like `npm create`, `npm init`, etc). For those, you MUST use `run_interactive_command`. Do NOT run servers or infinite processes with this tool.
 
-7. run_interactive_command: use this specifically for commands that require human interaction, choices, or input. It will open a popup terminal for the user.
+8. run_interactive_command: use this specifically for commands that require human interaction, choices, or input. It will open a popup terminal for the user.
 ```
 run_interactive_command("npm create vite@latest app -- --template react")
 run_interactive_command("npm init")
 ```
 
-8. run_background_command: use this to start long-running servers or background processes (e.g., `npm run dev`) directly in the user's main IDE terminal. It returns immediately and does not block.
+9. run_background_command: use this to start long-running servers or background processes (e.g., `npm run dev`) directly in the user's main IDE terminal. It returns immediately and does not block.
 ```
 run_background_command("npm run dev")
 run_background_command("python manage.py runserver")
 ```
 
-9. get_project_overview: use get_project_overview for directly access project tree of files. Try with a minimum depth of 5.
+10. get_project_overview: use get_project_overview for directly access project tree of files. Try with a minimum depth of 5.
 Example:
 ```
 get_project_overview(5)
 ```
 Use this only when the project structure is unknown. Skip it when the task already identifies the target file or provides an explicit command.
 
-10. search_conversation_history: use search_conversation_history for directly search conversation history without shell. For example:
+11. search_conversation_history: use search_conversation_history for directly search conversation history without shell. For example:
 ```
 search_conversation_history("<keyword>")
 ```

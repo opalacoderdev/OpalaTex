@@ -210,6 +210,9 @@ _LITELLM_TRANSPORT_FIELDS = {
     "drop_params",
     "allowed_openai_params",
     "additional_drop_params",
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
 }
 
 # Agent constructor params that can be overridden per-project via model_params.
@@ -476,18 +479,6 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
                 clean_params = {k: v for k, v in _PROJECT_SESSION.model_params.items() if v is not None}
                 merged.update(clean_params)
             
-            w_api_base = getattr(_PROJECT_SESSION, "worker_api_base", None) if agent_name == "worker" else None
-            w_api_key = getattr(_PROJECT_SESSION, "worker_api_key", None) if agent_name == "worker" else None
-            
-            if w_api_base:
-                merged["api_base"] = w_api_base
-            elif not explicit_worker_model and getattr(_PROJECT_SESSION, "api_base", None):
-                merged["api_base"] = _PROJECT_SESSION.api_base
-                
-            if w_api_key:
-                merged["api_key"] = w_api_key
-            elif not explicit_worker_model and getattr(_PROJECT_SESSION, "api_key", None):
-                merged["api_key"] = _PROJECT_SESSION.api_key
     except Exception:
         pass
 
@@ -545,9 +536,12 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
         merged.setdefault("request_timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
     else:
         if store_api_base:
-            merged.setdefault("api_base", store_api_base)
+            merged["api_base"] = normalize_ollama_api_base_for_litellm(
+                resolved_model,
+                store_api_base,
+            )
         if store_api_key:
-            merged.setdefault("api_key", store_api_key)
+            merged["api_key"] = store_api_key
 
         if is_ollama_cloud_model(resolved_model):
             merged.setdefault("api_base", OLLAMA_CLOUD_API_BASE)

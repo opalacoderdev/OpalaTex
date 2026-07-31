@@ -86,6 +86,99 @@ def test_read_content_pos_falls_back_to_cp1252(tmp_path):
     assert result == "Introdução\nConclusão\n"
 
 
+def test_read_content_pos_beyond_eof_returns_recoverable_diagnostic(tmp_path):
+    from opalatex.tools import read_content_pos, set_project_context
+
+    target = tmp_path / "main.tex"
+    target.write_text("line 1\nline 2\n", encoding="utf-8")
+    set_project_context(SimpleNamespace(project_path=str(tmp_path)))
+
+    raw = getattr(read_content_pos, "_func", None) or read_content_pos
+    result = asyncio.run(raw("main.tex", 700, 800))
+
+    assert "No content read" in result
+    assert "total lines: 2" in result
+    assert "Use start_pos <= 2" in result
+
+
+def test_read_content_pos_rejects_invalid_line_ranges(tmp_path):
+    from opalatex.tools import read_content_pos, set_project_context
+
+    target = tmp_path / "main.tex"
+    target.write_text("line 1\nline 2\n", encoding="utf-8")
+    set_project_context(SimpleNamespace(project_path=str(tmp_path)))
+
+    raw = getattr(read_content_pos, "_func", None) or read_content_pos
+
+    with pytest.raises(ValueError, match="1-indexed positive integers"):
+        asyncio.run(raw("main.tex", 0, 1))
+
+    with pytest.raises(ValueError, match="greater than or equal"):
+        asyncio.run(raw("main.tex", 2, 1))
+
+
+def test_search_code_finds_text_with_line_numbers(tmp_path):
+    from opalatex.tools import search_code, set_project_context
+
+    target = tmp_path / "main.tex"
+    target.write_text("Intro\n\\section{Metodologia}\nBody\n", encoding="utf-8")
+    set_project_context(SimpleNamespace(project_path=str(tmp_path)))
+
+    raw = getattr(search_code, "_func", None) or search_code
+    result = asyncio.run(raw("Metodologia", "main.tex"))
+
+    assert "main.tex:2: \\section{Metodologia}" in result
+
+
+def test_search_code_supports_regex_for_latex_sections(tmp_path):
+    from opalatex.tools import search_code, set_project_context
+
+    target = tmp_path / "main.tex"
+    target.write_text("\\section{Introdução}\nText\n\\section{Metodologia}\n", encoding="utf-8")
+    set_project_context(SimpleNamespace(project_path=str(tmp_path)))
+
+    raw = getattr(search_code, "_func", None) or search_code
+    result = asyncio.run(raw(r"\\section\{Metodologia\}", ".", True))
+
+    assert "main.tex:3: \\section{Metodologia}" in result
+
+
+def test_search_code_limits_results(tmp_path):
+    from opalatex.tools import search_code, set_project_context
+
+    target = tmp_path / "main.tex"
+    target.write_text("match\nmatch\nmatch\n", encoding="utf-8")
+    set_project_context(SimpleNamespace(project_path=str(tmp_path)))
+
+    raw = getattr(search_code, "_func", None) or search_code
+    result = asyncio.run(raw("match", ".", False, False, 2))
+
+    assert result.count("main.tex:") == 2
+    assert "Stopped after 2 matches" in result
+
+
+def test_search_code_filters_by_file_pattern(tmp_path):
+    from opalatex.tools import search_code, set_project_context
+
+    (tmp_path / "main.tex").write_text("needle\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("needle\n", encoding="utf-8")
+    set_project_context(SimpleNamespace(project_path=str(tmp_path)))
+
+    raw = getattr(search_code, "_func", None) or search_code
+    result = asyncio.run(raw("needle", ".", False, False, 50, "*.tex"))
+
+    assert "main.tex:1: needle" in result
+    assert "notes.txt" not in result
+
+
+def test_get_available_tools_includes_search_code():
+    from opalatex.tools import get_available_tools
+
+    names = {getattr(tool, "name", None) for tool in get_available_tools()}
+
+    assert "search_code" in names
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 def test_mutating_tool_does_not_create_shadow_git_checkpoint(tmp_path):
     from opalatex.tools import set_project_context, write_file

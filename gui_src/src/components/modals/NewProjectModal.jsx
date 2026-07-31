@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, FolderOpen } from 'lucide-react';
-import { useTranslation, Trans } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import { useModelValidation } from './useModelValidation';
 import { FEATURES } from '../../config/features';
 
@@ -46,22 +46,13 @@ export default function NewProjectModal({
     setter(prev => ({ ...prev, [key]: val }));
   };
 
-  const applySavedModelCredentials = (value, target) => {
-    const saved = (globalModels || []).find(m => m.id === value);
+  const setProjectModel = (value, target) => {
     if (target === 'worker') {
       setNewProjWorkerModel(value);
-      if (saved) {
-        setNewProjWorkerApiKey(saved.api_key || '');
-        setNewProjWorkerApiBase(saved.api_base || '');
-      }
       return;
     }
 
     setNewProjModel(value);
-    if (saved) {
-      setNewProjApiKey(saved.api_key || '');
-      setNewProjApiBase(saved.api_base || '');
-    }
   };
 
   const tabs = [
@@ -233,7 +224,7 @@ export default function NewProjectModal({
                     <select
                       className="vscode-settings-input"
                       value={normalizeCloudModel(newProjModel)}
-                      onChange={(e) => applySavedModelCredentials(e.target.value, 'main')}
+                      onChange={(e) => setProjectModel(e.target.value, 'main')}
                     >
                       {cloudModelOptions.map(option => (
                         <option key={`new-cloud-main-${option.value}`} value={option.value}>{option.label}</option>
@@ -252,7 +243,7 @@ export default function NewProjectModal({
                       type="text"
                       list="default-models"
                       value={newProjModel}
-                      onChange={(e) => applySavedModelCredentials(e.target.value, 'main')}
+                      onChange={(e) => setProjectModel(e.target.value, 'main')}
                       placeholder={t('newProjectModal.modelPlaceholder')}
                       style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
@@ -278,24 +269,6 @@ export default function NewProjectModal({
                   </>
                 )}
               </div>
-
-              {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
-                <>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.apiKey')}</label>
-                      <input type="password" value={newProjApiKey} onChange={(e) => setNewProjApiKey(e.target.value)} placeholder={t('newProjectModal.apiKeyPlaceholder')} />
-                    </div>
-                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.apiBase')}</label>
-                      <input type="text" value={newProjApiBase} onChange={(e) => setNewProjApiBase(e.target.value)} placeholder={t('newProjectModal.apiBasePlaceholder')} />
-                    </div>
-                  </div>
-                  <div style={{ fontSize: '11px', color: '#808080', marginTop: '-6px', lineHeight: '1.4' }}>
-                    <Trans i18nKey="newProjectModal.ollamaTip" components={[<span />, <strong />]} />
-                  </div>
-                </>
-              )}
 
               {/* Advanced params for Orchestrator */}
               <details style={{ background: 'var(--vscode-input-bg)', padding: '8px', borderRadius: '4px', border: '1px solid var(--vscode-border)' }}>
@@ -344,7 +317,7 @@ export default function NewProjectModal({
                     <select
                       className="vscode-settings-input"
                       value={normalizeCloudModel(newProjWorkerModel)}
-                      onChange={e => applySavedModelCredentials(e.target.value, 'worker')}
+                      onChange={e => setProjectModel(e.target.value, 'worker')}
                     >
                       {cloudModelOptions.map(option => (
                         <option key={`new-cloud-worker-${option.value}`} value={option.value}>{option.label}</option>
@@ -362,7 +335,7 @@ export default function NewProjectModal({
                       type="text"
                       list="default-worker-models"
                       value={newProjWorkerModel}
-                      onChange={e => applySavedModelCredentials(e.target.value, 'worker')}
+                      onChange={e => setProjectModel(e.target.value, 'worker')}
                       placeholder={t('newProjectModal.workerModelPlaceholder')}
                       style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
                     />
@@ -388,19 +361,6 @@ export default function NewProjectModal({
                   </>
                 )}
               </div>
-
-              {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiKey')}</label>
-                    <input type="password" value={newProjWorkerApiKey} onChange={e => setNewProjWorkerApiKey(e.target.value)} placeholder={t('newProjectModal.workerApiKeyPlaceholder')} />
-                  </div>
-                  <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                    <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerApiBase')}</label>
-                    <input type="text" value={newProjWorkerApiBase} onChange={e => setNewProjWorkerApiBase(e.target.value)} placeholder="http://localhost:11434/v1" />
-                  </div>
-                </div>
-              )}
 
               {/* Advanced params for Worker */}
               <details style={{ background: 'var(--vscode-input-bg)', padding: '8px', borderRadius: '4px', border: '1px solid var(--vscode-border)' }}>

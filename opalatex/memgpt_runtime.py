@@ -23,7 +23,6 @@ from __future__ import annotations
 from datetime import datetime
 from opalatex.tools import read_file
 from opalatex.tools import get_project_overview
-from opalatex.tools import run_command
 import os
 from typing import Any
 
@@ -39,6 +38,7 @@ from .tools import (
     read_core_memory,
     append_core_memory,
     search_conversation_history,
+    search_code,
     web_search,
     analyze_image,
     create_docx_file,
@@ -66,6 +66,7 @@ from .skills import (
 )
 
 from .tools import get_available_tools
+from .debug_logging import debug_llm_flow, debug_preview
 
 CHAT_ORCHESTRATOR_SKILL = "chat-orchestrator"
 MAX_FAILED_SKILL_ATTEMPTS = 2
@@ -179,6 +180,12 @@ def make_intercepted_send_message(memgpt: MemGPTAgentBlock, skill_name: str):
         ),
     )
     def send_message(message: str) -> str:
+        debug_llm_flow(
+            "worker.send_message",
+            skill=skill_name,
+            message_len=len(str(message or "")),
+            message_preview=debug_preview(message, limit=700),
+        )
         # 1. Record the worker message before emitting any diagnostic event.
         if hasattr(memgpt, "_current_worker_messages"):
             memgpt._current_worker_messages.append(message)
@@ -238,11 +245,19 @@ def build_run_skill_tool(
             "CRITICAL: You must ONLY call run_skill with a skill name that is explicitly listed "
             "in the 'Available skills' section of your system prompt. Do NOT invent skill names. "
             "If the task requires terminal commands, directory manipulation, or complex file editing, "
-            "delegate to the 'command-line' skill. Do NOT try to call non-existent skills like "
+            "delegate to the 'command-line' skill. If you need to locate text in project files, "
+            "use your direct search_code tool. Do NOT try to call non-existent skills like "
             "'search_files', 'list_files', or 'edit_file'."
         ),
     )
     async def run_skill(skill_name: str, context: str) -> str:
+        debug_llm_flow(
+            "run_skill.start",
+            skill=skill_name,
+            context_len=len(str(context or "")),
+            context_preview=debug_preview(context, limit=700),
+            project_path=project_path,
+        )
         # Re-assert project scope so the sub-agent's file/terminal tools act inside
         # this project even if a /load changed the global context since build time.
         if _project_ref is not None:
@@ -266,14 +281,21 @@ def build_run_skill_tool(
         skill_dir = find_skill_dir(skill_name, project_path)
         if skill_dir is None:
             active = [s["name"] for s in active_skills(project_path)]
+            debug_llm_flow(
+                "run_skill.missing_skill",
+                skill=skill_name,
+                active_skills=active,
+            )
             return (
                 f"[ERROR] Skill '{skill_name}' was not found / is not active. "
                 f"You MUST NOT invent skill names. The only active skills you can delegate to are: {active}. "
-                "If you need to list, read, or write files directly, use your own direct tools (e.g. get_project_overview, read_file) "
+                "If you need to list, search, read, or write files directly, use your own direct tools "
+                "(e.g. get_project_overview, search_code, read_file) "
                 "or delegate to the 'command-line' skill."
             )
         meta = parse_skill_md(skill_dir)
         if meta is None:
+            debug_llm_flow("run_skill.invalid_metadata", skill=skill_name, skill_dir=skill_dir)
             return f"[ERROR] skill '{skill_name}' has no valid SKILL.md."
 
 
@@ -388,6 +410,7 @@ def build_run_skill_tool(
             "--------------------------------------------\n\n"
             "Your specific tools are:\n"
             "  - get_project_overview: Returns the project's folder and file structure. Use it only when the target file is unknown.\n"
+            "  - search_code: Searches project files using Python and returns matching paths with line numbers. Use it to locate sections, labels, definitions, or markers before line-based reads/edits.\n"
             "  - read_file: Reads the complete contents of a file. Use it only for small files or when full-file context is truly needed.\n"
             "  - read_content_pos: Reads a specific snippet of a file by providing start and end line numbers. Use it for targeted reading of large files.\n"
             "  - write_file: Writes or completely overwrites a file. Use it to create new files or replace existing ones entirely. NEVER use run_command with echo/cat to write files.\n"
@@ -408,7 +431,7 @@ def build_run_skill_tool(
             f"RECOMMENDATION FOR TERMINATION AND send_message:\n"
             f"- If MEMGPT CONTEXT/INSTRUCTIONS contains an explicit command or script to execute, your first tool call should be run_command with that command.\n"
             f"- If MEMGPT CONTEXT/INSTRUCTIONS already identifies the target file, line range, or edit, do not call get_project_overview first.\n"
-            f"- For large .tex, .log, or source files, never call read_file just to find a section or marker; use run_command with rg/grep/nl or use read_content_pos for a known range.\n"
+            f"- For large .tex, .log, or source files, never call read_file just to find a section or marker; use search_code to locate the marker, then read_content_pos for the returned line range.\n"
             f"- Calling send_message OR returning a final text response terminates your execution immediately.\n"
             f"- If you need to do X, do it RIGHT NOW using your tools in this exact same turn. Only terminate when the entire requested task is completely finished, or if you are completely blocked and need human input. Inform final response to user.\n"
             f"- If your task requires using multiple tools (like reading files, running commands, or writing code), do not call send_message first. Use the tools to complete the work, and then call send_message to report the final result.\n"
@@ -464,6 +487,15 @@ def build_run_skill_tool(
         )
         from .litellm_compat import wrap_agent_litellm_compat
         wrap_agent_litellm_compat(sub_agent)
+        debug_llm_flow(
+            "run_skill.agent_ready",
+            skill=skill_name,
+            model=model,
+            tools=[getattr(tool, "name", "") for tool in tools],
+            worker_kwargs=worker_kwargs,
+            max_iterations=worker_agent_params.get("max_iterations", None),
+            max_tool_calls=worker_agent_params.get("max_tool_calls", 40),
+        )
 
         from opalatex.agent_stdin import _record_turn_thought, print_event
 
@@ -578,6 +610,11 @@ def build_run_skill_tool(
 
         failed_attempts = _recent_failed_skill_attempts(memgpt, skill_name)
         if failed_attempts >= MAX_FAILED_SKILL_ATTEMPTS:
+            debug_llm_flow(
+                "run_skill.loop_breaker",
+                skill=skill_name,
+                failed_attempts=failed_attempts,
+            )
             return (
                 f"[SYSTEM ALERT] WORKER LOOP BREAKER: The '{skill_name}' skill has failed "
                 f"{failed_attempts} consecutive times without completing useful tool work. "
@@ -589,6 +626,7 @@ def build_run_skill_tool(
         # Check for macro-loop
         for run in memgpt._skill_run_history:
             if run["skill"] == skill_name and run["context"] == context:
+                debug_llm_flow("run_skill.macro_loop", skill=skill_name)
                 return f"[SYSTEM ALERT] MACRO-LOOP DETECTED: You already delegated to '{skill_name}' with this EXACT context earlier in the session, and it failed or didn't resolve the issue. You MUST change your plan/context, use different instructions, or use 'send_message' to ask the user for help. DO NOT repeat the exact same delegation."
                 
         previous_runs = ""
@@ -607,6 +645,12 @@ def build_run_skill_tool(
             previous_runs_block = f"\n[PREVIOUS ATTEMPTS HISTORY]\nYou have been called before in this session for the '{skill_name}' skill. Do NOT repeat failed approaches. Here are your previous attempts:\n{previous_runs}"
 
         prompt = f"RECENT CHAT HISTORY:\n{recent_history}{achievements_block}{previous_runs_block}\n\nMEMGPT CONTEXT/INSTRUCTIONS:\n{context}"
+        debug_llm_flow(
+            "run_skill.request",
+            skill=skill_name,
+            prompt_len=len(prompt),
+            prompt_preview=debug_preview(prompt, limit=700),
+        )
         worker_checkpoint_id = None
         worker_checkpoint_project_path = None
         try:
@@ -624,9 +668,22 @@ def build_run_skill_tool(
             out = await sub_agent.run(AgentInput(prompt=prompt))
             out_text = out.response if hasattr(out, "response") else str(out)
             tool_calls = getattr(out, "tool_calls_made", "?")
+            debug_llm_flow(
+                "run_skill.raw_response",
+                skill=skill_name,
+                response_len=len(str(out_text or "")),
+                response_preview=debug_preview(out_text, limit=700),
+                tool_calls=tool_calls,
+            )
         except Exception as e:
             out_text = f"[CRITICAL WORKER CRASH] A exceção não tratada interrompeu o worker: {str(e)}"
             tool_calls = "?"
+            debug_llm_flow(
+                "run_skill.exception",
+                skill=skill_name,
+                error_type=type(e).__name__,
+                error=str(e),
+            )
 
         finally:
             if worker_checkpoint_id and worker_checkpoint_project_path:
@@ -660,6 +717,13 @@ def build_run_skill_tool(
                 worker_summary = f"[AVISO: O worker terminou sem um resumo claro. Ele realizou {tool_calls} chamadas de ferramenta e o último texto gerado foi: {out_text}]"
 
         memgpt._last_worker_summary = worker_summary
+        debug_llm_flow(
+            "run_skill.summary",
+            skill=skill_name,
+            tool_calls=tool_calls,
+            worker_summary_len=len(str(worker_summary or "")),
+            worker_summary_preview=debug_preview(worker_summary, limit=700),
+        )
 
         # Record this run
         memgpt._skill_run_history.append({
@@ -694,13 +758,13 @@ def _chat_orchestrator_body(project_path: str) -> str:
         "You are the OpalaTex chat-orchestrator. You operate in a strict TOOL-ONLY environment.\n"
         "1. The runtime prepends today's date to this prompt. If the user asks for recent, latest, current, future-dated, or otherwise time-sensitive information, you MUST use web_search before answering, refusing, or delegating. You MUST NOT hallucinate dates or assume something did not happen without first searching the web.\n" 
         "2. You MUST NEVER reply to the user with plain conversational text. If you want to communicate with the user (to provide analysis, code snippets, or report completion), YOU MUST use the 'send_message' tool with a non-empty message.\n"
-        "3. You CAN and SHOULD use your tools (like read_file, read_content_pos, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly.\n"
+        "3. You CAN and SHOULD use your tools (like search_code, read_file, read_content_pos, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly.\n"
         "4. If the user asks for something that you don't know, you can use web_search to find relevant information. If the user asks for something in the project, you can use get_project_overview to explore the project structure and read_file to read files.\n"
         "5. Whenever the user asks a question involving dates, time, recent events, latest events, sports, news, public figures, APIs, or potentially anachronistic information, you must search the web for updated information.\n"
-        "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', 'edit_file', or 'run_cmd'. If you need to list, search, read, or make a precise line edit directly, use get_project_overview, read_file, read_content_pos, replace_content_range, or write_content_pos.\n"
+        "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', 'edit_file', or 'run_cmd'. If you need to list, search, read, or make a precise line edit directly, use get_project_overview, search_code, read_file, read_content_pos, replace_content_range, or write_content_pos.\n"
         "7. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If the worker changed files, verify the changed location with read_file/read_content_pos before reporting success. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan unless a worker loop breaker tells you to stop. If the task IS complete, you MUST call 'send_message' with a non-empty final result for the user.\n"
         "8. Every invocation of run_skill spawns a completely stateless, ephemeral sub-agent. The worker starts fresh with no memory of prior runs. You MUST NOT try to converse/coordinate with the worker across multiple turns or promise to provide details in a 'next step'. Provide all instructions and details in a single run_skill call.\n"
-        "9. If you need to edit or write a large file (more than ~100-200 lines), do NOT instruct the worker to use write_file with the entire content, as LLM output limits will truncate the tool call. Instead, instruct it to use replace_content_range for specific line ranges, write_content_pos only for insertion before a specific line, or write a small Python search-and-replace script and run it using run_command.\n"
+        "9. If you need to edit or write a large file (more than ~100-200 lines), do NOT instruct the worker to use write_file with the entire content, as LLM output limits will truncate the tool call. Instead, instruct it to use search_code to locate markers, replace_content_range for specific line ranges, write_content_pos only for insertion before a specific line, or a small Python search-and-replace script executed with run_command for bulk transformations.\n"
         "NEVER assume something didn't happen without first searching the web using the web_search tool.\n"
         "CRITICAL: If you use a <think> block to plan your actions, you MUST NOT stop generating afterwards. You MUST conclude your turn by outputting a valid JSON tool call (either another tool, run_skill, or send_message). An empty text response or a plain text reply without a JSON tool call is a critical failure.\n\n"
         "ACHIEVEMENTS MEMORY INSTRUCTION:\n"
@@ -821,6 +885,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         wrap_tool(read_content_pos),
         wrap_tool(write_content_pos),
         wrap_tool(replace_content_range),
+        wrap_tool(search_code),
         wrap_tool(get_project_overview), 
         wrap_tool(append_core_memory), 
         wrap_tool(search_conversation_history), 

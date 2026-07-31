@@ -353,7 +353,8 @@ def test_internal_attachment_flags_are_not_sent_to_litellm():
 
     with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
         with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
-            kwargs = get_agent_llm_kwargs("custom_agent")
+            with patch("opalatex.models_store.get_model", return_value={"supports_thinking": False}):
+                kwargs = get_agent_llm_kwargs("custom_agent")
 
     assert "temperature" not in kwargs
     assert kwargs["drop_params"] is True
@@ -386,7 +387,8 @@ def test_openai_models_do_not_receive_local_only_litellm_kwargs():
 
     with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
         with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
-            kwargs = get_agent_llm_kwargs("custom_agent")
+            with patch("opalatex.models_store.get_model", return_value={"supports_thinking": False}):
+                kwargs = get_agent_llm_kwargs("custom_agent")
 
     assert "temperature" not in kwargs
     assert kwargs["drop_params"] is True
@@ -503,7 +505,8 @@ def test_ollama_models_keep_local_only_litellm_kwargs_except_unsupported_think()
 
     with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
         with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
-            kwargs = get_agent_llm_kwargs("custom_agent")
+            with patch("opalatex.models_store.get_model", return_value={"supports_thinking": False}):
+                kwargs = get_agent_llm_kwargs("custom_agent")
 
     assert kwargs["temperature"] == 0.2
     assert kwargs["num_ctx"] == 8192

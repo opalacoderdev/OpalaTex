@@ -2590,6 +2590,7 @@ class AsyncHTTPServer:
                 "mode": project.mode,
                 "description": project.description,
                 "model_params": project.model_params,
+                "worker_model_params": project.worker_model_params,
                 "api_key": getattr(project, "api_key", ""),
                 "api_base": getattr(project, "api_base", ""),
                 "worker_api_key": getattr(project, "worker_api_key", ""),

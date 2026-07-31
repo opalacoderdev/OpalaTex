@@ -1,12 +1,14 @@
 import json
-import os
+import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .config import get_opalatex_home
+from .config import DEFAULT_DB_PATH, get_opalatex_home
 from .extensions import get_extension_manager
 
-_MODELS_STORE_PATH = Path(get_opalatex_home()) / "models.json"
+_DEFAULT_MODELS_STORE_PATH = Path(get_opalatex_home()) / "models.json"
+_MODELS_STORE_PATH = _DEFAULT_MODELS_STORE_PATH
+_MODELS_TABLE = "global_models"
 
 _DEFAULT_MODELS = [
     # OpenAI Models
@@ -51,28 +53,89 @@ _DEFAULT_MODELS = [
 def normalize_model_entry(model: Dict[str, Any]) -> Dict[str, Any]:
     """Return a model-store entry with stable optional capability defaults."""
     entry = dict(model or {})
+    entry["id"] = str(entry.get("id", "")).strip()
+    entry["provider"] = str(entry.get("provider", "")).strip()
+    entry["name"] = str(entry.get("name", "")).strip()
+    entry["api_key"] = str(entry.get("api_key", "") or "")
+    entry["api_base"] = str(entry.get("api_base", "") or "")
     entry["supports_thinking"] = bool(entry.get("supports_thinking", False))
     return entry
 
-def load_models() -> List[Dict[str, Any]]:
-    """Load models from the global store, populating defaults if missing or empty."""
-    loaded_defaults = False
-    models = []
+
+def _connect() -> sqlite3.Connection:
+    db_path = (
+        Path(DEFAULT_DB_PATH)
+        if Path(_MODELS_STORE_PATH) == _DEFAULT_MODELS_STORE_PATH
+        else Path(_MODELS_STORE_PATH).with_suffix(".sqlite3")
+    )
+    if str(db_path) != ":memory:":
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_MODELS_TABLE} (
+            id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '',
+            api_key TEXT NOT NULL DEFAULT '',
+            api_base TEXT NOT NULL DEFAULT '',
+            supports_thinking INTEGER NOT NULL DEFAULT 0,
+            extra_json TEXT NOT NULL DEFAULT '{{}}',
+            sort_order INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    return conn
+
+
+def _row_to_model(row: sqlite3.Row) -> Dict[str, Any]:
+    extra: Dict[str, Any] = {}
+    try:
+        extra = json.loads(row["extra_json"] or "{}")
+    except Exception:
+        extra = {}
+    return normalize_model_entry({
+        **extra,
+        "id": row["id"],
+        "provider": row["provider"],
+        "name": row["name"],
+        "api_key": row["api_key"],
+        "api_base": row["api_base"],
+        "supports_thinking": bool(row["supports_thinking"]),
+    })
+
+
+def _model_extra_json(model: Dict[str, Any]) -> str:
+    known = {"id", "provider", "name", "api_key", "api_base", "supports_thinking", "previous_id"}
+    extra = {k: v for k, v in model.items() if k not in known}
+    return json.dumps(extra, ensure_ascii=False)
+
+
+def _load_legacy_json_models() -> List[Dict[str, Any]]:
     try:
         if _MODELS_STORE_PATH.exists():
             with open(_MODELS_STORE_PATH, "r", encoding="utf-8") as f:
                 models = json.load(f)
+            if isinstance(models, list):
+                return [normalize_model_entry(m) for m in models if isinstance(m, dict)]
     except Exception:
         pass
-        
-    if not isinstance(models, list) or len(models) == 0:
-        models = [normalize_model_entry(m) for m in _DEFAULT_MODELS]
+    return []
+
+def load_models() -> List[Dict[str, Any]]:
+    """Load models from the global SQLite model store, populating defaults if empty."""
+    loaded_defaults = False
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM {_MODELS_TABLE} ORDER BY sort_order ASC, id ASC"
+        ).fetchall()
+        models = [_row_to_model(row) for row in rows]
+
+    if len(models) == 0:
+        legacy_models = _load_legacy_json_models()
+        models = legacy_models or [normalize_model_entry(m) for m in _DEFAULT_MODELS]
         loaded_defaults = True
-    else:
-        normalized = [normalize_model_entry(m) for m in models if isinstance(m, dict)]
-        if normalized != models:
-            models = normalized
-            loaded_defaults = True
         
     # Inject cloud models if provided by cloud extension, or filter them out if empty
     ext_mgr = get_extension_manager()
@@ -115,10 +178,30 @@ def load_models() -> List[Dict[str, Any]]:
 
 
 def save_models(models: List[Dict[str, Any]]) -> None:
-    """Save models list to the global store."""
-    _MODELS_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(_MODELS_STORE_PATH, "w", encoding="utf-8") as f:
-        json.dump(models, f, indent=2, ensure_ascii=False)
+    """Save models list to the global SQLite model store."""
+    with _connect() as conn:
+        conn.execute(f"DELETE FROM {_MODELS_TABLE}")
+        for index, raw_model in enumerate(models or []):
+            model = normalize_model_entry(raw_model)
+            if not model.get("id"):
+                continue
+            conn.execute(
+                f"""
+                INSERT INTO {_MODELS_TABLE}
+                (id, provider, name, api_key, api_base, supports_thinking, extra_json, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    model["id"],
+                    model.get("provider", ""),
+                    model.get("name", ""),
+                    model.get("api_key", ""),
+                    model.get("api_base", ""),
+                    int(bool(model.get("supports_thinking", False))),
+                    _model_extra_json(model),
+                    index,
+                ),
+            )
 
 def get_model(model_id: str) -> Dict[str, Any] | None:
     """Get a specific model by ID."""

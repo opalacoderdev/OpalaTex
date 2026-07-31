@@ -306,6 +306,55 @@ def test_wrap_agent_litellm_compat_keeps_tool_role_workaround_for_ollama():
     assert calls["tool_role_workaround"] == "user"
 
 
+def test_wrap_agent_litellm_compat_preserves_stream_and_tools_for_ollama():
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    calls = {}
+
+    class FakeAgent:
+        model = "ollama/gemma4:26b"
+        tools = [object()]
+
+        async def _acompletion(self, messages, **kwargs):
+            calls["kwargs"] = kwargs
+            return "ok"
+
+    agent = wrap_agent_litellm_compat(FakeAgent())
+
+    import asyncio
+
+    result = asyncio.run(agent._acompletion(
+        [{"role": "user", "content": "hi"}],
+        stream=True,
+        stream_options={"include_usage": True},
+        tools=[{"type": "function", "function": {"name": "send_message"}}],
+    ))
+
+    assert result == "ok"
+    assert calls["kwargs"]["stream"] is True
+    assert calls["kwargs"]["tools"] == [{"type": "function", "function": {"name": "send_message"}}]
+
+
+def test_sanitize_litellm_kwargs_preserves_ollama_tool_schema():
+    from opalatex.config import sanitize_litellm_kwargs_for_model
+
+    tools = [{"type": "function", "function": {"name": "send_message"}}]
+
+    cleaned = sanitize_litellm_kwargs_for_model(
+        "ollama/gemma4:26b",
+        {
+            "stream": True,
+            "tools": tools,
+            "tool_choice": "auto",
+            "num_ctx": 8192,
+        },
+    )
+
+    assert cleaned["tools"] == tools
+    assert cleaned["tool_choice"] == "auto"
+    assert cleaned["num_ctx"] == 8192
+
+
 def test_wrap_agent_litellm_compat_repairs_history_before_run():
     from opalatex.litellm_compat import wrap_agent_litellm_compat
 
