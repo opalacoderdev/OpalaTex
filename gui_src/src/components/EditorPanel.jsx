@@ -697,6 +697,7 @@ export default function EditorPanel({
         tokenizer: {
           root: [
             [/\\[a-zA-Z]+/, 'keyword'],
+            [/\\./, 'string.escape'],
             [/%.*$/, 'comment'],
             [/[{}]/, 'delimiter.bracket'],
             [/\$/, 'string.quote'],
