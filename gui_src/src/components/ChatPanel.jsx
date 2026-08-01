@@ -39,6 +39,11 @@ const isRetryableAssistantErrorMessage = (msg, displayContent) => {
   );
 };
 
+const isHiddenChatSystemMessage = (msg) => (
+  msg?.role === 'system' &&
+  String(msg?.content || '').startsWith('[MODE] ')
+);
+
 // Right-side chat panel for interacting with the OpalaTex agent.
 export default function ChatPanel({
   chatMessages,
@@ -46,6 +51,7 @@ export default function ChatPanel({
   setChatInput,
   isAgentRunning,
   chatThoughtStream,
+  chatResponseStream,
   activeProject,
   isChatVisible,
   setIsChatVisible,
@@ -495,7 +501,7 @@ export default function ChatPanel({
   const handleExportMarkdown = () => {
     if (!chatMessages || chatMessages.length === 0) return;
     let md = `# Chat Export - ${activeProject?.name || 'OpalaTex'}\n\n`;
-    chatMessages.forEach(msg => {
+    chatMessages.filter(msg => !isHiddenChatSystemMessage(msg)).forEach(msg => {
       const role = msg.role === 'user' ? 'User' : 'OpalaTex';
       md += `### ${role}\n\n${msg.content}\n\n---\n\n`;
     });
@@ -1156,6 +1162,10 @@ export default function ChatPanel({
       {/* Message history */}
       <div className="vscode-chat-history" ref={historyRef} onContextMenu={onContextMenu} style={{ zoom: chatZoom, ['--chat-font-scale']: chatZoom }}>
         {chatMessages.map((msg, i) => {
+          if (isHiddenChatSystemMessage(msg)) {
+            return null;
+          }
+
           const isSystem = msg.role === 'system';
           if (isSystem) {
             const isLastSystemAfterUserOnly = i === chatMessages.length - 1 && !chatMessages.slice(i + 1).some(m => m.role === 'user' || m.role === 'assistant');
@@ -1218,6 +1228,7 @@ export default function ChatPanel({
           const isLastMessage = i === chatMessages.length - 1;
           const canGenerateResponse = isUser && isLastMessage && !isAgentRunning && editingMessageIndex !== i;
           const atts = msg._attachments || [];
+          const persistedThoughtStream = !isUser ? String(msg._thoughtStream || '').trim() : '';
           
           let displayContent = isUser && isInternalResumePrompt(msg.content)
             ? t('chatPanel.continue', 'Continue')
@@ -1349,6 +1360,16 @@ export default function ChatPanel({
                 </div>
               )}
               <div className="vscode-chat-msg-content">
+                {persistedThoughtStream && !hideThink && (
+                  <details style={{ margin: '0 0 8px 0', border: '1px solid var(--vscode-widget-border, #3c3c3c)', borderRadius: '4px', background: 'var(--titlebar-bg, #252526)' }}>
+                    <summary style={{ padding: '6px 10px', fontSize: '11px', cursor: 'pointer', userSelect: 'none', color: 'var(--vscode-descriptionForeground, #717171)' }}>
+                      {t('chatPanel.aiThoughts', 'Pensamentos da IA')}
+                    </summary>
+                    <pre style={{ margin: 0, padding: '10px', background: 'var(--editor-bg, #1e1e1e)', overflowX: 'auto', fontSize: '11px', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', borderTop: '1px solid var(--vscode-widget-border, #3c3c3c)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {persistedThoughtStream}
+                    </pre>
+                  </details>
+                )}
                 {editingMessageIndex === i && isUser ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <textarea
@@ -1491,11 +1512,16 @@ export default function ChatPanel({
                   <span className="dot" />
                   <span className="dot" />
                 </div>
-              ) : (
+              ) : !chatResponseStream ? (
                 <div className="thinking-indicator">
                   <span className="dot" />
                   <span className="dot" />
                   <span className="dot" />
+                </div>
+              ) : null}
+              {chatResponseStream && (
+                <div style={{ marginTop: chatThoughtStream && !hideThink ? '8px' : 0 }}>
+                  {formatMessageContent(chatResponseStream, activeProject?.project_path)}
                 </div>
               )}
             </div>

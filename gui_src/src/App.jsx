@@ -273,6 +273,8 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatThoughtStream, setChatThoughtStream] = useState('');
   const chatThoughtStreamRef = useRef('');
+  const [chatResponseStream, setChatResponseStream] = useState('');
+  const chatResponseStreamRef = useRef('');
   const agentResumeEventsRef = useRef([]);
   const [chatInput, setChatInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState([]);
@@ -725,7 +727,7 @@ export default function App() {
                 startTransition(() => {
                   if (histData.history && histData.history.length > 0) {
                     // Restore previous conversation
-                    setChatMessages(histData.history);
+                    setChatMessages(attachThoughtActivityToMessages(histData.history, histData.activity || []));
                   } else {
                     // First time opening this project/chat → show greeting
                     const greeting = activeProject.project_name || activeProject.name;
@@ -798,7 +800,7 @@ export default function App() {
           const greeting = activeProject.project_name || activeProject.name;
           startTransition(() => {
             if (data.history && data.history.length > 0) {
-              setChatMessages(data.history);
+              setChatMessages(attachThoughtActivityToMessages(data.history, data.activity || []));
             } else {
               setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);
             }
@@ -1050,29 +1052,133 @@ export default function App() {
     return `${text.slice(0, MAX_MERGED_LOG_CHARS)}\n[log truncated]`;
   };
 
+  const normalizeLogAgent = (agent) => String(agent || '').trim().replace(/^@+/, '');
+  const sanitizeVisibleStreamChunk = (value) => String(value ?? '').replace(/<\/?think>/gi, '');
+  const mergeableLogTypes = new Set(['thought', 'reflection', 'stream_chunk', 'stdout', 'stderr']);
+  const thinkingLogTypes = new Set(['thought', 'reflection', 'stream_chunk']);
+  const shouldMergeLog = (left, right) => (
+    left
+    && right
+    && left.type === right.type
+    && mergeableLogTypes.has(left.type)
+    && normalizeLogAgent(left.agent) === normalizeLogAgent(right.agent)
+  );
+  const mergeLogEntries = (logs) => (
+    (logs || []).reduce((merged, log) => {
+      if (!log) return merged;
+      const cleanLog = {
+        ...log,
+        agent: normalizeLogAgent(log.agent),
+        message: clampLogMessage(log.message),
+      };
+      const last = merged[merged.length - 1];
+      if (shouldMergeLog(last, cleanLog)) {
+        merged[merged.length - 1] = {
+          ...last,
+          message: clampLogMessage(last.message + cleanLog.message),
+        };
+        return merged;
+      }
+      merged.push(cleanLog);
+      return merged;
+    }, [])
+  );
+
   const activityToTerminalLogs = (activity = []) => (
-    (activity || [])
+    mergeLogEntries((activity || [])
       .filter(item => item && ['thought', 'reflection', 'stream_chunk'].includes(item.event))
       .map(item => ({
         type: item.event,
-        message: clampLogMessage(item.content || item.payload?.content || ''),
-        agent: item.agent || item.payload?.agent || '',
+        message: item.event === 'stream_chunk'
+          ? sanitizeVisibleStreamChunk(item.content || item.payload?.content || '')
+          : clampLogMessage(item.content || item.payload?.content || ''),
+        agent: normalizeLogAgent(item.agent || item.payload?.agent || ''),
         timestamp: item.timestamp
           ? new Date(item.timestamp).toLocaleTimeString()
           : new Date().toLocaleTimeString(),
       }))
+      .filter(item => item.message)
+    )
   );
+
+  const activityTimestampMs = (value) => {
+    const ms = Date.parse(value || '');
+    return Number.isFinite(ms) ? ms : null;
+  };
+
+  const attachThoughtActivityToMessages = (history = [], activity = []) => {
+    const messages = (history || []).map(message => ({ ...message }));
+    const thoughts = (activity || [])
+      .filter(item => item?.event === 'thought' && String(item.content || item.payload?.content || '').trim())
+      .map(item => ({
+        timestampMs: activityTimestampMs(item.timestamp),
+        content: String(item.content || item.payload?.content || ''),
+      }));
+
+    if (!messages.length || !thoughts.length) return messages;
+
+    let thoughtIndex = 0;
+    let pendingThoughts = [];
+    for (const message of messages) {
+      const messageTime = activityTimestampMs(message.timestamp);
+      while (
+        thoughtIndex < thoughts.length
+        && (messageTime === null || thoughts[thoughtIndex].timestampMs === null || thoughts[thoughtIndex].timestampMs <= messageTime)
+      ) {
+        pendingThoughts.push(thoughts[thoughtIndex].content);
+        thoughtIndex += 1;
+      }
+      if (message.role === 'assistant' && pendingThoughts.length) {
+        message._thoughtStream = pendingThoughts.join('');
+        pendingThoughts = [];
+      }
+    }
+
+    while (thoughtIndex < thoughts.length) {
+      pendingThoughts.push(thoughts[thoughtIndex].content);
+      thoughtIndex += 1;
+    }
+    if (pendingThoughts.length) {
+      const lastAssistant = [...messages].reverse().find(message => message.role === 'assistant');
+      if (lastAssistant) {
+        lastAssistant._thoughtStream = `${lastAssistant._thoughtStream || ''}${pendingThoughts.join('')}`;
+      }
+    }
+
+    return messages;
+  };
 
   const addLog = (type, message, agent) =>
     setTerminalLogs(prev => {
+      const cleanMessage = type === 'stream_chunk'
+        ? sanitizeVisibleStreamChunk(message)
+        : String(message ?? '');
+      if (!cleanMessage) return prev;
+      const cleanAgent = normalizeLogAgent(agent);
       let next;
-      if (prev.length > 0) {
-        const last = prev[prev.length - 1];
-        if (last.type === type && last.agent === agent && (type === 'thought' || type === 'reflection' || type === 'stream_chunk' || type === 'stdout' || type === 'stderr')) {
-          next = [...prev.slice(0, -1), { ...last, message: clampLogMessage(last.message + message) }];
+      if (mergeableLogTypes.has(type)) {
+        const candidate = { type, agent: cleanAgent };
+        for (let index = prev.length - 1; index >= 0; index -= 1) {
+          const existing = prev[index];
+          if (shouldMergeLog(existing, candidate)) {
+            next = [...prev];
+            next[index] = {
+              ...existing,
+              agent: normalizeLogAgent(existing.agent),
+              message: clampLogMessage(existing.message + cleanMessage),
+            };
+            break;
+          }
+          if (
+            thinkingLogTypes.has(type)
+            && thinkingLogTypes.has(existing.type)
+            && !shouldMergeLog(existing, candidate)
+          ) {
+            break;
+          }
         }
       }
-      if (!next) next = [...prev, { type, message: clampLogMessage(message), agent, timestamp: new Date().toLocaleTimeString() }];
+      if (!next) next = [...prev, { type, message: clampLogMessage(cleanMessage), agent: cleanAgent, timestamp: new Date().toLocaleTimeString() }];
       return trimToLimit(next, panelMaxLines);
     });
 
@@ -2143,12 +2249,21 @@ export default function App() {
         setAchievementsMemory(data.content);
         break;
       case 'stream_chunk':
-        addLog('stream_chunk', data.content, data.agent);
+        const visibleStreamChunk = sanitizeVisibleStreamChunk(data.content);
+        addLog('stream_chunk', visibleStreamChunk, data.agent);
+        if (!visibleStreamChunk) break;
+        setChatResponseStream(prev => {
+          const next = prev + visibleStreamChunk;
+          chatResponseStreamRef.current = next;
+          return next;
+        });
         break;
       case 'cancelled': {
         addLog('warning', data.message || t('app.executionCancelled'), data.agent);
         chatThoughtStreamRef.current = '';
         setChatThoughtStream('');
+        chatResponseStreamRef.current = '';
+        setChatResponseStream('');
         const interruptedText = t('app.agentInterrupted', { message: data.message || t('app.agentStopped') });
         setChatMessages(prev => [...prev, { role: 'assistant', content: interruptedText, timestamp: new Date().toISOString() }]);
         setConfirmRequest(null);
@@ -2218,12 +2333,15 @@ export default function App() {
         break;
       case 'agent_response':
         addLog('info', t('app.responseReceived'));
+        const finalThoughtStream = chatThoughtStreamRef.current;
         const responseText = (data.response && data.response.trim() !== '')
           ? data.response
           : "⚠️ *O agente concluiu o processamento, mas não emitiu nenhuma resposta textual ou chamada de ferramenta. Isso geralmente acontece quando o modelo de IA sofre uma falha de geração (ex: esqueceu de usar o formato correto após pensar).*";
 
         chatThoughtStreamRef.current = '';
         setChatThoughtStream('');
+        chatResponseStreamRef.current = '';
+        setChatResponseStream('');
 
         setChatMessages(prev => {
           const last = prev[prev.length - 1];
@@ -2234,6 +2352,7 @@ export default function App() {
             id: data.message_id,
             role: 'assistant',
             content: finalContent,
+            _thoughtStream: finalThoughtStream || undefined,
             timestamp: new Date().toISOString(),
           }];
         });
@@ -2401,6 +2520,8 @@ export default function App() {
     setAchievementsMemory('');
     chatThoughtStreamRef.current = '';
     setChatThoughtStream('');
+    chatResponseStreamRef.current = '';
+    setChatResponseStream('');
     agentResumeEventsRef.current = [];
     addLog('info', t('app.starting', { text: userText }));
 
@@ -3104,6 +3225,8 @@ export default function App() {
     setProblems([]);
     chatThoughtStreamRef.current = '';
     setChatThoughtStream('');
+    chatResponseStreamRef.current = '';
+    setChatResponseStream('');
     addLog('info', t('app.starting', { text: `${userText.slice(0, 80)}${userText.length > 80 ? '...' : ''}` }))
 
     // Use the captured text if provided; otherwise try reading Monaco
@@ -3421,6 +3544,7 @@ export default function App() {
               setChatInput={setChatInput}
               isAgentRunning={isAgentRunning}
               chatThoughtStream={chatThoughtStream}
+              chatResponseStream={chatResponseStream}
               activeProject={activeProject}
               isChatVisible={isChatVisible}
               setIsChatVisible={setIsChatVisible}
