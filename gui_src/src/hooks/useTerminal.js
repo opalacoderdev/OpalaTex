@@ -2,6 +2,33 @@ import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 
+const LIGHT_TERMINAL_THEME = {
+  background: '#ffffff',
+  foreground: '#1e1e1e',
+  cursor: '#1e1e1e',
+  black: '#000000',
+  red: '#a1260d',
+  green: '#008000',
+  yellow: '#795e00',
+  blue: '#0451a5',
+  magenta: '#811f7c',
+  cyan: '#007acc',
+  white: '#555555',
+  brightBlack: '#666666',
+  brightRed: '#a1260d',
+  brightGreen: '#098658',
+  brightYellow: '#795e00',
+  brightBlue: '#0451a5',
+  brightMagenta: '#811f7c',
+  brightCyan: '#007acc',
+  brightWhite: '#1e1e1e'
+};
+
+const DARK_TERMINAL_THEME = {
+  background: '#1e1e1e',
+  foreground: '#cccccc',
+};
+
 // Hook that initialises an xterm.js terminal and connects it to the backend SSE stream.
 export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, fitAddonRef, eventSourceRef, activeBottomTab, bottomPanelHeight, isTerminalCollapsed, theme, termId = 'main', isActive = true }) {
   const promptDrawnRef = useRef(false);
@@ -15,30 +42,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
   useEffect(() => {
     if (terminalInstanceRef.current) {
       const isLight = theme === 'light';
-      terminalInstanceRef.current.options.theme = isLight ? {
-        background: '#ffffff',
-        foreground: '#333333',
-        cursor: '#333333',
-        black: '#000000',
-        red: '#cd3131',
-        green: '#00bc00',
-        yellow: '#949800',
-        blue: '#0451a5',
-        magenta: '#bc05bc',
-        cyan: '#0598bc',
-        white: '#555555',
-        brightBlack: '#666666',
-        brightRed: '#cd3131',
-        brightGreen: '#14ce14',
-        brightYellow: '#b5ba00',
-        brightBlue: '#0451a5',
-        brightMagenta: '#bc05bc',
-        brightCyan: '#0598bc',
-        brightWhite: '#a5a5a5'
-      } : {
-        background: '#1e1e1e',
-        foreground: '#cccccc',
-      };
+      terminalInstanceRef.current.options.theme = isLight ? LIGHT_TERMINAL_THEME : DARK_TERMINAL_THEME;
     }
   }, [theme, terminalInstanceRef]);
 
@@ -58,30 +62,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
     promptDrawnRef.current = false;
 
     const isLight = document.body.classList.contains('light-theme');
-    const termTheme = isLight ? {
-      background: '#ffffff',
-      foreground: '#333333',
-      cursor: '#333333',
-      black: '#000000',
-      red: '#cd3131',
-      green: '#00bc00',
-      yellow: '#949800',
-      blue: '#0451a5',
-      magenta: '#bc05bc',
-      cyan: '#0598bc',
-      white: '#555555',
-      brightBlack: '#666666',
-      brightRed: '#cd3131',
-      brightGreen: '#14ce14',
-      brightYellow: '#b5ba00',
-      brightBlue: '#0451a5',
-      brightMagenta: '#bc05bc',
-      brightCyan: '#0598bc',
-      brightWhite: '#a5a5a5'
-    } : {
-      background: '#1e1e1e',
-      foreground: '#cccccc',
-    };
+    const termTheme = isLight ? LIGHT_TERMINAL_THEME : DARK_TERMINAL_THEME;
 
     const term = new XTerm({
       cursorBlink: true,
