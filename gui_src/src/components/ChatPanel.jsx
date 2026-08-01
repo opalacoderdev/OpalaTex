@@ -41,7 +41,12 @@ const isRetryableAssistantErrorMessage = (msg, displayContent) => {
 
 const isHiddenChatSystemMessage = (msg) => (
   msg?.role === 'system' &&
-  String(msg?.content || '').startsWith('[MODE] ')
+  (
+    String(msg?.content || '').startsWith('[MODE] ') ||
+    String(msg?.content || '').startsWith('[PLAN APPROVED] ') ||
+    String(msg?.content || '').startsWith('[PLAN REJECTED] ') ||
+    String(msg?.content || '').startsWith('Achievements logged during this turn:')
+  )
 );
 
 // Right-side chat panel for interacting with the OpalaTex agent.
