@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -37,6 +37,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const searchInputRef = useRef(null);
   const pdfDocumentRef = useRef(null);
   const navigationHistoryRef = useRef([]);
+  const pageScrollRafRef = useRef(null);
 
   const searchNeedle = searchQuery.trim().toLowerCase();
   const hasSearchNeedle = searchNeedle.length > 0;
@@ -56,12 +57,72 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     return count;
   };
 
+  const updateCurrentPageFromScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const pageEls = Array.from(container.querySelectorAll('[data-page-number]'));
+    if (!pageEls.length) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const viewportCenter = containerRect.top + container.clientHeight / 2;
+    let bestPage = null;
+    let bestDistance = Infinity;
+
+    for (const pageEl of pageEls) {
+      const rect = pageEl.getBoundingClientRect();
+      const pageNumber = parseInt(pageEl.getAttribute('data-page-number'), 10);
+      if (Number.isNaN(pageNumber)) continue;
+
+      if (rect.top <= viewportCenter && rect.bottom >= viewportCenter) {
+        bestPage = pageNumber;
+        break;
+      }
+
+      const pageCenter = rect.top + rect.height / 2;
+      const distance = Math.abs(pageCenter - viewportCenter);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestPage = pageNumber;
+      }
+    }
+
+    if (bestPage != null) {
+      setCurrentPage((prev) => (prev === bestPage ? prev : bestPage));
+    }
+  }, []);
+
   const handleScroll = () => {
     if (isReloadingPdfRef.current) return;
     if (containerRef.current) {
       scrollPosRef.current = containerRef.current.scrollTop;
     }
+
+    if (pageScrollRafRef.current) return;
+    pageScrollRafRef.current = window.requestAnimationFrame(() => {
+      pageScrollRafRef.current = null;
+      updateCurrentPageFromScroll();
+    });
   };
+
+  useEffect(() => {
+    return () => {
+      if (pageScrollRafRef.current) {
+        window.cancelAnimationFrame(pageScrollRafRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!numPages) return undefined;
+
+    const updateAfterLayout = window.setTimeout(updateCurrentPageFromScroll, 0);
+    window.addEventListener('resize', updateCurrentPageFromScroll);
+    return () => {
+      window.clearTimeout(updateAfterLayout);
+      window.removeEventListener('resize', updateCurrentPageFromScroll);
+    };
+  }, [numPages, scale, updateCurrentPageFromScroll]);
 
   const pushNavigationHistory = () => {
     if (!containerRef.current) return;
@@ -306,36 +367,6 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     scrollToPage(currentPage + 1);
   };
 
-  // Track which page is currently in view using IntersectionObserver so the
-  // page indicator stays in sync when the user scrolls manually.
-  useEffect(() => {
-    if (!containerRef.current || !numPages) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        // Pick the entry closest to the top of the viewport.
-        let best = null;
-        let bestTop = Infinity;
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const top = Math.abs(entry.boundingClientRect.top);
-            if (top < bestTop) {
-              bestTop = top;
-              best = entry.target;
-            }
-          }
-        }
-        if (best) {
-          const pn = parseInt(best.getAttribute('data-page-number'), 10);
-          if (!isNaN(pn)) setCurrentPage(pn);
-        }
-      },
-      { root: containerRef.current, threshold: 0.1 },
-    );
-    const pageEls = containerRef.current.querySelectorAll('[data-page-number]');
-    pageEls.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, [numPages, scale]);
-
   useEffect(() => {
     let cancelled = false;
 
@@ -455,6 +486,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         scrollPosRef.current = nextScrollTop;
       }
       isReloadingPdfRef.current = false;
+      updateCurrentPageFromScroll();
       if (onDocumentReady) onDocumentReady();
     }, 150);
   }
