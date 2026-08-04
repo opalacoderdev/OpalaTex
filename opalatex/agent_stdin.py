@@ -386,6 +386,57 @@ def _looks_like_plain_tool_call_text(content: str) -> bool:
     )
 
 
+def _compact_tool_argument_summary(arguments: object) -> str:
+    """Return a human-readable argument summary for diagnostic thoughts."""
+    if not isinstance(arguments, dict) or not arguments:
+        return ""
+
+    preferred_keys = (
+        "path",
+        "file_path",
+        "query",
+        "command",
+        "pattern",
+        "root_dir",
+        "start_line",
+        "end_line",
+        "max_depth",
+        "max_results",
+    )
+    parts: list[str] = []
+    for key in preferred_keys:
+        if key not in arguments:
+            continue
+        value = arguments.get(key)
+        if value is None or value == "":
+            continue
+        text = str(value).replace("\r", " ").replace("\n", " ").strip()
+        if len(text) > 80:
+            text = f"{text[:77]}..."
+        parts.append(f"{key}={text}")
+        if len(parts) >= 3:
+            break
+
+    if parts:
+        return "; ".join(parts)
+
+    names = [str(key) for key, value in arguments.items() if value not in (None, "")]
+    if not names:
+        return ""
+    shown = ", ".join(names[:3])
+    if len(names) > 3:
+        shown += f", and {len(names) - 3} more"
+    return f"parameters: {shown}"
+
+
+def _auxiliary_tool_call_thought(tool_name: str, arguments: object) -> str:
+    """Build the Thinking-panel sentence for a tool call without raw JSON."""
+    summary = _compact_tool_argument_summary(arguments)
+    if summary:
+        return f"Decided to execute tool '{tool_name}' ({summary})."
+    return f"Decided to execute tool '{tool_name}'."
+
+
 def _should_emit_iteration_reflection(last_message: dict) -> bool:
     """Only assistant prose/reasoning belongs in the reflection panel."""
     if not isinstance(last_message, dict):
@@ -543,7 +594,7 @@ def print_event(event: str, data: dict):
                 else:
                     thought_content = f"Starting execution of agent '{data.get('agent', '')}' using model '{data.get('model', '')}'..."
             elif event == "tool_call":
-                thought_content = f"Decided to execute tool '{data.get('tool', '')}' with parameters: {json.dumps(data.get('arguments', {}))}"
+                thought_content = _auxiliary_tool_call_thought(data.get("tool", ""), data.get("arguments", {}))
             elif event == "tool_result":
                 if data.get("is_error"):
                     thought_content = f"Tool '{data.get('tool', '')}' returned an error. Analyzing the failure..."

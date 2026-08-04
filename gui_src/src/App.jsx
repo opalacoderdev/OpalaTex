@@ -1063,6 +1063,15 @@ export default function App() {
     && mergeableLogTypes.has(left.type)
     && normalizeLogAgent(left.agent) === normalizeLogAgent(right.agent)
   );
+  const joinMergedLogMessage = (leftMessage, rightMessage, type) => {
+    const left = String(leftMessage ?? '');
+    const right = String(rightMessage ?? '');
+    if (!left || !right) return left + right;
+    if (type === 'thought' || type === 'reflection') {
+      return `${left.replace(/\s+$/g, '')}\n${right.replace(/^\s+/g, '')}`;
+    }
+    return left + right;
+  };
   const mergeLogEntries = (logs) => (
     (logs || []).reduce((merged, log) => {
       if (!log) return merged;
@@ -1075,7 +1084,7 @@ export default function App() {
       if (shouldMergeLog(last, cleanLog)) {
         merged[merged.length - 1] = {
           ...last,
-          message: clampLogMessage(last.message + cleanLog.message),
+          message: clampLogMessage(joinMergedLogMessage(last.message, cleanLog.message, cleanLog.type)),
         };
         return merged;
       }
@@ -1165,7 +1174,7 @@ export default function App() {
             next[index] = {
               ...existing,
               agent: normalizeLogAgent(existing.agent),
-              message: clampLogMessage(existing.message + cleanMessage),
+              message: clampLogMessage(joinMergedLogMessage(existing.message, cleanMessage, type)),
             };
             break;
           }
@@ -2499,22 +2508,24 @@ export default function App() {
       _attachments: attachmentsSnapshot,
       timestamp: new Date().toISOString(),
     };
-    setChatMessages(prev => {
-      if (options.baseMessages) {
-        return [...options.baseMessages, userMsg];
-      }
-      if (options.replaceFromIndex !== undefined) {
-        const replaceUiIndex = options.replaceUiIndex ?? options.replaceFromIndex;
-        return [...prev.slice(0, replaceUiIndex), userMsg];
-      }
-      if (retryMsg) {
-        const idx = prev.indexOf(retryMsg);
-        if (idx !== -1) {
-          return [...prev.slice(0, idx), userMsg];
+    if (!options.skipUserMessageAppend) {
+      setChatMessages(prev => {
+        if (options.baseMessages) {
+          return [...options.baseMessages, userMsg];
         }
-      }
-      return [...prev, userMsg];
-    });
+        if (options.replaceFromIndex !== undefined) {
+          const replaceUiIndex = options.replaceUiIndex ?? options.replaceFromIndex;
+          return [...prev.slice(0, replaceUiIndex), userMsg];
+        }
+        if (retryMsg) {
+          const idx = prev.indexOf(retryMsg);
+          if (idx !== -1) {
+            return [...prev.slice(0, idx), userMsg];
+          }
+        }
+        return [...prev, userMsg];
+      });
+    }
     setIsAgentRunning(true);
     setProblems([]);
     setAchievementsMemory('');
@@ -2686,6 +2697,15 @@ export default function App() {
     const content = message.content === '📎 Attachment' ? '' : (message.content || '');
     const attachments = message._attachments || [];
     if (!content.trim() && attachments.length === 0) return;
+    if (message.client_message_id) {
+      await handleSendMessage(null, null, {
+        overrideText: content,
+        overrideAttachments: attachments,
+        clientMessageId: message.client_message_id,
+        skipUserMessageAppend: true,
+      });
+      return;
+    }
     const persistedMessageIndex = chatMessages
       .slice(0, messageIndex)
       .filter(msg => msg.id !== undefined || msg.timestamp)

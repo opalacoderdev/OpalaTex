@@ -16,6 +16,7 @@ from opalatex.agent_stdin import (
     patched_get_available_tools,
     handle_load_project,
     _empty_response_failure_message,
+    _auxiliary_tool_call_thought,
     _friendly_llm_error,
     _looks_like_degenerate_thought,
     _record_turn_thought,
@@ -49,6 +50,49 @@ def test_record_turn_thought_suppresses_degenerate_chunks(monkeypatch):
 
     assert not _record_turn_thought("more repeated noise")
     assert len(chunks) == 1
+
+
+def test_auxiliary_tool_call_thought_uses_compact_text_not_json():
+    thought = _auxiliary_tool_call_thought(
+        "search_code",
+        {
+            "query": "path where project files are stored (e.g., './src', 'project/', 'root_dir')",
+            "path": ".",
+            "use_regex": False,
+            "case_sensitive": False,
+            "max_results": 50,
+            "file_pattern": "*",
+        },
+    )
+
+    assert thought == (
+        "Decided to execute tool 'search_code' "
+        "(path=.; query=path where project files are stored (e.g., './src', 'project/', 'root_dir'); max_results=50)."
+    )
+    assert "{" not in thought
+    assert '"query"' not in thought
+
+
+def test_print_event_auxiliary_tool_call_thought_hides_raw_json(monkeypatch):
+    import opalatex.agent_stdin as stdin_mod
+
+    events = []
+    chunks = []
+    monkeypatch.setattr(stdin_mod, "event_hook", lambda payload: events.append(payload))
+    monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_CHUNKS", chunks)
+    monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_CHARS", 0)
+    monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_SUPPRESSED", False)
+
+    print_event("tool_call", {
+        "tool": "get_project_overview",
+        "arguments": {"max_depth": 5, "include_hidden": False},
+        "agent": "chat_orchestrator",
+    })
+
+    thoughts = [event["content"] for event in events if event["event"] == "thought"]
+    assert thoughts == ["Decided to execute tool 'get_project_overview' (max_depth=5)."]
+    assert chunks == thoughts
+    assert "{" not in thoughts[0]
 
 def test_print_event(monkeypatch):
     """Verify that print_event writes a JSON line containing the event and data to the real stdout."""

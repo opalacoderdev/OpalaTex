@@ -279,6 +279,16 @@ export default function ChatPanel({
     handleSendMessage(e);
   };
 
+  const runChatAction = useCallback(async (action) => {
+    try {
+      await action();
+    } catch (err) {
+      const message = err?.message || String(err);
+      console.error('Chat action failed:', err);
+      showAlert?.(t('chatPanel.actionFailed', 'Could not start this chat action: {{message}}', { message }));
+    }
+  }, [showAlert, t]);
+
   const handleKeyDown = (e) => {
     // Font zoom shortcuts: Ctrl+= / Ctrl+Plus, Ctrl+-, Ctrl+0
     if (e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -1203,7 +1213,7 @@ export default function ChatPanel({
                 {previousUserMsg && !isAgentRunning && (
                   <button
                     type="button"
-                    onClick={() => onGenerateResponseForUserMessage?.(chatMessages.indexOf(previousUserMsg), previousUserMsg)}
+                    onClick={() => runChatAction(() => onGenerateResponseForUserMessage?.(chatMessages.indexOf(previousUserMsg), previousUserMsg))}
                     style={{
                       padding: '7px 11px',
                       background: 'var(--vscode-button-background, #0e639c)',
@@ -1425,7 +1435,8 @@ export default function ChatPanel({
                 )}
                 {shouldShowTryAgain && isLastUserOrAssistantMessage && !isAgentRunning && lastUserMsgBeforeThis && (
                   <button
-                    onClick={() => handleSendMessage(null, lastUserMsgBeforeThis)}
+                    type="button"
+                    onClick={() => runChatAction(() => handleSendMessage(null, lastUserMsgBeforeThis))}
                     style={{
                       marginTop: '8px',
                       padding: '6px 10px',
@@ -1446,10 +1457,11 @@ export default function ChatPanel({
                 )}
                 {isInterrupted && isLastUserOrAssistantMessage && !isAgentRunning && (
                   <button
-                    onClick={() => handleSendMessage(null, null, {
+                    type="button"
+                    onClick={() => runChatAction(() => handleSendMessage(null, null, {
                       resumeInterrupted: true,
                       displayText: t('chatPanel.continue', 'Continuar'),
-                    })}
+                    }))}
                     style={{
                       marginTop: '8px',
                       padding: '6px 10px',
@@ -1471,7 +1483,7 @@ export default function ChatPanel({
                 {canGenerateResponse && (
                   <button
                     type="button"
-                    onClick={() => onGenerateResponseForUserMessage?.(i, msg)}
+                    onClick={() => runChatAction(() => onGenerateResponseForUserMessage?.(i, msg))}
                     style={{
                       marginTop: '10px',
                       padding: '7px 11px',
