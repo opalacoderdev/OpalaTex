@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { useTranslation } from 'react-i18next';
 
 const LIGHT_TERMINAL_THEME = {
   background: '#ffffff',
@@ -31,6 +32,7 @@ const DARK_TERMINAL_THEME = {
 
 // Hook that initialises an xterm.js terminal and connects it to the backend SSE stream.
 export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, fitAddonRef, eventSourceRef, activeBottomTab, bottomPanelHeight, isTerminalCollapsed, theme, termId = 'main', isActive = true }) {
+  const { t } = useTranslation();
   const promptDrawnRef = useRef(false);
   // Written on every render so the ResizeObserver callback (a closure created
   // once at mount) always reads the latest value without a stale-closure race.
@@ -99,7 +101,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
     };
 
     evs.onerror = () => {
-      term.write('\r\n\x1b[31m[OpalaTex] Conexão com o terminal perdida. Reconectando...\x1b[0m\r\n');
+      term.write(`\r\n\x1b[31m[OpalaTex] ${t('bottomPanel.terminalConnectionLost', 'Terminal connection lost. Reconnecting...')}\x1b[0m\r\n`);
     };
 
     // Forward keystrokes to the backend.
@@ -142,7 +144,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
       terminalInstanceRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [activeProject]);
+  }, [activeProject, t]);
 
   // Re-fit the terminal when the terminal tab becomes visible, the panel is expanded, or resized.
   useEffect(() => {

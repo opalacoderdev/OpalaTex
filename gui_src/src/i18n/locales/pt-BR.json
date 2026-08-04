@@ -394,7 +394,8 @@
     "fixWithAiTitle": "Pedir ao OpalaTex para corrigir este erro de compilacao LaTeX",
     "fixWithAiBusy": "Aguarde o agente atual terminar antes de corrigir este erro",
     "noThinking": "Nenhum pensamento gerado ainda. Execute uma instrução para ver o raciocínio do agente...",
-    "setProjectForTerminal": "Defina um projeto/workspace para habilitar o terminal."
+    "setProjectForTerminal": "Defina um projeto/workspace para habilitar o terminal.",
+    "terminalConnectionLost": "Conexão com o terminal perdida. Reconectando..."
   },
   "contextMenu": {
     "newFile": "Novo Arquivo...",
@@ -678,7 +679,6 @@
     "addTitle": "Adicionar Modelo / Provedor",
     "editTitle": "Editar Modelo",
     "providerLabel": "Provedor (ex.: ollama, gemini, openai) *",
-    "providerLocked": "O provedor não pode ser alterado durante a edição.",
     "modelNameLabel": "Nome do Modelo (ex.: gemma4:12b) *",
     "apiKeyLabel": "Chave de API (Opcional)",
     "apiBaseLabel": "URL Base da API (Opcional)",
@@ -704,6 +704,7 @@
   "app": {
     "greeting": "Olá! Estou pronto para te auxiliar no projeto **{{projectName}}**.",
     "projectSelected": "Projeto selecionado: {{name}}",
+    "unsavedProjectSwitchPrompt": "Você tem {{count}} arquivo(s) não salvo(s) no projeto atual. Deseja salvá-los antes de trocar de projeto? (Escolha \"Cancelar\" para permanecer no projeto atual)",
     "failedToLoadProjects": "Falha ao carregar projetos: {{error}}",
     "failedToListFiles": "Falha ao listar arquivos: {{error}}",
     "fileCallError": "Erro na chamada de arquivos: {{error}}",

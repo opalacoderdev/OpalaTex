@@ -1387,7 +1387,7 @@ export default function App() {
 
     if (dirtyFiles.length > 0) {
       setConfirmRequest({
-        prompt: `Você tem ${dirtyFiles.length} arquivo(s) não salvo(s) no projeto atual. Deseja salvá-los antes de trocar de projeto? (Escolha "Cancelar" para não trocar)`,
+        prompt: t('app.unsavedProjectSwitchPrompt', { count: dirtyFiles.length }),
         options: ['yes', 'no', 'cancel'],
         callback: async (val) => {
           if (val === 'cancel') return;

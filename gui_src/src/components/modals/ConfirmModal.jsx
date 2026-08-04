@@ -83,6 +83,11 @@ export default function ConfirmModal({ confirmRequest, onConfirm }) {
     }
   };
 
+  const buttonLabel = (key, defaultValue) => {
+    const label = t(key, { defaultValue });
+    return label === key ? defaultValue : label;
+  };
+
   return (
     <div className="vscode-modal-overlay">
       <div className="vscode-modal" style={{
@@ -193,7 +198,7 @@ export default function ConfirmModal({ confirmRequest, onConfirm }) {
                   className="vscode-button"
                   style={{ background: 'transparent', border: '1px solid var(--vscode-border)', color: 'var(--vscode-text-fg)' }}
                 >
-                  {t('confirmModal.cancel', 'Cancel')}
+                  {buttonLabel('confirmModal.cancel', 'Cancel')}
                 </button>
               );
             }
@@ -206,7 +211,7 @@ export default function ConfirmModal({ confirmRequest, onConfirm }) {
                   className="vscode-button"
                   style={{ background: 'transparent', border: '1px solid var(--vscode-border)', color: 'var(--vscode-text-fg)' }}
                 >
-                  {t('confirmModal.no')}
+                  {buttonLabel('confirmModal.no', 'No')}
                 </button>
               );
             }
@@ -218,7 +223,7 @@ export default function ConfirmModal({ confirmRequest, onConfirm }) {
                   onClick={() => handleConfirm('yes')}
                   className="vscode-button"
                 >
-                  {t('confirmModal.yes')}
+                  {buttonLabel('confirmModal.yes', 'Yes')}
                 </button>
               );
             }
@@ -231,7 +236,7 @@ export default function ConfirmModal({ confirmRequest, onConfirm }) {
                   className="vscode-button"
                   style={{ background: '#2ea043', border: '1px solid #238636', color: '#ffffff' }}
                 >
-                  {t('confirmModal.always', 'Always Allow')}
+                  {buttonLabel('confirmModal.always', 'Always Allow')}
                 </button>
               );
             }

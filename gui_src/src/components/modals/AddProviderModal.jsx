@@ -86,9 +86,7 @@ export default function AddProviderModal({
                 value={provider}
                 onChange={e => setProvider(e.target.value)}
                 placeholder="ollama"
-                disabled={!!editingModel}
               />
-              {editingModel && <span style={{fontSize:'11px', color:'#888'}}>{t('addProviderModal.providerLocked')}</span>}
             </div>
 
             <div className="vscode-form-group">
