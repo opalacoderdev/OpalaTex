@@ -49,6 +49,12 @@ const isHiddenChatSystemMessage = (msg) => (
   )
 );
 
+const numericMessageId = (message) => {
+  if (message?.id === undefined || message?.id === null || message.id === '') return null;
+  const parsed = Number(message.id);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
 // Right-side chat panel for interacting with the OpalaTex agent.
 export default function ChatPanel({
   chatMessages,
@@ -537,19 +543,41 @@ export default function ChatPanel({
       const projectName = activeProject?.name || '';
       const persistedMessageIndex = chatMessages
         .slice(0, messageIndex + 1)
-        .filter(msg => msg.id !== undefined || msg.timestamp)
+        .filter(msg => numericMessageId(msg) !== null)
         .length - 1;
+      const selectedMessageId = numericMessageId(message);
+      const selectedClientMessageId = String(message?.client_message_id || '').trim();
+      const sourceChatId = message?.chat_id || activeChatId;
+      const payload = {
+        project_name: projectName,
+        source_chat_id: sourceChatId,
+        new_chat_name: newChatName,
+      };
+      if (persistedMessageIndex >= 0) {
+        payload.message_index = persistedMessageIndex;
+      }
+      if (selectedMessageId !== null) {
+        payload.message_id = selectedMessageId;
+      } else if (selectedClientMessageId) {
+        payload.client_message_id = selectedClientMessageId;
+      }
+      /*console.log('[chat-branch-debug] request', {
+        activeChatId,
+        sourceChatId,
+        projectName,
+        messageIndex,
+        persistedMessageIndex,
+        selectedMessageId,
+        selectedClientMessageId,
+        messageRole: message?.role,
+        messageTimestamp: message?.timestamp,
+        messageChatId: message?.chat_id,
+        payload,
+      });*/
       const res = await fetch('/api/chat/branch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project_name: projectName,
-          source_chat_id: activeChatId,
-          new_chat_name: newChatName,
-          message_index: Math.max(0, persistedMessageIndex),
-          message_id: message?.id,
-          client_message_id: message?.client_message_id || ''
-        })
+        body: JSON.stringify(payload)
       });
       
       if (res.ok) {

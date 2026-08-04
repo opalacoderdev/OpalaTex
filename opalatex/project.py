@@ -632,6 +632,7 @@ class ProjectStore:
                         "role": r["role"],
                         "content": r["content"],
                         "timestamp": r["timestamp"],
+                        "chat_id": chat_id,
                         "client_message_id": r["client_message_id"] if "client_message_id" in r.keys() else "",
                         "_attachments": json.loads(r["attachments"] or "[]"),
                     }
@@ -765,7 +766,7 @@ class ProjectStore:
             )
             message_id = cursor.lastrowid
             
-        message = {"id": message_id, "role": role, "content": content, "timestamp": now}
+        message = {"id": message_id, "role": role, "content": content, "timestamp": now, "chat_id": project.current_chat_id}
         if clean_client_message_id:
             message["client_message_id"] = clean_client_message_id
         if clean_attachments:
@@ -965,6 +966,49 @@ class ProjectStore:
 
         return None
 
+    def _resolve_branch_source_chat_id(
+        self,
+        conn,
+        name: str,
+        source_chat_id: str,
+        message_id: int | None = None,
+        client_message_id: str = "",
+    ) -> str:
+        row = conn.execute(
+            "SELECT id FROM project_chats WHERE project = ? AND id = ?",
+            (name, source_chat_id),
+        ).fetchone()
+        if row is not None:
+            return source_chat_id
+
+        if message_id is not None:
+            row = conn.execute(
+                "SELECT chat_id FROM project_history WHERE project = ? AND id = ?",
+                (name, int(message_id)),
+            ).fetchone()
+            if row is not None:
+                return row["chat_id"]
+
+        clean_client_message_id = str(client_message_id or "").strip()
+        if clean_client_message_id:
+            row = conn.execute(
+                """
+                SELECT chat_id FROM project_history
+                WHERE project = ? AND client_message_id = ?
+                """,
+                (name, clean_client_message_id),
+            ).fetchone()
+            if row is not None:
+                return row["chat_id"]
+
+        rows = conn.execute(
+            "SELECT id FROM project_chats WHERE project = ? ORDER BY created_at ASC",
+            (name,),
+        ).fetchall()
+        if rows:
+            return rows[-1]["id"]
+        return source_chat_id
+
     def branch_chat(
         self,
         name: str,
@@ -977,6 +1021,13 @@ class ProjectStore:
     ) -> None:
         with _conn(self.db_path) as conn:
             now = datetime.now(timezone.utc).isoformat()
+            source_chat_id = self._resolve_branch_source_chat_id(
+                conn,
+                name,
+                source_chat_id,
+                message_id=message_id,
+                client_message_id=client_message_id,
+            )
             
             # 1. Get core memory from the original chat.
             row = conn.execute("SELECT core_memory FROM project_chats WHERE project = ? AND id = ?", (name, source_chat_id)).fetchone()

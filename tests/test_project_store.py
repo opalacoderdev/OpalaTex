@@ -488,6 +488,46 @@ def test_branch_chat_by_client_message_id_targets_user_message(store):
     ]
 
 
+def test_branch_chat_resolves_stale_main_source_by_message_id(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    source_chat = p.current_chat_id
+    user_id = store.append_message(p, "user", "review main.tex", client_message_id="client-turn-1")
+    store.append_message(p, "assistant", "Here is the review.")
+
+    store.branch_chat(
+        "myproj",
+        "main",
+        "branch-1",
+        "Branch",
+        0,
+        message_id=user_id,
+    )
+
+    loaded = store.load("myproj", chat_id="branch-1")
+    assert p.current_chat_id == source_chat
+    assert [m["content"] for m in loaded.history] == ["review main.tex"]
+
+
+def test_branch_chat_resolves_stale_main_source_by_client_message_id(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    store.append_message(p, "user", "review main.tex", client_message_id="client-turn-1")
+    store.append_message(p, "assistant", "Here is the review.")
+
+    store.branch_chat(
+        "myproj",
+        "main",
+        "branch-1",
+        "Branch",
+        0,
+        client_message_id="client-turn-1",
+    )
+
+    loaded = store.load("myproj", chat_id="branch-1")
+    assert [m["content"] for m in loaded.history] == ["review main.tex"]
+
+
 @pytest.mark.parametrize("initial_mode", ["plan", "edit"])
 def test_restore_transient_project_mode_never_persists_auto(initial_mode):
     store = _tmp_store()

@@ -2287,6 +2287,37 @@ class AsyncHTTPServer:
                 )
                 self.send_response(writer, 200, json.dumps({"status": "success", "new_chat_id": new_chat_id}).encode('utf-8'), "application/json")
             except Exception as e:
+                try:
+                    debug_project = store.load(project_name, chat_id=source_chat_id)
+                    debug_messages = [
+                        {
+                            "id": msg.get("id"),
+                            "role": msg.get("role"),
+                            "client_message_id": msg.get("client_message_id", ""),
+                            "timestamp": msg.get("timestamp", ""),
+                            "content_preview": str(msg.get("content", ""))[:80],
+                        }
+                        for msg in (debug_project.history if debug_project else [])[-12:]
+                    ]
+                    debug_chats = debug_project.chats if debug_project else []
+                    
+                except Exception as debug_error:
+                    print(
+                        "[chat-branch-debug] failed-debug",
+                        json.dumps(
+                            {
+                                "error": str(e),
+                                "debug_error": str(debug_error),
+                                "project_name": project_name,
+                                "source_chat_id": source_chat_id,
+                                "message_index": message_index,
+                                "message_id": message_id,
+                                "client_message_id": client_message_id,
+                            },
+                            ensure_ascii=False,
+                        ),
+                        flush=True,
+                    )
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             return
 

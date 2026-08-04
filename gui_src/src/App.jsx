@@ -43,6 +43,12 @@ import LicenseModal from './components/modals/LicenseModal';
 const CLOUD_MODEL_IDS = new Set(['OpalaTexCloud', 'OpalaTexCloudGemini35Flash']);
 const normalizeCloudModelId = (model, fallback = 'OpalaTexCloud') => CLOUD_MODEL_IDS.has(model) ? model : (CLOUD_MODEL_IDS.has(fallback) ? fallback : 'OpalaTexCloud');
 
+const numericMessageId = (message) => {
+  if (message?.id === undefined || message?.id === null || message.id === '') return null;
+  const parsed = Number(message.id);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
 const normalizeEditorPathKey = (filePath, caseInsensitive = false) => {
   if (!filePath) return '';
   let normalized = String(filePath)
@@ -1067,7 +1073,10 @@ export default function App() {
     const left = String(leftMessage ?? '');
     const right = String(rightMessage ?? '');
     if (!left || !right) return left + right;
-    if (type === 'thought' || type === 'reflection') {
+    if (type === 'thought') {
+      return left + right;
+    }
+    if (type === 'reflection') {
       return `${left.replace(/\s+$/g, '')}\n${right.replace(/^\s+/g, '')}`;
     }
     return left + right;
@@ -2363,6 +2372,7 @@ export default function App() {
             content: finalContent,
             _thoughtStream: finalThoughtStream || undefined,
             timestamp: new Date().toISOString(),
+            chat_id: activeChatId,
           }];
         });
 
@@ -2507,6 +2517,7 @@ export default function App() {
       client_message_id: clientMessageId,
       _attachments: attachmentsSnapshot,
       timestamp: new Date().toISOString(),
+      chat_id: targetChatId,
     };
     if (!options.skipUserMessageAppend) {
       setChatMessages(prev => {
@@ -2640,7 +2651,7 @@ export default function App() {
     const attachments = originalMessage._attachments || [];
     const persistedMessageIndex = chatMessages
       .slice(0, messageIndex)
-      .filter(msg => msg.id !== undefined || msg.timestamp)
+      .filter(msg => numericMessageId(msg) !== null)
       .length;
     if (messageIndex === lastUserIndex) {
       await handleSendMessage(null, null, {
@@ -2708,7 +2719,7 @@ export default function App() {
     }
     const persistedMessageIndex = chatMessages
       .slice(0, messageIndex)
-      .filter(msg => msg.id !== undefined || msg.timestamp)
+      .filter(msg => numericMessageId(msg) !== null)
       .length;
     await handleSendMessage(null, null, {
       overrideText: content,
