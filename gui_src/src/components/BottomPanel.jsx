@@ -122,7 +122,7 @@ export default function BottomPanel({
               <button
                 onClick={() => {
                   if (activeBottomTab === 'output') {
-                    setTerminalLogs(prev => prev.filter(log => ['thought', 'reflection', 'stream_chunk'].includes(log.type)));
+                    setTerminalLogs(prev => prev.filter(log => ['thought', 'reflection'].includes(log.type)));
                   } else if (activeBottomTab === 'thinking') {
                     setTerminalLogs(prev => prev.filter(log => !['thought', 'reflection', 'stream_chunk'].includes(log.type)));
                   } else if (activeBottomTab === 'problems') {
@@ -176,13 +176,13 @@ export default function BottomPanel({
                 ref={logsContainerRef}
                 onScroll={handleScroll}
               >
-                {terminalLogs.filter(log => !['thought', 'reflection', 'stream_chunk'].includes(log.type)).length === 0 ? (
+                {terminalLogs.filter(log => !['thought', 'reflection'].includes(log.type)).length === 0 ? (
                   <div style={{ color: '#808080', fontStyle: 'italic' }}>
                     {t('bottomPanel.noLogs')}
                   </div>
                 ) : (
                   terminalLogs
-                    .filter(log => !['thought', 'reflection', 'stream_chunk'].includes(log.type))
+                    .filter(log => !['thought', 'reflection'].includes(log.type))
                     .map((log, i) => {
                       let colorStyle = { color: '#cccccc' };
                       let label = 'SYSTEM';

@@ -545,6 +545,22 @@ def _empty_response_failure_message() -> str:
 
 
 _PERSISTED_ACTIVITY_EVENTS = {"thought", "reflection", "stream_chunk"}
+INTERRUPTED_AGENT_HISTORY_MARKER = "[INTERRUPTED] The user interrupted the agent execution."
+
+
+def _record_interrupted_agent_turn(agent_type: str) -> None:
+    """Persist the interruption as agent context, without using UI-facing prose."""
+    if agent_type not in ("orchestrator", "chat_orchestrator"):
+        return
+    store = globals().get("current_store")
+    project = globals().get("current_project")
+    if not store or not project:
+        return
+    try:
+        store.append_message(project, "assistant", INTERRUPTED_AGENT_HISTORY_MARKER)
+        store.save(project)
+    except Exception:
+        pass
 
 
 def _persist_activity_event(event: str, data: dict) -> None:
@@ -1186,7 +1202,7 @@ async def handle_run(data: dict):
         # from _CORE_AGENT_DEFAULTS in config.py. Workers stay False unless the user
         # explicitly enables thinking in project settings.
         model_kwargs["think"] = bool(model_params.get("think", False))
-        model_kwargs["stream"] = bool(model_params.get("stream", False))
+        model_kwargs["stream"] = bool(model_params.get("stream", True))
 
         agent_kwargs = {}
         if model_params.get("max_iterations") is not None:
@@ -1574,6 +1590,9 @@ async def handle_run(data: dict):
             # The user denied a tool operation; gracefully abort the turn without feeding an error back to the LLM.
             print_event("agent_response", {"response": "Turno cancelado pelo usuário."})
             print_event("error", {"message": str(e), "trace": ""})
+        except asyncio.CancelledError:
+            _record_interrupted_agent_turn(agent_type)
+            raise
         except Exception as e:
             import traceback
             err_msg = traceback.format_exc()

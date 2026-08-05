@@ -47,6 +47,25 @@ def _tmp_store():
 # 1. create always adds 'opalatex'
 # ---------------------------------------------------------------------------
 
+
+def test_project_data_enables_streaming_by_default():
+    """New in-memory projects should emit live model output by default."""
+    project = ProjectData(name="stream-default")
+    assert project.model_params["stream"] is True
+    assert project.worker_model_params["stream"] is True
+
+
+def test_load_enables_streaming_for_legacy_project_without_stream_setting(store):
+    """A project saved before the streaming default still receives live output."""
+    project = store.create(**_base_args())
+    project.model_params.pop("stream")
+    project.worker_model_params.pop("stream", None)
+    store.save(project)
+
+    reloaded = store.load(project.name)
+    assert reloaded.model_params["stream"] is True
+    assert reloaded.worker_model_params["stream"] is True
+
 def test_create_always_includes_opalatex(store):
     """Skills list must always contain 'opalatex', even if not passed."""
     p = store.create(**_base_args(skills=["react_vite"]))

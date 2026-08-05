@@ -587,6 +587,14 @@ class AsyncHTTPServer:
         self.active_terminal = None
         self.temp_terminals = {}
         self.active_agent_task = None
+        self.active_agent_event_queue = None
+
+    def _emit_agent_cancelled_once(self, agent_task, event_queue):
+        """Notify the stream immediately, without waiting for task cleanup."""
+        if getattr(agent_task, "_opalatex_cancel_event_emitted", False):
+            return
+        agent_task._opalatex_cancel_event_emitted = True
+        event_queue.put_nowait({"event": "cancelled", "message": "Agent execution was interrupted."})
 
     async def start(self):
         self.server = await asyncio.start_server(self.handle_request, self.host, self.port)
@@ -2692,7 +2700,7 @@ class AsyncHTTPServer:
                 try:
                     await handle_run(data)
                 except asyncio.CancelledError:
-                    event_queue.put_nowait({"event": "cancelled", "message": "Agent execution was interrupted."})
+                    self._emit_agent_cancelled_once(agent_task, event_queue)
                 except Exception as e:
                     import traceback
                     err_msg = traceback.format_exc()
@@ -2702,6 +2710,7 @@ class AsyncHTTPServer:
 
             agent_task = asyncio.create_task(run_agent())
             self.active_agent_task = agent_task
+            self.active_agent_event_queue = event_queue
 
             try:
                 while True:
@@ -2717,12 +2726,13 @@ class AsyncHTTPServer:
                     await agent_task
                 except Exception:
                     pass
-                event_queue.put_nowait({"event": "cancelled", "message": "Agent execution was interrupted."})
+                self._emit_agent_cancelled_once(agent_task, event_queue)
             except Exception as e:
                 print(f"Streaming error: {e}")
             finally:
                 if self.active_agent_task == agent_task:
                     self.active_agent_task = None
+                    self.active_agent_event_queue = None
                 if event_queue in self.active_queues:
                     self.active_queues.remove(event_queue)
                 writer.write(b"0\r\n\r\n")
@@ -2736,6 +2746,13 @@ class AsyncHTTPServer:
         # 7b2. Interrupt Agent
         elif path == '/api/opalatex/interrupt' and method == 'POST':
             if self.active_agent_task and not self.active_agent_task.done():
+                # Let the UI acknowledge the click now. The task can still need
+                # time to release an LLM stream and finalize its checkpoint.
+                if self.active_agent_event_queue is not None:
+                    self._emit_agent_cancelled_once(
+                        self.active_agent_task,
+                        self.active_agent_event_queue,
+                    )
                 self.active_agent_task.cancel()
                 self.send_response(writer, 200, b'{"success":true,"message":"Agent execution interrupted"}', "application/json")
             else:

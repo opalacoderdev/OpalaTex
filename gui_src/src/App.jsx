@@ -285,6 +285,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
+  const [isInterruptPending, setIsInterruptPending] = useState(false);
   const [isInlineRunning, setIsInlineRunning] = useState(false);
 
   // ── Bottom panel ──────────────────────────────────────────────────────────
@@ -2236,13 +2237,21 @@ export default function App() {
 
   // ── Agent ─────────────────────────────────────────────────────────────────
   const handleInterruptAgent = async () => {
+    if (isInterruptPending) return;
+    setIsInterruptPending(true);
     try {
       const res = await fetch('/api/opalatex/interrupt', { method: 'POST' });
       if (res.ok) {
         addLog('info', t('app.interruptSent'));
         setConfirmRequest(null);
-      } else addLog('error', t('app.interruptFailed'));
-    } catch (err) { addLog('error', t('app.interruptError', { error: err.message })); }
+      } else {
+        addLog('error', t('app.interruptFailed'));
+        setIsInterruptPending(false);
+      }
+    } catch (err) {
+      addLog('error', t('app.interruptError', { error: err.message }));
+      setIsInterruptPending(false);
+    }
   };
 
   const handleAgentEvent = (eventObj) => {
@@ -2281,8 +2290,11 @@ export default function App() {
         setChatThoughtStream('');
         chatResponseStreamRef.current = '';
         setChatResponseStream('');
-        const interruptedText = t('app.agentInterrupted', { message: data.message || t('app.agentStopped') });
-        setChatMessages(prev => [...prev, { role: 'assistant', content: interruptedText, timestamp: new Date().toISOString() }]);
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '[INTERRUPTED] The user interrupted the agent execution.',
+          timestamp: new Date().toISOString(),
+        }]);
         setConfirmRequest(null);
         break;
       }
@@ -2537,6 +2549,7 @@ export default function App() {
       });
     }
     setIsAgentRunning(true);
+    setIsInterruptPending(false);
     setProblems([]);
     setAchievementsMemory('');
     chatThoughtStreamRef.current = '';
@@ -2612,7 +2625,7 @@ export default function App() {
     } catch (err) {
       addLog('error', t('app.executionFailed', { error: err.message }));
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
-    } finally { setIsAgentRunning(false); fetchFiles(); fetchProblems(); }
+    } finally { setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
   };
 
   const handleFixLatexProblem = async (problem) => {
@@ -3252,6 +3265,7 @@ export default function App() {
     setChatInput('');
     setChatMessages(prev => [...prev, { role: 'user', content: userText, timestamp: new Date().toISOString() }]);
     setIsAgentRunning(true);
+    setIsInterruptPending(false);
     setProblems([]);
     chatThoughtStreamRef.current = '';
     setChatThoughtStream('');
@@ -3293,7 +3307,7 @@ export default function App() {
     } catch (err) {
       addLog('error', t('app.executionFailed', { error: err.message }));
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
-    } finally { setIsAgentRunning(false); fetchFiles(); fetchProblems(); }
+    } finally { setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -3573,6 +3587,7 @@ export default function App() {
               chatInput={chatInput}
               setChatInput={setChatInput}
               isAgentRunning={isAgentRunning}
+              isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}
               chatResponseStream={chatResponseStream}
               activeProject={activeProject}

@@ -806,6 +806,7 @@
     "agentStarted": "Agente {{agent}} iniciado.",
     "agentInterrupted": "Interrompido: {{message}}",
     "agentStopped": "A execucao do agente foi parada.",
+    "interruptionNotice": "Você cancelou a execução atual. Para continuar, clique em:",
     "callingTool": "Chamando: {{tool}} ({{arguments}})",
     "toolFailed": "Falha na ferramenta: {{tool}}",
     "toolSucceeded": "Sucesso: {{tool}}",

@@ -248,8 +248,8 @@ class ProjectData:
     subplans: list = field(default_factory=list)
     results: dict = field(default_factory=dict)
     core_memory: str = ""
-    model_params: dict = field(default_factory=lambda: {"think": False, "stream": False})
-    worker_model_params: dict = field(default_factory=lambda: {"think": False, "stream": False})
+    model_params: dict = field(default_factory=lambda: {"think": False, "stream": True})
+    worker_model_params: dict = field(default_factory=lambda: {"think": False, "stream": True})
     api_key: str = ""
     api_base: str = ""
     worker_api_key: str = ""
@@ -336,9 +336,9 @@ class ProjectStore:
 
                 # Apply defaults for params added after project creation
                 d["model_params"].setdefault("think", False)
-                d["model_params"].setdefault("stream", False)
+                d["model_params"].setdefault("stream", True)
                 d["worker_model_params"].setdefault("think", False)
-                d["worker_model_params"].setdefault("stream", False)
+                d["worker_model_params"].setdefault("stream", True)
                 
                 # Load api_key and api_base from local .env if it exists.
                 # Provider-specific names are preferred, with legacy OPENAI_* as fallback.
@@ -368,6 +368,8 @@ class ProjectStore:
             _skills = ["opalatex"] + _skills
         _model_params = apply_default_num_ctx(model_params, model, api_base)
         effective_worker_model = worker_model or model
+        _model_params.setdefault("stream", True)
+
         effective_worker_api_base = worker_api_base or api_base
         if worker_model_params is not None:
             _worker_model_params = apply_default_num_ctx(
@@ -611,11 +613,11 @@ class ProjectStore:
                 results=json.loads(row["results"]),
                 core_memory=row["core_memory"] if "core_memory" in row.keys() else "",
                 model_params={
-                    "think": False, "stream": False,
+                    "think": False, "stream": True,
                     **(json.loads(row["model_params"]) if "model_params" in row.keys() else {}),
                 },
                 worker_model_params={
-                    "think": False, "stream": False,
+                    "think": False, "stream": True,
                     **(json.loads(row["worker_model_params"]) if "worker_model_params" in row.keys() and row["worker_model_params"] else (json.loads(row["model_params"]) if "model_params" in row.keys() else {})),
                 },
                 api_key=api_key,

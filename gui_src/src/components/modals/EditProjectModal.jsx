@@ -507,7 +507,7 @@ export default function EditProjectModal({
                           <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.stream')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
-                              checked={!!editingProject.model_params?.stream}
+                              checked={editingProject.model_params?.stream ?? true}
                               onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, stream: e.target.checked } }))} />
                             <span style={{ fontSize: '12px', color: '#cccccc' }}>{t('editProjectModal.enabled')}</span>
                           </label>
@@ -719,7 +719,7 @@ export default function EditProjectModal({
                           <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.stream')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
-                              checked={!!editingProject.worker_model_params?.stream}
+                              checked={editingProject.worker_model_params?.stream ?? true}
                               onChange={e => setEditingProject(p => ({ ...p, worker_model_params: { ...p.worker_model_params, stream: e.target.checked } }))} />
                             <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
                           </label>

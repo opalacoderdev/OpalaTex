@@ -61,6 +61,7 @@ export default function ChatPanel({
   chatInput,
   setChatInput,
   isAgentRunning,
+  isInterruptPending = false,
   chatThoughtStream,
   chatResponseStream,
   activeProject,
@@ -109,10 +110,10 @@ export default function ChatPanel({
   }, [chatInput]);
 
   useEffect(() => {
-    if (isAgentRunning && chatThoughtStream && chatEndRef?.current) {
+    if (isAgentRunning && (chatThoughtStream || chatResponseStream) && chatEndRef?.current) {
       chatEndRef.current.scrollIntoView();
     }
-  }, [chatThoughtStream, isAgentRunning, chatEndRef]);
+  }, [chatThoughtStream, chatResponseStream, isAgentRunning, chatEndRef]);
 
   useEffect(() => {
     if (!showChatActionsMenu) return;
@@ -1262,9 +1263,18 @@ export default function ChatPanel({
           const atts = msg._attachments || [];
           const persistedThoughtStream = !isUser ? String(msg._thoughtStream || '').trim() : '';
           
+          const interruptionProbe = contentWithoutThink(msg.content);
+          const isInterrupted = !isUser && interruptionProbe && (
+            interruptionProbe === '[INTERRUPTED] The user interrupted the agent execution.' ||
+            interruptionProbe.startsWith('Interrupted:') ||
+            interruptionProbe.startsWith('Interrompido:')
+          );
           let displayContent = isUser && isInternalResumePrompt(msg.content)
             ? t('chatPanel.continue', 'Continue')
             : msg.content;
+          if (isInterrupted) {
+            displayContent = t('chatPanel.interruptionNotice');
+          }
           if (hideThink && !isUser && displayContent) {
             displayContent = displayContent.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '');
           }
@@ -1274,11 +1284,7 @@ export default function ChatPanel({
             displayContent.includes('err_connection_failed')
           );
 
-          const interruptionProbe = contentWithoutThink(msg.content);
-          const isInterrupted = !isUser && interruptionProbe && (
-            interruptionProbe.startsWith('Interrupted:') ||
-            interruptionProbe.startsWith('Interrompido:')
-          );
+
           const legacyErrorProbe = contentWithoutThink(displayContent);
           const shouldShowTryAgain = !isUser && (
             isRetryableAssistantErrorMessage(msg, displayContent) ||
@@ -1557,9 +1563,18 @@ export default function ChatPanel({
                 </div>
               ) : null}
               {chatResponseStream && (
-                <div style={{ marginTop: chatThoughtStream && !hideThink ? '8px' : 0 }}>
-                  {formatMessageContent(chatResponseStream, activeProject?.project_path)}
-                </div>
+                <pre
+                  className="chat-stream-raw"
+                  style={{
+                    margin: chatThoughtStream && !hideThink ? '8px 0 0' : 0,
+                    color: 'var(--chat-text, #cccccc)',
+                    fontFamily: 'var(--vscode-editor-font-family, monospace)',
+                    fontSize: '13px',
+                    lineHeight: '1.5',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >{chatResponseStream}</pre>
               )}
             </div>
           </div>
@@ -1653,10 +1668,11 @@ export default function ChatPanel({
               type="button"
               onClick={handleInterruptAgent}
               className="vscode-button"
-              style={{ padding: '6px', backgroundColor: '#f48771', color: '#1e1e1e' }}
+              disabled={isInterruptPending}
+              style={{ padding: '6px', backgroundColor: '#f48771', color: '#1e1e1e', opacity: isInterruptPending ? 0.7 : 1 }}
               title={t('chatPanel.interruptAgent')}
             >
-              <X size={14} />
+              {isInterruptPending ? <RefreshCw size={14} className="spin" /> : <X size={14} />}
             </button>
           ) : (
             <button

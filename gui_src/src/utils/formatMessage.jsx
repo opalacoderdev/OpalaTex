@@ -252,6 +252,29 @@ const REMARK_PLUGINS = [remarkGfm, remarkMath, remarkFencedLatexMath];
 const REHYPE_PLUGINS = [[rehypeKatex, { strict: 'ignore', output: 'mathml' }]];
 
 // ── Public API ──────────────────────────────────────────────────────────────
+// This runs only for completed assistant messages. Live stream chunks remain
+// raw text so partial Markdown and LaTex never delay or distort the output.
+function normalizeFinalMathDelimiters(content) {
+  const normalizeProse = (prose) => prose
+    .replace(/(?<!\\)\\\[([\s\S]*?)(?<!\\)\\\]/g, (_, math) => `\n$$\n${math.trim()}\n$$\n`)
+    .replace(/(?<!\\)\\\(([\s\S]*?)(?<!\\)\\\)/g, (_, math) => {
+      const trimmed = math.trim();
+      return trimmed.includes('\n') ? `\n$$\n${trimmed}\n$$\n` : `$${trimmed}$`;
+    });
+
+  const normalizeNonCode = (segment) => segment
+    .split(/(`[^`]*`)/g)
+    .map((part) => (part.startsWith('`') && part.endsWith('`') ? part : normalizeProse(part)))
+    .join('');
+
+  return String(content || '')
+    .replace(/(?<!\\)\\\(\s*(```(?:latex|tex)[^\n]*\n[\s\S]*?```)\s*(?<!\\)\\\)/gi, '$1')
+    .replace(/(?<!\\)\\\[\s*(```(?:latex|tex)[^\n]*\n[\s\S]*?```)\s*(?<!\\)\\\]/gi, '$1')
+    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g)
+    .map((part) => (part.startsWith('```') || part.startsWith('~~~') ? part : normalizeNonCode(part)))
+    .join('');
+}
+
 // Drop-in replacement for the old formatMessageContent(content) function.
 // Returns a React element that renders Markdown + LaTeX (KaTeX).
 export function formatMessageContent(content, activeProjectPath = null, zoomLevel = 1.0) {
@@ -265,6 +288,7 @@ export function formatMessageContent(content, activeProjectPath = null, zoomLeve
   processed = processed.replace(/<think>([\s\S]*)$/i, (_, inner) => {
     return '\n```thought\n' + inner.trim() + '\n```\n';
   });
+  processed = normalizeFinalMathDelimiters(processed);
 
   const localComponents = {
     ...BASE_COMPONENTS,
