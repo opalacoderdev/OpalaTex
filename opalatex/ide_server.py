@@ -406,7 +406,6 @@ _MODEL_PARAMS_SCHEMA = {
     "loop_detection_limit": {"type": int, "min": 1},
     "response_mode": {"type": str, "choices": ["last", "all"]},
     "debug": {"type": bool},
-    "tool_role_workaround": {"type": str, "choices": ["user", "assistant", ""]},
 }
 
 def sanitize_model_params(params: dict) -> dict:
@@ -2287,37 +2286,6 @@ class AsyncHTTPServer:
                 )
                 self.send_response(writer, 200, json.dumps({"status": "success", "new_chat_id": new_chat_id}).encode('utf-8'), "application/json")
             except Exception as e:
-                try:
-                    debug_project = store.load(project_name, chat_id=source_chat_id)
-                    debug_messages = [
-                        {
-                            "id": msg.get("id"),
-                            "role": msg.get("role"),
-                            "client_message_id": msg.get("client_message_id", ""),
-                            "timestamp": msg.get("timestamp", ""),
-                            "content_preview": str(msg.get("content", ""))[:80],
-                        }
-                        for msg in (debug_project.history if debug_project else [])[-12:]
-                    ]
-                    debug_chats = debug_project.chats if debug_project else []
-                    
-                except Exception as debug_error:
-                    print(
-                        "[chat-branch-debug] failed-debug",
-                        json.dumps(
-                            {
-                                "error": str(e),
-                                "debug_error": str(debug_error),
-                                "project_name": project_name,
-                                "source_chat_id": source_chat_id,
-                                "message_index": message_index,
-                                "message_id": message_id,
-                                "client_message_id": client_message_id,
-                            },
-                            ensure_ascii=False,
-                        ),
-                        flush=True,
-                    )
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             return
 
@@ -3722,13 +3690,10 @@ def start_gui_server(host="127.0.0.1", port=3000):
                 _orig_init = _wv_qt2.BrowserView.__init__
 
                 def _patched_init(self, window):
-                    # print('[patch] BrowserView.__init__ called')
                     _orig_init(self, window)
                     def _disable_context_menu(_ok=None):
-                        # print('[patch] loadFinished fired, applying NoContextMenu')
                         self.webview.setContextMenuPolicy(_Qt.ContextMenuPolicy.NoContextMenu)
                     self.webview.page().loadFinished.connect(_disable_context_menu)
-                    # print('[patch] loadFinished connected')
                     
                     # Handle window.print() triggered from JavaScript
                     try:
@@ -3742,15 +3707,11 @@ def start_gui_server(host="127.0.0.1", port=3000):
                                     self.webview.page().printToPdf(file_path)
                             except ImportError as e:
                                 pass
-                                # print('[patch] PyQt6.QtWidgets not found, cannot print:', e)
                         self.webview.page().printRequested.connect(_handle_print)
-                        # print('[patch] printRequested connected')
                     except Exception as pe:
                         pass
-                        # print('[patch] Failed to bind printRequested:', pe)
 
                 _wv_qt2.BrowserView.__init__ = _patched_init
-                # print('[patch] BrowserView.__init__ patched successfully')
                 
                 # Patch on_download_requested for PyQt6 compatibility
                 _orig_on_download_requested = getattr(_wv_qt2.BrowserView, "on_download_requested", None)
@@ -3809,8 +3770,6 @@ def start_gui_server(host="127.0.0.1", port=3000):
             text_select=True,
             zoomable=True,
         )
-
-        # print(f"[OpalaTex] Launching desktop window -> {url}")
 
         icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
         if not os.path.exists(icon_path):

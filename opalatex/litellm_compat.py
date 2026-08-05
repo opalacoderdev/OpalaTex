@@ -98,7 +98,6 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
         kwargs = sanitize_litellm_kwargs_for_model(model, kwargs)
         kwargs.setdefault("drop_params", True)
         sanitize_agent_state(agent)
-        
         cleaned_messages = sanitize_tool_call_messages(messages)
         if _has_repeated_tool_validation_errors(cleaned_messages):
             cleaned_messages = cleaned_messages + [{
@@ -210,8 +209,7 @@ def _truncate_for_error(text: str, max_len: int) -> str:
 
 
 def sanitize_agent_state(agent: Any) -> None:
-    """Repair persisted agent state and provider-incompatible tool settings."""
-    _disable_tool_role_workaround_for_native_tool_providers(agent)
+    """Repair persisted agent state before a provider request."""
     _sanitize_agent_history_in_place(agent)
 
 
@@ -229,19 +227,6 @@ def _sanitize_agent_history_in_place(agent: Any) -> None:
         sanitized = sanitize_tool_call_messages(history)
         if sanitized != history:
             history[:] = sanitized
-
-
-def _disable_tool_role_workaround_for_native_tool_providers(agent: Any) -> None:
-    model = (getattr(agent, "model", "") or "").lower()
-    provider = model.split("/", 1)[0] if "/" in model else ""
-    model_kargs = getattr(agent, "model_kargs", None) or getattr(agent, "model_kwargs", None) or {}
-    custom_provider = str(model_kargs.get("custom_llm_provider", "")).lower()
-    if provider in {"ollama", "ollama_chat"}:
-        return
-    if custom_provider in {"ollama", "ollama_chat"}:
-        return
-    if getattr(agent, "tool_role_workaround", None):
-        object.__setattr__(agent, "tool_role_workaround", None)
 
 
 def _orphan_tool_as_user_message(msg: dict[str, Any]) -> dict[str, str]:

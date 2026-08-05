@@ -378,7 +378,6 @@ def test_openai_models_do_not_receive_local_only_litellm_kwargs():
             "think": False,
             "reasoning_effort": "none",
             "temperature": 0.2,
-            "tool_role_workaround": "user",
             "response_mode": "last",
             "max_heartbeats": 15,
             "unknown_param": "boom",
@@ -398,7 +397,6 @@ def test_openai_models_do_not_receive_local_only_litellm_kwargs():
     assert "repetition_penalty" not in kwargs
     assert "think" not in kwargs
     assert "reasoning_effort" not in kwargs
-    assert "tool_role_workaround" not in kwargs
     assert "response_mode" not in kwargs
     assert "max_heartbeats" not in kwargs
     assert "unknown_param" not in kwargs
@@ -464,7 +462,6 @@ def test_gemini_models_drop_unknown_params_and_deprecated_sampling():
             "num_ctx": 8192,
             "top_k": 40,
             "think": False,
-            "tool_role_workaround": "user",
             "unknown_param": "boom",
         }
         project_path = "/fake/path"
@@ -481,7 +478,6 @@ def test_gemini_models_drop_unknown_params_and_deprecated_sampling():
     assert "num_ctx" not in kwargs
     assert "top_k" not in kwargs
     assert "think" not in kwargs
-    assert "tool_role_workaround" not in kwargs
     assert "unknown_param" not in kwargs
 
 

@@ -15,9 +15,8 @@ const mathHtmlCache = new Map();
 const GRAPHIC_CACHE_MAX = 64;
 const MATH_CACHE_MAX = 256;
 // Cache version — bumped when the output format changes.
-// v1: html output, v2: mathml output (bare), v3: html output + content-vis,
-// v4: mathml output wrapped in katex classes (correct fonts)
-const MATH_CACHE_VERSION = 'v4';
+// v6 uses KaTeX MathML output consistently with the other math surfaces.
+const MATH_CACHE_VERSION = 'v6';
 const MATH_RENDER_TIMEOUT_MS = 1200;
 const MATH_UI_IDLE_DELAY_MS = 300;
 // Keep a moderate delay between tasks to yield to the event loop without

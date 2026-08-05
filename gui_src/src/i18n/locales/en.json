@@ -543,8 +543,6 @@
     "forceVision": "Force vision support (images) — required for local Ollama models",
     "forceVisionTitle": "Enable for local Ollama vision models that LiteLLM does not detect automatically",
     "contextualSkillsLoadError": "Error loading contextual skills",
-    "enableInternalMonologue": "Enable Internal Monologue (Ollama Tool Fix)",
-    "monologueAsAssistant": "Monologue as Assistant (use \"assistant\" instead of \"user\")",
     "advancedOrchestrator": "Advanced Parameters (Orchestrator)",
     "advancedWorker": "Advanced Parameters (Worker)"
   },

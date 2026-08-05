@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
+import katex from 'katex';
 import i18n from '../i18n';
 import Mermaid from '../components/Mermaid';
 import GraphicPreview from '../components/GraphicPreview';
@@ -201,8 +202,54 @@ const BASE_COMPONENTS = {
   ),
 };
 
-const REMARK_PLUGINS = [remarkGfm, remarkMath];
-const REHYPE_PLUGINS = [[rehypeKatex, { strict: "ignore" }]];
+const FENCED_MATH_LANGUAGES = new Set(['latex', 'tex']);
+
+const canRenderFencedMath = (source) => {
+  try {
+    katex.renderToString(source, {
+      displayMode: true,
+      maxExpand: 250,
+      maxSize: 10,
+      output: 'mathml',
+      strict: 'ignore',
+      throwOnError: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Models commonly wrap display equations in fenced `latex` blocks. Convert
+// only KaTeX-valid blocks to math nodes; unsupported LaTeX remains visible as
+// source code instead of being silently altered or discarded.
+const remarkFencedLatexMath = () => (tree) => {
+  const walk = (node) => {
+    const language = String(node?.lang || '').toLowerCase();
+    const source = String(node?.value || '').trim();
+    if (node?.type === 'code' && FENCED_MATH_LANGUAGES.has(language) && source && canRenderFencedMath(source)) {
+      node.type = 'math';
+      node.value = source;
+      node.meta = null;
+      delete node.lang;
+      node.data = {
+        hName: 'pre',
+        hChildren: [{
+          type: 'element',
+          tagName: 'code',
+          properties: { className: ['language-math', 'math-display'] },
+          children: [{ type: 'text', value: source }],
+        }],
+      };
+      return;
+    }
+    for (const child of node?.children || []) walk(child);
+  };
+  walk(tree);
+};
+
+const REMARK_PLUGINS = [remarkGfm, remarkMath, remarkFencedLatexMath];
+const REHYPE_PLUGINS = [[rehypeKatex, { strict: 'ignore', output: 'mathml' }]];
 
 // ── Public API ──────────────────────────────────────────────────────────────
 // Drop-in replacement for the old formatMessageContent(content) function.

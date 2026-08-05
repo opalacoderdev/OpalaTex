@@ -1,8 +1,10 @@
-# >=0.8.37 required: the MemGPT block's text-emitted tool-call parser must handle
-# the nested {"tool_calls":[{"function":{...}}]} shape small models emit on later
-# turns. Older versions reject it, poisoning context until the turn returns empty.
-agenticblocks.io>=0.9.14
+# AgenticBlocks is vendored in ./agenticblocks. Its runtime dependencies are
+# declared here explicitly so a clean OpalaTex installation remains complete.
 pyyaml>=6.0
+pydantic>=2.0.0
+networkx>=3.0
+tenacity>=8.0
+mcp>=1.0.0
 python-dotenv>=1.0.0
 rich>=13.0.0
 numpy>=1.21.0

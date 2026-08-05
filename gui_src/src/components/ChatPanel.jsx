@@ -561,19 +561,6 @@ export default function ChatPanel({
       } else if (selectedClientMessageId) {
         payload.client_message_id = selectedClientMessageId;
       }
-      /*console.log('[chat-branch-debug] request', {
-        activeChatId,
-        sourceChatId,
-        projectName,
-        messageIndex,
-        persistedMessageIndex,
-        selectedMessageId,
-        selectedClientMessageId,
-        messageRole: message?.role,
-        messageTimestamp: message?.timestamp,
-        messageChatId: message?.chat_id,
-        payload,
-      });*/
       const res = await fetch('/api/chat/branch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1268,8 +1255,10 @@ export default function ChatPanel({
 
           const isUser = msg.role === 'user';
           const isLastUserOrAssistantMessage = !chatMessages.slice(i + 1).some(m => m.role === 'user' || m.role === 'assistant');
-          const isLastMessage = i === chatMessages.length - 1;
-          const canGenerateResponse = isUser && isLastMessage && !isAgentRunning && editingMessageIndex !== i;
+          // A user turn without a following assistant turn is resumable.  System
+          // messages are deliberately ignored because they are implementation
+          // metadata and must not hide the continuation action after reload.
+          const canContinueUserMessage = isUser && isLastUserOrAssistantMessage && !isAgentRunning && editingMessageIndex !== i;
           const atts = msg._attachments || [];
           const persistedThoughtStream = !isUser ? String(msg._thoughtStream || '').trim() : '';
           
@@ -1508,10 +1497,13 @@ export default function ChatPanel({
                     <ArrowRight size={14} /> {t('chatPanel.continue', 'Continuar')}
                   </button>
                 )}
-                {canGenerateResponse && (
+                {canContinueUserMessage && (
                   <button
                     type="button"
-                    onClick={() => runChatAction(() => onGenerateResponseForUserMessage?.(i, msg))}
+                    onClick={() => runChatAction(() => handleSendMessage(null, null, {
+                      resumeInterrupted: true,
+                      displayText: t('chatPanel.continue', 'Continue'),
+                    }))}
                     style={{
                       marginTop: '10px',
                       padding: '7px 11px',
@@ -1527,10 +1519,10 @@ export default function ChatPanel({
                       width: 'fit-content',
                       boxShadow: '0 1px 0 rgba(255,255,255,0.08) inset',
                     }}
-                    title={t('chatPanel.generateResponseTooltip', 'Generate an assistant response from this message')}
+                    title={t('chatPanel.continue', 'Continue')}
                   >
-                    <Sparkles size={14} />
-                    {t('chatPanel.generateResponse', 'Generate response')}
+                    <ArrowRight size={14} />
+                    {t('chatPanel.continue', 'Continue')}
                   </button>
                 )}
               </div>

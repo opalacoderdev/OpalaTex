@@ -18,8 +18,11 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "agenticblocks.io>=0.9.15",
     "pyyaml>=6.0",
+    "pydantic>=2.0.0",
+    "networkx>=3.0",
+    "tenacity>=8.0",
+    "mcp>=1.0.0",
     "python-dotenv>=1.0.0",
     "rich>=13.0.0",
     "numpy>=1.21.0",
@@ -51,7 +54,7 @@ embeddings = ["sentence-transformers>=3.0.0"]
 opalatex = "opalatex.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["opalatex"]
+packages = ["opalatex", "agenticblocks"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "config.yaml" = "opalatex/config.yaml"

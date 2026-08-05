@@ -608,8 +608,7 @@ def print_event(event: str, data: dict):
                 _persist_activity_event("thought", thought_payload)
                 hook({"event": "thought", **thought_payload})
         except Exception as ex:
-            import sys
-            sys.stderr.write(f"[DEBUG] Error invoking event hook: {ex}\n")
+            _logging.getLogger(__name__).warning("Error invoking event hook: %s", ex)
 
 
 def _attachment_alias(index: int, att: dict) -> str:
@@ -726,7 +725,6 @@ def wrap_tool(original_tool):
             
         dump_kwargs = input_data.model_dump()
         print_event("tool_call", {"tool": name, "arguments": dump_kwargs})
-        #print(f"\n[TOOL-CALL] >>> {name} args={json.dumps(dump_kwargs, ensure_ascii=False)[:300]}", flush=True)
         
         global _recent_tool_calls
         if '_recent_tool_calls' not in globals():
@@ -770,7 +768,6 @@ def wrap_tool(original_tool):
             raise
         finally:
             print_event("tool_result", {"tool": name, "result": str(res_val), "is_error": is_error})
-            #print(f"[TOOL-RESULT] <<< {name} is_error={is_error} result={str(res_val)[:300]}\n", flush=True)
         return result
         
     object.__setattr__(original_tool, "run", wrapped_run)
@@ -1200,13 +1197,8 @@ async def handle_run(data: dict):
                 model_kwargs["api_base"],
             )
 
-        from opalatex.ui_settings import load_ui_settings
-        _is_cloud = load_ui_settings().get("ai_provider") == "cloud"
-        if agent_kwargs.get("tool_role_workaround") is None:
-            agent_kwargs["tool_role_workaround"] = "user" if _model.startswith("ollama") else None
         if _agent_name == "worker":
             agent_kwargs["use_shared_router"] = False
-        #print(system_prompt)
         agent = LLMAgentBlock(
             name=agent_type or "custom_agent",
             system_prompt=system_prompt,
@@ -1215,8 +1207,6 @@ async def handle_run(data: dict):
             model_kwargs=model_kwargs,
             **agent_kwargs
         )
-        #print("WORKER SPROMPT ", system_prompt)
-
     from opalatex.litellm_compat import wrap_agent_litellm_compat
     wrap_agent_litellm_compat(agent)
     
@@ -1541,18 +1531,6 @@ async def handle_run(data: dict):
             if not response:
                 raise RuntimeError(_empty_response_failure_message())
             
-            if thought_chunks:
-                pass
-                #print(f"[DIAG-PY] thought_chunks len={len(thought_chunks)}, full_thought len={len(full_thought)}", flush=True)
-                # Only prepend thinking blocks for chat agents — not for inline_editor or
-                # other worker agents where the response is expected to be a raw code block.
-                # Prepending would cause App.jsx to extract the thinking text instead of the code.
-                # App.jsx already prepends the thought snapshot from thought events.
-            #else:
-                #print(f"[DIAG-PY] thought_chunks EMPTY - thinking not detected in stream", flush=True)
-
-            #print(f"[DIAG-PY] response[:200] = {repr(response[:200])}", flush=True)
-
             persisted_response = _response_with_thought(response, thought_chunks)
             assistant_message_id = None
 

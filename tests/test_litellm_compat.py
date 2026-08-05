@@ -235,7 +235,7 @@ def test_wrap_agent_litellm_compat_repairs_internal_history_in_place():
     assert agent.internal_history[1]["role"] == "user"
 
 
-def test_wrap_agent_litellm_compat_disables_tool_role_workaround_for_openai():
+def test_wrap_agent_litellm_compat_preserves_native_tool_role_for_ollama():
     from opalatex.litellm_compat import wrap_agent_litellm_compat
 
     calls = {}
@@ -256,19 +256,10 @@ def test_wrap_agent_litellm_compat_disables_tool_role_workaround_for_openai():
     ]
 
     class FakeAgent:
-        model = "openai/gpt-5.5"
-        tool_role_workaround = "user"
+        model = "ollama/gemma4:12b"
 
         async def _acompletion(self, messages, **kwargs):
-            converted = []
-            for msg in messages:
-                msg = dict(msg)
-                if self.tool_role_workaround and msg.get("role") == "tool":
-                    msg["role"] = self.tool_role_workaround
-                    msg.pop("tool_call_id", None)
-                converted.append(msg)
-            calls["messages"] = converted
-            calls["tool_role_workaround"] = self.tool_role_workaround
+            calls["messages"] = messages
             return "ok"
 
     agent = wrap_agent_litellm_compat(FakeAgent())
@@ -278,32 +269,8 @@ def test_wrap_agent_litellm_compat_disables_tool_role_workaround_for_openai():
     result = asyncio.run(agent._acompletion(messages))
 
     assert result == "ok"
-    assert calls["tool_role_workaround"] is None
     assert calls["messages"][2]["role"] == "tool"
     assert calls["messages"][2]["tool_call_id"] == "call_ok"
-
-
-def test_wrap_agent_litellm_compat_keeps_tool_role_workaround_for_ollama():
-    from opalatex.litellm_compat import wrap_agent_litellm_compat
-
-    calls = {}
-
-    class FakeAgent:
-        model = "ollama/gemma4:12b"
-        tool_role_workaround = "user"
-
-        async def _acompletion(self, messages, **kwargs):
-            calls["tool_role_workaround"] = self.tool_role_workaround
-            return "ok"
-
-    agent = wrap_agent_litellm_compat(FakeAgent())
-
-    import asyncio
-
-    result = asyncio.run(agent._acompletion([{"role": "user", "content": "hi"}]))
-
-    assert result == "ok"
-    assert calls["tool_role_workaround"] == "user"
 
 
 def test_wrap_agent_litellm_compat_preserves_stream_and_tools_for_ollama():
@@ -360,7 +327,6 @@ def test_wrap_agent_litellm_compat_repairs_history_before_run():
 
     class FakeAgent:
         model = "openai/gpt-5.5"
-        tool_role_workaround = "user"
 
         def __init__(self):
             self.internal_history = [
@@ -382,7 +348,6 @@ def test_wrap_agent_litellm_compat_repairs_history_before_run():
             return "ok"
 
         async def run(self, input):
-            assert self.tool_role_workaround is None
             assert "tool_calls" not in self.internal_history[0]
             return "ok"
 

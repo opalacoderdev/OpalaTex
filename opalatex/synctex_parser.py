@@ -1,7 +1,6 @@
 import gzip
 import os
 import math
-import sys
 
 class SynctexParser:
     def __init__(self, synctex_path):
@@ -102,10 +101,7 @@ def find_pdf_position(synctex_path, target_file, target_line):
                 best_nodes.append(node)
                 
     if not best_nodes:
-        #print(f"SyncTeX debug: No nodes found for target_line={target_line}", file=sys.stderr)
         return None
-        
-    #print(f"SyncTeX debug: target_line={target_line}, best_line={best_line}, min_dist={min_dist}, num_nodes={len(best_nodes)}", file=sys.stderr)
     
     # Aggregate to find paragraph bounding box using ONLY text nodes ('h', 'x') to avoid glues ('g', 'k') expanding the box too much
     text_nodes = [n for n in best_nodes if n['type'] in ('h', 'x')]
@@ -148,13 +144,6 @@ def find_pdf_position(synctex_path, target_file, target_line):
     max_y = max([n['y'] for n in valid_nodes], default=best_nodes[0]['y'])
     min_x = min([n['x'] for n in valid_nodes], default=best_nodes[0]['x'])
     
-    # print(f"SyncTeX coords: min_y={min_y}, max_y={max_y}, median_y={median_y}, min_x={min_x}", file=sys.stderr)
-    
-    # DEBUG ALL NODES on this page to see what they actually are
-    # for i, n in enumerate(page_nodes):
-    #     if i < 20: # print first 20 to avoid spam
-    #         print(f"  Node {i}: type={n['type']}, line={n['line']}, x={n['x']:.1f}, y={n['y']:.1f}, w={n.get('w',0):.1f}, h={n.get('h',0):.1f}", file=sys.stderr)
-        
     # Calculate height. We use max_y - min_y. If they are on the same line, height is fallback 12.
     # Note: y is usually baseline. Top is min_y - 10, Bottom is max_y + 2
     

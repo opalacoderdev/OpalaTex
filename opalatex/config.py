@@ -158,7 +158,7 @@ _NON_LITELLM_FIELDS = {
     "max_heartbeats", "max_context_tokens", "eviction_threshold",
     "memory_pressure_threshold", "response_mode",
     # LLMAgentBlock params
-    "max_iterations", "max_tool_calls", "on_max_iterations", "tool_role_workaround",
+    "max_iterations", "max_tool_calls", "on_max_iterations",
     # Shared
     "debug", "use_shared_router", "loop_detection", "loop_detection_limit",
 }
@@ -859,7 +859,6 @@ def setup_debug_logging():
     litellm.success_callback = [_llm_callback]
     litellm.failure_callback = [_llm_callback]
 
-    print(f"[debug] Full run log → {log_file}")
     return log_file
 
 

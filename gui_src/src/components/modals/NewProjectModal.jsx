@@ -171,46 +171,6 @@ export default function NewProjectModal({
                   <option value="edit">{t('newProjectModal.modeEdit')}</option>
                 </select>
               </div>
-              {/* Internal Monologue / Tool Role Workaround */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
-                <input
-                  id="internal-monologue-new"
-                  type="checkbox"
-                  checked={(newProjModelParams?.tool_role_workaround ?? 'user') !== ''}
-                  onChange={e => {
-                    const checked = e.target.checked;
-                    const val = checked ? 'user' : ''; 
-                    setNewProjModelParams(p => ({ ...p, tool_role_workaround: val }));
-                    setNewProjWorkerModelParams(p => ({ ...p, tool_role_workaround: val }));
-                  }}
-                  style={{ cursor: 'pointer' }}
-                />
-                <label htmlFor="internal-monologue-new"
-                       style={{ fontSize: '12px', color: 'var(--vscode-text-fg)', cursor: 'pointer', userSelect: 'none' }}>
-                  {t('editProjectModal.enableInternalMonologue')}
-                </label>
-              </div>
-
-              {/* Monologue as Assistant */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', marginLeft: '24px' }}>
-                <input
-                  id="monologue-as-assistant-new"
-                  type="checkbox"
-                  checked={newProjModelParams?.tool_role_workaround === 'assistant'}
-                  disabled={(newProjModelParams?.tool_role_workaround ?? 'user') === ''}
-                  onChange={e => {
-                    const checked = e.target.checked;
-                    const val = checked ? 'assistant' : 'user';
-                    setNewProjModelParams(p => ({ ...p, tool_role_workaround: val }));
-                    setNewProjWorkerModelParams(p => ({ ...p, tool_role_workaround: val }));
-                  }}
-                  style={{ cursor: 'pointer' }}
-                />
-                <label htmlFor="monologue-as-assistant-new"
-                       style={{ fontSize: '12px', color: 'var(--vscode-text-fg)', cursor: 'pointer', userSelect: 'none', opacity: (newProjModelParams?.tool_role_workaround ?? 'user') !== '' ? 1 : 0.5 }}>
-                  {t('editProjectModal.monologueAsAssistant')}
-                </label>
-              </div>
             </>
           )}
 
