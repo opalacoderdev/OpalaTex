@@ -175,6 +175,17 @@ def _normalize_ollama_unexpected_response_error(exc: Exception) -> Exception:
     """Replace noisy Ollama/LiteLLM response-shape errors with a useful hint."""
     text = str(exc)
     low = text.lower()
+    if "error parsing tool call" in low:
+        message = (
+            "OPALATEX_OLLAMA_TOOL_CALL_JSON_ESCAPE: Ollama rejected a model "
+            "tool-call argument because its tool-call JSON was invalid. "
+            "Original LiteLLM error: "
+            f"{_truncate_for_error(text, 500)}"
+        )
+        try:
+            return exc.__class__(message)
+        except Exception:
+            return RuntimeError(message)
     if (
         "ollama" not in low
         or "keyerror" not in low

@@ -487,3 +487,17 @@ def test_analyze_image_resanitizes_kwargs_for_final_model(monkeypatch):
     assert "temperature" not in calls
     assert "num_ctx" not in calls
     assert "top_k" not in calls
+
+def test_normalize_ollama_tool_call_parse_error_keeps_diagnostic_detail():
+    from opalatex.litellm_compat import _normalize_ollama_unexpected_response_error
+
+    exc = Exception(
+        "Ollama_chatException - KeyError: 'message', Got unexpected response "
+        "from Ollama: {'error': 'error parsing tool call: invalid character "
+        "comma in string escape code'}"
+    )
+
+    normalized = _normalize_ollama_unexpected_response_error(exc)
+
+    assert "tool-call JSON was invalid" in str(normalized)
+    assert "Original LiteLLM error" in str(normalized)

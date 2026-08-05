@@ -152,6 +152,27 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
     model = getattr(project, "model", None) or "the configured model"
     api_base = getattr(project, "api_base", "") or ""
 
+    if (
+        "opalatex_ollama_tool_call_json_escape" in low
+        or "error parsing tool call" in low
+        or "tool-call json was invalid" in low
+    ):
+        return (
+            f"Ollama rejected a tool call from {model}: the model emitted invalid "
+            "JSON inside a tool argument. The tool-call JSON was invalid, commonly "
+            "from unescaped LaTeX backslashes or raw newlines. Automatic correction attempts were exhausted."
+        )
+
+    ollama_status = _ollama_http_status_from_error(msg)
+    if ollama_status is not None:
+        return (
+            f"Ollama returned HTTP {ollama_status} while generating a response from "
+            f"{model}. The server was reached, so this is not a connection error. "
+            "Reproduce it while checking the Ollama server log. If it happens only "
+            "with one type of prompt, isolate model/runtime parameters such as "
+            "think, num_ctx, top_k, and reasoning_effort."
+        )
+
     if "unexpected keyword argument" in low or "got an unexpected" in low:
         # Extract the parameter name from messages like: "got an unexpected keyword argument 'reasoning_effort'"
         import re
@@ -1557,16 +1578,6 @@ async def handle_run(data: dict):
             import traceback
             err_msg = traceback.format_exc()
             user_msg = _friendly_llm_error(e, current_project)
-            if (
-                current_store
-                and current_project
-                and agent_type in ("orchestrator", "chat_orchestrator")
-            ):
-                current_store.append_message(
-                    current_project,
-                    "assistant",
-                    f"Agent Error: {user_msg}",
-                )
             print_event("error", {"message": user_msg, "trace": err_msg})
     finally:
         if turn_checkpoint_id and turn_checkpoint_project_path:
@@ -1769,3 +1780,20 @@ async def stdin_server_loop():
 
 def start_stdin_server():
     asyncio.run(stdin_server_loop())
+
+def _ollama_http_status_from_error(message: str) -> int | None:
+    """Return an Ollama HTTP status embedded in a LiteLLM exception message."""
+    text = str(message or "")
+    low = text.lower()
+    if "ollama" not in low:
+        return None
+    if "404 page not found" in low:
+        return None
+    if "internal server error" in low:
+        return 500
+    match = re.search(
+        r"(?:http\s*(?:status(?:\s*code)?\s*)?|status(?:\s*code)?\s*[:=]?\s*|\b)([45]\d{2})\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return int(match.group(1)) if match else None

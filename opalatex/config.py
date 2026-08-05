@@ -506,6 +506,8 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     store_api_base = None
     store_api_key = None
     store_supports_thinking = False
+    session_api_base = None
+    session_api_key = None
     try:
         from opalatex.models_store import get_model
         store_model = get_model(resolved_model)
@@ -516,6 +518,20 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     except Exception:
         pass
 
+    try:
+        from .tools import _PROJECT_SESSION
+        if _PROJECT_SESSION:
+            if agent_name == "worker":
+                session_api_base = getattr(_PROJECT_SESSION, "worker_api_base", None)
+                session_api_key = getattr(_PROJECT_SESSION, "worker_api_key", None)
+                if not explicit_project_worker:
+                    session_api_base = session_api_base or getattr(_PROJECT_SESSION, "api_base", None)
+                    session_api_key = session_api_key or getattr(_PROJECT_SESSION, "api_key", None)
+            else:
+                session_api_base = getattr(_PROJECT_SESSION, "api_base", None)
+                session_api_key = getattr(_PROJECT_SESSION, "api_key", None)
+    except Exception:
+        pass
     from opalatex.extensions import get_extension_manager
     cloud_provider_active = get_extension_manager().has_cloud and ui_cfg.get("ai_provider") == "cloud"
 
@@ -542,6 +558,13 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
             )
         if store_api_key:
             merged["api_key"] = store_api_key
+        if session_api_base:
+            merged["api_base"] = normalize_ollama_api_base_for_litellm(
+                resolved_model,
+                session_api_base,
+            )
+        if session_api_key:
+            merged["api_key"] = session_api_key
 
         if is_ollama_cloud_model(resolved_model):
             merged.setdefault("api_base", OLLAMA_CLOUD_API_BASE)

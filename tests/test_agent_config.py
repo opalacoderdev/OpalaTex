@@ -513,3 +513,45 @@ def test_ollama_models_keep_local_only_litellm_kwargs_except_unsupported_think()
     assert "drop_params" not in kwargs
     assert "unknown_param" not in kwargs
 
+def test_project_ollama_api_base_is_used_when_model_store_has_no_entry():
+    from opalatex.config import get_agent_llm_kwargs
+    from unittest.mock import patch
+
+    class FakeSession:
+        model = "ollama/gpt-oss:20b"
+        model_params = {}
+        project_path = "/fake/path"
+        api_base = "http://100.85.255.111:11434/v1"
+        api_key = "remote-key"
+
+    with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+        with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+            with patch("opalatex.models_store.get_model", return_value=None):
+                kwargs = get_agent_llm_kwargs("custom_agent")
+
+    assert kwargs["api_base"] == "http://100.85.255.111:11434"
+    assert kwargs["api_key"] == "remote-key"
+
+
+def test_worker_ollama_api_base_uses_worker_setting_first():
+    from opalatex.config import get_agent_llm_kwargs
+    from unittest.mock import patch
+
+    class FakeSession:
+        model = "ollama/main:latest"
+        worker_model = "ollama/gpt-oss:20b"
+        model_params = {}
+        worker_model_params = {}
+        project_path = "/fake/path"
+        api_base = "http://main-host:11434/v1"
+        api_key = "main-key"
+        worker_api_base = "http://worker-host:11434/v1"
+        worker_api_key = "worker-key"
+
+    with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+        with patch("opalatex.ui_settings.load_ui_settings", return_value={"ai_provider": "local"}):
+            with patch("opalatex.models_store.get_model", return_value=None):
+                kwargs = get_agent_llm_kwargs("worker")
+
+    assert kwargs["api_base"] == "http://worker-host:11434"
+    assert kwargs["api_key"] == "worker-key"

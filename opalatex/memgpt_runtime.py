@@ -864,6 +864,8 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         if role not in _VALID_ROLES:
             role = "assistant"
         content = msg.get("content", "")
+        if role == "assistant" and str(content).lstrip().startswith("Agent Error:"):
+            continue
         if msg.get("timestamp"):
             content = f"[{msg['timestamp']}] {content}"
         memgpt.internal_history.append({"role": role, "content": content})

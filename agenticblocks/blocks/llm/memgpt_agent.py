@@ -17,6 +17,35 @@ from agenticblocks.core.block import Block
 from agenticblocks.core.function_block import as_tool
 from agenticblocks.runtime.state import TokenUsage, _current_ctx
 
+
+def _is_ollama_tool_call_json_escape_error(exc: Exception) -> bool:
+    """Return whether Ollama rejected a model-generated tool argument string."""
+    message = str(exc).lower()
+    return (
+        "opalatex_ollama_tool_call_json_escape" in message
+        or (
+            "ollama" in message
+            and "error parsing tool call" in message
+        )
+        or (
+            "ollama" in message
+            and "tool-call json was invalid" in message
+        )
+    )
+
+
+def _ollama_tool_call_json_escape_alert() -> str:
+    """Return bounded system feedback for a malformed Ollama tool call."""
+    return (
+        "SYSTEM ALERT: Ollama rejected your previous tool call before it reached "
+        "the application because its tool arguments were not valid JSON. Retry the "
+        "same action using send_message with a short, single-line plain-text message. "
+        "Do not include a newline, a literal backslash, LaTeX delimiters, or a "
+        "Markdown code fence in any string argument. Use Unicode symbols or prose "
+        "instead."
+    )
+
+
 class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     """
     An Autonomous LLM Agent that strictly follows the MemGPT Heartbeat paradigm.
@@ -408,7 +437,20 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
 
             await self._invoke_on_iteration(heartbeats_used, messages)
 
-            response = await self._acompletion(messages, **kwargs)
+            try:
+                response = await self._acompletion(messages, **kwargs)
+            except Exception as exc:
+                if (
+                    _is_ollama_tool_call_json_escape_error(exc)
+                    and heartbeats_left > 0
+                ):
+                    self.internal_history.append({
+                        "role": "system",
+                        "content": _ollama_tool_call_json_escape_alert(),
+                    })
+                    heartbeats_used += 1
+                    continue
+                raise
 
             await self._emit_token_usage(response, step=heartbeats_used)
             message = response.choices[0].message

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-export function useModelValidation(modelName) {
+export function useModelValidation(modelName, apiBase = '') {
   const [hardware, setHardware] = useState(null);
   const [modelStatus, setModelStatus] = useState('unknown'); // 'unknown', 'green', 'yellow', 'red'
   
@@ -28,7 +28,9 @@ export function useModelValidation(modelName) {
       let found = false;
 
       try {
-        const res = await fetch(`/api/models/info?model=${encodeURIComponent(modelName)}`);
+        const params = new URLSearchParams({ model: modelName });
+        if (apiBase) params.set('api_base', apiBase);
+        const res = await fetch(`/api/models/info?${params.toString()}`);
         if (res.ok) {
           const data = await res.json();
           if (data.found) {
@@ -67,7 +69,7 @@ export function useModelValidation(modelName) {
 
     const timer = setTimeout(validate, 500); // debounce
     return () => clearTimeout(timer);
-  }, [modelName, hardware]);
+  }, [modelName, apiBase, hardware]);
 
   return { hardware, modelStatus };
 }

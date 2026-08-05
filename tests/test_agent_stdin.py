@@ -636,9 +636,8 @@ async def test_handle_run_reports_error_when_orchestrator_never_sends_message(mo
     })
 
     assistant_messages = [content for role, content in saved_messages if role == "assistant"]
-    assert assistant_messages == [
-        "Agent Error: The agent finished without calling send_message after automatic correction attempts. No fallback response was saved."
-    ]
+    assert assistant_messages == []
+    assert any(event == "error" for event, _data in events)
 
     agent_responses = [data["response"] for event, data in events if event == "agent_response"]
     assert agent_responses == []
@@ -710,11 +709,7 @@ async def test_handle_run_does_not_duplicate_user_message_on_failed_retries(monk
     mode_messages = [m for m in loaded.history if m["role"] == "system" and m["content"].startswith("[MODE] Agent turn started")]
     assert len(mode_messages) == 3, f"Expected 3 [MODE] entries, got {len(mode_messages)}"
     assistant_errors = [m["content"] for m in loaded.history if m["role"] == "assistant"]
-    assert assistant_errors == [
-        "Agent Error: simulated api failure",
-        "Agent Error: simulated api failure",
-        "Agent Error: simulated api failure",
-    ]
+    assert assistant_errors == []
     assert [data["message"] for event, data in events if event == "error"] == [
         "simulated api failure",
         "simulated api failure",
@@ -1153,3 +1148,27 @@ def test_skip_directories_in_collect_python_files(tmp_path):
     assert "run.py" not in collected_basenames
     assert "debug.py" not in collected_basenames
     assert len(collected) == 1
+
+def test_ollama_tool_call_parse_error_is_not_reported_as_connection_error():
+    project = SimpleNamespace(model="ollama/gpt-oss:20b", api_base="http://localhost:11434")
+    msg = _friendly_llm_error(
+        Exception(
+            "litellm.APIConnectionError: Ollama_chatException - "
+            "error parsing tool call: invalid character ',' in string escape code"
+        ),
+        project,
+    )
+
+    assert "tool-call JSON was invalid" in msg
+    assert "Could not connect" not in msg
+
+def test_ollama_http_500_is_not_misclassified_as_connection_error():
+    project = SimpleNamespace(model="ollama/gpt-oss:20b", api_base="http://localhost:11434")
+    msg = _friendly_llm_error(
+        Exception("litellm.APIConnectionError: OllamaException - Internal Server Error"),
+        project,
+    )
+
+    assert "HTTP 500" in msg
+    assert "not a connection error" in msg
+    assert "Ollama server log" in msg

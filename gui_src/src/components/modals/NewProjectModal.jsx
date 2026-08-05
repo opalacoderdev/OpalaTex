@@ -27,8 +27,8 @@ export default function NewProjectModal({
   onOpenDirPicker,
 }) {
   const { t } = useTranslation();
-  const { hardware, modelStatus } = useModelValidation(newProjModel);
-  const { hardware: workerHardware, modelStatus: workerModelStatus } = useModelValidation(newProjWorkerModel);
+  const { hardware, modelStatus } = useModelValidation(newProjModel, newProjApiBase);
+  const { hardware: workerHardware, modelStatus: workerModelStatus } = useModelValidation(newProjWorkerModel, newProjWorkerApiBase || newProjApiBase);
 
   const [activeTab, setActiveTab] = useState('geral');
 

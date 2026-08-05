@@ -264,3 +264,59 @@ def test_build_chat_orchestrator_scopes_project_path(tmp_path):
     from opalatex.tools import get_project_path
     build_chat_orchestrator(_project(tmp_path), None)
     assert os.path.abspath(get_project_path()) == os.path.abspath(str(tmp_path))
+
+def test_chat_orchestrator_ignores_legacy_agent_error_in_model_history(tmp_path):
+    project = _project(tmp_path)
+    project.history = [
+        {"role": "user", "content": "Explain transformers."},
+        {"role": "assistant", "content": "Agent Error: Could not connect to ollama_chat/gpt-oss:20b."},
+        {"role": "user", "content": "Continue."},
+    ]
+
+    agent = build_chat_orchestrator(project, None)
+    contents = [message["content"] for message in agent.internal_history]
+
+    assert "Explain transformers." in contents
+    assert "Continue." in contents
+    assert not any(str(content).startswith("Agent Error:") for content in contents)
+
+def test_memgpt_retries_ollama_invalid_json_tool_call_with_heartbeat():
+    from types import SimpleNamespace
+    from agenticblocks.blocks.llm.agent import AgentInput
+    from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
+
+    agent = MemGPTAgentBlock(
+        name="retry-test",
+        model="ollama_chat/gpt-oss:20b",
+        max_heartbeats=2,
+        system_prompt="test",
+    )
+    calls = []
+
+    async def fake_completion(_messages, **_kwargs):
+        calls.append([dict(message) for message in _messages])
+        if len(calls) == 1:
+            raise Exception(
+                "Ollama_chatException - error parsing tool call: "
+                "invalid character ',' in string escape code"
+            )
+        tool_call = SimpleNamespace(
+            id="call_1",
+            function=SimpleNamespace(
+                name="send_message",
+                arguments='{"message":"Recovered response","request_heartbeat":false}',
+            ),
+        )
+        message = SimpleNamespace(
+            content="",
+            reasoning_content=None,
+            tool_calls=[tool_call],
+        )
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+
+    agent._acompletion = fake_completion
+    result = asyncio.run(agent.run(AgentInput(prompt="test")))
+
+    assert result.response == "Recovered response"
+    assert len(calls) == 2
+    assert "single-line plain-text" in calls[1][-1]["content"]

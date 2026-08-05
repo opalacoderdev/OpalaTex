@@ -68,6 +68,19 @@ def _normalize_rel_path(path: str) -> str:
     return path.replace("\\", "/").strip("/")
 
 
+def _ollama_tags_url_for_model_info(model_name: str, api_base: str | None = "") -> str:
+    """Return the Ollama /api/tags URL for model validation."""
+    from opalatex.config import (
+        OLLAMA_CLOUD_API_BASE,
+        is_ollama_cloud_model,
+        normalize_ollama_api_base_for_litellm,
+    )
+
+    tags_base = normalize_ollama_api_base_for_litellm(model_name, api_base)
+    if not tags_base:
+        tags_base = OLLAMA_CLOUD_API_BASE if is_ollama_cloud_model(model_name) else "http://127.0.0.1:11434"
+    return tags_base.rstrip("/") + "/api/tags"
+
 def _parse_multipart_form(body: bytes, content_type: str) -> tuple[dict, dict]:
     raw_message = (
         f"Content-Type: {content_type}\r\n"
@@ -1844,10 +1857,11 @@ class AsyncHTTPServer:
             if '/' in clean_name:
                 clean_name = clean_name.split('/', 1)[1]
             
+            api_base = query.get('api_base', [''])[0]
             try:
                 import urllib.request as urllib_req
                 import json as _json
-                req = urllib_req.Request("http://127.0.0.1:11434/api/tags")
+                req = urllib_req.Request(_ollama_tags_url_for_model_info(model_name, api_base))
                 with urllib_req.urlopen(req, timeout=2) as response:
                     data_obj = _json.loads(response.read().decode())
                     models = data_obj.get("models", [])

@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from opalatex.ide_server import AsyncHTTPServer
+from opalatex.ide_server import AsyncHTTPServer, _ollama_tags_url_for_model_info
 from opalatex.project import ProjectStore
 
 
@@ -54,3 +54,16 @@ async def test_chat_truncate_endpoint_returns_deleted_ids(tmp_path, monkeypatch)
     ]
     loaded = store.load("myproj", chat_id=project.current_chat_id)
     assert [m["id"] for m in loaded.history] == [first_id]
+
+def test_ollama_model_info_uses_configured_remote_api_base():
+    assert _ollama_tags_url_for_model_info(
+        "ollama/gpt-oss:20b",
+        "http://100.85.255.111:11434/v1",
+    ) == "http://100.85.255.111:11434/api/tags"
+
+
+def test_ollama_model_info_without_api_base_uses_localhost():
+    assert _ollama_tags_url_for_model_info(
+        "ollama/gemma4:26b",
+        "",
+    ) == "http://127.0.0.1:11434/api/tags"

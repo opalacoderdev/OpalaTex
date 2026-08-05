@@ -39,8 +39,8 @@ export default function EditProjectModal({
 }) {
   const { t } = useTranslation();
   const { showAlert } = useCustomDialog();
-  const { hardware, modelStatus } = useModelValidation(editingProject?.model);
-  const { hardware: workerHardware, modelStatus: workerModelStatus } = useModelValidation(editingProject?.worker_model);
+  const { hardware, modelStatus } = useModelValidation(editingProject?.model, editingProject?.api_base);
+  const { hardware: workerHardware, modelStatus: workerModelStatus } = useModelValidation(editingProject?.worker_model, editingProject?.worker_api_base || editingProject?.api_base);
 
   const [activeTab, setActiveTab] = useState('geral');
 
