@@ -356,66 +356,8 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
         return response
 
     def _parse_message(self, message: Any) -> Any:
-        """Recover gemma4 JSON-as-text tool calls when tool_calls is empty."""
-        if getattr(message, "tool_calls", None):
-            return message
-
-        content = getattr(message, "content", None)
-        if not content:
-            return message
-
-        content_str = content.strip()
-
-        # Strip markdown fences
-        if "```json" in content_str:
-            content_str = content_str.split("```json", 1)[1].rsplit("```", 1)[0].strip()
-        elif content_str.startswith("```"):
-            content_str = content_str.split("```", 2)[1].strip()
-
-        # Extract first JSON object
-        start = content_str.find("{")
-        end = content_str.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            return message
-
-        try:
-            data = json.loads(content_str[start:end + 1])
-        except json.JSONDecodeError:
-            # Likely a truncated tool call (e.g. write_file with large content).
-            # Inject an error so the loop continues and the model retries via the API.
-            _TOOL_CALL_KEYS = {'"tool_name"', '"name"', '"function"', '"tool_calls"'}
-            if any(k in content_str for k in _TOOL_CALL_KEYS):
-                message.content = (
-                    "[TRUNCATED RESPONSE] Your previous response was cut off mid-JSON. "
-                    "Do NOT write file contents inline as JSON text — they are too large. "
-                    "Call the write_file tool directly using the function-calling API."
-                )
-            return message
-
-        if not isinstance(data, dict):
-            return message
-
-        available = {}
-        for b in self.tools:
-            schema = b.input_schema().model_json_schema()
-            params = set(schema.get("properties", {}).keys())
-            required = set(schema.get("required", []))
-            available[b.name] = (params, required)
-        tcs = _json_to_tool_calls(data, available)
-        if not tcs:
-            return message
-
-        # Block send_message when no real tool calls have been made — the model
-        # is hallucinating task completion without having done any actual work.
-        if tcs[0].function.name == "send_message" and getattr(self, "_current_tool_call_count", 0) == 0:
-            if self.debug:
-                print("[DEBUG] _parse_message: blocked send_message — no real tool calls made yet")
-            return message
-
-        if self.debug:
-            print(f"[DEBUG] _parse_message: recovered {tcs[0].function.name}({tcs[0].function.arguments[:120]})")
-
-        return _DummyMessage(tcs)
+        """Preserve model content exactly; only native tool_calls may execute actions."""
+        return message
 
     async def _emit_token_usage(self, response: Any, step: int) -> None:
         """
@@ -617,33 +559,6 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
 
             # If no tool call was requested, the agent has finished reasoning.
             if not message.tool_calls:
-                content_str = content.strip()
-                _looks_like_tool = False
-                if content_str.startswith("{") and content_str.endswith("}"):
-                    try:
-                        _data = json.loads(content_str)
-                        if isinstance(_data, dict) and any(k in _data for k in ["name", "tool_name", "function", "tool_calls"]):
-                            _looks_like_tool = True
-                    except Exception:
-                        pass
-                
-                if _looks_like_tool and not self.response_schema:
-                    err_msg = (
-                        "SYSTEM ALERT: You replied with a JSON string in plain text that is not a valid tool call. "
-                        "You MUST use the proper tool calling API. CRITICAL: Do NOT apologize to the user for this error. Correct it silently.\n\n"
-                        "If you need to talk to the user and end the turn, use send_message, otherwise make a tool call.\n"
-                        "Example of a generic tool call:\n"
-                        "```json\n"
-                        "{\n"
-                        "  \"name\": \"tool_name_here\",\n"
-                        "  \"arguments\": {\"param\": \"value\"}\n"
-                        "}\n"
-                        "```"
-                    )
-                    messages[-1]["content"] = "(removed: malformed tool call — use the native tool-calling API)"
-                    messages.append({"role": "system", "content": err_msg})
-                    continue
-
                 termination_reason = "model returned a final text response (no tool calls)"
                 
                 content = content

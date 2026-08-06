@@ -189,10 +189,10 @@ def test_empty_response_failure_message_is_localized():
     from opalatex.i18n import set_lang
 
     set_lang("en")
-    assert _empty_response_failure_message() == "The agent finished without calling send_message after automatic correction attempts. No fallback response was saved."
+    assert _empty_response_failure_message() == "The agent finished without a non-empty final response after automatic correction attempts. No fallback response was saved."
 
     set_lang("pt")
-    assert _empty_response_failure_message() == "O agente terminou sem chamar send_message após as tentativas automáticas de correção. Nenhuma resposta fallback foi salva."
+    assert _empty_response_failure_message() == "O agente terminou sem uma resposta final não vazia após as tentativas automáticas de correção. Nenhuma resposta fallback foi salva."
 
 
 def test_ollama_model_not_found_error_is_localized():
@@ -511,7 +511,7 @@ async def test_handle_run_retries_orchestrator_before_using_worker_summary(monke
 
     assert len(prompts) == 2
     assert "Worker created test.tex successfully." in prompts[1]
-    assert "send_message" in prompts[1]
+    assert "send_message" not in prompts[1]
     agent_responses = [data["response"] for event, data in events if event == "agent_response"]
     assert agent_responses == ["Created test.tex successfully. Please verify the file."]
 
@@ -561,7 +561,7 @@ async def test_handle_run_does_not_promote_worker_message_without_orchestrator_r
                 self._last_worker_summary = ""
                 return SimpleNamespace(response="")
             assert "Worker created test.tex successfully." in agent_input.prompt
-            assert "send_message" in agent_input.prompt
+            assert "send_message" not in agent_input.prompt
             return SimpleNamespace(response="The file test.tex was created. Please verify it.")
 
     fake_agent = FakeMemGPT()
@@ -643,11 +643,11 @@ async def test_handle_run_reports_error_when_orchestrator_never_sends_message(mo
     assert agent_responses == []
     errors = [data["message"] for event, data in events if event == "error"]
     assert errors == [
-        "The agent finished without calling send_message after automatic correction attempts. No fallback response was saved."
+        "The agent finished without a non-empty final response after automatic correction attempts. No fallback response was saved."
     ]
     assert len(prompts) == 3
-    assert "send_message" in prompts[1]
-    assert "send_message" in prompts[2]
+    assert "send_message" not in prompts[1]
+    assert "send_message" not in prompts[2]
     assert "O trabalho solicitado parece ter sido concluído" not in "\n".join(agent_responses)
 
 

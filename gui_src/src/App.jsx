@@ -19,6 +19,7 @@ import GitSidebar from './components/GitSidebar';
 import EditorPanel from './components/EditorPanel';
 import ChatPanel from './components/ChatPanel';
 import ChatSidebar from './components/ChatSidebar';
+import ChatComparisonPanel from './components/ChatComparisonPanel';
 import BottomPanel from './components/BottomPanel';
 import ContextMenu from './components/ContextMenu';
 
@@ -302,7 +303,10 @@ export default function App() {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [layoutMode, setLayoutMode] = useState('ide');
-  const isChatLayout = layoutMode === 'chat' || layoutMode === 'chat-bottom';
+  const isChatLayout = layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare';
+  const [comparisonChats, setComparisonChats] = useState({ left: 'main', right: 'main' });
+  const [activeComparisonPanel, setActiveComparisonPanel] = useState('left');
+  const [comparisonScales, setComparisonScales] = useState({ left: 1, right: 1 });
   const [isChatVisible, setIsChatVisible] = useState(false);
   const [activeSidebarTab, setActiveSidebarTab] = useState('explorer');
   const [contextMenu, setContextMenu] = useState(null);
@@ -725,6 +729,8 @@ export default function App() {
               currentChatId = loadedChats.length > 0 ? loadedChats[0].id : 'main';
             }
             setActiveChatId(currentChatId);
+            const alternateChatId = loadedChats.find((chat) => chat.id !== currentChatId)?.id || currentChatId;
+            setComparisonChats({ left: currentChatId, right: alternateChatId });
             if (!activeProject.current_chat_id || activeProject.current_chat_id !== currentChatId) {
               setActiveProject(prev => prev ? { ...prev, current_chat_id: currentChatId } : null);
             }
@@ -786,6 +792,7 @@ export default function App() {
       setChats([]);
       setChatMessages([]);
       setActiveChatId('main');
+      setComparisonChats({ left: 'main', right: 'main' });
       setGitChanges([]);
       setTerminalLogs([]);
       setAchievementsMemory('');
@@ -3418,12 +3425,17 @@ export default function App() {
             <div className="vscode-chat-sidebar-history-pane">
               <ChatSidebar
                 chats={chats}
-                activeChatId={activeChatId}
+                activeChatId={layoutMode === 'chat-compare' ? comparisonChats[activeComparisonPanel] : activeChatId}
                 setActiveChatId={setActiveChatId}
                 setChats={setChats}
                 activeProject={activeProject}
                 setChatMessages={setChatMessages}
-                onSwitchChat={handleSwitchChat}
+                onSwitchChat={layoutMode === 'chat-compare'
+                  ? (id) => {
+                    setComparisonChats((current) => ({ ...current, [activeComparisonPanel]: id }));
+                    handleSwitchChat(id);
+                  }
+                  : handleSwitchChat}
               />
             </div>
 
@@ -3469,7 +3481,7 @@ export default function App() {
         )}
 
         {/* Center — Editor + Bottom Panel */}
-        <main className={`vscode-editor-panel ${layoutMode === 'chat-bottom' ? 'vscode-chat-bottom-layout' : ''}`} style={{ flex: layoutMode === 'chat' ? 0 : 1, display: layoutMode === 'chat' ? 'none' : 'flex' }}>
+        <main className={`vscode-editor-panel ${layoutMode === 'chat-bottom' ? 'vscode-chat-bottom-layout' : ''}`} style={{ flex: layoutMode === 'chat' || layoutMode === 'chat-compare' ? 0 : 1, display: layoutMode === 'chat' || layoutMode === 'chat-compare' ? 'none' : 'flex' }}>
           {!isBottomMaximized && layoutMode === 'review' && (
             <GitSidebar
               activeProject={activeProject}
@@ -3631,7 +3643,21 @@ export default function App() {
         )}
 
         {/* Chat Panel */}
-        {(!isEditorMaximized && layoutMode !== 'review' && layoutMode !== 'chat-bottom' && (isChatVisible || layoutMode === 'chat')) && (
+        {layoutMode === 'chat-compare' && !isEditorMaximized && (
+          <ChatComparisonPanel
+            chats={chats}
+            activeProject={activeProject}
+            comparisonChats={comparisonChats}
+            setComparisonChats={setComparisonChats}
+            activePanel={activeComparisonPanel}
+            setActivePanel={setActiveComparisonPanel}
+            scales={comparisonScales}
+            setScales={setComparisonScales}
+            onSelectChat={handleSwitchChat}
+          />
+        )}
+
+        {(!isEditorMaximized && layoutMode !== 'review' && layoutMode !== 'chat-bottom' && layoutMode !== 'chat-compare' && (isChatVisible || layoutMode === 'chat')) && (
           <>
             <ChatPanel
               isChatMode={layoutMode === 'chat'}

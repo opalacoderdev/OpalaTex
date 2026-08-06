@@ -9,8 +9,7 @@ import litellm
 
 from agenticblocks.core.agent import AgentBlock
 from agenticblocks.blocks.llm.agent import (
-    AgentInput, AgentOutput, _get_shared_router, _print_debug_report,
-    _json_to_tool_calls,
+    AgentInput, AgentOutput, _get_shared_router, _print_debug_report
 )
 from agenticblocks.tools.a2a_bridge import block_to_tool_schema
 from agenticblocks.core.block import Block
@@ -35,27 +34,21 @@ def _is_ollama_tool_call_json_escape_error(exc: Exception) -> bool:
 
 
 def _ollama_tool_call_json_escape_alert() -> str:
-    """Return bounded system feedback for a malformed Ollama tool call."""
+    """Return bounded system feedback for a malformed native Ollama tool call."""
     return (
-        "SYSTEM ALERT: Ollama rejected your previous tool call before it reached "
-        "the application because its tool arguments were not valid JSON. Retry the "
-        "same action using send_message with a short, single-line plain-text message. "
-        "Do not include a newline, a literal backslash, LaTeX delimiters, or a "
-        "Markdown code fence in any string argument. Use Unicode symbols or prose "
-        "instead."
+        "SYSTEM ALERT: Ollama rejected the previous native tool call because its arguments "
+        "were not valid JSON. Retry the same action through the native tool-calling API "
+        "with valid, compact JSON arguments."
     )
 
 
 class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     """
-    An Autonomous LLM Agent that strictly follows the MemGPT Heartbeat paradigm.
-    
-    In this block:
-    1. The LLM MUST use the `send_message` tool to communicate with the user.
-    2. Any tool call (including search) consumes 1 heartbeat.
-    3. The LLM is explicitly informed of its remaining heartbeats.
-    4. The loop only terminates if the LLM explicitly returns `request_heartbeat=false` 
-       via the `send_message` tool, or if the `max_heartbeats` limit is reached.
+    An autonomous LLM agent with bounded MemGPT-style heartbeats and memory tools.
+
+    Native provider `tool_calls` execute actions and consume heartbeats. A non-empty
+    text response without tool calls is the final user-facing response. Text is never
+    recovered or interpreted as a tool call.
     """
     description: str = "MemGPT style Agent with strict heartbeat limits and context management."
     model: str = "ollama/gemma4:latest"
@@ -69,9 +62,7 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     response_schema: Optional[type[BaseModel]] = None
     """Optional Pydantic model class to enforce a structured response schema."""
     response_mode: str = "all"
-    """Controls which send_message calls appear in the final output.
-    'all'  — concatenate every send_message call (default, original behaviour).
-    'last' — return only the final send_message call, discarding intermediate ones."""
+    """Controls collection of legacy ``send_message`` compatibility calls."""
     debug: bool = False
     use_shared_router: bool = True
     model_kargs: Dict[str, Any] = Field(default_factory=dict)
@@ -214,64 +205,16 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
 
 ## AVAILABLE MEMORY TOOLS
 {tool_descriptions}
-- **send_message**: You MUST use this tool to talk to the user.
+- **send_message**: Legacy compatibility tool. Prefer a normal text final response.
 
 ## CORE RULES
-1. **TOOL-ONLY INTERFACE**: You MUST NEVER reply with plain text. Your only way to communicate with the user is by calling the `send_message` tool.
-2. **HEARTBEATS**: Every tool you call consumes one 'heartbeat'. You can chain multiple tool calls (e.g., search memory, analyze, then send_message). If you use `send_message` and set `request_heartbeat=true`, you retain control to use more tools. If `false`, you yield control to the user. ALWAYS set `request_heartbeat=false` as soon as you have finished your task or answered the user's request. Do NOT request additional heartbeats if there is no immediate action left to perform.
+1. **RESPONSE CONTRACT**: Use native provider tool calls only for actions. When no action remains, return the final answer as normal text. JSON, Markdown, code blocks, examples, and questions in text are never tool calls.
+2. **HEARTBEATS**: Every native tool call consumes one heartbeat. You can chain multiple calls (for example, search memory and then analyze). Do not request additional heartbeats when no immediate action remains.
 3. **MEMORY PRESSURE**: If you see a SYSTEM ALERT about Memory Pressure, your Main Context is almost full. Be concise and rely on memory tools instead of keeping everything in context.
 4. **NO HALLUCINATION**: If the user asks about past interactions or facts you don't know, ALWAYS use your memory tools to retrieve the information before answering.
+5. **LEGACY COMPATIBILITY**: If a caller still invokes `send_message`, treat it as an ordinary compatibility action; it is never required to finish a turn.
 """
         return self.system_prompt + memgpt_rules
-
-    def _recover_tool_call_from_text(self, content: Optional[str], agent_tools: List[Block]) -> Any:
-        """Recover a tool call a model emitted as plain-text JSON (no native API).
-
-        Returns a single tool-call object (with .id / .function.name /
-        .function.arguments) or None. Delegates the shape handling to the shared
-        ``_json_to_tool_calls`` parser, which validates every tool name against the
-        tools actually registered on this block — so a hallucinated/unknown name is
-        rejected rather than invented.
-        """
-        if not content:
-            return None
-        content_str = content.strip()
-
-        # Strip markdown fences if the model wrapped the JSON.
-        if "```json" in content_str:
-            content_str = content_str.split("```json", 1)[1].rsplit("```", 1)[0].strip()
-        elif content_str.startswith("```"):
-            parts = content_str.split("```")
-            content_str = parts[1].strip() if len(parts) > 1 else content_str
-
-        start = content_str.find("{")
-        end = content_str.rfind("}")
-        if start == -1 or end == -1 or end <= start:
-            return None
-        try:
-            data = json.loads(content_str[start:end + 1], strict=False)
-        except Exception:
-            try:
-                heuristic = content_str[start:end + 1].replace('\\"', '"').replace('\\n', '\n')
-                data = json.loads(heuristic, strict=False)
-            except Exception:
-                return None
-        if not isinstance(data, dict):
-            return None
-
-        # Build the tool map the parser expects: name -> (all_params, required).
-        available: Dict[str, tuple] = {}
-        for b in agent_tools:
-            try:
-                schema = b.input_schema().model_json_schema()
-            except Exception:
-                continue
-            params = set(schema.get("properties", {}).keys())
-            required = set(schema.get("required", []))
-            available[b.name] = (params, required)
-
-        tcs = _json_to_tool_calls(data, available)
-        return tcs[0] if tcs else None
 
     async def _acompletion(self, messages: List[Dict[str, Any]], **kwargs) -> Any:
         """Single call site for LiteLLM completions.
@@ -354,7 +297,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
 
         agent_tools = self.tools.copy()
         
-        @as_tool(name="send_message", description="Sends a message to the user. Set request_heartbeat=true if you want to perform more actions (like searching memory) before giving control back to the user.")
+        @as_tool(name="send_message", description="Legacy compatibility message tool. Prefer a normal text final response when no action remains.")
         def send_message(message: str, request_heartbeat: bool = False) -> str:
             return "Message recorded."
             
@@ -384,6 +327,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         tool_call_count = 0
         tool_usage: Dict[str, int] = defaultdict(int)
         termination_reason = "unknown"
+        direct_final_response = None
         accumulated_responses = []
         
         final_system_prompt = self._build_system_prompt()
@@ -434,10 +378,10 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             kwargs["tools"] = litellm_tools
             
             if heartbeats_left <= 0:
-                kwargs["tool_choice"] = {"type": "function", "function": {"name": "send_message"}}
+                kwargs["tool_choice"] = "none"
                 messages.append({
                     "role": "system", 
-                    "content": "SYSTEM ALERT: 0 heartbeats remaining. You MUST call send_message with request_heartbeat=false now to finish the turn."
+                    "content": "SYSTEM ALERT: No action heartbeats remain. Provide the final user-facing response as normal text."
                 })
             else:
                 kwargs["tool_choice"] = "auto"
@@ -488,97 +432,30 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             messages.append(assistant_msg_raw)
 
             if not message.tool_calls:
-                # Some models (notably small local ones) stop using the native
-                # tool-calling API after a few turns and emit the call as plain-text
-                # JSON instead — in several shapes (flat, nested function dict, an
-                # OpenAI-style {"tool_calls": [...]} wrapper, bare params, etc.).
-                # Reuse the shared, well-tested recovery parser (_json_to_tool_calls)
-                # rather than a bespoke inline one: it validates names against the
-                # tools actually registered on this block, so it never invents a tool.
-                parsed_tc = self._recover_tool_call_from_text(content, agent_tools)
+                if content.strip():
+                    direct_final_response = content
+                    termination_reason = "model returned a final text response (no tool calls)"
+                    break
+                if heartbeats_left <= 0 or self.max_heartbeats <= 0:
+                    termination_reason = "model returned an empty response with no heartbeats remaining"
+                    break
 
-                if parsed_tc:
-                    message.tool_calls = [parsed_tc]
-                    assistant_msg_raw["tool_calls"] = [
-                        {"id": parsed_tc.id, "type": "function",
-                         "function": {"name": parsed_tc.function.name, "arguments": parsed_tc.function.arguments}}
-                    ]
-                    self.internal_history[-1] = assistant_msg_raw
-                    messages[-1] = assistant_msg_raw
-                else:
-                    if message.content:
-                        err_msg = (
-                            "SYSTEM ALERT: You violated the tool-only rule. You MUST NOT reply with plain text. "
-                            "You must use the provided JSON tool calling API. CRITICAL: Do NOT apologize to the user for this error. "
-                            "Correct it silently by returning a valid tool call.\n\n"
-                            "If you need to talk to the user and end the turn, use send_message, otherwise make a tool call.\n"
-                            "Example of a generic tool call:\n"
-                            "```json\n"
-                            "{\n"
-                            "  \"name\": \"tool_name_here\",\n"
-                            "  \"arguments\": {\"param\": \"value\"}\n"
-                            "}\n"
-                            "```"
-                        )
-                        if message.content.strip().startswith("{"):
-                            err_msg = (
-                                "SYSTEM ALERT: You replied with a JSON string in plain text that is not a valid tool call. "
-                                "You MUST use the proper tool calling API. CRITICAL: Do NOT apologize to the user for this error. Correct it silently.\n\n"
-                                "If you need to talk to the user and end the turn, use send_message, otherwise make a tool call.\n"
-                                "Example of a generic tool call:\n"
-                                "```json\n"
-                                "{\n"
-                                "  \"name\": \"tool_name_here\",\n"
-                                "  \"arguments\": {\"param\": \"value\"}\n"
-                                "}\n"
-                                "```"
-                            )
-                            # Neutralize the malformed assistant message in history so the
-                            # model does not see its own bad output and imitate it on the
-                            # next iteration (a self-reinforcing text-JSON loop that would
-                            # otherwise burn heartbeats until the turn returns empty).
-                            _neutralized = {
-                                "role": "assistant",
-                                "content": "(removed: malformed tool call — use the native tool-calling API)",
-                            }
-                            self.internal_history[-1] = _neutralized
-                            messages[-1] = _neutralized
-
-                        alert_msg = {"role": "system", "content": err_msg}
-                        self.internal_history.append(alert_msg)
-                        messages.append(alert_msg)
-                        
-                        heartbeats_used += 1
-                        if heartbeats_used > self.max_heartbeats:
-                            termination_reason = "model repeatedly violated tool-only rule"
-                            break
-                        continue
-                    else:
-                        if heartbeats_left <= 0 or self.max_heartbeats <= 0:
-                            termination_reason = "model returned empty response with no heartbeats remaining"
-                            break
-
-                        _neutralized = {
-                            "role": "assistant",
-                            "content": "(removed: empty response - use send_message or another tool call)",
-                        }
-                        self.internal_history[-1] = _neutralized
-                        messages[-1] = _neutralized
-                        self.internal_history.append({
-                            "role": "system",
-                            "content": (
-                                "SYSTEM ALERT: You returned an empty response without calling a tool. "
-                                "This turn is not finished. You MUST now call send_message with "
-                                "request_heartbeat=false to answer the user, or call another tool if "
-                                "one is still required. Do not return plain text or an empty message."
-                            ),
-                        })
-                        heartbeats_used += 1
-                        if heartbeats_used >= self.max_heartbeats:
-                            termination_reason = f"max_heartbeats ({self.max_heartbeats}) reached after empty-response correction"
-                            break
-                        continue
-
+                empty_response = {"role": "assistant", "content": "(removed: empty response)"}
+                self.internal_history[-1] = empty_response
+                messages[-1] = empty_response
+                self.internal_history.append({
+                    "role": "system",
+                    "content": (
+                        "SYSTEM ALERT: You returned no text and no native tool call. "
+                        "Return a non-empty final response in normal text, or issue a native "
+                        "tool call if an action is still required."
+                    ),
+                })
+                heartbeats_used += 1
+                if heartbeats_used >= self.max_heartbeats:
+                    termination_reason = f"max_heartbeats ({self.max_heartbeats}) reached after empty-response correction"
+                    break
+                continue
             heartbeats_used += 1
             wants_heartbeat = False
             empty_send_message_violation = False
@@ -615,9 +492,8 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                                 "name": function_name,
                                 "content": json.dumps({
                                     "error": (
-                                        "SYSTEM ALERT: send_message requires a non-empty message. "
-                                        "Correct this silently by calling send_message again with meaningful content. "
-                                        "Do not end the turn with an empty message."
+                                        "SYSTEM ALERT: The legacy send_message call was empty. "
+                                        "Return a non-empty final response in normal text instead."
                                     )
                                 })
                             }
@@ -626,10 +502,9 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                             alert_msg = {
                                 "role": "system",
                                 "content": (
-                                    "SYSTEM ALERT: You called send_message with an empty message. "
-                                    "This is not a valid final response. You MUST call send_message again "
-                                    "with a non-empty message. CRITICAL: Do NOT apologize to the user for this error; "
-                                    "correct it silently."
+                                    "SYSTEM ALERT: The legacy send_message call was empty. "
+                                    "Return a non-empty final response in normal text, or issue a native tool call "
+                                    "if an action is still required."
                                 )
                             }
                             self.internal_history.append(alert_msg)
@@ -704,6 +579,8 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             final_text = accumulated_responses[-1] if accumulated_responses else ""
         else:
             final_text = "\n".join(accumulated_responses)
+        if direct_final_response is not None:
+            final_text = direct_final_response
         structured_obj = None
 
         if self.response_schema and final_text:

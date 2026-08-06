@@ -7,7 +7,7 @@ description: Executes command-line operations to read, create, insert text, remo
 
 This skill provides the sub-agent with tools to manipulate files and directories securely, restricted to the project directory.
 
-**FINDING FILES AND TEXT (CRITICAL):** Do not guess file locations or line numbers. If the file path is unknown, use `get_project_overview`. If you need to find a section, label, function, class, or marker inside project files, use `search_code`; it is Python-based and works across operating systems. If the orchestrator context already gives the exact file path, line range, or command to run, execute that directly and do not call `get_project_overview` first. As a last resort, if you cannot find the file, stop your turn and use the `send_message` tool to ask the user for the file's location.
+**FINDING FILES AND TEXT (CRITICAL):** Do not guess file locations or line numbers. If the file path is unknown, use `get_project_overview`. If you need to find a section, label, function, class, or marker inside project files, use `search_code`; it is Python-based and works across operating systems. If the orchestrator context already gives the exact file path, line range, or command to run, execute that directly and do not call `get_project_overview` first. As a last resort, if you cannot find the file, stop and ask the user for its location in normal text.
 
 ## AVAILABLE TOOLS
 

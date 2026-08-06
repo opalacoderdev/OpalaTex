@@ -155,31 +155,20 @@ def resolve_skill_model(skill_meta: dict, project_model: str | None,
 
 
 # ---------------------------------------------------------------------------
-# Interceptor: sub-agent send_message → user + MemGPT memory
+# Legacy compatibility interceptor
 # ---------------------------------------------------------------------------
 
 def make_intercepted_send_message(memgpt: MemGPTAgentBlock, skill_name: str):
-    """Return a ``send_message`` tool whose calls are logged and buffered.
+    """Return the deprecated worker-report tool for backwards-compatible callers.
 
-    The wrapper is deterministic: each call records the worker report so the
-    orchestrator can summarize it in its own final ``send_message``.
+    New workers are not given this tool: they return their final report as normal text.
     """
 
     @as_tool(
         name="send_message",
-        description=(
-            "Send a message to the user. Call this to report progress or the final "
-            "result. Provide a clear, past-tense summary when the task is complete.\n"
-            "CRITICAL WARNING: This tool ONLY sends text to the user. It DOES NOT "
-            "modify any files or execute any code. Do NOT use this tool to pretend "
-            "you have applied a fix. If you decided to write or modify code, you MUST "
-            "use the file modification tools (e.g. write_file) or terminal tools "
-            "BEFORE calling send_message. NEVER put the code to be changed inside a "
-            "send_message call if your goal was to apply it. Only report success AFTER the tools have returned success."
-        ),
+        description="Legacy compatibility report tool. New workers should return normal text instead.",
     )
     def send_message(message: str) -> str:
-        # 1. Record the worker message before emitting any diagnostic event.
         if hasattr(memgpt, "_current_worker_messages"):
             memgpt._current_worker_messages.append(message)
         memgpt._last_worker_chat_response = message
@@ -191,17 +180,11 @@ def make_intercepted_send_message(memgpt: MemGPTAgentBlock, skill_name: str):
             stdin_mod.print_event("info", {"message": info_message})
         except Exception:
             import json
-            print(json.dumps({
-                "event": "info",
-                "message": info_message,
-            }), flush=True)
-
-        # 2. Show to the terminal for diagnostics.
+            print(json.dumps({"event": "info", "message": info_message}), flush=True)
         T.console.print(f"\n[bold green]OpalaTex ({skill_name}):[/bold green] {message}\n")
-        return "[DONE] message recorded for orchestrator"
+        return "[DONE] legacy message recorded for orchestrator"
 
     return send_message
-
 
 # ---------------------------------------------------------------------------
 # run_skill tool
@@ -219,7 +202,7 @@ def build_run_skill_tool(
 
     Calling ``run_skill(skill_name, context, intent)`` resolves the skill directory,
     reads its SKILL.md (Level 2), spawns an ephemeral LLMAgentBlock sub-agent with
-    that body as system prompt, the workflow tools, and an intercepted send_message,
+    that body as system prompt and the workflow tools,
     runs it with *context* as the prompt, and returns the sub-agent's result.
 
     *_project_ref* / *_store_ref* let the tool re-assert the project scope on each
@@ -349,38 +332,25 @@ def build_run_skill_tool(
                 elif worker_kwargs["api_base"].endswith("/v1/"):
                     worker_kwargs["api_base"] = worker_kwargs["api_base"][:-4]
 
-        # Make json_formatting_instruction conditional (only for local/Ollama models)
         is_local_ollama = (
             model.startswith("ollama")
             or model.startswith("ollama_chat")
             or "local" in model
         )
-        json_formatting_instruction = ""
+        native_tool_instruction = ""
         if is_local_ollama:
-            json_formatting_instruction = (
-                "\nCRITICAL: When calling tools, you must format your response as a valid JSON block. "
-                "Ensure that all double quotes inside 'JSON string arguments are properly escaped as \\\". "
-                "Do NOT write literal backslash-n ('\\n') strings in the code; write the code structure normally.\n"
-                "WARNING: If you receive a SYSTEM ALERT about violating the tool-only rule, it means you outputted plain text instead of a JSON tool call. "
-                "To correct this, DO NOT use send_message to apologize or pretend the fix is done. You MUST re-issue the proper action tool call (e.g., write_file, run_command) in proper JSON format."
-                "within the JSON string and ensure the JSON format is valid.\n"
-                "Example of calling send_message:\n"
-                "```json\n"
-                "{\n"
-                "  \"name\": \"send_message\",\n"
-                "  \"arguments\": {\"message\": \"I have finished the task. Here is the summary...\"}\n"
-                "}\n"
-                "```\n"
+            native_tool_instruction = (
+                "\nUse the provider-native tool-calling protocol for actions. Never write a "
+                "tool call, its arguments, or an action request as JSON or Markdown text."
             )
 
         system = (
             "#ROLE: "
             "You are a problem-solving agent. You must use your available tools and skills "
             "to fulfill the user's request provided in your context. "
-            "\n--- CRITICAL WORKER RULE: TOOL USE ONLY ---\n"
-            "You are a PURE TOOL-USE worker. You MUST NOT respond with conversational text, explanations, or plans on your first turn.\n"
-            "You MUST call the appropriate tool (e.g. `write_file`, `run_command`, `get_project_overview`, etc.) immediately in your very first response.\n"
-            "Do NOT output any preamble, apologies, or confirmation text (like 'Sure, I will do that'). Any response containing ONLY conversational text will immediately terminate your execution, preventing you from calling any tools. ALWAYS call a tool first.\n"
+            "\n--- WORKER RESPONSE CONTRACT ---\n"
+            "Use native provider tool calls only when an action is required. If the task requires reading, editing, or executing something, make the appropriate native tool call before reporting completion.\n"
+            "Never serialize a tool call as JSON or Markdown text. If no action is needed or the work is complete, return a concise normal-text report.\n"
             "--------------------------------------------\n\n"
             "Your specific tools are:\n"
             "  - get_project_overview: Returns the project's folder and file structure. Use it only when the target file is unknown.\n"
@@ -402,25 +372,12 @@ def build_run_skill_tool(
             f"{scripts_hint}"
             f"{request_hint}"
             f"IMPORTANT: To save any file content (HTML, JSON, code, Markdown, etc.) ALWAYS use the write_file tool. "
-            f"RECOMMENDATION FOR TERMINATION AND send_message:\n"
-            f"- If MEMGPT CONTEXT/INSTRUCTIONS contains an explicit command or script to execute, your first tool call should be run_command with that command.\n"
+            f"RECOMMENDATION FOR EXECUTION AND TERMINATION:\n"
+            f"- If MEMGPT CONTEXT/INSTRUCTIONS contains an explicit command or script to execute, use run_command as the first native tool call.\n"
             f"- If MEMGPT CONTEXT/INSTRUCTIONS already identifies the target file, line range, or edit, do not call get_project_overview first.\n"
             f"- For large .tex, .log, or source files, never call read_file just to find a section or marker; use search_code to locate the marker, then read_content_pos for the returned line range.\n"
-            f"- Calling send_message OR returning a final text response terminates your execution immediately.\n"
-            f"- If you need to do X, do it RIGHT NOW using your tools in this exact same turn. Only terminate when the entire requested task is completely finished, or if you are completely blocked and need human input. Inform final response to user.\n"
-            f"- If your task requires using multiple tools (like reading files, running commands, or writing code), do not call send_message first. Use the tools to complete the work, and then call send_message to report the final result.\n"
-            f"\n--- EXPECTED BEHAVIOR EXAMPLES ---\n"
-            f"Example 1: The user wants you to fix a bug in auth.py.\n"
-            f"  [WRONG]: You generate a plain text response or send_message saying 'I found the bug! Here is the corrected code: ```...``` Please update it.' (This is hallucinating a fix without doing the work).\n"
-            f"  [CORRECT]: You use the `write_file` tool to overwrite auth.py with the fixed code. Wait for success. THEN use `send_message` to say 'I have applied the fix to auth.py.'\n"
-            f"Example 2: The user just asks 'How does auth.py work?' or 'What is wrong with this code?'\n"
-            f"  [CORRECT]: You read the code using tools, and then use `send_message` to explain the code or provide code snippets. This is perfectly fine because the user didn't ask you to apply changes.\n"
-            f"Example 3: You applied a change, but you want to explain what you did.\n"
-            f"  [CORRECT]: You first use `write_file`. Then you use `send_message` to explain: 'I applied the change. I specifically modified the loop logic like this: ```python ... ```'\n"
-            f"----------------------------------\n"
-            f"CRITICAL COMMUNICATION RULE & PERSONA:\n"
-            f"- You are an autonomous backend system. You report your internal tool errors only to the system supervisor. The human user sees only the final result.\n"
-            f"- NEVER apologize or mention internal tool errors, rule violations, or JSON formatting issues to the user via send_message. The user does not see your internal tool interactions. If a tool fails, fix the error silently and try again.\n"
+            f"- Complete required actions through native tool calls, then return a concise normal-text report.\n"
+            f"- Do not claim that a modification succeeded until the relevant tool has succeeded.\n"
             f"CRITICAL THINKING RULE: Keep your internal reasoning extremely brief and concise. DO NOT enter infinite brainstorming loops (e.g. repeatedly asking yourself 'Should I do X? Yes/No. Wait!'). Formulate a quick plan and IMMEDIATELY execute a tool or return.\n"
             f"ACHIEVEMENTS MEMORY INSTRUCTION:\n"
             f"You have access to the 'update_achievements_memory' tool. Use it FREQUENTLY to record your progress and milestones.\n"
@@ -430,17 +387,12 @@ def build_run_skill_tool(
             f"3. Successfully read and understood a file's contents, or successfully wrote to a file.\n"
             f"4. Discovered the root cause of an error or bug.\n"
             f"You can output MULTIPLE tool calls in the same response to update achievements alongside your main action.\n"
-            f"{json_formatting_instruction}"
+            f"{native_tool_instruction}"
         )
 
-        # Tools: the workflow tool set, but with the intercepted send_message so the
-        # sub-agent's messages reach the user AND the MemGPT memory.
-        tools = [
-            t for t in get_available_tools()
-            if t.name not in ["send_message"]
-        ]
+        # Workers receive action tools only and return their final report as normal text.
+        tools = [t for t in get_available_tools() if t.name != "send_message"]
         memgpt._current_worker_messages = []
-        tools.append(make_intercepted_send_message(memgpt, skill_name))
 
         from .config import get_project_agent_params
         worker_agent_params = get_project_agent_params("worker")
@@ -456,7 +408,6 @@ def build_run_skill_tool(
             max_tool_calls=worker_agent_params.get("max_tool_calls", 40),
             loop_detection=worker_agent_params.get("loop_detection", True),
             loop_detection_limit=worker_agent_params.get("loop_detection_limit", 3),
-            termination_tools=["send_message"],
         )
         from .litellm_compat import wrap_agent_litellm_compat
         wrap_agent_litellm_compat(sub_agent)
@@ -524,35 +475,9 @@ def build_run_skill_tool(
                 sub_agent.on_thinking = _worker_on_thinking
             sub_agent.on_chunk = _worker_on_chunk
 
-        # We always want on_iteration to run for reflection and format fixing
         def _worker_on_iteration(_step: int, messages: list) -> None:
             last = messages[-1] if messages else {}
             content = last.get("content") or ""
-            
-            if isinstance(content, str) and "SYSTEM ALERT:" in content and "JSON string in plain text" in content:
-                content = content.replace("Use the send_message tool to talk to the user", "")
-                if "If you need to talk to the user" not in content:
-                    feedback = (
-                        "\n\nIf you need to talk to the user and end the turn, use send_message, otherwise make a tool call.\n"
-                        "Examples:\n"
-                        "To act/modify (e.g., read_file):\n"
-                        "```json\n"
-                        "{\n"
-                        "  \"name\": \"read_file\",\n"
-                        "  \"arguments\": {\"path\": \"path/to/file.py\"}\n"
-                        "}\n"
-                        "```\n"
-                        "To talk to the user (ONLY if strictly needed to communicate):\n"
-                        "```json\n"
-                        "{\n"
-                        "  \"name\": \"send_message\",\n"
-                        "  \"arguments\": {\"message\": \"Your message to the user\"}\n"
-                        "}\n"
-                        "```\n"
-                    )
-                    last["content"] = content + feedback
-                    content = last["content"]
-
             if content:
                 print_event("reflection", {"content": str(content), "agent": f"worker:{skill_name}"})
 
@@ -578,14 +503,14 @@ def build_run_skill_tool(
                 f"[SYSTEM ALERT] WORKER LOOP BREAKER: The '{skill_name}' skill has failed "
                 f"{failed_attempts} consecutive times without completing useful tool work. "
                 "Do NOT call this same worker again for this task. Use your direct tools if "
-                "available, reduce the task to a smaller verified action, or call send_message "
-                "with a concise blocker explanation."
+                "available, reduce the task to a smaller verified action, or return a "
+                "concise normal-text blocker explanation."
             )
             
         # Check for macro-loop
         for run in memgpt._skill_run_history:
             if run["skill"] == skill_name and run["context"] == context:
-                return f"[SYSTEM ALERT] MACRO-LOOP DETECTED: You already delegated to '{skill_name}' with this EXACT context earlier in the session, and it failed or didn't resolve the issue. You MUST change your plan/context, use different instructions, or use 'send_message' to ask the user for help. DO NOT repeat the exact same delegation."
+                return f"[SYSTEM ALERT] MACRO-LOOP DETECTED: You already delegated to '{skill_name}' with this EXACT context earlier in the session, and it failed or didn't resolve the issue. You MUST change your plan/context, use different instructions, or return a normal-text request for user input. DO NOT repeat the exact same delegation."
                 
         previous_runs = ""
         attempt_count = 1
@@ -681,18 +606,18 @@ def _chat_orchestrator_body(project_path: str) -> str:
         if meta and meta["body"]:
             return meta["body"]
     return (
-        "You are the OpalaTex chat-orchestrator. You operate in a strict TOOL-ONLY environment.\n"
+        "You are the OpalaTex chat-orchestrator. Execute actions only through native tool calls.\n"
         "1. The runtime prepends today's date to this prompt. If the user asks for recent, latest, current, future-dated, or otherwise time-sensitive information, you MUST use web_search before answering, refusing, or delegating. You MUST NOT hallucinate dates or assume something did not happen without first searching the web.\n" 
-        "2. You MUST NEVER reply to the user with plain conversational text. If you want to communicate with the user (to provide analysis, code snippets, or report completion), YOU MUST use the 'send_message' tool with a non-empty message.\n"
+        "2. Return the final user-facing answer as normal text. JSON and Markdown in text are answers, never tool calls; use native tool calls only when executing an action.\n"
         "3. You CAN and SHOULD use your tools (like search_code, read_file, read_content_pos, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly.\n"
         "4. If the user asks for something that you don't know, you can use web_search to find relevant information. If the user asks for something in the project, you can use get_project_overview to explore the project structure and read_file to read files.\n"
         "5. Whenever the user asks a question involving dates, time, recent events, latest events, sports, news, public figures, APIs, or potentially anachronistic information, you must search the web for updated information.\n"
         "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', 'edit_file', or 'run_cmd'. If you need to list, search, read, or make a precise line edit directly, use get_project_overview, search_code, read_file, read_content_pos, replace_content_range, or write_content_pos.\n"
-        "7. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If the worker changed files, verify the changed location with read_file/read_content_pos before reporting success. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan unless a worker loop breaker tells you to stop. If the task IS complete, you MUST call 'send_message' with a non-empty final result for the user.\n"
+        "7. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If the worker changed files, verify the changed location with read_file/read_content_pos before reporting success. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan unless a worker loop breaker tells you to stop. If the task IS complete, return a non-empty final result for the user.\n"
         "8. Every invocation of run_skill spawns a completely stateless, ephemeral sub-agent. The worker starts fresh with no memory of prior runs. You MUST NOT try to converse/coordinate with the worker across multiple turns or promise to provide details in a 'next step'. Provide all instructions and details in a single run_skill call.\n"
         "9. If you need to edit or write a large file (more than ~100-200 lines), do NOT instruct the worker to use write_file with the entire content, as LLM output limits will truncate the tool call. Instead, instruct it to use search_code to locate markers, replace_content_range for specific line ranges, write_content_pos only for insertion before a specific line, or a small Python search-and-replace script executed with run_command for bulk transformations.\n"
         "NEVER assume something didn't happen without first searching the web using the web_search tool.\n"
-        "CRITICAL: If you use a <think> block to plan your actions, you MUST NOT stop generating afterwards. You MUST conclude your turn by outputting a valid JSON tool call (either another tool, run_skill, or send_message). An empty text response or a plain text reply without a JSON tool call is a critical failure.\n\n"
+        "CRITICAL: If you use a <think> block to plan your actions, continue until you either make a native tool call or provide a non-empty final text response.\n\n"
         "ACHIEVEMENTS MEMORY INSTRUCTION:\n"
         "You have the 'update_achievements_memory' tool. Use it FREQUENTLY to record your progress and milestones.\n"
         "Examples of achievements you MUST record:\n"
@@ -881,34 +806,5 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         _store_ref=store,
     )
     memgpt.tools = list(memgpt.tools) + [wrap_tool(run_skill)]
-
-    def _memgpt_on_iteration(_step: int, messages: list) -> None:
-        last = messages[-1] if messages else {}
-        content = last.get("content") or ""
-        
-        if isinstance(content, str) and "SYSTEM ALERT:" in content and "JSON string in plain text" in content:
-            content = content.replace("Use the send_message tool to talk to the user", "")
-            if "If you need to talk to the user" not in content:
-                feedback = (
-                    "\n\nIf you need to talk to the user and end the turn, use send_message, otherwise make a tool call.\n"
-                    "Examples:\n"
-                    "To act/modify (e.g., read_file):\n"
-                    "```json\n"
-                    "{\n"
-                    "  \"name\": \"read_file\",\n"
-                    "  \"arguments\": {\"path\": \"path/to/file.py\"}\n"
-                    "}\n"
-                    "```\n"
-                    "To talk to the user (ONLY if strictly needed to communicate):\n"
-                    "```json\n"
-                    "{\n"
-                    "  \"name\": \"send_message\",\n"
-                    "  \"arguments\": {\"message\": \"Your message to the user\"}\n"
-                    "}\n"
-                    "```\n"
-                )
-                last["content"] = content + feedback
-
-    memgpt.on_iteration = _memgpt_on_iteration
 
     return memgpt

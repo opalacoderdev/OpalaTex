@@ -1029,6 +1029,8 @@ input:focus, select:focus, textarea:focus {
   text-overflow: ellipsis;
   top: 50%;
   transform: translate(-50%, -50%);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1826,3 +1828,83 @@ select {
 
 
 
+
+.vscode-chat-comparison {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  background: var(--vscode-bg);
+  overflow: hidden;
+}
+
+.vscode-chat-comparison-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-sidebar-bg);
+  border-right: 1px solid var(--vscode-border);
+  overflow: hidden;
+}
+
+.vscode-chat-comparison-pane:last-child { border-right: none; }
+.vscode-chat-comparison-pane.active { box-shadow: inset 0 2px var(--vscode-active-border); }
+
+.vscode-chat-comparison-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-border);
+}
+
+.vscode-chat-comparison-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1 110px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--vscode-text-fg);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vscode-chat-comparison-select {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 32px;
+  padding: 5px 32px 5px 10px !important;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vscode-chat-comparison-scale {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--vscode-border);
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+}
+
+.vscode-chat-comparison-scale input { min-width: 0; flex: 1; }
+.vscode-chat-comparison-scale output { width: 34px; text-align: right; }
+.vscode-chat-comparison-history { padding: 14px; gap: 14px; }
+.vscode-chat-comparison-message { display: flex; flex-direction: column; gap: 4px; }
+.vscode-chat-comparison-empty { color: var(--vscode-descriptionForeground); font-size: 12px; text-align: center; padding: 24px 12px; }
+
+@media (max-width: 760px) {
+  .vscode-chat-comparison { grid-template-columns: 1fr; overflow-y: auto; }
+  .vscode-chat-comparison-pane { min-height: 50%; flex: 1 0 50%; border-right: none; border-bottom: 1px solid var(--vscode-border); }
+}

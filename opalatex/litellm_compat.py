@@ -103,14 +103,12 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
             cleaned_messages = cleaned_messages + [{
                 "role": "system",
                 "content": (
-                    "SYSTEM ALERT: Repeated invalid tool-call arguments were detected. "
-                    "Stop attempting tool calls for this turn. You MUST call send_message "
-                    "with request_heartbeat=false and briefly tell the user that the active "
-                    "model failed to produce valid tool arguments for the requested action."
+                    "SYSTEM ALERT: Repeated invalid native tool-call arguments were detected. "
+                    "Stop attempting actions for this turn and return a concise normal-text "
+                    "response explaining that the active model could not produce valid tool arguments."
                 ),
             }]
-            if _tool_name_available(getattr(agent, "tools", []), "send_message"):
-                kwargs["tool_choice"] = {"type": "function", "function": {"name": "send_message"}}
+            kwargs["tool_choice"] = "none"
         try:
             res = await original(cleaned_messages, **kwargs)
             # If it's a ChatCompletion object or model response

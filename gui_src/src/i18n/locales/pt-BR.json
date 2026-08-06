@@ -23,6 +23,7 @@
   },
   "activityBar": {
     "chatBottomMode": "Alternar para chat com painel inferior",
+    "chatComparisonMode": "Modo de comparação de chats",
     "explorer": "Explorer",
     "chatMode": "Modo Chat",
     "editMode": "Modo Edição",
@@ -378,6 +379,15 @@
     "continue": "Continuar",
     "attachFile": "Anexar imagem, PDF, DOCX ou PPTX",
     "uploadingFiles": "Processando anexo..."
+  },
+  "chatComparison": {
+    "leftPanel": "Chat esquerdo",
+    "rightPanel": "Chat direito",
+    "selectChat": "Selecionar chat para {{panel}}",
+    "scale": "Escala",
+    "scaleFor": "Escala para {{panel}}",
+    "loading": "Carregando histórico do chat...",
+    "empty": "Este chat ainda não tem mensagens."
   },
   "chatSidebar": {
     "newChat": "Novo Chat",

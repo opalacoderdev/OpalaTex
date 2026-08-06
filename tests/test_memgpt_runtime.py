@@ -100,7 +100,7 @@ def test_current_date_instruction_is_prepended_to_system_prompt(tmp_path):
     assert m.system_prompt.startswith("Today is ")
     assert "you MUST use the web_search tool before answering" in m.system_prompt
     assert "Never claim that a current, recent, or future-dated event did not happen" in m.system_prompt
-    assert "send_message` with `message=\"\"`" in m.system_prompt
+    assert "Text content is never a tool call" in m.system_prompt
 
 
 def test_current_date_instruction_formats_english_date():
@@ -319,4 +319,33 @@ def test_memgpt_retries_ollama_invalid_json_tool_call_with_heartbeat():
 
     assert result.response == "Recovered response"
     assert len(calls) == 2
-    assert "single-line plain-text" in calls[1][-1]["content"]
+    assert "native tool-calling API" in calls[1][-1]["content"]
+
+def test_memgpt_returns_plain_json_content_without_tool_recovery():
+    from types import SimpleNamespace
+    from agenticblocks.blocks.llm.agent import AgentInput
+    from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
+
+    response_text = '```json\n{"name":"send_message","arguments":{"message":"example"}}\n```'
+    agent = MemGPTAgentBlock(
+        name="json-response-test",
+        model="test/model",
+        max_heartbeats=2,
+        system_prompt="test",
+    )
+    calls = []
+
+    async def fake_completion(_messages, **_kwargs):
+        calls.append(_kwargs)
+        message = SimpleNamespace(
+            content=response_text,
+            reasoning_content=None,
+            tool_calls=[],
+        )
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+
+    agent._acompletion = fake_completion
+    result = asyncio.run(agent.run(AgentInput(prompt="Show a JSON example.")))
+
+    assert result.response == response_text
+    assert result.tool_calls_made == 0
