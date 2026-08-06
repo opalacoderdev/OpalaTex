@@ -3569,6 +3569,24 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
                 
+        elif path == '/api/settings/models/load-local-ollama' and method == 'POST':
+            from opalatex.models_store import (
+                LocalOllamaNotInstalledError,
+                LocalOllamaUnavailableError,
+                load_local_ollama_models,
+            )
+            try:
+                added_models = load_local_ollama_models()
+                self.send_response(writer, 200, json.dumps({
+                    "models": added_models,
+                    "added_count": len(added_models),
+                }).encode('utf-8'), "application/json")
+            except LocalOllamaNotInstalledError:
+                self.send_response(writer, 409, b'{"error":"ollama_not_installed"}', "application/json")
+            except LocalOllamaUnavailableError:
+                self.send_response(writer, 503, b'{"error":"ollama_unavailable"}', "application/json")
+            except Exception:
+                self.send_response(writer, 500, b'{"error":"local_ollama_load_failed"}', "application/json")
         elif path == '/api/settings/models' and method == 'POST':
             from opalatex.models_store import add_or_update_model
             try:

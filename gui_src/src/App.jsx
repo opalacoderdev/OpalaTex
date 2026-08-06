@@ -625,6 +625,22 @@ export default function App() {
     } catch (e) { console.error(e); }
   };
 
+  const handleLoadLocalOllamaModels = async () => {
+    try {
+      const response = await fetch('/api/settings/models/load-local-ollama', {
+        method: 'POST',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return { status: data.error || 'local_ollama_load_failed' };
+      }
+
+      fetchGlobalModels();
+      return { status: 'loaded', count: data.added_count || 0 };
+    } catch {
+      return { status: 'local_ollama_load_failed' };
+    }
+  };
   const handleProjectModelChange = async (field, value) => {
     if (!activeProject) return;
     try {
@@ -3879,6 +3895,7 @@ export default function App() {
             setEditingModelModalData(null);
             setShowAddProviderModal(true);
           }}
+          onLoadLocalOllama={handleLoadLocalOllamaModels}
         />
       )}
 

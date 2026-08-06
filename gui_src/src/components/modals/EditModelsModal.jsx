@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Search, Plus, Trash2, Edit2 } from 'lucide-react';
+import { X, Search, Plus, Trash2, Edit2, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './CustomDialogProvider';
 
@@ -8,11 +8,41 @@ export default function EditModelsModal({
   onClose,
   onDeleteModel,
   onEditModel,
-  onAddProvider
+  onAddProvider,
+  onLoadLocalOllama
 }) {
   const { t } = useTranslation();
   const { showConfirm } = useCustomDialog();
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoadingLocalOllama, setIsLoadingLocalOllama] = useState(false);
+  const [localOllamaResult, setLocalOllamaResult] = useState(null);
+
+  const handleLoadLocalOllama = async () => {
+    setIsLoadingLocalOllama(true);
+    setLocalOllamaResult(null);
+    try {
+      setLocalOllamaResult(await onLoadLocalOllama());
+    } finally {
+      setIsLoadingLocalOllama(false);
+    }
+  };
+
+  const localOllamaResultText = () => {
+    if (!localOllamaResult) return '';
+    if (localOllamaResult.status === 'loaded') {
+      return localOllamaResult.count > 0
+        ? t('editModelsModal.localOllamaLoaded', { count: localOllamaResult.count })
+        : t('editModelsModal.localOllamaAlreadyConfigured');
+    }
+    if (localOllamaResult.status === 'ollama_not_installed') {
+      return t('editModelsModal.ollamaNotInstalled');
+    }
+    if (localOllamaResult.status === 'ollama_unavailable') {
+      return t('editModelsModal.ollamaUnavailable');
+    }
+    return t('editModelsModal.loadLocalOllamaFailed');
+  };
+
 
   const filteredModels = globalModels.filter(m => 
     (m.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -32,7 +62,7 @@ export default function EditModelsModal({
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ position: 'relative', flex: 1 }}>
-              <Search size={14} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: '#888' }} />
+              <Search size={14} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: 'var(--vscode-descriptionForeground)' }} />
               <input
                 type="text"
                 className="vscode-settings-input"
@@ -42,14 +72,30 @@ export default function EditModelsModal({
                 style={{ width: '100%', paddingLeft: '28px' }}
               />
             </div>
+            <button
+              className="vscode-button-secondary"
+              onClick={handleLoadLocalOllama}
+              disabled={isLoadingLocalOllama}
+            >
+              <RefreshCw size={14} />
+              {isLoadingLocalOllama
+                ? t('editModelsModal.loadingLocalOllama')
+                : t('editModelsModal.loadLocalOllama')}
+            </button>
             <button className="vscode-button" onClick={onAddProvider}>
               <Plus size={14} /> {t('editModelsModal.addProviderModel')}
             </button>
           </div>
 
+          {localOllamaResult && (
+            <div role="status" style={{ padding: '8px', border: '1px solid var(--vscode-widget-border)', background: 'var(--vscode-input-background)', color: 'var(--vscode-descriptionForeground)', fontSize: '12px' }}>
+              {localOllamaResultText()}
+            </div>
+          )}
+
           <div style={{ overflowY: 'auto', flex: 1, border: '1px solid var(--vscode-widget-border)', borderRadius: '4px' }}>
             {filteredModels.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#888' }}>
+              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--vscode-descriptionForeground)' }}>
                 {t('editModelsModal.noModels')}
               </div>
             ) : (
@@ -68,28 +114,26 @@ export default function EditModelsModal({
                     <tr key={model.id} style={{ borderBottom: '1px solid var(--vscode-widget-border)' }}>
                       <td style={{ padding: '8px' }}>{model.provider}</td>
                       <td style={{ padding: '8px' }}>{model.name}</td>
-                      <td style={{ padding: '8px', color: '#888' }}>{model.id}</td>
+                      <td style={{ padding: '8px', color: 'var(--vscode-descriptionForeground)' }}>{model.id}</td>
                       <td style={{ padding: '8px', color: model.supports_thinking ? 'var(--vscode-textLink-foreground)' : 'var(--vscode-descriptionForeground)' }}>
                         {model.supports_thinking ? t('common.yes', 'Yes') : t('common.no', 'No')}
                       </td>
                       <td style={{ padding: '8px', textAlign: 'right' }}>
                         <button 
-                          className="vscode-bottom-panel-clear-btn" 
+                          className="vscode-icon-button"
                           title={t('common.edit')}
                           onClick={() => onEditModel(model)}
-                          style={{ padding: '4px', marginRight: '4px' }}
                         >
                           <Edit2 size={14} />
                         </button>
                         <button 
-                          className="vscode-bottom-panel-clear-btn" 
+                          className="vscode-icon-button vscode-icon-button-danger"
                           title={t('common.delete')}
                           onClick={async () => {
                             if (await showConfirm(t('editModelsModal.deleteConfirm', { id: model.id }))) {
                               onDeleteModel(model.id);
                             }
                           }}
-                          style={{ padding: '4px', color: '#f48771' }}
                         >
                           <Trash2 size={14} />
                         </button>

@@ -2,6 +2,8 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from .config import DEFAULT_DB_PATH, get_opalatex_home
 from .extensions import get_extension_manager
@@ -10,45 +12,17 @@ _DEFAULT_MODELS_STORE_PATH = Path(get_opalatex_home()) / "models.json"
 _MODELS_STORE_PATH = _DEFAULT_MODELS_STORE_PATH
 _MODELS_TABLE = "global_models"
 
-_DEFAULT_MODELS = [
-    # OpenAI Models
-    { "id": "openai/gpt-5.5", "provider": "openai", "name": "gpt-5.5", "api_key": "", "api_base": "" },
-    { "id": "openai/gpt-5.5-pro", "provider": "openai", "name": "gpt-5.5-pro", "api_key": "", "api_base": "" },
-    { "id": "openai/gpt-5.4", "provider": "openai", "name": "gpt-5.4", "api_key": "", "api_base": "" },
-    { "id": "openai/gpt-5.4-pro", "provider": "openai", "name": "gpt-5.4-pro", "api_key": "", "api_base": "" },
-    { "id": "openai/gpt-5-mini", "provider": "openai", "name": "gpt-5-mini", "api_key": "", "api_base": "" },
-    { "id": "openai/gpt-5-nano", "provider": "openai", "name": "gpt-5-nano", "api_key": "", "api_base": "" },
-    { "id": "openai/responses/gpt-5.5", "provider": "openai", "name": "responses/gpt-5.5", "api_key": "", "api_base": "" },
-    { "id": "openai/responses/gpt-5-mini", "provider": "openai", "name": "responses/gpt-5-mini", "api_key": "", "api_base": "" },
-    
-    # Anthropic Models
-    { "id": "anthropic/claude-opus-4-6", "provider": "anthropic", "name": "claude-opus-4-6", "api_key": "", "api_base": "" },
-    { "id": "anthropic/claude-sonnet-4-6", "provider": "anthropic", "name": "claude-sonnet-4-6", "api_key": "", "api_base": "" },
-    { "id": "anthropic/claude-opus-4-5-20251101", "provider": "anthropic", "name": "claude-opus-4-5-20251101", "api_key": "", "api_base": "" },
-    { "id": "anthropic/claude-sonnet-4-5-20250929", "provider": "anthropic", "name": "claude-sonnet-4-5-20250929", "api_key": "", "api_base": "" },
-    { "id": "anthropic/claude-opus-4-1-20250805", "provider": "anthropic", "name": "claude-opus-4-1-20250805", "api_key": "", "api_base": "" },
-    { "id": "anthropic/claude-3-7-sonnet-20250219", "provider": "anthropic", "name": "claude-3-7-sonnet-20250219", "api_key": "", "api_base": "" },
-    
-    # Gemini Models
-    { "id": "gemini/gemini-3-pro-preview", "provider": "gemini", "name": "gemini-3-pro-preview", "api_key": "", "api_base": "" },
-    { "id": "gemini/gemini-3-flash-preview", "provider": "gemini", "name": "gemini-3-flash-preview", "api_key": "", "api_base": "" },
-    { "id": "gemini/gemini-2.5-pro", "provider": "gemini", "name": "gemini-2.5-pro", "api_key": "", "api_base": "" },
-    { "id": "gemini/gemini-2.5-flash", "provider": "gemini", "name": "gemini-2.5-flash", "api_key": "", "api_base": "" },
-    { "id": "gemini/gemini-2.5-flash-preview-tts", "provider": "gemini", "name": "gemini-2.5-flash-preview-tts", "api_key": "", "api_base": "" },
-    { "id": "gemini/gemini-2.5-pro-preview-tts", "provider": "gemini", "name": "gemini-2.5-pro-preview-tts", "api_key": "", "api_base": "" },
-    
-    # Ollama Models
-    { "id": "ollama/gemma4:12b", "provider": "ollama", "name": "gemma4:12b", "api_key": "", "api_base": "http://localhost:11434/v1" },
-    { "id": "ollama/gemma4:26b", "provider": "ollama", "name": "gemma4:26b", "api_key": "", "api_base": "http://localhost:11434/v1" },
-    { "id": "ollama/llama3.1", "provider": "ollama", "name": "llama3.1", "api_key": "", "api_base": "http://localhost:11434/v1" },
-    { "id": "ollama/gemma4:31b-cloud", "provider": "ollama", "name": "gemma4:31b-cloud", "api_key": "", "api_base": "https://ollama.com" },
-    
-    # Ollama Chat Models
-    { "id": "ollama_chat/gemma4:12b", "provider": "ollama_chat", "name": "gemma4:12b", "api_key": "", "api_base": "http://localhost:11434" },
-    { "id": "ollama_chat/deepseek-r1", "provider": "ollama_chat", "name": "deepseek-r1", "api_key": "", "api_base": "http://localhost:11434" },
-    { "id": "ollama_chat/llama3.1", "provider": "ollama_chat", "name": "llama3.1", "api_key": "", "api_base": "http://localhost:11434" }
-]
+_DEFAULT_MODELS: List[Dict[str, Any]] = []
+_LOCAL_OLLAMA_API_BASE = "http://localhost:11434/v1"
+_LOCAL_OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
 
+
+class LocalOllamaNotInstalledError(RuntimeError):
+    """Raised when local Ollama discovery is requested without Ollama installed."""
+
+
+class LocalOllamaUnavailableError(RuntimeError):
+    """Raised when Ollama is installed but its local API cannot be reached."""
 
 def normalize_model_entry(model: Dict[str, Any]) -> Dict[str, Any]:
     """Return a model-store entry with stable optional capability defaults."""
@@ -124,7 +98,7 @@ def _load_legacy_json_models() -> List[Dict[str, Any]]:
     return []
 
 def load_models() -> List[Dict[str, Any]]:
-    """Load models from the global SQLite model store, populating defaults if empty."""
+    """Load models from the global SQLite model store or import legacy entries once."""
     loaded_defaults = False
     with _connect() as conn:
         rows = conn.execute(
@@ -202,6 +176,60 @@ def save_models(models: List[Dict[str, Any]]) -> None:
                     index,
                 ),
             )
+
+
+def load_local_ollama_models() -> List[Dict[str, Any]]:
+    """Import unconfigured models exposed by the local Ollama API."""
+    from .ollama_manager import check_ollama_status
+
+    if not check_ollama_status().get("installed"):
+        raise LocalOllamaNotInstalledError("Ollama is not installed")
+
+    try:
+        request = urllib_request.Request(_LOCAL_OLLAMA_TAGS_URL, method="GET")
+        with urllib_request.urlopen(request, timeout=2.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib_error.URLError, TimeoutError, ValueError, OSError) as exc:
+        raise LocalOllamaUnavailableError("The local Ollama API is unavailable") from exc
+
+    remote_models = payload.get("models", []) if isinstance(payload, dict) else []
+    if not isinstance(remote_models, list):
+        raise LocalOllamaUnavailableError("The local Ollama API returned an invalid model list")
+
+    configured_models = load_models()
+    configured_names = {
+        model.get("name", "")
+        for model in configured_models
+        if model.get("provider") == "ollama"
+    }
+    configured_ids = {model.get("id", "") for model in configured_models}
+    additions: List[Dict[str, Any]] = []
+
+    for remote_model in remote_models:
+        model_name = str(remote_model.get("name", "") if isinstance(remote_model, dict) else "").strip()
+        if not model_name or model_name in configured_names:
+            continue
+
+        model_id = f"ollama/{model_name}"
+        suffix = 2
+        while model_id in configured_ids:
+            model_id = f"ollama/{model_name}#local-{suffix}"
+            suffix += 1
+
+        additions.append(normalize_model_entry({
+            "id": model_id,
+            "provider": "ollama",
+            "name": model_name,
+            "api_key": "",
+            "api_base": _LOCAL_OLLAMA_API_BASE,
+        }))
+        configured_names.add(model_name)
+        configured_ids.add(model_id)
+
+    if additions:
+        save_models([*configured_models, *additions])
+
+    return additions
 
 def get_model(model_id: str) -> Dict[str, Any] | None:
     """Get a specific model by ID."""

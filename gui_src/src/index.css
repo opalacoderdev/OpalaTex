@@ -532,6 +532,68 @@ input:focus, select:focus, textarea:focus {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* Secondary actions share the same sizing and interaction affordances as primary buttons. */
+.vscode-button-secondary {
+  background-color: var(--vscode-input-bg);
+  color: var(--vscode-text-fg);
+  border: 1px solid var(--vscode-border);
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.vscode-button-secondary:hover:not(:disabled) {
+  background-color: var(--vscode-list-hoverBg);
+  border-color: var(--vscode-active-border);
+}
+
+.vscode-button-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.vscode-icon-button,
+.vscode-modal-close {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vscode-icon-button {
+  padding: 4px;
+  margin-left: 4px;
+}
+
+.vscode-modal-close {
+  padding: 4px;
+}
+
+.vscode-icon-button:hover,
+.vscode-modal-close:hover {
+  background-color: var(--vscode-list-hoverBg);
+  border-color: var(--vscode-border);
+  color: var(--vscode-text-fg);
+}
+
+.vscode-icon-button-danger {
+  color: var(--vscode-errorForeground);
+}
+
+.vscode-button:focus-visible,
+.vscode-button-secondary:focus-visible,
+.vscode-icon-button:focus-visible,
+.vscode-modal-close:focus-visible {
+  outline: 1px solid var(--vscode-active-border);
+  outline-offset: 2px;
+}
 
 /* App layout and columns */
 .vscode-app {
@@ -1059,6 +1121,34 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+.vscode-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--vscode-border);
+}
+
+.vscode-modal-header h2 {
+  margin: 0;
+  color: var(--vscode-text-fg);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.vscode-modal-content {
+  padding: 16px;
+  color: var(--vscode-text-fg);
+}
+
+.vscode-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--vscode-border);
 }
 
 /* Layout Utilities (No-Tailwind equivalents) */

@@ -98,6 +98,73 @@ async def test_clear_all_chats_endpoint_resets_project_chats(tmp_path, monkeypat
     assert loaded.history == []
 
 
+@pytest.mark.asyncio
+async def test_load_local_ollama_models_endpoint_returns_added_models(monkeypatch):
+    added_models = [{
+        "id": "ollama/new-model:latest",
+        "provider": "ollama",
+        "name": "new-model:latest",
+        "api_key": "",
+        "api_base": "http://localhost:11434/v1",
+        "supports_thinking": False,
+    }]
+    monkeypatch.setattr(
+        "opalatex.models_store.load_local_ollama_models",
+        lambda: added_models,
+    )
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+    await server.route_api(
+        "POST",
+        "/api/settings/models/load-local-ollama",
+        {},
+        {},
+        b"{}",
+        writer,
+    )
+
+    assert responses == [
+        (200, {"models": added_models, "added_count": 1}, "application/json")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_load_local_ollama_models_endpoint_reports_missing_installation(monkeypatch):
+    from opalatex.models_store import LocalOllamaNotInstalledError
+
+    def raise_not_installed():
+        raise LocalOllamaNotInstalledError()
+
+    monkeypatch.setattr(
+        "opalatex.models_store.load_local_ollama_models",
+        raise_not_installed,
+    )
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+    await server.route_api(
+        "POST",
+        "/api/settings/models/load-local-ollama",
+        {},
+        {},
+        b"{}",
+        writer,
+    )
+
+    assert responses == [
+        (409, {"error": "ollama_not_installed"}, "application/json")
+    ]
 def test_ollama_model_info_uses_configured_remote_api_base():
     assert _ollama_tags_url_for_model_info(
         "ollama/gpt-oss:20b",

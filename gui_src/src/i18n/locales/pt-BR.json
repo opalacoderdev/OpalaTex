@@ -702,7 +702,15 @@
     "modelName": "Nome do Modelo",
     "thinking": "Thinking",
     "actions": "Ações",
-    "deleteConfirm": "Tem certeza que deseja excluir {{id}}?"
+    "deleteConfirm": "Tem certeza que deseja excluir {{id}}?",
+    "loadLocalOllama": "Carregar do Ollama local",
+    "loadingLocalOllama": "Carregando modelos locais do Ollama...",
+    "localOllamaLoaded_one": "{{count}} modelo local do Ollama foi adicionado.",
+    "localOllamaLoaded_other": "{{count}} modelos locais do Ollama foram adicionados.",
+    "localOllamaAlreadyConfigured": "Todos os modelos locais do Ollama já possuem uma configuração.",
+    "ollamaNotInstalled": "Ollama não instalado.",
+    "ollamaUnavailable": "O Ollama está instalado, mas o serviço local não está disponível.",
+    "loadLocalOllamaFailed": "Não foi possível carregar os modelos locais do Ollama."
   },
   "addProviderModal": {
     "addTitle": "Adicionar Modelo / Provedor",

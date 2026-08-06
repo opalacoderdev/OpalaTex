@@ -704,7 +704,15 @@
     "modelName": "Model Name",
     "thinking": "Thinking",
     "actions": "Actions",
-    "deleteConfirm": "Are you sure you want to delete {{id}}?"
+    "deleteConfirm": "Are you sure you want to delete {{id}}?",
+    "loadLocalOllama": "Load from Local Ollama",
+    "loadingLocalOllama": "Loading local Ollama models...",
+    "localOllamaLoaded_one": "Added {{count}} local Ollama model.",
+    "localOllamaLoaded_other": "Added {{count}} local Ollama models.",
+    "localOllamaAlreadyConfigured": "All local Ollama models already have a configuration.",
+    "ollamaNotInstalled": "Ollama is not installed.",
+    "ollamaUnavailable": "Ollama is installed, but its local service is unavailable.",
+    "loadLocalOllamaFailed": "Unable to load local Ollama models."
   },
   "addProviderModal": {
     "addTitle": "Add Model / Provider",
