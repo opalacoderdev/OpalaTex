@@ -839,6 +839,14 @@ input:focus, select:focus, textarea:focus {
   flex-shrink: 0;
 }
 
+/* Full-width chat layout with the existing diagnostics panel docked beneath it. */
+.vscode-chat-bottom-layout {
+  min-width: 0;
+}
+
+.vscode-chat-bottom-layout > .vscode-chat {
+  min-height: 0;
+}
 .vscode-bottom-tabs {
   height: 30px;
   background-color: var(--vscode-sidebar-bg);

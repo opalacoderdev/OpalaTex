@@ -502,6 +502,9 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     resolved_model = get_agent_model(agent_name, default=session_model)
     from opalatex.cloud_client import CHAT_PROXY_URL, CLOUD_MODEL_ALIASES
     cloud_litellm_models = {meta["litellm_model"] for meta in CLOUD_MODEL_ALIASES.values()}
+    from opalatex.models_store import resolve_runtime_model_id
+
+    runtime_model = resolve_runtime_model_id(resolved_model)
 
     store_api_base = None
     store_api_key = None
@@ -553,20 +556,20 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     else:
         if store_api_base:
             merged["api_base"] = normalize_ollama_api_base_for_litellm(
-                resolved_model,
+                runtime_model,
                 store_api_base,
             )
         if store_api_key:
             merged["api_key"] = store_api_key
         if session_api_base:
             merged["api_base"] = normalize_ollama_api_base_for_litellm(
-                resolved_model,
+                runtime_model,
                 session_api_base,
             )
         if session_api_key:
             merged["api_key"] = session_api_key
 
-        if is_ollama_cloud_model(resolved_model):
+        if is_ollama_cloud_model(runtime_model):
             merged.setdefault("api_base", OLLAMA_CLOUD_API_BASE)
             merged.setdefault("api_key", os.getenv("OLLAMA_API_KEY", ""))
             merged.setdefault("timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
@@ -577,7 +580,7 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     merged.setdefault("think", False)
     if not store_supports_thinking:
         merged.pop("think", None)
-    return sanitize_litellm_kwargs_for_model(resolved_model, merged)
+    return sanitize_litellm_kwargs_for_model(runtime_model, merged)
 
 
 def model_supports_thinking(model: str | None) -> bool:
@@ -714,7 +717,11 @@ def resolve_model_for_thinking(model: str, llm_kwargs: dict) -> str:
     appears as <think> tags inside delta.content — not in reasoning_content —
     so per-chunk on_thinking never fires.
     """
-    if "think" in llm_kwargs and not model_supports_thinking(model):
+    selected_model = model
+    from opalatex.models_store import resolve_runtime_model_id
+
+    model = resolve_runtime_model_id(model)
+    if "think" in llm_kwargs and not model_supports_thinking(selected_model):
         llm_kwargs.pop("think", None)
         return model
     if llm_kwargs.get("think") and model.startswith("ollama/"):

@@ -22,6 +22,7 @@
     "generateError": "Could not generate the installation serial."
   },
   "activityBar": {
+    "chatBottomMode": "Switch to chat with bottom panel",
     "explorer": "Explorer",
     "chatMode": "Chat Mode",
     "editMode": "Edit Mode",
@@ -314,6 +315,10 @@
     "exportMarkdown": "Export as Markdown",
     "exportPDF": "Export as PDF / Print",
     "clearChat": "Clear chat",
+    "clearAllChats": "Delete all project chats",
+    "clearAllChatsTitle": "Delete all chats",
+    "clearAllChatsConfirmation": "This will permanently delete every chat and its history for this project. This cannot be undone.",
+    "clearAllChatsFailed": "Could not delete all chats: {{message}}",
     "branchMessage": "Branch from here",
     "branchPrompt": "Name for the new chat (branch):",
     "webSearch": "Web Search",
@@ -686,7 +691,7 @@
     "supportsThinkingHint": "Keep this off unless the model documentation explicitly says it supports thinking or reasoning parameters.",
     "generatedId": "Generated ID",
     "requiredError": "Provider and Model Name are required.",
-    "duplicateError": "A model with this provider and name already exists."
+    "duplicateError": "A model with this provider, name, and API base URL already exists."
   },
   "dirPickerModal": {
     "title": "Select Directory",

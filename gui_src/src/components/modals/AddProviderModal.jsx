@@ -41,10 +41,18 @@ export default function AddProviderModal({
       return;
     }
 
-    const id = `${trimmedProvider}/${trimmedName}`;
+    const trimmedApiBase = apiBase.trim();
     const duplicate = existingModels.some(model =>
-      model.id === id && model.id !== editingModel?.id
+      model.id !== editingModel?.id &&
+      model.provider === trimmedProvider &&
+      model.name === trimmedName &&
+      (model.api_base || '').trim() === trimmedApiBase
     );
+
+    const baseId = `${trimmedProvider}/${trimmedName}`;
+    const id = existingModels.some(model => model.id !== editingModel?.id && model.id === baseId)
+      ? `${baseId}#${encodeURIComponent(trimmedApiBase || 'default')}`
+      : baseId;
 
     if (duplicate) {
       setError(t('addProviderModal.duplicateError'));
@@ -57,7 +65,7 @@ export default function AddProviderModal({
       provider: trimmedProvider,
       name: trimmedName,
       api_key: apiKey,
-      api_base: apiBase,
+      api_base: trimmedApiBase,
       supports_thinking: supportsThinking
     });
   };

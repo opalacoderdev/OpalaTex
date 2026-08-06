@@ -302,6 +302,7 @@ export default function App() {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [layoutMode, setLayoutMode] = useState('ide');
+  const isChatLayout = layoutMode === 'chat' || layoutMode === 'chat-bottom';
   const [isChatVisible, setIsChatVisible] = useState(false);
   const [activeSidebarTab, setActiveSidebarTab] = useState('explorer');
   const [contextMenu, setContextMenu] = useState(null);
@@ -319,10 +320,10 @@ export default function App() {
 
 
   useEffect(() => {
-    if (layoutMode === 'chat') {
+    if (isChatLayout) {
       setIsChatVisible(true);
     }
-  }, [layoutMode]);
+  }, [isChatLayout]);
 
   // ── Git ───────────────────────────────────────────────────────────────────
   const [gitChanges, setGitChanges] = useState([]);
@@ -3401,7 +3402,7 @@ export default function App() {
         )}
 
         {/* Chat Sidebar (Only in Chat Mode) */}
-        {!isEditorMaximized && layoutMode === 'chat' && (
+        {!isEditorMaximized && isChatLayout && (
           <aside className="vscode-sidebar" style={{ width: `${sidebarWidth}px`, display: 'flex', flexDirection: 'column' }}>
             <div className="vscode-chat-sidebar-history-pane">
               <ChatSidebar
@@ -3452,12 +3453,12 @@ export default function App() {
         )}
 
         {/* Left resize handle */}
-        {!isEditorMaximized && ((activeSidebarTab && layoutMode === 'ide') || layoutMode === 'chat') && (
+        {!isEditorMaximized && ((activeSidebarTab && layoutMode === 'ide') || isChatLayout) && (
           <div className="vscode-resizer-horizontal" onMouseDown={(e) => startResizing(e, 'left')} />
         )}
 
         {/* Center — Editor + Bottom Panel */}
-        <main className="vscode-editor-panel" style={{ flex: layoutMode === 'chat' ? 0 : 1, display: layoutMode === 'chat' ? 'none' : 'flex' }}>
+        <main className={`vscode-editor-panel ${layoutMode === 'chat-bottom' ? 'vscode-chat-bottom-layout' : ''}`} style={{ flex: layoutMode === 'chat' ? 0 : 1, display: layoutMode === 'chat' ? 'none' : 'flex' }}>
           {!isBottomMaximized && layoutMode === 'review' && (
             <GitSidebar
               activeProject={activeProject}
@@ -3549,7 +3550,47 @@ export default function App() {
             />
           )}
 
-          <div style={{ display: isEditorMaximized || layoutMode !== 'ide' ? 'none' : 'contents' }}>
+          {layoutMode === 'chat-bottom' && !isBottomMaximized && (
+            <ChatPanel
+              isChatMode
+              chatMessages={chatMessages}
+              chatInput={chatInput}
+              setChatInput={setChatInput}
+              isAgentRunning={isAgentRunning}
+              isInterruptPending={isInterruptPending}
+              chatThoughtStream={chatThoughtStream}
+              chatResponseStream={chatResponseStream}
+              activeProject={activeProject}
+              isChatVisible={isChatVisible}
+              setIsChatVisible={setIsChatVisible}
+              chatWidth={chatWidth}
+              handleSendMessage={handleSendMessage}
+              onEditUserMessage={handleEditUserMessage}
+              onGenerateResponseForUserMessage={handleGenerateResponseForUserMessage}
+              handleInterruptAgent={handleInterruptAgent}
+              onClearChat={() => {
+                const currentProjName = activeProject ? (activeProject.project_name || activeProject.name) : '';
+                setChatMessages(currentProjName ? [{ role: 'assistant', content: t('app.greeting', { projectName: currentProjName }) }] : []);
+              }}
+              chatEndRef={chatEndRef}
+              webSearchConfig={webSearchConfig}
+              setWebSearchConfig={setWebSearchConfig}
+              activeChatId={activeChatId}
+              setActiveChatId={setActiveChatId}
+              chats={chats}
+              setChats={setChats}
+              setChatMessages={setChatMessages}
+              onSwitchChat={handleSwitchChat}
+              pendingAttachments={pendingAttachments}
+              setPendingAttachments={setPendingAttachments}
+              globalModels={globalModels}
+              onRefreshModels={fetchGlobalModels}
+              onEditModels={() => setShowEditModelsModal(true)}
+              onModelChange={handleProjectModelChange}
+              globalAiProvider={globalAiProvider}
+            />
+          )}
+          <div style={{ display: isEditorMaximized || (layoutMode !== 'ide' && layoutMode !== 'chat-bottom') ? 'none' : 'contents' }}>
             <BottomPanel
               activeBottomTab={activeBottomTab}
               setActiveBottomTab={setActiveBottomTab}
@@ -3579,7 +3620,7 @@ export default function App() {
         )}
 
         {/* Chat Panel */}
-        {(!isEditorMaximized && layoutMode !== 'review' && (isChatVisible || layoutMode === 'chat')) && (
+        {(!isEditorMaximized && layoutMode !== 'review' && layoutMode !== 'chat-bottom' && (isChatVisible || layoutMode === 'chat')) && (
           <>
             <ChatPanel
               isChatMode={layoutMode === 'chat'}

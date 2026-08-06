@@ -55,6 +55,13 @@ const numericMessageId = (message) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
 
+const modelOptionLabel = (model, models) => {
+  const name = model.name || model.id;
+  const matchingModels = models.filter(candidate => (candidate.name || candidate.id) === name);
+  if (matchingModels.length < 2) return name;
+
+  return `${name} #${matchingModels.findIndex(candidate => candidate.id === model.id) + 1}`;
+};
 // Right-side chat panel for interacting with the OpalaTex agent.
 export default function ChatPanel({
   chatMessages,
@@ -92,7 +99,7 @@ export default function ChatPanel({
   globalAiProvider
 }) {
   const { t } = useTranslation();
-  const { showPrompt, showAlert } = useCustomDialog();
+  const { showPrompt, showAlert, showConfirm } = useCustomDialog();
   const historyRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -201,7 +208,6 @@ export default function ChatPanel({
 
   // globalAiProvider is received as a prop from App.jsx
 
-  if (!isChatVisible) return null;
 
   const searchEnabled = webSearchConfig?.enabled ?? true;
 
@@ -518,6 +524,40 @@ export default function ChatPanel({
     }
   };
 
+  const handleClearAllChats = async () => {
+    if (!activeProject || isAgentRunning) return;
+
+    setShowChatActionsMenu(false);
+    const confirmed = await showConfirm(
+      t('chatPanel.clearAllChatsConfirmation', 'This will permanently delete every chat and its history for this project. This cannot be undone.'),
+      t('chatPanel.clearAllChatsTitle', 'Delete all chats')
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch('/api/chat/clear-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_name: activeProject.name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
+
+      const greeting = activeProject.project_name || activeProject.name;
+      setChats([data.chat]);
+      setActiveChatId(data.chat.id);
+      localStorage.setItem(`lastChat_${activeProject.name}`, data.chat.id);
+      setChatInput('');
+      setPendingAttachments([]);
+      setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);
+    } catch (err) {
+      console.error('Failed to clear all chats:', err);
+      showAlert(t('chatPanel.clearAllChatsFailed', 'Could not delete all chats: {{message}}', {
+        message: err?.message || String(err),
+      }));
+    }
+  };
+
   const handleSwitchChat = onSwitchChat;
 
   const handleExportMarkdown = () => {
@@ -673,6 +713,8 @@ export default function ChatPanel({
   // Cheia (verde), perto do limite (amarela), explodiu (vermelha)
   const batteryColor = isTokenExploded ? 'var(--battery-exploded)' : tokenPercentage <= 20 ? 'var(--battery-low)' : 'var(--battery-good)';
 
+  if (!isChatVisible) return null;
+
   return (
     <aside 
       className="vscode-chat" 
@@ -817,6 +859,16 @@ export default function ChatPanel({
                   <Eraser size={14} />
                   <span>{t('chatPanel.clearChat')}</span>
                 </button>
+                <button
+                  type="button"
+                  className="vscode-overflow-menu-item"
+                  onClick={handleClearAllChats}
+                  disabled={!activeProject || isAgentRunning}
+                  role="menuitem"
+                >
+                  <Trash2 size={14} />
+                  <span>{t('chatPanel.clearAllChats')}</span>
+                </button>
               </div>
             )}
           </div>
@@ -932,7 +984,7 @@ export default function ChatPanel({
               {(!activeProject || !activeProject.model) && <option value="">{t('chatPanel.selectModel')}</option>}
               {Object.entries((globalModels || []).reduce((acc, m) => { const p = m.provider || 'custom'; if (!acc[p]) acc[p] = []; acc[p].push(m); return acc; }, {})).map(([provider, models]) => (
                 <optgroup key={`orch-${provider}`} label={provider.toUpperCase()}>
-                  {models.map(m => <option key={`orch-${m.id}`} value={m.id}>{m.name || m.id}</option>)}
+                  {models.map(m => <option key={`orch-${m.id}`} value={m.id}>{modelOptionLabel(m, models)}</option>)}
                 </optgroup>
               ))}
               <optgroup label={t('common.actions', 'Actions')}>
@@ -969,7 +1021,7 @@ export default function ChatPanel({
               {(!activeProject || !activeProject.worker_model) && <option value="">{t('chatPanel.selectModel')}</option>}
               {Object.entries((globalModels || []).reduce((acc, m) => { const p = m.provider || 'custom'; if (!acc[p]) acc[p] = []; acc[p].push(m); return acc; }, {})).map(([provider, models]) => (
                 <optgroup key={`work-${provider}`} label={provider.toUpperCase()}>
-                  {models.map(m => <option key={`work-${m.id}`} value={m.id}>{m.name || m.id}</option>)}
+                  {models.map(m => <option key={`work-${m.id}`} value={m.id}>{modelOptionLabel(m, models)}</option>)}
                 </optgroup>
               ))}
               <optgroup label={t('common.actions', 'Actions')}>
@@ -1273,7 +1325,7 @@ export default function ChatPanel({
             ? t('chatPanel.continue', 'Continue')
             : msg.content;
           if (isInterrupted) {
-            displayContent = t('chatPanel.interruptionNotice');
+            displayContent = t('app.interruptionNotice');
           }
           if (hideThink && !isUser && displayContent) {
             displayContent = displayContent.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '');

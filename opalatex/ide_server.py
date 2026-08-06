@@ -2265,6 +2265,36 @@ class AsyncHTTPServer:
             clear_archival_chat(project_name, chat_id)
             self.send_response(writer, 200, b'{"status":"ok"}', "application/json")
 
+        elif path == '/api/chat/clear-all' and method == 'POST':
+            from opalatex.config import DEFAULT_DB_PATH
+            from opalatex.project import ProjectStore
+            from opalatex.archival import clear_archival
+
+            project_name = data.get("project_name")
+            if not project_name:
+                self.send_response(writer, 400, b'{"error":"project_name required"}', "application/json")
+                return
+
+            store = ProjectStore(db_path=DEFAULT_DB_PATH)
+            try:
+                main_chat = store.clear_all_chats(project_name)
+            except ValueError as exc:
+                self.send_response(
+                    writer,
+                    404,
+                    json.dumps({"error": str(exc)}).encode('utf-8'),
+                    "application/json",
+                )
+                return
+
+            clear_archival(project_name)
+            self.send_response(
+                writer,
+                200,
+                json.dumps({"status": "ok", "chat": main_chat}).encode('utf-8'),
+                "application/json",
+            )
+
         elif path == '/api/chat/rename' and method == 'POST':
             from opalatex.config import DEFAULT_DB_PATH
             from opalatex.project import ProjectStore

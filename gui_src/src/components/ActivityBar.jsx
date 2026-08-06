@@ -1,5 +1,5 @@
 import React from 'react';
-import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, Terminal, History } from 'lucide-react';
+import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, PanelBottom, Terminal, History } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Left-side vertical activity bar (VSCode-style icon strip).
@@ -30,6 +30,14 @@ export default function ActivityBar({
         </button>
 
         <button
+          onClick={() => setLayoutMode(layoutMode === 'chat-bottom' ? 'ide' : 'chat-bottom')}
+          className={`vscode-activitybar-btn ${layoutMode === 'chat-bottom' ? 'active' : ''}`}
+          title={layoutMode === 'chat-bottom' ? t('activityBar.editMode') : t('activityBar.chatBottomMode')}
+        >
+          <PanelBottom size={22} />
+        </button>
+
+        <button
           onClick={() => {
             setLayoutMode('ide');
             setActiveSidebarTab(activeSidebarTab === 'explorer' ? null : 'explorer');
@@ -50,6 +58,7 @@ export default function ActivityBar({
         >
           <History size={22} />
         </button>
+
 
         <button
           onClick={() => {
@@ -84,11 +93,11 @@ export default function ActivityBar({
         </button>
 
         <button
-          onClick={() => { if (layoutMode !== 'chat') setIsChatVisible(!isChatVisible); }}
-          className={`vscode-activitybar-btn ${isChatVisible || layoutMode === 'chat' ? 'active' : ''}`}
+          onClick={() => { if (layoutMode !== 'chat' && layoutMode !== 'chat-bottom') setIsChatVisible(!isChatVisible); }}
+          className={`vscode-activitybar-btn ${isChatVisible || layoutMode === 'chat' || layoutMode === 'chat-bottom' ? 'active' : ''}`}
           title={t('activityBar.opalatexCodes')}
-          disabled={layoutMode === 'chat'}
-          style={{ opacity: layoutMode === 'chat' ? 0.5 : 1, cursor: layoutMode === 'chat' ? 'not-allowed' : 'pointer' }}
+          disabled={layoutMode === 'chat' || layoutMode === 'chat-bottom'}
+          style={{ opacity: layoutMode === 'chat' || layoutMode === 'chat-bottom' ? 0.5 : 1, cursor: layoutMode === 'chat' || layoutMode === 'chat-bottom' ? 'not-allowed' : 'pointer' }}
         >
           <MessageSquare size={22} />
         </button>

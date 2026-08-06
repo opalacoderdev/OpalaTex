@@ -211,6 +211,40 @@ def get_model(model_id: str) -> Dict[str, Any] | None:
             return m
     return None
 
+def resolve_runtime_model_id(model_id: str | None) -> str:
+    """Return the provider/model identifier used by LiteLLM for a stored entry.
+
+    Model-store IDs identify a configuration entry and may include a suffix when
+    the same provider/model is configured against multiple API base URLs.
+    LiteLLM must always receive the original ``provider/name`` identifier.
+    """
+    configured_model = get_model(str(model_id or ""))
+    if configured_model:
+        provider = configured_model.get("provider", "")
+        name = configured_model.get("name", "")
+        if provider and name:
+            return f"{provider}/{name}"
+    return str(model_id or "")
+
+
+def _has_duplicate_configuration(
+    models: List[Dict[str, Any]],
+    model_data: Dict[str, Any],
+    previous_id: str | None,
+) -> bool:
+    """Return whether the provider, model name, and API base URL already exist."""
+    provider = model_data["provider"]
+    name = model_data["name"]
+    api_base = model_data["api_base"]
+    return any(
+        model.get("id") != previous_id
+        and model.get("provider") == provider
+        and model.get("name") == name
+        and model.get("api_base", "") == api_base
+        for model in models
+    )
+
+
 def add_or_update_model(model_data: Dict[str, Any]) -> None:
     """Add a new model or update an existing one by ID.
 
@@ -224,6 +258,11 @@ def add_or_update_model(model_data: Dict[str, Any]) -> None:
     model_data = normalize_model_entry(model_data)
     previous_id = model_data.pop("previous_id", None)
     model_id = model_data["id"]
+
+    if _has_duplicate_configuration(models, model_data, previous_id):
+        raise ValueError(
+            "A model with this provider, name, and API base URL already exists"
+        )
 
     if previous_id and previous_id != model_id:
         for m in models:

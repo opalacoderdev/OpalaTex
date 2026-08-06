@@ -3,6 +3,13 @@ import { Cpu, RefreshCw, Settings2, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { FEATURES } from '../config/features';
 
+const modelOptionLabel = (model, models) => {
+  const name = model.name || model.id;
+  const matchingModels = models.filter(candidate => (candidate.name || candidate.id) === name);
+  if (matchingModels.length < 2) return name;
+
+  return `${name} #${matchingModels.findIndex(candidate => candidate.id === model.id) + 1}`;
+};
 export default function TopBar({
   activeProject,
   globalModels,
@@ -57,7 +64,7 @@ export default function TopBar({
         {Object.entries(groupedModels).map(([provider, models]) => (
           <optgroup key={provider} label={provider.toUpperCase()}>
             {models.map(m => (
-              <option key={m.id} value={m.id}>{m.name || m.id}</option>
+              <option key={m.id} value={m.id}>{modelOptionLabel(m, models)}</option>
             ))}
           </optgroup>
         ))}

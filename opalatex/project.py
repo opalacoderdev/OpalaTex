@@ -860,6 +860,23 @@ class ProjectStore:
                 conn.execute("DELETE FROM project_history WHERE project = ?", (name,))
                 conn.execute("DELETE FROM project_activity WHERE project = ?", (name,))
 
+    def clear_all_chats(self, name: str) -> dict:
+        """Remove every project chat and recreate an empty main chat."""
+        main_chat = {"id": f"main_{name}", "name": "Main Chat"}
+        with _conn(self.db_path) as conn:
+            project = conn.execute("SELECT 1 FROM projects WHERE name = ?", (name,)).fetchone()
+            if project is None:
+                raise ValueError(f"Project '{name}' not found")
+
+            conn.execute("DELETE FROM project_history WHERE project = ?", (name,))
+            conn.execute("DELETE FROM project_activity WHERE project = ?", (name,))
+            conn.execute("DELETE FROM project_chats WHERE project = ?", (name,))
+            conn.execute(
+                "INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
+                (main_chat["id"], name, main_chat["name"], datetime.now(timezone.utc).isoformat(), ""),
+            )
+        return main_chat
+
     def truncate_chat_history_from_index(self, name: str, chat_id: str, from_index: int) -> list[int]:
         if from_index < 0:
             raise ValueError("from_index must be >= 0")

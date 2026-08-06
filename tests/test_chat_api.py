@@ -55,6 +55,49 @@ async def test_chat_truncate_endpoint_returns_deleted_ids(tmp_path, monkeypatch)
     loaded = store.load("myproj", chat_id=project.current_chat_id)
     assert [m["id"] for m in loaded.history] == [first_id]
 
+@pytest.mark.asyncio
+async def test_clear_all_chats_endpoint_resets_project_chats(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "projects.db")
+    store = ProjectStore(db_path=db_path)
+    project = store.create(
+        name="myproj",
+        mode="plan",
+        model="fake/model",
+        project_name="My Project",
+        project_path=str(tmp_path / "project"),
+    )
+    store.append_message(project, "user", "main message")
+    store.create_chat("myproj", "branch-1", "Branch")
+    branch = store.load("myproj", chat_id="branch-1")
+    store.append_message(branch, "user", "branch message")
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
+
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+
+    await server.route_api(
+        "POST",
+        "/api/chat/clear-all",
+        {},
+        {},
+        json.dumps({"project_name": "myproj"}).encode("utf-8"),
+        writer,
+    )
+
+    assert responses == [
+        (200, {"status": "ok", "chat": {"id": "main_myproj", "name": "Main Chat"}}, "application/json")
+    ]
+    loaded = store.load("myproj", chat_id="main_myproj")
+    assert loaded.chats == [{"id": "main_myproj", "name": "Main Chat"}]
+    assert loaded.history == []
+
+
 def test_ollama_model_info_uses_configured_remote_api_base():
     assert _ollama_tags_url_for_model_info(
         "ollama/gpt-oss:20b",

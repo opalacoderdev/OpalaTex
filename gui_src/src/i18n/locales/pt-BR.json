@@ -22,6 +22,7 @@
     "generateError": "Não foi possível gerar o serial de instalação."
   },
   "activityBar": {
+    "chatBottomMode": "Alternar para chat com painel inferior",
     "explorer": "Explorer",
     "chatMode": "Modo Chat",
     "editMode": "Modo Edição",
@@ -313,6 +314,10 @@
     "exportMarkdown": "Exportar como Markdown",
     "exportPDF": "Exportar como PDF / Imprimir",
     "clearChat": "Limpar chat (Varrer)",
+    "clearAllChats": "Excluir todos os chats do projeto",
+    "clearAllChatsTitle": "Excluir todos os chats",
+    "clearAllChatsConfirmation": "Isso excluirá permanentemente todos os chats e seus históricos deste projeto. Esta ação não pode ser desfeita.",
+    "clearAllChatsFailed": "Não foi possível excluir todos os chats: {{message}}",
     "branchMessage": "Criar branch a partir daqui",
     "branchPrompt": "Nome para o novo chat (branch):",
     "webSearch": "Web Search",

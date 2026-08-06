@@ -380,6 +380,24 @@ def test_delete_removes_history(store):
     assert p2.history == []
 
 
+def test_clear_all_chats_recreates_an_empty_main_chat(store):
+    store.create(**_base_args())
+    project = store.load("myproj")
+    store.append_message(project, "user", "Main chat message")
+    store.append_activity(project, "thought", "Main chat thought", agent="chat_orchestrator")
+    store.create_chat("myproj", "branch-1", "Branch")
+    branch = store.load("myproj", chat_id="branch-1")
+    store.append_message(branch, "user", "Branch message")
+
+    main_chat = store.clear_all_chats("myproj")
+
+    assert main_chat == {"id": "main_myproj", "name": "Main Chat"}
+    loaded = store.load("myproj", chat_id=main_chat["id"])
+    assert loaded.chats == [main_chat]
+    assert loaded.history == []
+    assert store.list_activity("myproj", main_chat["id"]) == []
+
+
 def test_append_message_persists_attachments(store):
     store.create(**_base_args())
     p = store.load("myproj")
