@@ -451,7 +451,7 @@ def get_agent_model(agent_name: str, default: str | None = None) -> str:
     return model
 
 
-def get_agent_llm_kwargs(agent_name: str) -> dict:
+def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> dict:
     """Return merged litellm kwargs for *agent_name*.
 
     Priority (highest first):
@@ -460,7 +460,11 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
       3. Global ``llm_defaults`` in agents.yaml
       4. Hard-coded defaults above
 
-    Non-litellm fields (model, max_heartbeats) are excluded.
+    Non-litellm fields (model, max_heartbeats) are excluded. When
+    ``model_override`` is provided, its catalog entry supplies the provider
+    credentials and capabilities instead of resolving a model for the agent
+    role. This is used by UI features that must follow the model currently
+    selected for the chat.
     """
     merged = dict(_get_llm_defaults())
     merged.update(_get_agent_overrides().get(agent_name, {}))
@@ -499,7 +503,11 @@ def get_agent_llm_kwargs(agent_name: str) -> dict:
     except Exception:
         pass
 
-    resolved_model = get_agent_model(agent_name, default=session_model)
+    resolved_model = (
+        str(model_override).strip()
+        if model_override and str(model_override).strip()
+        else get_agent_model(agent_name, default=session_model)
+    )
     from opalatex.cloud_client import CHAT_PROXY_URL, CLOUD_MODEL_ALIASES
     cloud_litellm_models = {meta["litellm_model"] for meta in CLOUD_MODEL_ALIASES.values()}
     from opalatex.models_store import resolve_runtime_model_id

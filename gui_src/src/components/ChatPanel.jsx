@@ -107,6 +107,8 @@ export default function ChatPanel({
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [showChatActionsMenu, setShowChatActionsMenu] = useState(false);
+  const [isEvolvingPrompt, setIsEvolvingPrompt] = useState(false);
+  const [evolutionProgress, setEvolutionProgress] = useState(null);
   const { menu, onContextMenu, handleCopy, handleSelectAll, close: closeMenu } = useTextContextMenu();
 
   useLayoutEffect(() => {
@@ -207,6 +209,132 @@ export default function ChatPanel({
   const [chatToDelete, setChatToDelete] = useState(null);
 
   // globalAiProvider is received as a prop from App.jsx
+
+  const getPromptEvolutionErrorMessage = useCallback((error) => {
+    const raw = error instanceof Error ? error.message : String(error || '');
+    const normalized = raw.toLowerCase();
+
+    if (normalized.includes('valid structured result')) {
+      return t('chatPanel.evolveInvalidStructuredResult');
+    }
+    if (normalized.includes('internal task wrapper')) {
+      return t('chatPanel.evolveInternalWrapperResult');
+    }
+    if (normalized.includes('original prompt unchanged')) {
+      return t('chatPanel.evolveOriginalUnchanged');
+    }
+    if (normalized.includes('internal instructions')) {
+      return t('chatPanel.evolveInternalInstructionLeak');
+    }
+    if (normalized.includes('empty refined prompt')) {
+      return t('chatPanel.evolveEmptyResult');
+    }
+    if (!raw || normalized === 'evolution failed') {
+      return t('chatPanel.evolveGenericFailure');
+    }
+    return raw;
+  }, [t]);
+  const handleEvolvePrompt = async () => {
+    const rawPrompt = chatInput.trim();
+    if (!rawPrompt || isAgentRunning || isEvolvingPrompt || !activeProject) return;
+
+    setIsEvolvingPrompt(true);
+    setEvolutionProgress({ active: true, iteration: 1, total: 1, complete: false });
+
+    try {
+      const res = await fetch('/api/chat/evolve-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        body: JSON.stringify({
+          prompt: rawPrompt,
+          model: globalAiProvider === 'cloud' ? null : activeProject.model,
+          project_path: activeProject?.path || activeProject?.project_name,
+          stream: true,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || t('statusBar.networkError', { message: res.statusText }));
+      }
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.prompt) {
+          setChatInput(data.prompt);
+        }
+      } else if (res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let currentEvent = 'message';
+        let isFirstChunkInIter = true;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            if (trimmed.startsWith('event:')) {
+              currentEvent = trimmed.slice(6).trim();
+            } else if (trimmed.startsWith('data:')) {
+              const dataStr = trimmed.slice(5).trim();
+              try {
+                const payload = JSON.parse(dataStr);
+                if (currentEvent === 'iteration_start') {
+                  isFirstChunkInIter = true;
+                  setEvolutionProgress({
+                    active: true,
+                    iteration: payload.iteration,
+                    total: payload.total_iterations,
+                    complete: false,
+                  });
+                } else if (currentEvent === 'chunk') {
+                  if (payload.text) {
+                    if (isFirstChunkInIter) {
+                      setChatInput(payload.text);
+                      isFirstChunkInIter = false;
+                    } else {
+                      setChatInput(prev => prev + payload.text);
+                    }
+                  }
+                } else if (currentEvent === 'iteration_end') {
+                  if (payload.prompt) {
+                    setChatInput(payload.prompt);
+                  }
+                } else if (currentEvent === 'complete') {
+                  if (payload.prompt) {
+                    setChatInput(payload.prompt);
+                  }
+                } else if (currentEvent === 'error') {
+                  throw new Error(payload.error || t('chatPanel.evolveGenericFailure'));
+                }
+              } catch (e) {
+                if (currentEvent === 'error') throw e;
+              }
+            }
+          }
+        }
+      }
+
+      setEvolutionProgress(prev => ({ ...(prev || {}), active: false, complete: true }));
+      setTimeout(() => setEvolutionProgress(null), 2200);
+
+    } catch (err) {
+      showAlert(t('chatPanel.evolveError', { message: getPromptEvolutionErrorMessage(err) }));
+      setEvolutionProgress(null);
+    } finally {
+      setIsEvolvingPrompt(false);
+    }
+  };
 
 
   const searchEnabled = webSearchConfig?.enabled ?? true;
@@ -1641,8 +1769,58 @@ export default function ChatPanel({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        style={isDragOver ? { outline: '2px dashed #4ec9b0', outlineOffset: '-2px' } : {}}
+        style={
+          isDragOver
+            ? { outline: '2px dashed #4ec9b0', outlineOffset: '-2px' }
+            : isEvolvingPrompt
+            ? {
+                border: '1px solid #4ec9b0',
+                boxShadow: '0 0 12px rgba(78, 201, 176, 0.4)',
+                transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
+              }
+            : {}
+        }
       >
+        {/* Evolution Visual Progress Banner */}
+        {evolutionProgress && (
+          <div
+            style={{
+              padding: '6px 12px',
+              margin: '6px 10px 4px 10px',
+              borderRadius: '6px',
+              background: 'linear-gradient(135deg, rgba(78, 201, 176, 0.15), rgba(197, 134, 192, 0.15))',
+              border: '1px solid rgba(78, 201, 176, 0.4)',
+              boxShadow: '0 0 10px rgba(78, 201, 176, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '12px',
+              color: 'var(--vscode-text-fg)',
+              animation: 'opc-fade-in 0.2s ease',
+            }}
+          >
+            <div className="flex items-center" style={{ gap: '8px' }}>
+              {evolutionProgress.complete ? (
+                <Check size={14} style={{ color: '#4ec9b0' }} />
+              ) : (
+                <Sparkles size={14} className="spin" style={{ color: '#4ec9b0' }} />
+              )}
+              <span style={{ fontWeight: 500 }}>
+                {evolutionProgress.complete
+                  ? t('chatPanel.evolvedSuccess')
+                  : t('chatPanel.evolvingIteration', {
+                      iteration: evolutionProgress.iteration || 1,
+                      total: evolutionProgress.total || 1,
+                    })}
+              </span>
+            </div>
+            {!evolutionProgress.complete && (
+              <div style={{ fontSize: '10px', opacity: 0.85, background: 'rgba(0,0,0,0.25)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(78, 201, 176, 0.3)' }}>
+                {Math.round((((evolutionProgress.iteration || 1) - 1) / (evolutionProgress.total || 1)) * 100)}%
+              </div>
+            )}
+          </div>
+        )}
         {/* Pending attachment preview strip */}
         {pendingAttachments && pendingAttachments.length > 0 && (
           <div style={{
@@ -1707,14 +1885,40 @@ export default function ChatPanel({
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={!activeProject || isAgentRunning}
+            disabled={!activeProject || isAgentRunning || isEvolvingPrompt}
             placeholder={
               !activeProject ? t('chatPanel.setProjectFirst') :
               isAgentRunning ? t('chatPanel.thinking') :
+              isEvolvingPrompt ? t('chatPanel.evolving', 'Evolving...') :
               t('chatPanel.askOpalaTex')
             }
             className="vscode-chat-textarea"
           />
+          {/* Evolve Prompt Button */}
+          <button
+            type="button"
+            onClick={handleEvolvePrompt}
+            disabled={!activeProject || !chatInput.trim() || isAgentRunning || isEvolvingPrompt}
+            title={isEvolvingPrompt ? t('chatPanel.evolving', 'Evolving...') : t('chatPanel.evolvePrompt', 'Evolve prompt')}
+            className="vscode-button"
+            style={{
+              padding: '6px',
+              backgroundColor: 'transparent',
+              border: 'none',
+              color: isEvolvingPrompt ? '#4ec9b0' : 'var(--vscode-text-fg, #cccccc)',
+              cursor: (!activeProject || !chatInput.trim() || isAgentRunning || isEvolvingPrompt) ? 'not-allowed' : 'pointer',
+              opacity: (!activeProject || !chatInput.trim() || isAgentRunning || isEvolvingPrompt) ? 0.4 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {isEvolvingPrompt ? (
+              <RefreshCw size={14} className="spin" />
+            ) : (
+              <Sparkles size={14} style={{ color: (!activeProject || !chatInput.trim() || isAgentRunning) ? 'inherit' : '#4ec9b0' }} />
+            )}
+          </button>
           {isAgentRunning ? (
             <button
               type="button"

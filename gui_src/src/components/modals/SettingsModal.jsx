@@ -44,6 +44,8 @@ export default function SettingsModal({
   const [workspaceHiddenExtensions, setWorkspaceHiddenExtensions] = React.useState([]);
   const [tectonicInstallMessage, setTectonicInstallMessage] = React.useState('');
   const [pandocInstallMessage, setPandocInstallMessage] = React.useState('');
+  const [promptEvolutionIterations, setPromptEvolutionIterations] = React.useState(1);
+  const [promptEvolutionMaxTokens, setPromptEvolutionMaxTokens] = React.useState(4096);
 
   const activeTab = (settingsTab === 'preferences' || !['general', 'dependencies', 'license', 'about'].includes(settingsTab))
     ? 'general'
@@ -97,6 +99,18 @@ export default function SettingsModal({
         }
       })
       .catch(() => { });
+
+    fetch('/api/settings/prompt-evolution')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (cfg?.prompt_evolution_iterations !== undefined) {
+          setPromptEvolutionIterations(Math.max(1, Number(cfg.prompt_evolution_iterations) || 1));
+        }
+        if (cfg?.prompt_evolution_max_tokens !== undefined) {
+          setPromptEvolutionMaxTokens(Math.max(1, Number(cfg.prompt_evolution_max_tokens) || 4096));
+        }
+      })
+      .catch(() => { });
   }, []);
 
   const saveAiProviderSettings = (providerValue, cloudModelValue) => {
@@ -112,6 +126,16 @@ export default function SettingsModal({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ draft_synctex_enabled: draftSynctexValue }),
+    }).catch(() => { });
+  };
+
+  const savePromptEvolutionSettings = (iterations, maxTokens) => {
+    const numIterations = Math.max(1, Math.floor(Number(iterations) || 1));
+    const numMaxTokens = Math.max(1, Math.min(65536, Math.floor(Number(maxTokens) || 4096)));
+    fetch('/api/settings/prompt-evolution', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt_evolution_iterations: numIterations, prompt_evolution_max_tokens: numMaxTokens }),
     }).catch(() => { });
   };
 
@@ -295,6 +319,47 @@ export default function SettingsModal({
                 </select>
               </div>
 
+              {/* Prompt Evolution Iterations */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.promptEvolutionIterations', 'Prompt Evolution Iterations')}</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={promptEvolutionIterations}
+                  onChange={(e) => {
+                    const val = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                    setPromptEvolutionIterations(val);
+                    savePromptEvolutionSettings(val, promptEvolutionMaxTokens);
+                  }}
+                  className="vscode-settings-input"
+                  style={{ width: '100%' }}
+                />
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.promptEvolutionIterationsHint', 'Number of refinement iterations executed when evolving a prompt (default: 1).')}
+                </span>
+              </div>
+
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.promptEvolutionMaxTokens', 'Prompt Evolution Max Tokens')}</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="65536"
+                  step="1"
+                  value={promptEvolutionMaxTokens}
+                  onChange={(e) => {
+                    const val = Math.max(1, Math.min(65536, Math.floor(Number(e.target.value) || 4096)));
+                    setPromptEvolutionMaxTokens(val);
+                    savePromptEvolutionSettings(promptEvolutionIterations, val);
+                  }}
+                  className="vscode-settings-input"
+                  style={{ width: '100%' }}
+                />
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.promptEvolutionMaxTokensHint', 'Maximum generated tokens for each prompt-evolution iteration (default: 4096).')}
+                </span>
+              </div>
               <div className="flex flex-col" style={{ gap: '6px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.latexCompilation')}</label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--vscode-text-fg)' }}>

@@ -471,6 +471,7 @@ export default function App() {
   const saveFileRef = useRef(null);
   const binarySaveHandlerRef = useRef(null);
   const diskFileContentsRef = useRef({});
+  const gitStatusRequestRef = useRef(null);
   const lastEditorInputAtRef = useRef(0);
   const importFileInputRef = useRef(null);
   const importTargetPathRef = useRef('');
@@ -1377,13 +1378,23 @@ export default function App() {
 
   const fetchGitStatus = async () => {
     if (!activeProject) return;
-    try {
-      const res = await fetch(`/api/git/status?${gitQuerySuffix()}&t=${Date.now()}`);
-      if (res.ok) {
-        const data = await res.json();
-        setGitChanges(data.files || []);
+    if (gitStatusRequestRef.current) return gitStatusRequestRef.current;
+
+    const request = (async () => {
+      try {
+        const res = await fetch(`/api/git/status?${gitQuerySuffix()}&t=${Date.now()}`);
+        if (res.ok) {
+          const data = await res.json();
+          setGitChanges(data.files || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch git status', err);
+      } finally {
+        gitStatusRequestRef.current = null;
       }
-    } catch (err) { console.error('Failed to fetch git status', err); }
+    })();
+    gitStatusRequestRef.current = request;
+    return request;
   };
 
   const handleSelectProject = (proj) => {

@@ -21,6 +21,8 @@ _DEFAULTS: dict[str, Any] = {
     "cloud_model": "OpalaTexCloud",
     "draft_synctex_enabled": False,
     "show_hidden_workspace_files": False,
+    "prompt_evolution_iterations": 1,
+    "prompt_evolution_max_tokens": 4096,
 }
 
 

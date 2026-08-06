@@ -331,6 +331,13 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
         else:
             response = await litellm.acompletion(model=effective_model, messages=messages, **kwargs)
 
+        # LiteLLM 1.90 can return its async stream initializer as the result of
+        # acompletion for some OpenAI-compatible providers. Resolve that nested
+        # awaitable before consuming the stream so it is not garbage-collected
+        # as an unawaited coroutine.
+        if inspect.isawaitable(response):
+            response = await response
+
         if streaming:
             chunks = []
             async for chunk in response:

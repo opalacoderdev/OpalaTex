@@ -49,6 +49,7 @@ import json
 import urllib.parse
 import mimetypes
 import subprocess
+from pydantic import BaseModel, Field
 from email.parser import BytesParser
 from email.policy import default as email_default_policy
 from opalatex.subprocess_utils import utf8_text_kwargs
@@ -125,6 +126,115 @@ def _rasterize_docx_media_to_png(data: bytes, mime_type: str = "", filename: str
         output = io.BytesIO()
         frame.save(output, format="PNG")
         return output.getvalue()
+
+
+_PROMPT_EVOLUTION_INTERNAL_OUTPUT_MARKERS = (
+    "refine this user prompt",
+    "user prompt to refine",
+    "return only a json object",
+    "provided response schema",
+    "response schema",
+    "evolved_prompt",
+    "refined version of the user prompt",
+)
+
+
+class PromptEvolutionResult(BaseModel):
+    """The only model output accepted by prompt evolution."""
+
+    evolved_prompt: str = Field(
+        min_length=1,
+        description=(
+            "The refined prompt text only, preserving the source language and intent. "
+            "Do not include task instructions, schema instructions, reasoning, or explanations."
+        ),
+    )
+
+
+def _normalize_prompt_evolution_text(text: str) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
+def clean_evolved_prompt(
+    result: PromptEvolutionResult,
+    source_prompt: str | None = None,
+) -> str:
+    """Return the validated field from the structured prompt-evolution output."""
+    if not isinstance(result, PromptEvolutionResult):
+        raise TypeError("Prompt evolution requires a validated structured result.")
+    evolved_prompt = result.evolved_prompt.strip()
+    if not evolved_prompt:
+        raise ValueError("Prompt evolution returned an empty refined prompt.")
+
+    normalized_output = _normalize_prompt_evolution_text(evolved_prompt)
+    normalized_source = _normalize_prompt_evolution_text(source_prompt or "")
+
+    if normalized_source and normalized_output == normalized_source:
+        raise ValueError("Prompt evolution returned the original prompt unchanged.")
+
+    wrapped_source = _normalize_prompt_evolution_text(f"Refine this user prompt: {source_prompt or ''}")
+    if normalized_source and normalized_output == wrapped_source:
+        raise ValueError("Prompt evolution returned the internal task wrapper instead of the refined prompt.")
+
+    for marker in _PROMPT_EVOLUTION_INTERNAL_OUTPUT_MARKERS:
+        if marker in normalized_output and marker not in normalized_source:
+            raise ValueError("Prompt evolution returned internal instructions instead of the refined prompt.")
+
+    return evolved_prompt
+
+
+async def _execute_prompt_evolution(
+    prompt: str,
+    iterations: int = 1,
+    model: str | None = None,
+    max_tokens: int = 4096,
+) -> str:
+    """Refine and evolve a prompt iteratively using LLMAgentBlock."""
+    import agenticblocks.blocks.llm.agent as _agent_mod
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+    from opalatex.config import get_agent_model, get_agent_llm_kwargs
+
+    selected_model = str(model or "").strip()
+    if not selected_model:
+        selected_model = get_agent_model("orchestrator")
+    model_kwargs = get_agent_llm_kwargs(
+        "orchestrator",
+        model_override=selected_model if model else None,
+    )
+    try:
+        model_kwargs["max_tokens"] = max(1, min(65536, int(max_tokens)))
+    except (TypeError, ValueError):
+        model_kwargs["max_tokens"] = 4096
+
+    current = prompt
+    iters = max(1, min(10, int(iterations or 1)))
+
+    system_prompt = (
+        "Rewrite the user's prompt into a clearer and more useful prompt. "
+        "Preserve the user's language and intent. "
+        "Return the structured result with the rewritten prompt text in evolved_prompt."
+    )
+
+    for _ in range(iters):
+        agent = _agent_mod.LLMAgentBlock(
+            name="prompt_evolution",
+            system_prompt=system_prompt,
+            model=selected_model,
+            model_kwargs=model_kwargs,
+            response_schema=PromptEvolutionResult,
+        )
+        wrap_agent_litellm_compat(agent)
+        res = await agent.run(
+            _agent_mod.AgentInput(
+                prompt=current
+            )
+        )
+        structured_result = res.structured_output
+        if not isinstance(structured_result, PromptEvolutionResult):
+            raise ValueError("Prompt evolution did not return a valid structured result.")
+        current = clean_evolved_prompt(structured_result, source_prompt=current)
+
+    return current
 
 
 OPALATEX_HIDDEN_ARTIFACT_PREFIXES = ("opalatex_partial_",)
@@ -533,7 +643,7 @@ def _read_clipboard() -> str:
     # 2. Subprocess PyQt6 (Cinnamon/X11): a fresh QApplication in a subprocess
     #    can reach the X11 clipboard without needing the main-thread instance.
     try:
-        import subprocess, sys, os
+        import subprocess
         r = subprocess.run(
             [sys.executable, '-c',
              'from PyQt6.QtWidgets import QApplication; app=QApplication([]);'
@@ -563,7 +673,7 @@ def _write_clipboard(text: str):
 
     # 2. Subprocess PyQt6 (Cinnamon/X11)
     try:
-        import subprocess, sys, os
+        import subprocess
         escaped = text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
         r = subprocess.run(
             [sys.executable, '-c',
@@ -1377,10 +1487,10 @@ class AsyncHTTPServer:
                 return
             
             try:
-                import subprocess as sp
+                import subprocess
                 git_ctx = _resolve_git_context(project_path, use_shadow, git_root_path)
                 norm_file_path = _project_path_to_repo_path(file_path, git_ctx)
-                result = sp.run(
+                result = subprocess.run(
                     git_ctx["git_cmd"] + ["show", f"HEAD:{norm_file_path}"],
                     capture_output=True, cwd=git_ctx["cwd"], **utf8_text_kwargs()
                 )
@@ -2500,12 +2610,20 @@ class AsyncHTTPServer:
             from opalatex.project import ProjectStore
             store = ProjectStore(db_path=DEFAULT_DB_PATH)
             project_name = data.get("project_name")  # internal key (db name)
+            if not project_name and data.get("project_path"):
+                project_name = store.find_by_path(data["project_path"])
             if not project_name:
                 self.send_response(writer, 400, b'{"error":"project_name is required"}', "application/json")
                 return
             if not store.exists(project_name):
-                self.send_response(writer, 404, json.dumps({"error": f"Project '{project_name}' not found"}).encode(), "application/json")
-                return
+                found = None
+                if data.get("project_path"):
+                    found = store.find_by_path(data["project_path"])
+                if found:
+                    project_name = found
+                else:
+                    self.send_response(writer, 404, json.dumps({"error": f"Project '{project_name}' not found"}).encode(), "application/json")
+                    return
             chat_id = data.get("chat_id") or data.get("current_chat_id") or "main"
             project = store.load(project_name, chat_id=chat_id)
             try:
@@ -3620,6 +3738,72 @@ class AsyncHTTPServer:
                 self.send_response(writer, 200, b'{"ok":true}', "application/json")
             else:
                 self.send_response(writer, 500, json.dumps({'ok': False, 'error': err}).encode(), "application/json")
+        elif path == '/api/settings/prompt-evolution' and method == 'GET':
+            from opalatex.ui_settings import load_ui_settings
+            cfg = load_ui_settings()
+            iters = max(1, int(cfg.get("prompt_evolution_iterations", 1)))
+            max_tokens = max(1, min(65536, int(cfg.get("prompt_evolution_max_tokens", 4096))))
+            self.send_response(
+                writer,
+                200,
+                json.dumps({
+                    "prompt_evolution_iterations": iters,
+                    "prompt_evolution_max_tokens": max_tokens,
+                }).encode('utf-8'),
+                "application/json",
+            )
+
+        elif path == '/api/settings/prompt-evolution' and method == 'POST':
+            from opalatex.ui_settings import save_ui_settings
+            try:
+                iters = max(1, int(data.get("prompt_evolution_iterations", 1)))
+            except (ValueError, TypeError):
+                iters = 1
+            try:
+                max_tokens = max(1, min(65536, int(data.get("prompt_evolution_max_tokens", 4096))))
+            except (ValueError, TypeError):
+                max_tokens = 4096
+            save_ui_settings({
+                "prompt_evolution_iterations": iters,
+                "prompt_evolution_max_tokens": max_tokens,
+            })
+            self.send_response(
+                writer,
+                200,
+                json.dumps({
+                    "success": True,
+                    "prompt_evolution_iterations": iters,
+                    "prompt_evolution_max_tokens": max_tokens,
+                }).encode('utf-8'),
+                "application/json",
+            )
+
+        elif path == '/api/chat/evolve-prompt' and method == 'POST':
+            prompt_text = (data.get("prompt") or "").strip()
+            if not prompt_text:
+                self.send_response(writer, 400, b'{"error":"prompt is required"}', "application/json")
+                return
+            from opalatex.ui_settings import load_ui_settings
+            cfg = load_ui_settings()
+            default_iters = max(1, int(cfg.get("prompt_evolution_iterations", 1)))
+            iterations = data.get("iterations")
+            if iterations is None:
+                iterations = default_iters
+            try:
+                iterations = max(1, int(iterations))
+            except (ValueError, TypeError):
+                iterations = default_iters
+            try:
+                selected_model = str(data.get("model") or "").strip()
+                evolved = await _execute_prompt_evolution(
+                    prompt_text,
+                    iterations=iterations,
+                    model=selected_model or None,
+                    max_tokens=max(1, min(65536, int(cfg.get("prompt_evolution_max_tokens", 4096)))),
+                )
+                self.send_response(writer, 200, json.dumps({"success": True, "prompt": evolved}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
         else:
             self.send_response(writer, 404, b'{"error":"Not Found"}', "application/json")

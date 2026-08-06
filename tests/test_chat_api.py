@@ -110,3 +110,46 @@ def test_ollama_model_info_without_api_base_uses_localhost():
         "ollama/gemma4:26b",
         "",
     ) == "http://127.0.0.1:11434/api/tags"
+
+
+@pytest.mark.asyncio
+async def test_update_project_endpoint_updates_model(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "projects.db")
+    store = ProjectStore(db_path=db_path)
+    project = store.create(
+        name="myproj",
+        mode="plan",
+        model="ollama/old-model",
+        project_name="My Project",
+        project_path=str(tmp_path / "project"),
+    )
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
+
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+
+    await server.route_api(
+        "POST",
+        "/api/opalatex/update-project",
+        {},
+        {},
+        json.dumps({
+            "project_name": "myproj",
+            "model": "ollama/new-model:latest",
+        }).encode("utf-8"),
+        writer,
+    )
+
+    assert len(responses) == 1
+    status_code, data, _ = responses[0]
+    assert status_code == 200
+    assert data["model"] == "ollama/new-model:latest"
+    loaded = store.load("myproj")
+    assert loaded.model == "ollama/new-model:latest"
+
