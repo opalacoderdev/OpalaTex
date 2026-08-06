@@ -1,6 +1,6 @@
 import { Suspense, lazy, useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, PanelRightOpen, Trash2, FileText, HelpCircle, MoreHorizontal, Zap } from 'lucide-react';
+import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, Trash2, FileText, HelpCircle, MoreHorizontal, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { getLanguage } from '../utils/language';
@@ -63,7 +63,7 @@ export default function EditorPanel({
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isLatexPreviewMode, setIsLatexPreviewMode] = useState(false);
   const [isRichTextMode, setIsRichTextMode] = useState(false);
-  const [isPdfPreviewCollapsed, setIsPdfPreviewCollapsed] = useState(false);
+  const [isPdfPreviewCollapsed, setIsPdfPreviewCollapsed] = useState(true);
   const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
   const [showLatexHelp, setShowLatexHelp] = useState(false);
   const [showDocumentActionsMenu, setShowDocumentActionsMenu] = useState(false);
@@ -1063,6 +1063,19 @@ export default function EditorPanel({
         </div>
 
         <div className="vscode-editor-actions">
+          {isTexFile && (
+            <button
+              onClick={() => setIsPdfPreviewCollapsed(prev => !prev)}
+              className={`vscode-editor-action-btn${!isPdfPreviewCollapsed ? ' vscode-editor-action-btn-primary' : ''}`}
+              style={{ width: 'auto', minWidth: '36px', padding: '0 4px', gap: '2px' }}
+              title={isPdfPreviewCollapsed ? t('editorPanel.showPdfPreview') : t('editorPanel.collapsePdfPreview')}
+              aria-label={isPdfPreviewCollapsed ? t('editorPanel.showPdfPreview') : t('editorPanel.collapsePdfPreview')}
+              aria-pressed={!isPdfPreviewCollapsed}
+            >
+              <FileText size={14} />
+              <span style={{ fontSize: '9px', fontWeight: 700, lineHeight: 1 }}>PDF</span>
+            </button>
+          )}
           {isTexFile && isTectonicAvailable && (
             <button
               onClick={() => handleCompile(false, false)}
@@ -1207,16 +1220,6 @@ export default function EditorPanel({
 
           {isTexFile && (
             <>
-              {isPdfPreviewCollapsed && (
-                <button
-                  onClick={() => setIsPdfPreviewCollapsed(false)}
-                  className="vscode-bottom-panel-clear-btn"
-                  style={{ padding: '6px' }}
-                  title={t('editorPanel.showPdfPreview')}
-                >
-                  <PanelRightOpen size={12} />
-                </button>
-              )}
               {isNormalLatexEditor && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '4px' }}>
                   <button
