@@ -29,6 +29,7 @@ export default function BottomPanel({
   const { t } = useTranslation();
   const contentRef = useRef(null);
   const logsContainerRef = useRef(null);
+  const logScrollFrameRef = useRef(null);
   const terminalInstancesRef = useRef({});
   const [terminals, setTerminals] = useState(['main-1']);
   const [activeTermId, setActiveTermId] = useState('main-1');
@@ -44,10 +45,19 @@ export default function BottomPanel({
   };
 
   useEffect(() => {
-    if (autoScroll && logEndRef && logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'auto' });
-    }
+    if (!autoScroll || !logEndRef?.current || logScrollFrameRef.current !== null) return;
+
+    logScrollFrameRef.current = requestAnimationFrame(() => {
+      logScrollFrameRef.current = null;
+      logEndRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' });
+    });
   }, [terminalLogs, autoScroll, logEndRef]);
+
+  useEffect(() => () => {
+    if (logScrollFrameRef.current !== null) {
+      cancelAnimationFrame(logScrollFrameRef.current);
+    }
+  }, []);
 
   const selectTab = (tab) => {
     setActiveBottomTab(tab);

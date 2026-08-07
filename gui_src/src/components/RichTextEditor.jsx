@@ -99,7 +99,7 @@ export default function RichTextEditor({
     if (!onChange) return;
     // Find the block and update its text
     const updatedBlocks = blocks.map(b =>
-      b.id === blockId ? { ...b, text: newText } : b
+      b.id === blockId ? { ...b, text: newText, edited: true } : b
     );
     const newSource = serializeDocument(source, updatedBlocks);
     onChange(newSource);
@@ -113,7 +113,7 @@ export default function RichTextEditor({
       const items = b.items.map((it, i) =>
         i === itemIndex ? { ...it, [field]: newValue } : it
       );
-      return { ...b, items };
+      return { ...b, items, edited: true };
     });
     const newSource = serializeDocument(source, updatedBlocks);
     onChange(newSource);
@@ -515,9 +515,18 @@ function EditableLatexText({ as: Tag = 'div', text, onCommit, style, editingStyl
         ref={editRef}
         contentEditable
         suppressContentEditableWarning
-        onBlur={(e) => commit(e.currentTarget.textContent || '')}
+        onBlur={(e) => {
+          const editedText = readEditableText(e.currentTarget);
+          e.currentTarget.replaceChildren();
+          commit(editedText);
+        }}
         onKeyDown={(e) => {
           const isMod = e.ctrlKey || e.metaKey;
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            e.currentTarget.blur();
+            return;
+          }
           if (isMod && e.key.toLowerCase() === 'b') {
             e.preventDefault();
             insertLatexWrapper(e.currentTarget, 'textbf');
@@ -551,6 +560,12 @@ function EditableLatexText({ as: Tag = 'div', text, onCommit, style, editingStyl
   );
 }
 
+function readEditableText(el) {
+  return (el.innerText || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n+/g, '\n\n')
+    .replace(/\n+$/, '');
+}
 function setCaretFromPoint(el, x, y) {
   const doc = el.ownerDocument || document;
   let range = null;
@@ -1983,6 +1998,7 @@ function findFirstStyleCommand(text) {
 
 function stripSimpleLatexCommands(text) {
   return text
+    .replace(/``([\s\S]*?)''/g, '"$1"')
     .replace(/\\(?:label|ref|cite|eqref)\{([^}]*)\}/g, '$1')
     .replace(/\\%/g, '%')
     .replace(/\\&/g, '&')

@@ -15,6 +15,7 @@
 //   *italic*   → \textit{italic}
 //   `code`     → \texttt{code}
 //   $math$     → $math$  (kept as-is)
+//   "quoted"   becomes ``quoted''
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -68,8 +69,11 @@ export function serializeDocument(originalSource, blocks) {
     if (block.start > cursor) {
       result += originalSource.slice(cursor, block.start);
     }
-    // Append the serialized block
-    result += serializeBlock(block);
+    // Rewrite only the block that the user edited. Re-serializing every
+    // editable block used to normalize unrelated headings/lists whenever a
+    // different block was changed, which could alter commands such as
+    // \chapter* or \section[short]{long}.
+    result += block.edited ? serializeBlock(block) : block.source;
     cursor = block.end;
   }
 
@@ -84,8 +88,8 @@ export function serializeDocument(originalSource, blocks) {
 // ── Block serializers ───────────────────────────────────────────────────────
 
 function serializeHeading(block) {
-  const cmd = levelToCommand(block.level);
-  return `${cmd}{${block.text}}`;
+  const prefix = block.headingPrefix || levelToCommand(block.level);
+  return `${prefix}{${inlineToLatex(block.text)}}`;
 }
 
 function serializeParagraph(block) {
@@ -93,23 +97,23 @@ function serializeParagraph(block) {
   // Inline markup is already in LaTeX form (we keep \textbf{}, \textit{}, etc.
   // as-is during editing — the RichTextEditor shows them as styled spans but
   // preserves the LaTeX commands in the text).
-  return block.text;
+  return inlineToLatex(block.text);
 }
 
 function serializeList(block) {
   const env = block.listType;
   const lines = block.items.map(item => {
     if (env === 'description') {
-      return `  \\item[${item.term || ''}] ${item.text}`;
+      return `  \\item[${inlineToLatex(item.term || '')}] ${inlineToLatex(item.text)}`;
     }
-    return `  \\item ${item.text}`;
+    return `  \\item ${inlineToLatex(item.text)}`;
   });
   return `\\begin{${env}}\n${lines.join('\n')}\n\\end{${env}}`;
 }
 
 function serializeQuote(block) {
   const env = 'quote';
-  return `\\begin{${env}}\n${block.text}\n\\end{${env}}`;
+  return `\\begin{${env}}\n${inlineToLatex(block.text)}\n\\end{${env}}`;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -124,13 +128,12 @@ function levelToCommand(level) {
  * back to LaTeX commands. This is used when the editable text field stores
  * content in a lightweight markup that the user sees as rendered text.
  *
- * Currently the RichTextEditor keeps LaTeX commands directly in the text,
- * so this is a no-op passthrough. It exists for future use if we switch to
- * a ProseMirror-based inline editor.
+ * The RichTextEditor keeps LaTeX commands directly in the text and uses this
+ * helper for source-safe conversions performed when an edit is committed.
  */
 export function inlineToLatex(text) {
   if (!text) return '';
   // Future: convert **bold** → \textbf{}, *italic* → \textit{}, etc.
   // For now, LaTeX commands are preserved as-is in the editable text.
-  return text;
+  return text.replace(/(^|[^\\])"([^"\r\n]*\S[^"\r\n]*)"/g, "$1``$2''");
 }

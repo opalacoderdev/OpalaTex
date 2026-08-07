@@ -394,6 +394,66 @@ def _sanitize_model_response(response: str, thought_chunks: list[str]) -> str:
     return visible.strip()
 
 
+def _normalize_inline_fenced_replacement(response: str) -> str:
+    """Return only source content from an optional fenced inline response."""
+    text = str(response or "").strip()
+    orphan_parts = text.rsplit("</think>", 1)
+    if len(orphan_parts) == 2 and orphan_parts[1].lstrip().startswith(("```", "~~~")):
+        text = orphan_parts[1].lstrip()
+    blocks = list(re.finditer(r"^(?: {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*)\r?\n(?P<body>.*?)^(?: {0,3})(?P=fence)[ \t]*$", text, flags=re.MULTILINE | re.DOTALL))
+    if not blocks:
+        return text
+    content_block = next((block for block in blocks if block.group("info").strip().lower() == "content"), None)
+    outer_block = next((block for block in blocks if len(block.group("fence")) >= 4), None)
+    block = content_block or outer_block or blocks[-1]
+    body = block.group("body").rstrip("\r\n")
+    if block.group("info").strip().lower() != "content" and body.startswith("content\n"):
+        # Recover only the protocol label when it was placed inside a language fence.
+        body = body[len("content\n"):]
+
+    longest_fence = max((len(run) for run in re.findall(r"(?m)^(?: {0,3})(`+)", body)), default=3) + 1
+    fence = "`" * max(4, longest_fence)
+    return body
+
+
+def _compact_inline_scope_text(content: str) -> str:
+    """Normalize source text for bounded inline replacement scope checks."""
+    return re.sub(r"\s+", "", str(content or ""))
+
+
+def _validate_inline_replacement_scope(
+    response: str,
+    editor_content: str,
+    selected_text: str,
+) -> None:
+    """Reject a full-document response when inline editing targets a smaller scope."""
+    source = _compact_inline_scope_text(editor_content)
+    replacement = _compact_inline_scope_text(response)
+    selection = _compact_inline_scope_text(selected_text)
+    if len(source) < 192 or not replacement or selection == source:
+        return
+
+    if selection:
+        selection_offset = source.find(selection)
+        if selection_offset >= 0:
+            before_selection = source[max(0, selection_offset - 96):selection_offset]
+            after_selection = source[
+                selection_offset + len(selection):selection_offset + len(selection) + 96
+            ]
+            anchors = [anchor for anchor in (before_selection, after_selection) if len(anchor) >= 48]
+            if len(anchors) >= 2 and all(anchor in replacement for anchor in anchors):
+                raise RuntimeError(
+                    "Inline editor returned surrounding document context instead of the selected replacement."
+                )
+
+    source_start = source[:96]
+    source_end = source[-96:]
+    if source_start in replacement and source_end in replacement:
+        raise RuntimeError(
+            "Inline editor returned a copy of the full document instead of an inline replacement."
+        )
+
+
 def _looks_like_plain_tool_call_text(content: str) -> bool:
     """Return True when a model emitted a tool call as plain JSON text."""
     text = str(content or "").strip()
@@ -1174,6 +1234,14 @@ async def handle_run(data: dict):
             except Exception as e:
                 print(f"Warning: Failed to load contextual skill: {e}", file=sys.stderr)
         # >> LOAD CONTEXTUAL SKILL END <<
+        if agent_type == "inline_editor":
+            system_prompt += (
+                "\n\n# Inline Output Contract\n"
+                "The response format specified by the original system prompt is authoritative. "
+                "Contextual instructions guide only the generated source content and must not "
+                "change the required response wrapper or add analysis."
+            )
+
         
         # Resolve tools
         tools_list = []
@@ -1202,7 +1270,9 @@ async def handle_run(data: dict):
         # from _CORE_AGENT_DEFAULTS in config.py. Workers stay False unless the user
         # explicitly enables thinking in project settings.
         model_kwargs["think"] = bool(model_params.get("think", False))
-        model_kwargs["stream"] = bool(model_params.get("stream", True))
+        # Inline editing applies a single final replacement. It must never expose
+        # partial model output, regardless of a global streaming default.
+        model_kwargs["stream"] = False if agent_type == "inline_editor" else bool(model_params.get("stream", True))
 
         agent_kwargs = {}
         if model_params.get("max_iterations") is not None:
@@ -1358,22 +1428,26 @@ async def handle_run(data: dict):
         if _should_emit_iteration_reflection(last):
             print_event("reflection", {"content": str(content), "agent": agent_type})
 
-    if hasattr(agent, "on_thinking"):
-        agent.on_thinking = _on_thinking
-    elif hasattr(agent, "agent") and hasattr(agent.agent, "on_thinking"):
-        agent.agent.on_thinking = _on_thinking
+    # Inline editing has a final-response-only transport contract. Do not bind
+    # callbacks that could emit intermediate model content.
+    if agent_type != "inline_editor":
+        if hasattr(agent, "on_thinking"):
+            agent.on_thinking = _on_thinking
+        elif hasattr(agent, "agent") and hasattr(agent.agent, "on_thinking"):
+            agent.agent.on_thinking = _on_thinking
 
-    if hasattr(agent, "on_chunk"):
-        agent.on_chunk = _on_chunk
-    elif hasattr(agent, "agent") and hasattr(agent.agent, "on_chunk"):
-        agent.agent.on_chunk = _on_chunk
+        if hasattr(agent, "on_chunk"):
+            agent.on_chunk = _on_chunk
+        elif hasattr(agent, "agent") and hasattr(agent.agent, "on_chunk"):
+            agent.agent.on_chunk = _on_chunk
 
-    if hasattr(agent, "on_iteration"):
-        agent.on_iteration = _on_iteration
-    elif hasattr(agent, "agent") and hasattr(agent.agent, "on_iteration"):
-        agent.agent.on_iteration = _on_iteration
+        if hasattr(agent, "on_iteration"):
+            agent.on_iteration = _on_iteration
+        elif hasattr(agent, "agent") and hasattr(agent.agent, "on_iteration"):
+            agent.agent.on_iteration = _on_iteration
 
-    print_event("agent_started", {"agent": agent_type, "model": agent.model})
+    if agent_type != "inline_editor":
+        print_event("agent_started", {"agent": agent_type, "model": agent.model})
 
     from opalatex.tools import TURN_ACHIEVEMENTS
     import opalatex.tools as tools_mod
@@ -1553,6 +1627,13 @@ async def handle_run(data: dict):
             with apply_meta_params(agent, _meta_overrides):
                 resp_obj = await agent.run(AgentInput(prompt=prompt, attachments=final_attachments))
             response = _sanitize_model_response(resp_obj.response or "", thought_chunks)
+            if response and data.get("inline_response_contract") == "replacement_only":
+                response = _normalize_inline_fenced_replacement(response)
+                _validate_inline_replacement_scope(
+                    response,
+                    data.get("editor_content", ""),
+                    data.get("selected_text", ""),
+                )
             
             empty_response_attempts = 0
             while not response and empty_response_attempts < EMPTY_RESPONSE_MAX_CORRECTION_ATTEMPTS:
@@ -1564,6 +1645,13 @@ async def handle_run(data: dict):
                 with apply_meta_params(agent, _meta_overrides):
                     resp_obj = await agent.run(AgentInput(prompt=retry_prompt))
                 response = _sanitize_model_response(resp_obj.response or "", thought_chunks)
+                if response and data.get("inline_response_contract") == "replacement_only":
+                    response = _normalize_inline_fenced_replacement(response)
+                    _validate_inline_replacement_scope(
+                        response,
+                        data.get("editor_content", ""),
+                        data.get("selected_text", ""),
+                    )
 
             if not response:
                 raise RuntimeError(_empty_response_failure_message())
@@ -1613,7 +1701,8 @@ async def handle_run(data: dict):
             locals().get("agent_type", ""),
         )
 
-    print_event("agent_finished", {})
+    if agent_type != "inline_editor":
+        print_event("agent_finished", {})
 
 async def handle_list_projects(data: dict):
     db_path = data.get("db") or DEFAULT_DB_PATH

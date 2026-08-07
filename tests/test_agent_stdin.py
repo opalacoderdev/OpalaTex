@@ -22,6 +22,8 @@ from opalatex.agent_stdin import (
     _record_turn_thought,
     _response_with_thought,
     _sanitize_model_response,
+    _normalize_inline_fenced_replacement,
+    _validate_inline_replacement_scope,
     _should_emit_iteration_reflection,
     _visible_chat_response,
     _worker_summary_response,
@@ -439,12 +441,18 @@ async def test_handle_run_inline_normalizes_remote_ollama_api_base(monkeypatch):
             self.model_kargs = kwargs["model_kwargs"]
             self.model_kwargs = kwargs["model_kwargs"]
             self.internal_history = []
+            self.on_thinking = None
+            self.on_chunk = None
+            self.on_iteration = None
 
         async def _acompletion(self, *args, **kwargs):
             return None
 
         async def run(self, agent_input):
-            return SimpleNamespace(response="````content\nok\n````")
+            assert self.on_thinking is None
+            assert self.on_chunk is None
+            assert self.on_iteration is None
+            return SimpleNamespace(response="ok")
 
     monkeypatch.setattr(stdin_mod, "LLMAgentBlock", FakeInlineAgent)
     monkeypatch.setattr(compat_mod, "wrap_agent_litellm_compat", lambda agent: agent)
@@ -466,11 +474,19 @@ async def test_handle_run_inline_normalizes_remote_ollama_api_base(monkeypatch):
         "system_prompt": "Return a replacement.",
         "prompt": "Replace this text.",
         "tools": [],
+        "inline_response_contract": "replacement_only",
+        "model_params": {
+            "max_tokens": 123,
+            "stream": True,
+        },
     })
 
     assert captured["model"] == "ollama/gpt-oss:20b"
     assert captured["model_kwargs"]["api_base"] == "http://100.85.255.111:11434"
-    assert ("agent_response", {"response": "````content\nok\n````"}) in events
+    assert events == [("agent_response", {"response": "ok"})]
+    assert captured["tools"] == []
+    assert captured["model_kwargs"]["max_tokens"] == 123
+    assert captured["model_kwargs"]["stream"] is False
 
 
 @pytest.mark.asyncio
@@ -1172,3 +1188,20 @@ def test_ollama_http_500_is_not_misclassified_as_connection_error():
     assert "HTTP 500" in msg
     assert "not a connection error" in msg
     assert "Ollama server log" in msg
+
+
+def test_inline_response_contract_discards_preamble_and_orphan_think_close():
+    response = "This is the final output.</think>```tex\ncontent\nA replacement paragraph.\n```"
+    assert _normalize_inline_fenced_replacement(response) == "A replacement paragraph."
+
+
+def test_inline_response_contract_accepts_unfenced_replacement_text():
+    assert _normalize_inline_fenced_replacement("Refined replacement text.") == "Refined replacement text."
+
+
+def test_inline_scope_rejects_full_document_for_selected_replacement():
+    source = ("before " * 48) + "selected paragraph" + (" after" * 48)
+    replacement = source.replace("selected paragraph", "refined paragraph")
+
+    with pytest.raises(RuntimeError, match="surrounding document context"):
+        _validate_inline_replacement_scope(replacement, source, "selected paragraph")

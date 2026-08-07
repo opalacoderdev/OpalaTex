@@ -2853,6 +2853,9 @@ export default function App() {
     const startColumn = inlinePrompt.startColumn ?? 1;
     const endColumn = inlinePrompt.endColumn ?? inlinePrompt.cursorCol ?? 1;
 
+    const editorModel = editorRef.current?.getModel?.();
+    const currentEditorContent = editorModel?.getValue?.() ?? fileContent ?? '';
+    const cursorColumn = inlinePrompt.cursorCol ?? startColumn;
     const hasSelection = selectedText && selectedText.trim().length > 0;
 
     let systemPrompt, fullPrompt;
@@ -2877,26 +2880,33 @@ export default function App() {
       const ext = (selectedFile || '').split('.').pop() || '';
       const fence = ext ? `\`\`\`${ext}` : '\`\`\`';
 
-      fullPrompt = (hasSelection && mode !== 'generate')
-        ? `Task: ${verb}\n\nFile Context:\n${fence}\n${fileContent}\n\`\`\`\n\nTarget Selection to Replace:\n${fence}\n${selectedText}\n\`\`\``
-        : `Task: ${instruction}\n\nFile Context:\n${fence}\n${fileContent}\n\`\`\`\n\nTarget Position for Insertion: Line ${startLine}, Column ${inlinePrompt.cursorCol}. Please return ONLY the code to be inserted here.`;
+      if (hasSelection && mode !== 'generate') {
+        fullPrompt = `Task: ${verb}\n\nFile Context:\n${fence}\n${currentEditorContent}\n\`\`\`\n\nTarget Selection to Replace:\n${fence}\n${selectedText}\n\`\`\``;
+      } else {
+        const cursorOffset = editorModel?.getOffsetAt?.({ lineNumber: startLine, column: cursorColumn });
+        const beforeCursor = currentEditorContent.slice(0, cursorOffset ?? 0);
+        const afterCursor = currentEditorContent.slice(cursorOffset ?? 0);
+        fullPrompt = `Task: ${instruction}\n\nThe following is read-only context. The <cursor> tag is application metadata, not source content. It marks the exact insertion point; do not count lines, locate a position, reconcile line numbers, or reproduce the file. Generate only the requested snippet for that point.\n\n<file_context file=${JSON.stringify(selectedFile || '')}>\n<before_cursor>\n${beforeCursor}\n</before_cursor>\n<cursor line="${startLine}" column="${cursorColumn}" />\n<after_cursor>\n${afterCursor}\n</after_cursor>\n</file_context>`;
+      }
 
       systemPrompt = "You are a precise inline content editor for any selected content: text, Markdown, LaTeX, code, config files, JSON, YAML, tables, or structured data. " +
         "CRITICAL: Do NOT create, modify, or save files. " +
-        "Return ONLY the final replacement snippet wrapped in a FOUR-BACKTICK fenced block: ````content\\n...\\n````. " +
-        "You MUST use exactly four backticks (````), never three (```). This is required so that inner code blocks (e.g. mermaid, latex) do not break the outer fence. " +
-        "Do NOT include greetings, explanations, comments, summaries, or any text before or after the fenced block. " +
+        "Tools and function calls are unavailable for this task; do not request or attempt them. " +
+        "All necessary context is already included in the user prompt; complete the task by returning the replacement content directly. " +
+        "Return ONLY the final replacement source, without Markdown fences or any transport envelope. " +
+        "Do not add Markdown fences around the replacement, including when it contains code or LaTeX. " +
+        "Do NOT include greetings, explanations, comments, summaries, tool calls, or any surrounding text. " +
         "Preserve the original language, format, structure, and intent unless the requested edit requires changes. " +
-        "Be objective, concise, and direct. Use only read-only context sources if additional context is needed. " +
-        "Examples of the REQUIRED four-backtick format:\n" +
+        "For insertion tasks, the host application owns the cursor position. The <cursor> tag is authoritative metadata: use surrounding content only for context, and never count lines, choose another insertion point, or explain your placement. " +
+        "Be objective, concise, and direct. " +
+        "Legacy fence examples below are accepted for compatibility but are not required:\n" +
         "Original: 'O sistema é bom.' → ````content\\nO sistema é funcional.\\n```` " +
         "Original: 'flowchart LR\\n  A --> B' → ````content\\nflowchart LR\\n  A[Start] --> B[End]\\n```` " +
         "Original: '$$ E = m c ^ 2 $$' → ````content\\n$$\\nE = mc^2\\n$$\\n```` " +
-        "Your entire output must be ONLY the four-backtick fenced block containing the replacement content.";
+        "Your entire output must contain only the replacement source.";
     }
 
     setChatInput('');
-    setIsInlineRunning(true);
     setIsInlineRunning(true);
     addLog('info', t('app.inlineEditStarting', { instruction }));
 
@@ -2912,11 +2922,14 @@ export default function App() {
           system_prompt: systemPrompt,
           tools: [],
           prompt: fullPrompt,
+          inline_response_contract: mode === 'createIllustration' ? undefined : 'replacement_only',
           current_file: selectedFile || '',
-          editor_content: fileContent || '',
+          editor_content: currentEditorContent,
           selected_text: selectedText || '',
           lang: i18n.language || 'en',
-          model_params: { max_tokens: 8192, ...ephemeralParams }
+          // Inline runs preserve all user-selected parameters, except streaming:
+          // this agent returns one final replacement and must not emit partial output.
+          model_params: { ...ephemeralParams, stream: false }
         }),
       });
 
@@ -2962,12 +2975,9 @@ export default function App() {
               addLog('error', t('app.toolProblem', { tool: data.tool || inlineAgentTool, message: data.message }));
               reportInlineFailure(data.message, data.tool || inlineAgentTool, data.severity || 'error');
             } else if (data.event === 'thought' || data.event === 'reflection' || data.event === 'stream_chunk') {
-              let textContent = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
-              if (textContent === '{}' || !textContent.trim()) continue;
-              if (textContent.startsWith('{"result":') || textContent.startsWith('{"error":') || textContent.startsWith('{"name":')) continue;
-
-              let typeName = data.event;
-              addLog(typeName, textContent, data.agent);
+              // Inline generation has no live-output contract. Only its final
+              // agent_response may be applied to the editor.
+              continue;
             } else if (data.event === 'tool_call') {
               addLog('tool_call', t('app.inlineCallingTool', { tool: data.tool, arguments: JSON.stringify(data.arguments) }), data.agent);
             } else if (data.event === 'tool_result') {

@@ -175,7 +175,7 @@ export function parseLatexBlocks(src) {
     }
 
     // ── Sectioning commands ────────────────────────────────────────────────
-    const secMatch = body.slice(i).match(/^(\\(?:part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?)\s*\{/);
+    const secMatch = body.slice(i).match(/^(\\(?:part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\*?)(\s*(?:\[[^\]]*\]\s*)?)\{/);
     if (secMatch) {
       flushText();
       const cmdEnd = i + secMatch[0].length;
@@ -192,6 +192,9 @@ export function parseLatexBlocks(src) {
           start, end: finish,
           source: body.slice(i, braceEnd + 1),
           level,
+          // Keep the original command (including \chapter, a star, and an
+          // optional short title) when an edited heading is written back.
+          headingPrefix: body.slice(i, cmdEnd - 1),
           text: title,
         });
         i = braceEnd + 1;
