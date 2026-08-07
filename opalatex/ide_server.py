@@ -698,6 +698,7 @@ class AsyncHTTPServer:
         self.temp_terminals = {}
         self.active_agent_task = None
         self.active_agent_event_queue = None
+        self.active_agent_cancel_event = None
 
     def _emit_agent_cancelled_once(self, agent_task, event_queue):
         """Notify the stream immediately, without waiting for task cleanup."""
@@ -2831,6 +2832,7 @@ class AsyncHTTPServer:
 
             event_queue = asyncio.Queue()
             self.active_queues.append(event_queue)
+            cancel_event = asyncio.Event()
 
             def send_chunk(text: str):
                 if len(text) < 4096:
@@ -2859,48 +2861,92 @@ class AsyncHTTPServer:
             agent_task = asyncio.create_task(run_agent())
             self.active_agent_task = agent_task
             self.active_agent_event_queue = event_queue
+            self.active_agent_cancel_event = cancel_event
 
+            cancelled_by_event = False
             try:
                 while True:
-                    event = await event_queue.get()
+                    # Race between the next queue event and the cancel signal.
+                    # If the cancel event fires first, we close the HTTP stream
+                    # immediately so the UI unblocks — regardless of whether
+                    # the background agent task has finished winding down.
+                    get_fut = asyncio.ensure_future(event_queue.get())
+                    cancel_fut = asyncio.ensure_future(cancel_event.wait())
+                    done_set, pending = await asyncio.wait(
+                        {get_fut, cancel_fut},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for p in pending:
+                        p.cancel()
+                        try:
+                            await p
+                        except (asyncio.CancelledError, Exception):
+                            pass
+
+                    if cancel_fut in done_set:
+                        # Interrupt requested — close the stream now.
+                        cancelled_by_event = True
+                        break
+
+                    event = get_fut.result()
                     if event is None:
                         break
                     send_chunk(json.dumps(event) + "\n")
                     await writer.drain()
             except asyncio.CancelledError:
+                cancelled_by_event = True
                 if not agent_task.done():
                     agent_task.cancel()
-                try:
-                    await agent_task
-                except Exception:
-                    pass
-                self._emit_agent_cancelled_once(agent_task, event_queue)
             except Exception as e:
                 print(f"Streaming error: {e}")
             finally:
                 if self.active_agent_task == agent_task:
                     self.active_agent_task = None
                     self.active_agent_event_queue = None
+                    self.active_agent_cancel_event = None
                 if event_queue in self.active_queues:
                     self.active_queues.remove(event_queue)
-                writer.write(b"0\r\n\r\n")
-                await writer.drain()
-                writer.close()
+                # Close the HTTP chunked stream so the frontend reader unblocks.
                 try:
-                    await agent_task
+                    writer.write(b"0\r\n\r\n")
+                    await writer.drain()
+                    writer.close()
                 except Exception:
                     pass
+                # Wait for the agent task with a bounded timeout.
+                # If it takes too long (e.g. stuck in an LLM call), cancel it
+                # and detach so the UI is not held hostage.
+                if not agent_task.done():
+                    if cancelled_by_event and not agent_task.cancelled():
+                        agent_task.cancel()
+                    try:
+                        await asyncio.wait_for(asyncio.shield(agent_task), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        if not agent_task.done():
+                            agent_task.cancel()
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                else:
+                    try:
+                        await agent_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
 
         # 7b2. Interrupt Agent
         elif path == '/api/opalatex/interrupt' and method == 'POST':
             if self.active_agent_task and not self.active_agent_task.done():
-                # Let the UI acknowledge the click now. The task can still need
-                # time to release an LLM stream and finalize its checkpoint.
+                # Emit the cancelled event to the stream queue so the frontend
+                # sees the interruption message before the stream closes.
                 if self.active_agent_event_queue is not None:
                     self._emit_agent_cancelled_once(
                         self.active_agent_task,
                         self.active_agent_event_queue,
                     )
+                # Signal the streaming loop to close the HTTP response
+                # immediately so the UI unblocks without waiting for the
+                # agent task to finish winding down.
+                if self.active_agent_cancel_event is not None:
+                    self.active_agent_cancel_event.set()
                 self.active_agent_task.cancel()
                 self.send_response(writer, 200, b'{"success":true,"message":"Agent execution interrupted"}', "application/json")
             else:
