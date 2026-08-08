@@ -1190,6 +1190,28 @@ def test_ollama_http_500_is_not_misclassified_as_connection_error():
     assert "Ollama server log" in msg
 
 
+def test_ollama_context_exceeded_400_is_reported_as_context_exceeded_not_generic_http_error():
+    """A context-size-exceeded 400 from Ollama must surface the specific,
+    actionable context message instead of the generic 'reproduce it' HTTP fallback.
+    """
+    from opalatex.i18n import set_lang
+
+    project = SimpleNamespace(model="ollama_chat/hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M", api_base="")
+    exc = Exception(
+        "litellm.APIConnectionError: Ollama_chatException - "
+        '{"error":"{\\"error\\":{\\"code\\":400,\\"message\\":\\"request (8401 tokens) '
+        'exceeds the available context size (8192 tokens), try increasing it\\",'
+        '\\"type\\":\\"exceed_context_size_error\\",\\"n_prompt_tokens\\":8401,\\"n_ctx\\":8192}}"}'
+    )
+
+    set_lang("en")
+    msg = _friendly_llm_error(exc, project)
+
+    assert "exceeded the context window" in msg
+    assert "HTTP 400" not in msg
+    assert "Reproduce it" not in msg
+
+
 def test_inline_response_contract_discards_preamble_and_orphan_think_close():
     response = "This is the final output.</think>```tex\ncontent\nA replacement paragraph.\n```"
     assert _normalize_inline_fenced_replacement(response) == "A replacement paragraph."

@@ -165,6 +165,12 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
             "from unescaped LaTeX backslashes or raw newlines. Automatic correction attempts were exhausted."
         )
 
+    if "exceed_context_size_error" in low or (
+        "context" in low and ("length" in low or "window" in low or "exceed" in low)
+    ):
+        from opalatex.i18n import _
+        return _("err_context_exceeded").format(model=model)
+
     ollama_status = _ollama_http_status_from_error(msg)
     if ollama_status is not None:
         return (
@@ -207,9 +213,6 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
 
     if "connection" in low or "connect" in low:
         return _("err_connection_failed").format(model=model)
-
-    if "context" in low and ("length" in low or "window" in low or "exceed" in low):
-        return _("err_context_exceeded").format(model=model)
 
     if "insufficient_quota" in low or "insufficient quota" in low or "billing" in low or "credit" in low or "balance" in low:
         return _("err_insufficient_quota", model=model)

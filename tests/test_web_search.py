@@ -6,6 +6,7 @@ import pytest
 import tempfile
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 
@@ -279,6 +280,72 @@ def test_web_search_tool_disabled(tmp_path, monkeypatch):
         assert "disabled" in result.lower()
     finally:
         wsc._CONFIG_PATH = original
+
+
+# ─── Context-budget truncation ────────────────────────────────────────────────
+
+def test_truncate_to_context_budget_leaves_short_text_untouched(tmp_path):
+    from opalatex import tools as tools_mod
+
+    tools_mod.set_project_context(SimpleNamespace(project_path=str(tmp_path), model_params={"num_ctx": 8192}, history=[]))
+    try:
+        text = "short result"
+        assert tools_mod._truncate_to_context_budget(text) == text
+    finally:
+        tools_mod.set_project_context(None)
+
+
+def test_truncate_to_context_budget_truncates_when_over_free_context(tmp_path):
+    from opalatex import tools as tools_mod
+
+    # num_ctx=8192 tokens ~= 32768 chars total budget; a large fake history eats
+    # most of it, so a big search result must be cut down to what remains.
+    fake_history = [{"role": "user", "content": "x" * 28000}]
+    tools_mod.set_project_context(SimpleNamespace(project_path=str(tmp_path), model_params={"num_ctx": 8192}, history=fake_history))
+    try:
+        huge_result = "y" * 20000
+        truncated = tools_mod._truncate_to_context_budget(huge_result)
+        assert len(truncated) < len(huge_result)
+        assert "[Result truncated:" in truncated
+    finally:
+        tools_mod.set_project_context(None)
+
+
+def test_web_search_tool_truncates_oversized_ddg_result(tmp_path, monkeypatch):
+    """Large web_search results must be bounded by the active model's free context budget."""
+    cfg_path = tmp_path / "web_search.json"
+    cfg_path.write_text(json.dumps({"enabled": True, "mcp_url": "", "mcp_tool": "web_search"}))
+    monkeypatch.setattr("opalatex.web_search_config._CONFIG_PATH", cfg_path)
+
+    from opalatex import tools as tools_mod
+
+    fake_history = [{"role": "user", "content": "x" * 28000}]
+    tools_mod.set_project_context(SimpleNamespace(project_path=str(tmp_path), model_params={"num_ctx": 8192}, history=fake_history))
+
+    huge_body = "z" * 50000
+    fake_results = [{"title": "Big Page", "href": "https://example.com", "body": huge_body}]
+    patch_target = "duckduckgo_search.DDGS"
+    try:
+        import ddgs
+        patch_target = "ddgs.DDGS"
+    except ImportError:
+        pass
+
+    try:
+        with patch(patch_target) as MockDDGS:
+            MockDDGS.return_value.text.return_value = fake_results
+            MockDDGS.return_value.__enter__.return_value.text.return_value = fake_results
+
+            fn = tools_mod.web_search
+            raw_fn = getattr(fn, "func", None) or getattr(fn, "__wrapped__", None) or getattr(tools_mod, "_web_search_raw", None)
+            if raw_fn is None:
+                pytest.skip("Cannot locate raw web_search function — @as_tool may have hidden it")
+            result = raw_fn(query="big query")
+    finally:
+        tools_mod.set_project_context(None)
+
+    assert len(result) < len(huge_body)
+    assert "[Result truncated:" in result
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────

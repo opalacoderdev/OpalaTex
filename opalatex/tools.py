@@ -1400,6 +1400,32 @@ async def create_plan(plan_content: str) -> str:
         raise ValueError("The user REJECTED the plan. Wait for the user to provide feedback in the chat.")
 
 
+def _truncate_to_context_budget(text: str, reserve_pct: int = 50) -> str:
+    """Truncate *text* so it fits within the active model's free context budget.
+
+    Mirrors the free_tokens/free_chars budget used for PDF attachment truncation
+    in agent_stdin.py: num_ctx minus a rough estimate of tokens already spent on
+    chat history. Only *reserve_pct* of what remains is granted to the tool
+    result, leaving room for the rest of the conversation and the model's reply.
+    """
+    session = _PROJECT_SESSION
+    model_params = getattr(session, "model_params", None) or {}
+    num_ctx = int(model_params.get("num_ctx") or 8192)
+    history = getattr(session, "history", None) or []
+    history_tokens = len(json.dumps(history)) // 4
+    free_tokens = max(0, num_ctx - history_tokens)
+    free_chars = free_tokens * 4
+    allowed_chars = int(free_chars * reserve_pct / 100)
+
+    if allowed_chars <= 0 or len(text) <= allowed_chars:
+        return text
+    return (
+        text[:allowed_chars]
+        + f"\n\n[Result truncated: {len(text):,} chars total, "
+        f"{allowed_chars:,} shown ({reserve_pct}% of free context budget)]"
+    )
+
+
 @opalatex_tool(
     name="web_search",
     is_safe=True,
@@ -1434,6 +1460,8 @@ def web_search(query: str, max_results: int = 5) -> str:
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(__import__("asyncio").run, do_search(query, max_results))
-            return future.result(timeout=30)
+            result = future.result(timeout=30)
     except Exception as exc:
         return f"[web_search] Search failed: {exc}"
+
+    return _truncate_to_context_budget(result)
