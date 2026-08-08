@@ -70,6 +70,14 @@ def _conn(db_path: str) -> sqlite3.Connection:
     _ensure_dir(db_path)
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
+    if db_path != ":memory:":
+        # WAL + NORMAL avoid an fsync-on-commit on every write. Each ProjectStore
+        # method opens a fresh connection (see call sites below), so with the
+        # default DELETE journal mode every insert/update paid a full disk sync;
+        # under high-frequency callers (e.g. per-token activity logging during
+        # streaming) that was enough to stall the async event loop.
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
     conn.row_factory = sqlite3.Row
     return conn
 

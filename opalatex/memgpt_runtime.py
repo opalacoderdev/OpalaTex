@@ -790,6 +790,64 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     from .litellm_compat import wrap_agent_litellm_compat
     wrap_agent_litellm_compat(memgpt)
 
+    from opalatex.agent_stdin import _record_turn_thought, print_event
+    
+    if _llm_kwargs.get("stream", False):
+        orchestrator_thought_chunks = []
+        in_think_block_orch = [False]
+        think_buffer_orch = [""]
+
+        def _orch_on_thinking(chunk: str) -> None:
+            if _record_turn_thought(chunk):
+                orchestrator_thought_chunks.append(chunk)
+                print_event("thought", {"content": chunk, "agent": "orchestrator", "_thought_recorded": True})
+
+        def _orch_on_chunk(chunk: str) -> None:
+            think_buffer_orch[0] += chunk
+            while True:
+                if not in_think_block_orch[0]:
+                    if "<think>" in think_buffer_orch[0]:
+                        before, rest = think_buffer_orch[0].split("<think>", 1)
+                        if before:
+                            print_event("stream_chunk", {"content": before, "agent": "orchestrator"})
+                        in_think_block_orch[0] = True
+                        think_buffer_orch[0] = rest
+                    else:
+                        idx = think_buffer_orch[0].rfind("<")
+                        if idx != -1 and "<think>".startswith(think_buffer_orch[0][idx:]):
+                            before = think_buffer_orch[0][:idx]
+                            if before:
+                                print_event("stream_chunk", {"content": before, "agent": "orchestrator"})
+                            think_buffer_orch[0] = think_buffer_orch[0][idx:]
+                        else:
+                            if think_buffer_orch[0]:
+                                print_event("stream_chunk", {"content": think_buffer_orch[0], "agent": "orchestrator"})
+                                think_buffer_orch[0] = ""
+                        break
+                else:
+                    if "</think>" in think_buffer_orch[0]:
+                        inside, rest = think_buffer_orch[0].split("</think>", 1)
+                        if inside:
+                            _orch_on_thinking(inside)
+                        in_think_block_orch[0] = False
+                        think_buffer_orch[0] = rest
+                    else:
+                        idx = think_buffer_orch[0].rfind("<")
+                        if idx != -1 and "</think>".startswith(think_buffer_orch[0][idx:]):
+                            before = think_buffer_orch[0][:idx]
+                            if before:
+                                _orch_on_thinking(before)
+                            think_buffer_orch[0] = think_buffer_orch[0][idx:]
+                        else:
+                            if think_buffer_orch[0]:
+                                _orch_on_thinking(think_buffer_orch[0])
+                                think_buffer_orch[0] = ""
+                        break
+                        
+        if _llm_kwargs.get("think", False):
+            memgpt.on_thinking = _orch_on_thinking
+        memgpt.on_chunk = _orch_on_chunk
+
     # Seed the working context from persisted history so the conversation restores
     # across restarts (the old chat_agent did this; the MemGPT starts empty).
     _VALID_ROLES = {"user", "assistant", "system", "tool"}

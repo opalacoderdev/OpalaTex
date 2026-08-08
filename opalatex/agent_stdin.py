@@ -1339,6 +1339,21 @@ async def handle_run(data: dict):
     stream_probe_decided = [False]
     suppress_plain_tool_json_stream = [False]
 
+    import time as _time
+    _chunk_timing_state = {"last": None, "n": 0}
+
+    def _log_chunk_timing(label: str, chunk: str) -> None:
+        now = _time.monotonic()
+        last = _chunk_timing_state["last"]
+        gap_ms = (now - last) * 1000 if last is not None else 0.0
+        _chunk_timing_state["last"] = now
+        _chunk_timing_state["n"] += 1
+        #print(
+        #    f"[STREAM-TIMING] #{_chunk_timing_state['n']:04d} {label} "
+        #    f"gap={gap_ms:8.1f}ms len={len(chunk):4d} preview={chunk[:40]!r}",
+        #    flush=True,
+        #)
+
     def _should_probe_plain_tool_json_stream() -> bool:
         return agent_type in ("orchestrator", "chat_orchestrator")
 
@@ -1353,6 +1368,7 @@ async def handle_run(data: dict):
         return stripped.startswith("{") or stripped.startswith("```json")
 
     def _on_thinking(chunk: str) -> None:
+        _log_chunk_timing("thinking", chunk)
         if _record_turn_thought(chunk):
             print_event("thought", {"content": chunk, "agent": agent_type, "_thought_recorded": True})
 
@@ -1400,6 +1416,7 @@ async def handle_run(data: dict):
                     break
 
     def _on_chunk(chunk: str) -> None:
+        _log_chunk_timing("content", chunk)
         if not _should_probe_plain_tool_json_stream():
             _process_visible_chunk(chunk)
             return

@@ -698,7 +698,6 @@ class AsyncHTTPServer:
         self.temp_terminals = {}
         self.active_agent_task = None
         self.active_agent_event_queue = None
-        self.active_agent_cancel_event = None
 
     def _emit_agent_cancelled_once(self, agent_task, event_queue):
         """Notify the stream immediately, without waiting for task cleanup."""
@@ -727,8 +726,20 @@ class AsyncHTTPServer:
         self.temp_terminals.clear()
 
     async def handle_request(self, reader, writer):
-        import os, sys, subprocess, platform
+        import os, sys, subprocess, platform, socket
         try:
+            # Disable Nagle's algorithm: the chunked streaming responses below
+            # (agent run, terminal, install progress) write many small chunks in
+            # quick succession, and Nagle coalescing them delayed delivery until
+            # enough data queued up or an ACK round-trip completed, producing the
+            # "one word, pause, then a burst" stutter instead of a smooth stream.
+            sock = writer.get_extra_info('socket')
+            if sock is not None:
+                try:
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                except OSError:
+                    pass
+
             # Read request line
             request_line = await reader.readline()
             if not request_line:
@@ -2832,11 +2843,8 @@ class AsyncHTTPServer:
 
             event_queue = asyncio.Queue()
             self.active_queues.append(event_queue)
-            cancel_event = asyncio.Event()
 
             def send_chunk(text: str):
-                if len(text) < 4096:
-                    text = text.rstrip('\n') + (" " * (4096 - len(text))) + "\n"
                 chunk = text.encode('utf-8')
                 if not chunk:
                     return
@@ -2861,38 +2869,23 @@ class AsyncHTTPServer:
             agent_task = asyncio.create_task(run_agent())
             self.active_agent_task = agent_task
             self.active_agent_event_queue = event_queue
-            self.active_agent_cancel_event = cancel_event
 
             cancelled_by_event = False
             try:
                 while True:
-                    # Race between the next queue event and the cancel signal.
-                    # If the cancel event fires first, we close the HTTP stream
-                    # immediately so the UI unblocks — regardless of whether
-                    # the background agent task has finished winding down.
-                    get_fut = asyncio.ensure_future(event_queue.get())
-                    cancel_fut = asyncio.ensure_future(cancel_event.wait())
-                    done_set, pending = await asyncio.wait(
-                        {get_fut, cancel_fut},
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    for p in pending:
-                        p.cancel()
-                        try:
-                            await p
-                        except (asyncio.CancelledError, Exception):
-                            pass
-
-                    if cancel_fut in done_set:
-                        # Interrupt requested — close the stream now.
-                        cancelled_by_event = True
-                        break
-
-                    event = get_fut.result()
+                    event = await event_queue.get()
                     if event is None:
                         break
                     send_chunk(json.dumps(event) + "\n")
                     await writer.drain()
+                    if event.get("event") == "cancelled":
+                        # Close the HTTP stream immediately once the interrupt
+                        # has been forwarded to the client, without waiting for
+                        # the background agent task to finish winding down (it
+                        # may still be blocked in a non-cooperative call for a
+                        # while after cancel() is requested).
+                        cancelled_by_event = True
+                        break
             except asyncio.CancelledError:
                 cancelled_by_event = True
                 if not agent_task.done():
@@ -2903,7 +2896,6 @@ class AsyncHTTPServer:
                 if self.active_agent_task == agent_task:
                     self.active_agent_task = None
                     self.active_agent_event_queue = None
-                    self.active_agent_cancel_event = None
                 if event_queue in self.active_queues:
                     self.active_queues.remove(event_queue)
                 # Close the HTTP chunked stream so the frontend reader unblocks.
@@ -2942,11 +2934,6 @@ class AsyncHTTPServer:
                         self.active_agent_task,
                         self.active_agent_event_queue,
                     )
-                # Signal the streaming loop to close the HTTP response
-                # immediately so the UI unblocks without waiting for the
-                # agent task to finish winding down.
-                if self.active_agent_cancel_event is not None:
-                    self.active_agent_cancel_event.set()
                 self.active_agent_task.cancel()
                 self.send_response(writer, 200, b'{"success":true,"message":"Agent execution interrupted"}', "application/json")
             else:
