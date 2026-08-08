@@ -1878,29 +1878,35 @@ export default function App() {
   };
 
   const handleImportFileSelected = async (event) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files || []);
     event.target.value = '';
-    if (!file || !activeProject) return;
+    if (!files.length || !activeProject) return;
 
     const targetDir = importTargetPathRef.current || '';
-    const formData = new FormData();
-    formData.append('projectPath', activeProject.project_path);
-    formData.append('targetDir', targetDir);
-    formData.append('file', file, file.name);
+    let lastImportedPath = null;
 
-    try {
-      const res = await fetch('/api/file/import', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t('app.importFailed'));
-      addLog('info', t('app.fileImported', { path: data.filePath || file.name }));
-      await fetchFiles();
-      if (data.filePath) await handleFileSelect(data.filePath);
-    } catch (err) {
-      addLog('error', t('app.importFileError', { error: err.message }));
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append('projectPath', activeProject.project_path);
+      formData.append('targetDir', targetDir);
+      formData.append('file', file, file.name);
+
+      try {
+        const res = await fetch('/api/file/import', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || t('app.importFailed'));
+        addLog('info', t('app.fileImported', { path: data.filePath || file.name }));
+        if (data.filePath) lastImportedPath = data.filePath;
+      } catch (err) {
+        addLog('error', t('app.importFileError', { error: err.message }));
+      }
     }
+
+    await fetchFiles();
+    if (lastImportedPath) await handleFileSelect(lastImportedPath);
   };
 
   const handleRenameNode = (node) => {
@@ -3372,6 +3378,7 @@ export default function App() {
       <input
         ref={importFileInputRef}
         type="file"
+        multiple
         style={{ display: 'none' }}
         onChange={handleImportFileSelected}
       />

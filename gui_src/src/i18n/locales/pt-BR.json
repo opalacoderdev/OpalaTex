@@ -427,7 +427,7 @@
   "contextMenu": {
     "newFile": "Novo Arquivo...",
     "newDir": "Novo Diretório...",
-    "importFile": "Importar Arquivo...",
+    "importFile": "Importar Arquivos...",
     "rename": "Renomear...",
     "delete": "Excluir",
     "setMainFile": "Definir como Main File",
