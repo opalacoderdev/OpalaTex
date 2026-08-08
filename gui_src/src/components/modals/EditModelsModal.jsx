@@ -111,7 +111,7 @@ export default function EditModelsModal({
                 </thead>
                 <tbody>
                   {filteredModels.map((model) => (
-                    <tr key={model.id} style={{ borderBottom: '1px solid var(--vscode-widget-border)' }}>
+                    <tr key={model.id} style={{ borderBottom: '1px solid var(--vscode-widget-border)' }} title={model.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${model.api_base}` : undefined}>
                       <td style={{ padding: '8px' }}>{model.provider}</td>
                       <td style={{ padding: '8px' }}>{model.name}</td>
                       <td style={{ padding: '8px', color: 'var(--vscode-descriptionForeground)' }}>{model.id}</td>

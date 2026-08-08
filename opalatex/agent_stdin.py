@@ -148,8 +148,8 @@ from opalatex.chat_meta_params import parse_meta_params, apply_meta_params
 def _friendly_llm_error(exc: Exception, project=None) -> str:
     """Convert a LiteLLM/agent exception into a user-friendly message."""
     msg = str(exc)
-    print(f"\n[DEBUG ERROR TRACE] Caught Exception: {type(exc).__name__}")
-    print(f"[DEBUG ERROR TRACE] Raw Exception Message: {msg}\n")
+    #print(f"\n[DEBUG ERROR TRACE] Caught Exception: {type(exc).__name__}")
+    #print(f"[DEBUG ERROR TRACE] Raw Exception Message: {msg}\n")
     low = msg.lower()
     model = getattr(project, "model", None) or "the configured model"
     api_base = getattr(project, "api_base", "") or ""

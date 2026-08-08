@@ -1108,11 +1108,12 @@ export default function ChatPanel({
                 else onModelChange?.('model', val);
               }}
               disabled={!activeProject}
+              title={(globalModels || []).find(m => m.id === activeProject?.model)?.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${(globalModels || []).find(m => m.id === activeProject?.model).api_base}` : undefined}
             >
               {(!activeProject || !activeProject.model) && <option value="">{t('chatPanel.selectModel')}</option>}
               {Object.entries((globalModels || []).reduce((acc, m) => { const p = m.provider || 'custom'; if (!acc[p]) acc[p] = []; acc[p].push(m); return acc; }, {})).map(([provider, models]) => (
                 <optgroup key={`orch-${provider}`} label={provider.toUpperCase()}>
-                  {models.map(m => <option key={`orch-${m.id}`} value={m.id}>{modelOptionLabel(m, models)}</option>)}
+                  {models.map(m => <option key={`orch-${m.id}`} value={m.id} title={m.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${m.api_base}` : undefined}>{modelOptionLabel(m, models)}</option>)}
                 </optgroup>
               ))}
               <optgroup label={t('common.actions', 'Actions')}>
@@ -1145,11 +1146,12 @@ export default function ChatPanel({
                 else onModelChange?.('worker_model', val);
               }}
               disabled={!activeProject}
+              title={(globalModels || []).find(m => m.id === activeProject?.worker_model)?.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${(globalModels || []).find(m => m.id === activeProject?.worker_model).api_base}` : undefined}
             >
               {(!activeProject || !activeProject.worker_model) && <option value="">{t('chatPanel.selectModel')}</option>}
               {Object.entries((globalModels || []).reduce((acc, m) => { const p = m.provider || 'custom'; if (!acc[p]) acc[p] = []; acc[p].push(m); return acc; }, {})).map(([provider, models]) => (
                 <optgroup key={`work-${provider}`} label={provider.toUpperCase()}>
-                  {models.map(m => <option key={`work-${m.id}`} value={m.id}>{modelOptionLabel(m, models)}</option>)}
+                  {models.map(m => <option key={`work-${m.id}`} value={m.id} title={m.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${m.api_base}` : undefined}>{modelOptionLabel(m, models)}</option>)}
                 </optgroup>
               ))}
               <optgroup label={t('common.actions', 'Actions')}>

@@ -710,7 +710,8 @@
     "localOllamaAlreadyConfigured": "Todos os modelos locais do Ollama já possuem uma configuração.",
     "ollamaNotInstalled": "Ollama não instalado.",
     "ollamaUnavailable": "O Ollama está instalado, mas o serviço local não está disponível.",
-    "loadLocalOllamaFailed": "Não foi possível carregar os modelos locais do Ollama."
+    "loadLocalOllamaFailed": "Não foi possível carregar os modelos locais do Ollama.",
+    "apiBaseUrl": "URL Base da API"
   },
   "addProviderModal": {
     "addTitle": "Adicionar Modelo / Provedor",

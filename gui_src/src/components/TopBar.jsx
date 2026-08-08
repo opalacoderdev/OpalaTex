@@ -64,7 +64,9 @@ export default function TopBar({
         {Object.entries(groupedModels).map(([provider, models]) => (
           <optgroup key={provider} label={provider.toUpperCase()}>
             {models.map(m => (
-              <option key={m.id} value={m.id}>{modelOptionLabel(m, models)}</option>
+              <option key={m.id} value={m.id} title={m.api_base ? `${t('topBar.apiBaseUrl', 'API Base URL')}: ${m.api_base}` : undefined}>
+                {modelOptionLabel(m, models)}
+              </option>
             ))}
           </optgroup>
         ))}
@@ -78,6 +80,16 @@ export default function TopBar({
 
   const projectModel = activeProject?.model || '';
   const projectWorkerModel = activeProject?.worker_model || '';
+
+  // Find api_base of the currently selected models for tooltip hint
+  const selectedOrchestratorModel = globalModels.find(m => m.id === projectModel);
+  const selectedWorkerModel = globalModels.find(m => m.id === projectWorkerModel);
+  const orchestratorTitle = selectedOrchestratorModel?.api_base
+    ? `${t('topBar.apiBaseUrl', 'API Base URL')}: ${selectedOrchestratorModel.api_base}`
+    : undefined;
+  const workerTitle = selectedWorkerModel?.api_base
+    ? `${t('topBar.apiBaseUrl', 'API Base URL')}: ${selectedWorkerModel.api_base}`
+    : undefined;
 
   return (
     <div className="vscode-topbar" style={{
@@ -117,6 +129,7 @@ export default function TopBar({
               value={projectModel}
               onChange={handleOrchestratorChange}
               disabled={!activeProject}
+              title={orchestratorTitle}
             >
               {!projectModel && <option value="">{t('topBar.selectModel')}</option>}
               {renderOptions()}
@@ -143,6 +156,7 @@ export default function TopBar({
               value={projectWorkerModel}
               onChange={handleWorkerChange}
               disabled={!activeProject}
+              title={workerTitle}
             >
               {!projectWorkerModel && <option value="">{t('topBar.selectWorker')}</option>}
               {renderOptions()}
