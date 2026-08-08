@@ -657,8 +657,7 @@ def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
 
     # Ask LiteLLM to drop provider-unsupported optional params instead of
     # surfacing them as BadRequest errors on OpenAI-compatible endpoints.
-    if provider not in {"ollama", "ollama_chat"}:
-        cleaned.setdefault("drop_params", True)
+    cleaned.setdefault("drop_params", True)
 
     return cleaned
 
@@ -729,10 +728,11 @@ def resolve_model_for_thinking(model: str, llm_kwargs: dict) -> str:
     from opalatex.models_store import resolve_runtime_model_id
 
     model = resolve_runtime_model_id(model)
-    if "think" in llm_kwargs and not model_supports_thinking(selected_model):
+    if not model_supports_thinking(selected_model):
         llm_kwargs.pop("think", None)
-        return model
-    if llm_kwargs.get("think") and model.startswith("ollama/"):
+        llm_kwargs.pop("reasoning_effort", None)
+    
+    if model.startswith("ollama/"):
         return "ollama_chat/" + model[len("ollama/"):]
     return model
 

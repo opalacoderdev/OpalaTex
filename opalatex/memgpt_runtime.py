@@ -397,6 +397,11 @@ def build_run_skill_tool(
         from .config import get_project_agent_params
         worker_agent_params = get_project_agent_params("worker")
 
+        #print(f"\n[DEBUG] === worker ({skill_name}) parameters ===")
+        #print(f"model: {model}")
+        #print(f"kwargs: {worker_kwargs}")
+        #print(f"==============================================\n")
+
         sub_agent = LLMAgentBlock(
             name=f"skill_{skill_name}",
             system_prompt=system,
@@ -762,6 +767,11 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
                 _llm_kwargs["api_base"] = _llm_kwargs["api_base"][:-4]
                 
     _agent_params = get_project_agent_params()
+
+    #print(f"\n[DEBUG] === chat_orchestrator parameters ===")
+    #print(f"model: {model}")
+    #print(f"kwargs: {_llm_kwargs}")
+    #print(f"============================================\n")
 
     memgpt = MemGPTAgentBlock(
         name="chat_orchestrator",

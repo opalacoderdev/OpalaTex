@@ -27,7 +27,7 @@ dependencies = [
     "rich>=13.0.0",
     "numpy>=1.21.0",
     "instructor>=1.15.1",
-    "litellm>=1.40.0",
+    "litellm>=1.95.0",
     "chromadb>=0.4.0",
     "pywebview>=4.0",
     "pywinpty>=2.0.0; sys_platform == 'win32'",
