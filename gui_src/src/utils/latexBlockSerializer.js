@@ -21,9 +21,12 @@
 /**
  * Serialize a single block back to LaTeX source.
  * @param {object} block - a block from parseLatexBlocks
+ * @param {string} [originalSource] - the full original source; required for
+ *   'container' blocks so their (possibly untouched) header and children can
+ *   be spliced from it.
  * @returns {string} LaTeX source for this block
  */
-export function serializeBlock(block) {
+export function serializeBlock(block, originalSource) {
   if (!block) return '';
 
   // Non-editable blocks: return original source unchanged
@@ -37,9 +40,19 @@ export function serializeBlock(block) {
     case 'paragraph':
       return serializeParagraph(block);
     case 'list':
-      return serializeList(block);
+      return serializeList(block, originalSource);
+    case 'listitem':
+      return serializeListItem(block, originalSource);
     case 'quote':
       return serializeQuote(block);
+    case 'frametitle':
+      return serializeFrametitle(block);
+    case 'container':
+      return serializeContainer(block, originalSource);
+    case 'align':
+      return serializeAlign(block, originalSource);
+    case 'abstract':
+      return serializeAbstract(block, originalSource);
     // 'graphic' (tikzpicture/PGFPlots) is non-editable; preserve source as-is.
     default:
       return block.source;
@@ -57,12 +70,21 @@ export function serializeBlock(block) {
  */
 export function serializeDocument(originalSource, blocks) {
   if (!blocks || !blocks.length) return originalSource;
+  return spliceBlocksIntoRange(originalSource, blocks, 0, originalSource.length);
+}
 
+/**
+ * Splices a list of sibling blocks into a [rangeStart, rangeEnd) window of
+ * `originalSource`. Shared by the top-level document splice and by
+ * container blocks (frame/block/exampleblock/alertblock), which recursively
+ * splice their own `children` into their body range.
+ */
+function spliceBlocksIntoRange(originalSource, blocks, rangeStart, rangeEnd) {
   // Sort blocks by start offset
   const sorted = [...blocks].sort((a, b) => a.start - b.start);
 
   let result = '';
-  let cursor = 0;
+  let cursor = rangeStart;
 
   for (const block of sorted) {
     // Append any gap before this block (text between blocks that wasn't captured)
@@ -72,14 +94,18 @@ export function serializeDocument(originalSource, blocks) {
     // Rewrite only the block that the user edited. Re-serializing every
     // editable block used to normalize unrelated headings/lists whenever a
     // different block was changed, which could alter commands such as
-    // \chapter* or \section[short]{long}.
-    result += block.edited ? serializeBlock(block) : block.source;
+    // \chapter* or \section[short]{long}. Containers are always re-spliced
+    // (not just when `edited`) because an edit deep inside a child block
+    // does not mark the container itself dirty.
+    result += (block.edited || block.type === 'container' || block.type === 'list' || block.type === 'listitem' || block.type === 'align' || block.type === 'abstract')
+      ? serializeBlock(block, originalSource)
+      : block.source;
     cursor = block.end;
   }
 
   // Append any trailing content
-  if (cursor < originalSource.length) {
-    result += originalSource.slice(cursor);
+  if (cursor < rangeEnd) {
+    result += originalSource.slice(cursor, rangeEnd);
   }
 
   return result;
@@ -100,20 +126,64 @@ function serializeParagraph(block) {
   return inlineToLatex(block.text);
 }
 
-function serializeList(block) {
-  const env = block.listType;
-  const lines = block.items.map(item => {
-    if (env === 'description') {
-      return `  \\item[${inlineToLatex(item.term || '')}] ${inlineToLatex(item.text)}`;
-    }
-    return `  \\item ${inlineToLatex(item.text)}`;
-  });
-  return `\\begin{${env}}\n${lines.join('\n')}\n\\end{${env}}`;
+// Items are spliced into the list's body range the same way a container
+// splices its children — this preserves any text before the first `\item`
+// or after the last one (typically just whitespace/indentation) verbatim.
+function serializeList(block, originalSource) {
+  const items = spliceBlocksIntoRange(originalSource, block.items || [], block.bodyStart, block.bodyEnd);
+  return `\\begin{${block.envName}}${items}\\end{${block.envName}}`;
+}
+
+// An item's body starts right after `\item` (or `\item[term]`), so the
+// spliced body already carries whatever whitespace originally followed —
+// reconstructing `\item` + term + body reproduces the original formatting
+// exactly when nothing in the item was touched.
+function serializeListItem(block, originalSource) {
+  const term = block.hasTerm ? `[${inlineToLatex(block.term || '')}]` : '';
+  const body = spliceBlocksIntoRange(originalSource, block.children || [], block.bodyStart, block.bodyEnd);
+  return `\\item${term}${body}`;
 }
 
 function serializeQuote(block) {
   const env = 'quote';
   return `\\begin{${env}}\n${inlineToLatex(block.text)}\n\\end{${env}}`;
+}
+
+function serializeFrametitle(block) {
+  return `\\frametitle{${inlineToLatex(block.text)}}`;
+}
+
+function serializeContainer(block, originalSource) {
+  const header = serializeContainerHeader(block, originalSource);
+  const children = spliceBlocksIntoRange(originalSource, block.children || [], block.bodyStart, block.bodyEnd);
+  return `${header}${children}\\end{${block.envName}}`;
+}
+
+function serializeAlign(block, originalSource) {
+  const children = spliceBlocksIntoRange(originalSource, block.children || [], block.bodyStart, block.bodyEnd);
+  return `\\begin{${block.align}}${children}\\end{${block.align}}`;
+}
+
+function serializeAbstract(block, originalSource) {
+  const children = spliceBlocksIntoRange(originalSource, block.children || [], block.bodyStart, block.bodyEnd);
+  return `\\begin{abstract}${children}\\end{abstract}`;
+}
+
+// The header (`\begin{frame}[opts]{title}` or `\begin{block}{title}`) is
+// only rebuilt when the title was edited through the container's title
+// field. Otherwise the original header text is preserved verbatim so
+// untouched frame options/titles never drift on unrelated edits.
+function serializeContainerHeader(block, originalSource) {
+  if (!block.titleEdited) {
+    return originalSource.slice(block.start, block.bodyStart);
+  }
+  if (block.envName === 'frame') {
+    const options = block.frameOptions || '';
+    const title = block.title ? `{${inlineToLatex(block.title)}}` : '';
+    const subtitle = block.title && block.subtitle ? `{${inlineToLatex(block.subtitle)}}` : '';
+    return `\\begin{frame}${options}${title}${subtitle}`;
+  }
+  return `\\begin{${block.envName}}{${inlineToLatex(block.title || '')}}`;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

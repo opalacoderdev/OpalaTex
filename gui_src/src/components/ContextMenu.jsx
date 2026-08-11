@@ -1,5 +1,5 @@
 import React, { useRef, useLayoutEffect } from 'react';
-import { Plus, FolderPlus, Upload, Edit2, Trash2, Copy, ClipboardPaste, ExternalLink } from 'lucide-react';
+import { Plus, FolderPlus, Upload, Edit2, Trash2, Copy, ClipboardPaste, ExternalLink, FolderInput } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Floating right-click context menu for the file explorer.
@@ -15,6 +15,7 @@ export default function ContextMenu({
   handlePasteNode,
   handleOpenInSystem,
   handleSetMainFile,
+  handleMoveToNode,
   clipboardNode,
 }) {
   const { t } = useTranslation();
@@ -100,6 +101,13 @@ export default function ContextMenu({
           >
             <Edit2 size={13} style={{ color: '#e2b52b' }} />
             <span>{t('contextMenu.rename')}</span>
+          </div>
+          <div
+            className="vscode-context-menu-item"
+            onClick={() => handleMoveToNode(rightClickedNode)}
+          >
+            <FolderInput size={13} style={{ color: '#007acc' }} />
+            <span>{t('contextMenu.moveTo', 'Move to...')}</span>
           </div>
           <div
             className="vscode-context-menu-item"

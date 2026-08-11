@@ -18,7 +18,8 @@
 //     id: string,            // stable id for React keys
 //     type: string,          // 'heading' | 'paragraph' | 'list' | 'math' |
 //                            // 'figure' | 'table' | 'code' | 'quote' |
-//                            // 'environment' | 'preamble' | 'comment'
+//                            // 'environment' | 'preamble' | 'comment' |
+//                            // 'titlepage' | 'maketitle' | 'abstract'
 //     editable: boolean,     // whether the user can edit text in this block
 //     start: number,         // char offset in original source (inclusive)
 //     end: number,           // char offset in original source (exclusive)
@@ -37,6 +38,8 @@
 //     lang?: string,         // code language
 //     envName?: string,      // environment name (for fallback blocks)
 //     raw?: string,          // raw rendered content (for fallback)
+//     titleMeta?: object,    // \title/\author/\institute/\date extracted
+//                            // from the preamble (for 'titlepage' blocks)
 //   }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -60,6 +63,12 @@ const TABLE_WRAPPER_ENV_NAMES = new Set([
   'flushright',
 ]);
 
+// Beamer environments that contain a nested sub-document (their body is
+// parsed recursively via parseBody, same as the top-level document body).
+// `frame` takes optional `[options]` then up to two brace args (title,
+// subtitle). The titled boxes take exactly one mandatory `{title}` arg.
+const TITLED_BOX_ENV_NAMES = new Set(['block', 'exampleblock', 'alertblock']);
+
 /**
  * Parse LaTeX source into structured blocks with offsets.
  * @param {string} src - LaTeX source
@@ -69,32 +78,72 @@ export function parseLatexBlocks(src) {
   if (!src) return [];
   blockIdCounter = 0;
   const blocks = [];
-  let pos = 0;
 
   // ── Extract document body ────────────────────────────────────────────────
   const docStart = src.indexOf('\\begin{document}');
   const docEnd = src.indexOf('\\end{document}');
   let body, bodyOffset;
+  let titleMeta;
   if (docStart !== -1) {
     const afterBegin = docStart + '\\begin{document}'.length;
     body = src.slice(afterBegin, docEnd !== -1 ? docEnd : src.length);
     bodyOffset = afterBegin;
+    titleMeta = extractTitleMeta(src.slice(0, afterBegin));
     // Emit preamble as non-editable block
     if (docStart > 0) {
+      const preambleSrc = src.slice(0, afterBegin);
+      const summary = summarizePreamble(preambleSrc);
       blocks.push({
         id: nextId(),
         type: 'preamble',
         editable: false,
         start: 0,
         end: afterBegin,
-        source: src.slice(0, afterBegin),
-        raw: src.slice(0, afterBegin),
+        source: preambleSrc,
+        raw: preambleSrc,
+        documentClass: summary.documentClass,
+        packageCount: summary.packageCount,
+        visibleSource: summary.visibleSource,
       });
     }
   } else {
     body = src;
     bodyOffset = 0;
+    titleMeta = extractTitleMeta(src);
   }
+
+  blocks.push(...parseBody(body, bodyOffset, titleMeta));
+
+  // ── Emit \end{document} as non-editable if present ───────────────────────
+  if (docEnd !== -1) {
+    blocks.push({
+      id: nextId(),
+      type: 'preamble',
+      editable: false,
+      postamble: true,
+      start: docEnd,
+      end: src.length,
+      source: src.slice(docEnd),
+      raw: src.slice(docEnd),
+    });
+  }
+
+  return blocks;
+}
+
+/**
+ * Tokenize a chunk of LaTeX body text into an ordered list of blocks, with
+ * offsets expressed as absolute offsets into the *original* full source
+ * (via `bodyOffset`). Used both for the top-level document body and,
+ * recursively, for the body of container environments such as `frame`.
+ * @param {string} body - LaTeX body text to tokenize
+ * @param {number} bodyOffset - absolute offset of `body[0]` in the original source
+ * @param {?object} titleMeta - `\title`/`\author`/... extracted from the
+ *   preamble, threaded down so a nested `\titlepage` block can render it.
+ * @returns {Array} list of blocks
+ */
+function parseBody(body, bodyOffset, titleMeta) {
+  const blocks = [];
 
   // ── Tokenize body into top-level chunks ──────────────────────────────────
   // We scan for environments, display math, and commands that start blocks.
@@ -165,13 +214,113 @@ export function parseLatexBlocks(src) {
           const start = bodyOffset + i;
           const finish = bodyOffset + envEnd;
           const envSource = body.slice(i, envEnd);
-          const envBody = body.slice(i + envMatch[0].length, envEnd - ('\\end{' + envName + '}').length);
-          blocks.push(buildEnvironmentBlock(envName, envBody, envSource, start, finish));
+          const closeTagLen = ('\\end{' + envName + '}').length;
+
+          // ── Beamer containers: frame, block, exampleblock, alertblock ────
+          // These hold a nested sub-document (prose, lists, math, other
+          // containers, ...), so their body is parsed recursively instead of
+          // being dumped as a single read-only fallback block.
+          if (envName === 'frame' || TITLED_BOX_ENV_NAMES.has(envName)) {
+            const headerArgsStart = i + envMatch[0].length;
+            const { options, braceArgs, cursor: contentStart } = parseContainerHeaderArgs(
+              body, headerArgsStart, envName === 'frame', envName === 'frame' ? 2 : 1
+            );
+            const envBody = body.slice(contentStart, envEnd - closeTagLen);
+            const childBodyOffset = bodyOffset + contentStart;
+            blocks.push({
+              id: nextId(),
+              type: 'container',
+              editable: true,
+              containerKind: envName,
+              envName,
+              frameOptions: options,
+              title: braceArgs[0] || '',
+              subtitle: braceArgs[1] || '',
+              titleEdited: false,
+              start, end: finish,
+              bodyStart: childBodyOffset,
+              bodyEnd: bodyOffset + (envEnd - closeTagLen),
+              source: envSource,
+              children: parseBody(envBody, childBodyOffset, titleMeta),
+            });
+          } else {
+            const envBodyOffset = bodyOffset + i + envMatch[0].length;
+            const envBody = body.slice(i + envMatch[0].length, envEnd - closeTagLen);
+            blocks.push(buildEnvironmentBlock(envName, envBody, envSource, start, finish, envBodyOffset, titleMeta));
+          }
           i = envEnd;
           textBufStart = i;
           continue;
         }
       }
+    }
+
+    // ── Beamer frame title: \frametitle{...} ────────────────────────────────
+    const ftMatch = body.slice(i).match(/^\\frametitle\s*(?:\[[^\]]*\]\s*)?\{/);
+    if (ftMatch) {
+      flushText();
+      const openBrace = i + ftMatch[0].length - 1;
+      const braceEnd = findMatchingBrace(body, openBrace);
+      if (braceEnd !== -1) {
+        const title = body.slice(openBrace + 1, braceEnd);
+        const start = bodyOffset + i;
+        const finish = bodyOffset + braceEnd + 1;
+        blocks.push({
+          id: nextId(),
+          type: 'frametitle',
+          editable: true,
+          start, end: finish,
+          source: body.slice(i, braceEnd + 1),
+          text: title,
+        });
+        i = braceEnd + 1;
+        textBufStart = i;
+        continue;
+      }
+    }
+
+    // ── Beamer title page: \titlepage ───────────────────────────────────────
+    // Bare command, no args. Rendered as a preview card built from the
+    // \title/\author/\institute/\date extracted from the preamble, instead
+    // of leaking the literal `\titlepage` command as plain text.
+    if (body.startsWith('\\titlepage', i) && !/[a-zA-Z]/.test(body[i + '\\titlepage'.length] || '')) {
+      flushText();
+      const cmdEnd = i + '\\titlepage'.length;
+      const start = bodyOffset + i;
+      const finish = bodyOffset + cmdEnd;
+      blocks.push({
+        id: nextId(),
+        type: 'titlepage',
+        editable: false,
+        start, end: finish,
+        source: body.slice(i, cmdEnd),
+        titleMeta: titleMeta || null,
+      });
+      i = cmdEnd;
+      textBufStart = i;
+      continue;
+    }
+
+    // ── Document title: \maketitle ───────────────────────────────────────────
+    // Bare command, no args. Rendered as a preview built from the
+    // \title/\author/\date extracted from the preamble, instead of leaking
+    // the literal `\maketitle` command as plain text.
+    if (body.startsWith('\\maketitle', i) && !/[a-zA-Z]/.test(body[i + '\\maketitle'.length] || '')) {
+      flushText();
+      const cmdEnd = i + '\\maketitle'.length;
+      const start = bodyOffset + i;
+      const finish = bodyOffset + cmdEnd;
+      blocks.push({
+        id: nextId(),
+        type: 'maketitle',
+        editable: false,
+        start, end: finish,
+        source: body.slice(i, cmdEnd),
+        titleMeta: titleMeta || null,
+      });
+      i = cmdEnd;
+      textBufStart = i;
+      continue;
     }
 
     // ── Sectioning commands ────────────────────────────────────────────────
@@ -209,25 +358,12 @@ export function parseLatexBlocks(src) {
   }
   flushText();
 
-  // ── Emit \end{document} as non-editable if present ───────────────────────
-  if (docEnd !== -1) {
-    blocks.push({
-      id: nextId(),
-      type: 'preamble',
-      editable: false,
-      start: docEnd,
-      end: src.length,
-      source: src.slice(docEnd),
-      raw: src.slice(docEnd),
-    });
-  }
-
   return blocks;
 }
 
 // ── Block builders ──────────────────────────────────────────────────────────
 
-function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
+function buildEnvironmentBlock(envName, envBody, envSource, start, end, envBodyOffset, titleMeta) {
   const base = {
     id: nextId(),
     start, end,
@@ -236,18 +372,20 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
   };
 
   // ── Lists ────────────────────────────────────────────────────────────────
+  // Each item's body is parsed recursively via parseBody (same as a
+  // container's body), so nested lists/paragraphs/math inside a \item are
+  // real blocks rather than opaque text — this lets a nested
+  // \begin{itemize}...\end{itemize} render as an actual nested list instead
+  // of leaking `\begin{itemize}`/`\item` markup as raw text.
   if (envName === 'itemize' || envName === 'enumerate' || envName === 'description') {
-    const items = splitItems(envBody);
     return {
       ...base,
       type: 'list',
       editable: true,
       listType: envName,
-      items: items.map(item => {
-        const m = item.match(/^\s*\\item\s*(?:\[([^\]]*)\])?\s*([\s\S]*)$/);
-        if (m) return { term: m[1] || '', text: m[2].trim() };
-        return { term: '', text: item.replace(/^\s*\\item\s*/, '').trim() };
-      }),
+      bodyStart: envBodyOffset,
+      bodyEnd: envBodyOffset + envBody.length,
+      items: parseListItems(envBody, envBodyOffset, titleMeta),
     };
   }
 
@@ -258,6 +396,22 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
       type: 'quote',
       editable: true,
       text: envBody.trim(),
+    };
+  }
+
+  // ── Abstract ─────────────────────────────────────────────────────────────
+  // Parsed recursively (like a container's body) so its prose renders as a
+  // real editable paragraph with a styled "Abstract" heading, instead of the
+  // generic read-only environment fallback dumping raw `\begin{abstract}`
+  // source.
+  if (envName === 'abstract') {
+    return {
+      ...base,
+      type: 'abstract',
+      editable: true,
+      bodyStart: envBodyOffset,
+      bodyEnd: envBodyOffset + envBody.length,
+      children: parseBody(envBody, envBodyOffset, titleMeta),
     };
   }
 
@@ -274,6 +428,19 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end) {
         tabular: tableInfo.tabular,
       };
     }
+    // Not wrapping a table: this is a plain alignment wrapper. Parse its
+    // body recursively (same as a container) instead of falling through to
+    // the generic read-only environment block — a centered paragraph should
+    // render as centered editable text, not raw `\begin{center}` markup.
+    return {
+      ...base,
+      type: 'align',
+      editable: true,
+      align: envName,
+      bodyStart: envBodyOffset,
+      bodyEnd: envBodyOffset + envBody.length,
+      children: parseBody(envBody, envBodyOffset, titleMeta),
+    };
   }
 
   // ── Math environments ────────────────────────────────────────────────────
@@ -463,7 +630,7 @@ function parseProseBlocks(blocks, text, startOffset, endOffset) {
     // Find the actual position of this paragraph in the text
     const paraStart = text.indexOf(para, cursor - startOffset);
     const absStart = startOffset + paraStart;
-    const absEnd = absStart + para.length;
+    const absEnd = absStart + para.length; // full span, used to advance `cursor`
 
     // Skip pure whitespace
     if (!para.trim()) {
@@ -471,16 +638,29 @@ function parseProseBlocks(blocks, text, startOffset, endOffset) {
       continue;
     }
 
+    // Exclude a trailing run of whitespace that contains a newline from the
+    // block's own editable span, leaving it as inter-block "gap" text
+    // spliced verbatim from the source. Without this, a single newline
+    // separating e.g. two consecutive `\item`s would live inside the
+    // paragraph's editable text — and EditableLatexText's commit path
+    // strips trailing newlines, silently gluing the edited item to the
+    // next `\item` on save.
+    const trailingWs = para.match(/\s+$/);
+    const blockText = (trailingWs && trailingWs[0].includes('\n'))
+      ? para.slice(0, para.length - trailingWs[0].length)
+      : para;
+    const blockEnd = absStart + blockText.length;
+
     // Check if it's a comment-only block
-    const stripped = para.trim();
+    const stripped = blockText.trim();
     if (stripped.startsWith('%') && !stripped.includes('\n')) {
       blocks.push({
         id: nextId(),
         type: 'comment',
         editable: false,
         start: absStart,
-        end: absEnd,
-        source: para,
+        end: blockEnd,
+        source: blockText,
         text: stripped,
       });
     } else {
@@ -489,9 +669,9 @@ function parseProseBlocks(blocks, text, startOffset, endOffset) {
         type: 'paragraph',
         editable: true,
         start: absStart,
-        end: absEnd,
-        source: para,
-        text: para,
+        end: blockEnd,
+        source: blockText,
+        text: blockText,
       });
     }
     cursor = absEnd;
@@ -499,6 +679,43 @@ function parseProseBlocks(blocks, text, startOffset, endOffset) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Parses the header arguments right after `\begin{envName}` for a container
+ * environment: an optional `[options]` group (only when `allowOptions` is
+ * true, e.g. `\begin{frame}[fragile]`) followed by up to `maxBraceArgs`
+ * consecutive `{...}` groups (e.g. `{Title}{Subtitle}`).
+ * @returns {{options: string, braceArgs: string[], cursor: number}}
+ */
+function parseContainerHeaderArgs(body, cursor, allowOptions, maxBraceArgs) {
+  let options = '';
+  if (allowOptions && body[cursor] === '[') {
+    const close = findMatchingBracket(body, cursor);
+    if (close !== -1) {
+      options = body.slice(cursor, close + 1);
+      cursor = close + 1;
+    }
+  }
+  const braceArgs = [];
+  while (braceArgs.length < maxBraceArgs && body[cursor] === '{') {
+    const close = findMatchingBrace(body, cursor);
+    if (close === -1) break;
+    braceArgs.push(body.slice(cursor + 1, close));
+    cursor = close + 1;
+  }
+  return { options, braceArgs, cursor };
+}
+
+function findMatchingBracket(s, openPos) {
+  // s[openPos] === '['
+  let depth = 0;
+  for (let i = openPos; i < s.length; i++) {
+    if (s[i] === '\\') { i++; continue; } // skip escaped char
+    if (s[i] === '[') depth++;
+    else if (s[i] === ']') { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
 
 function sectionLevel(cmd) {
   const map = {
@@ -556,27 +773,135 @@ function findMatchingBrace(s, openPos) {
   return -1;
 }
 
-function splitItems(body) {
-  const items = [];
-  let depth = 0;
-  let buf = '';
-  const tokens = body.split(/(\\item|\\begin\{|\\end\{)/);
-  for (let i = 0; i < tokens.length; i++) {
-    const tk = tokens[i];
-    if (tk === '\\item' && depth === 0) {
-      if (buf.trim()) items.push(buf);
-      buf = '';
-    } else if (tk === '\\begin{') {
-      depth++;
-      buf += tk + (tokens[++i] || '');
-    } else if (tk === '\\end{') {
-      depth--;
-      buf += tk + (tokens[++i] || '');
-    } else {
-      buf += tk;
-    }
+/**
+ * Extracts the `\title`/`\subtitle`/`\author`/`\institute`/`\date` metadata
+ * declared in the preamble, so a `\titlepage` block in the document body can
+ * render a preview instead of the literal command name. Returns `null` when
+ * none of these commands are present (nothing to preview).
+ * @param {string} preambleSrc - source text before `\begin{document}`
+ * @returns {?{title: string, subtitle: string, author: string, institute: string, date: string}}
+ */
+function extractTitleMeta(preambleSrc) {
+  const title = extractBraceCommandArg(preambleSrc, 'title');
+  const subtitle = extractBraceCommandArg(preambleSrc, 'subtitle');
+  const author = extractBraceCommandArg(preambleSrc, 'author');
+  const institute = extractBraceCommandArg(preambleSrc, 'institute');
+  const date = extractBraceCommandArg(preambleSrc, 'date');
+  if (!title && !subtitle && !author && !institute && !date) return null;
+  return { title, subtitle, author, institute, date };
+}
+
+/**
+ * Summarizes the preamble for display in Rich Text mode: the document class
+ * name, a count of loaded packages, and the preamble text with
+ * `\documentclass` and `\usepackage` lines stripped out. The Rich Text
+ * preview hides those boilerplate tags and shows a compact summary instead,
+ * while any other preamble content (e.g. `\newcommand`, `\title`) remains in
+ * `visibleSource` for context. The underlying `source`/`raw` fields are left
+ * untouched, so nothing is lost when the block is serialized back.
+ * @param {string} preambleSrc - source text from the start of the file up to
+ *   and including `\begin{document}`
+ * @returns {{documentClass: string, packageCount: number, visibleSource: string}}
+ */
+function summarizePreamble(preambleSrc) {
+  const classMatch = preambleSrc.match(/\\documentclass\s*(?:\[[^\]]*\])?\{([^}]*)\}/);
+  const packageMatches = preambleSrc.match(/\\usepackage\s*(?:\[[^\]]*\])?\{([^}]*)\}/g) || [];
+  let packageCount = 0;
+  for (const decl of packageMatches) {
+    const argMatch = decl.match(/\{([^}]*)\}\s*$/);
+    packageCount += argMatch ? argMatch[1].split(',').filter((s) => s.trim()).length : 0;
   }
-  if (buf.trim()) items.push(buf);
+  const visibleSource = preambleSrc
+    .replace(/^[ \t]*\\documentclass\s*(?:\[[^\]]*\])?\{[^}]*\}[ \t]*\n?/gm, '')
+    .replace(/^[ \t]*\\usepackage\s*(?:\[[^\]]*\])?\{[^}]*\}[ \t]*\n?/gm, '')
+    .replace(/\\begin\{document\}\s*$/, '')
+    .trim();
+  return {
+    documentClass: classMatch ? classMatch[1] : '',
+    packageCount,
+    visibleSource,
+  };
+}
+
+// Finds the first `\name{...}` (optionally preceded by a `[short]` arg) in
+// `source` and returns its brace argument, honoring nested braces.
+function extractBraceCommandArg(source, name) {
+  const re = new RegExp(`\\\\${name}\\s*(?:\\[[^\\]]*\\]\\s*)?\\{`);
+  const match = source.match(re);
+  if (!match) return '';
+  const openBrace = match.index + match[0].length - 1;
+  const closeBrace = findMatchingBrace(source, openBrace);
+  if (closeBrace === -1) return '';
+  return source.slice(openBrace + 1, closeBrace);
+}
+
+/**
+ * Splits a list environment's body into top-level `\item` spans (skipping
+ * `\item`s that belong to a nested environment) and recursively parses each
+ * item's content into blocks via parseBody, so a nested list/paragraph/math
+ * inside an item is real structure instead of opaque text.
+ * @param {string} envBody - text between `\begin{itemize}` and `\end{itemize}`
+ * @param {number} envBodyOffset - absolute offset of envBody[0] in the source
+ * @param {?object} titleMeta - threaded down to nested `parseBody` calls
+ * @returns {Array} list of `{ id, term, hasTerm, start, end, bodyStart, bodyEnd, children }`
+ */
+function parseListItems(envBody, envBodyOffset, titleMeta) {
+  const len = envBody.length;
+  const itemStarts = [];
+  let i = 0;
+  let depth = 0;
+
+  while (i < len) {
+    if (envBody.startsWith('\\begin{', i)) {
+      const m = envBody.slice(i).match(/^\\begin\{[a-zA-Z*]+\}/);
+      if (m) { depth++; i += m[0].length; continue; }
+    }
+    if (envBody.startsWith('\\end{', i)) {
+      const m = envBody.slice(i).match(/^\\end\{[a-zA-Z*]+\}/);
+      if (m) { depth--; i += m[0].length; continue; }
+    }
+    // Match `\item` as a whole command (not `\itemize`/`\itemsep`/...).
+    if (depth === 0 && envBody.startsWith('\\item', i) && !/[a-zA-Z]/.test(envBody[i + 5] || '')) {
+      itemStarts.push(i);
+      i += 5;
+      continue;
+    }
+    i++;
+  }
+
+  const items = [];
+  for (let k = 0; k < itemStarts.length; k++) {
+    const itemStart = itemStarts[k];
+    const itemEnd = k + 1 < itemStarts.length ? itemStarts[k + 1] : len;
+    let cursor = itemStart + '\\item'.length;
+
+    // Optional `[term]` right after `\item`, used by description lists.
+    let term = '';
+    let hasTerm = false;
+    if (envBody[cursor] === '[') {
+      const close = findMatchingBracket(envBody, cursor);
+      if (close !== -1) {
+        term = envBody.slice(cursor + 1, close);
+        cursor = close + 1;
+        hasTerm = true;
+      }
+    }
+
+    const bodyStart = cursor;
+    const bodyEnd = itemEnd;
+    items.push({
+      id: nextId(),
+      type: 'listitem',
+      editable: true,
+      term,
+      hasTerm,
+      start: envBodyOffset + itemStart,
+      end: envBodyOffset + itemEnd,
+      bodyStart: envBodyOffset + bodyStart,
+      bodyEnd: envBodyOffset + bodyEnd,
+      children: parseBody(envBody.slice(bodyStart, bodyEnd), envBodyOffset + bodyStart, titleMeta),
+    });
+  }
   return items;
 }
 

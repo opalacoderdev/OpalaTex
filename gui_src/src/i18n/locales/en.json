@@ -300,7 +300,21 @@
       "loadingImagePreview": "Loading image preview...",
       "imagePreviewUnavailable": "Image preview unavailable - {{log}}",
       "environment": "environment: {{name}}",
-      "preamble": "preamble"
+      "preamble": "preamble",
+      "preambleSummary": "preamble — document class: {{documentClass}}, {{count}} package(s) hidden",
+      "jumpToSource": "source",
+      "emptyContainer": "Empty",
+      "titlepage": "Title Page",
+      "titlepageToday": "Today's date",
+      "titlepageEmpty": "No \\title, \\author or \\date defined in the preamble",
+      "maketitleEmpty": "No \\title defined in the preamble",
+      "abstract": "Abstract",
+      "container": {
+        "frame": "Slide",
+        "block": "Block",
+        "exampleblock": "Example",
+        "alertblock": "Alert"
+      }
     }
   },
   "chatPanel": {
@@ -435,6 +449,7 @@
     "cut": "Cut",
     "copy": "Copy",
     "paste": "Paste",
+    "moveTo": "Move to...",
     "commandPalette": "Command Palette",
     "openInSystem": "Open with default app"
   },
@@ -734,6 +749,13 @@
     "cancel": "Cancel",
     "selectFolder": "Select this folder"
   },
+  "moveToModal": {
+    "title": "Move to...",
+    "titleMulti": "Move {{count}} items to...",
+    "projectRoot": "Project Root",
+    "noSubdirs": "No subdirectories",
+    "confirm": "Move here"
+  },
   "installDepsPrompt": {
     "title": "OPTIONAL MODULES REQUIRED",
     "body1": "Optional modules for offline embeddings (<1>sentence-transformers</1>) were not found in the environment.",
@@ -819,8 +841,8 @@
     "deleteSingleFile": "Are you sure you want to delete the file \"{{name}}\"?",
     "deleteSingleDir": "Are you sure you want to delete the directory \"{{name}}\"? All internal files will also be removed!",
     "moveDirectoryIntoItself": "Cannot move a directory inside itself.",
-    "itemMoved": "{{itemType}} moved from {{oldPath}} to {{newPath}}",
-    "moveFailed": "Failed to move: {{error}}",
+    "movePathFailed": "Failed to move {{path}}: {{error}}",
+    "itemsMoved": "{{count}} item(s) moved successfully.",
     "moveError": "Error moving: {{error}}",
     "projectRegistered": "Project '{{name}}' registered.",
     "projectCreateError": "Error creating project.",

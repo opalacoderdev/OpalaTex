@@ -264,7 +264,7 @@ export default function ExplorerSidebar({
         onDrop={(e) => {
           e.preventDefault();
           setDragOverPath(null);
-          if (draggedNode) handleMoveNode(draggedNode.path, '', draggedNode.isDirectory);
+          if (draggedNode) handleMoveNode(draggedNode.paths, '');
         }}
         tabIndex={0}
         onKeyDown={(e) => {

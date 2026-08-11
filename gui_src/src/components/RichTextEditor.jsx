@@ -95,26 +95,32 @@ export default function RichTextEditor({
   }, [lineOffsets]);
 
   // ── Handle edit in a contentEditable block ───────────────────────────────
+  // Blocks may be nested (a paragraph or list inside a beamer `frame`), so
+  // the target block is looked up recursively through `children`.
   const handleBlockEdit = useCallback((blockId, newText) => {
     if (!onChange) return;
-    // Find the block and update its text
-    const updatedBlocks = blocks.map(b =>
-      b.id === blockId ? { ...b, text: newText, edited: true } : b
-    );
+    const updatedBlocks = updateBlockById(blocks, blockId, (b) => ({ ...b, text: newText, edited: true }));
     const newSource = serializeDocument(source, updatedBlocks);
     onChange(newSource);
   }, [blocks, source, onChange]);
 
-  // ── Handle list item edit ────────────────────────────────────────────────
-  const handleListItemEdit = useCallback((blockId, itemIndex, field, newValue) => {
+  // ── Handle a description-list item's `[term]` edit ───────────────────────
+  // The rest of an item's content (including nested lists) is real block
+  // structure edited via handleBlockEdit; only the `\item[term]` bracket is
+  // a plain string owned by the item itself.
+  const handleListItemEdit = useCallback((itemId, newTerm) => {
     if (!onChange) return;
-    const updatedBlocks = blocks.map(b => {
-      if (b.id !== blockId) return b;
-      const items = b.items.map((it, i) =>
-        i === itemIndex ? { ...it, [field]: newValue } : it
-      );
-      return { ...b, items, edited: true };
-    });
+    const updatedBlocks = updateBlockById(blocks, itemId, (item) => ({ ...item, term: newTerm, hasTerm: true, edited: true }));
+    const newSource = serializeDocument(source, updatedBlocks);
+    onChange(newSource);
+  }, [blocks, source, onChange]);
+
+  // ── Handle a container's title edit (frame/block/exampleblock/alertblock) ─
+  // Title text lives in `\begin{frame}{Title}`-style env args, not in a
+  // child block, so it is updated directly on the container itself.
+  const handleContainerTitleEdit = useCallback((blockId, newTitle) => {
+    if (!onChange) return;
+    const updatedBlocks = updateBlockById(blocks, blockId, (b) => ({ ...b, title: newTitle, titleEdited: true }));
     const newSource = serializeDocument(source, updatedBlocks);
     onChange(newSource);
   }, [blocks, source, onChange]);
@@ -177,38 +183,47 @@ export default function RichTextEditor({
       className="rich-text-editor-container"
       onScroll={handleScroll}
       style={{
-        padding: '20px',
         overflowY: 'auto',
         position: 'absolute',
         top: 0, left: 0, right: 0, bottom: 0,
         boxSizing: 'border-box',
-        transform: `scale(${zoomLevel})`,
-        transformOrigin: 'top left',
-        width: `${100 / zoomLevel}%`,
-        minHeight: `${100 / zoomLevel}%`,
       }}
     >
-      {blocks.map((block) => {
-        const sourceLine = sourceLineFromOffset(source, block.start);
-        return (
-          <LazyBlock
-            key={block.id}
-            block={block}
-            sourceLine={sourceLine}
-            activeProjectPath={activeProjectPath}
-            sourceTex={sourceTex}
-            onBlockEdit={handleBlockEdit}
-            onListItemEdit={handleListItemEdit}
-            onJumpToSource={handleJumpToSource}
-            setActiveSourceLine={setActiveSourceLine}
-          />
-        );
-      })}
-      {blocks.length === 0 && (
-        <div style={{ color: 'var(--vscode-descriptionForeground, #888)', fontSize: '13px', padding: '20px' }}>
-          {t('editorPanel.emptyRichText', 'No editable content. Open a .tex file with a document body.')}
-        </div>
-      )}
+      {/*
+        The zoom transform lives on this inner wrapper, not on the scrolling
+        element above. Applying `transform` directly to an `overflow: auto`
+        element makes Chromium/webview promote it to its own compositing
+        layer, which has a known bug where the native scrollbar stops
+        repainting mid-scroll (it vanishes before the content reaches the
+        end). Keeping the scroll container transform-free avoids that.
+      */}
+      <div
+        style={{
+          padding: '20px',
+          boxSizing: 'border-box',
+          transform: `scale(${zoomLevel})`,
+          transformOrigin: 'top left',
+          width: `${100 / zoomLevel}%`,
+          minHeight: `${100 / zoomLevel}%`,
+        }}
+      >
+        <BlockList
+          blocks={blocks}
+          source={source}
+          activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
+          onBlockEdit={handleBlockEdit}
+          onListItemEdit={handleListItemEdit}
+          onContainerTitleEdit={handleContainerTitleEdit}
+          onJumpToSource={handleJumpToSource}
+          setActiveSourceLine={setActiveSourceLine}
+        />
+        {blocks.length === 0 && (
+          <div style={{ color: 'var(--vscode-descriptionForeground, #888)', fontSize: '13px', padding: '20px' }}>
+            {t('editorPanel.emptyRichText', 'No editable content. Open a .tex file with a document body.')}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -225,13 +240,51 @@ export default function RichTextEditor({
 
 const LAZY_ROOT_MARGIN = '800px 0px 800px 0px';
 
-const LazyBlock = React.memo(function LazyBlock({
-  block,
-  sourceLine,
+// ─────────────────────────────────────────────────────────────────────────────
+// BlockList — renders a sibling list of blocks, each lazily mounted. Used
+// both for the top-level document body and, recursively, for the children
+// of a container block (frame/block/exampleblock/alertblock), so nested
+// content reuses the exact same lazy-mount and edit wiring as top-level
+// content.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BlockList({
+  blocks,
+  source,
   activeProjectPath,
   sourceTex,
   onBlockEdit,
   onListItemEdit,
+  onContainerTitleEdit,
+  onJumpToSource,
+  setActiveSourceLine,
+}) {
+  return blocks.map((block) => (
+    <LazyBlock
+      key={block.id}
+      block={block}
+      sourceLine={sourceLineFromOffset(source, block.start)}
+      source={source}
+      activeProjectPath={activeProjectPath}
+      sourceTex={sourceTex}
+      onBlockEdit={onBlockEdit}
+      onListItemEdit={onListItemEdit}
+      onContainerTitleEdit={onContainerTitleEdit}
+      onJumpToSource={onJumpToSource}
+      setActiveSourceLine={setActiveSourceLine}
+    />
+  ));
+}
+
+const LazyBlock = React.memo(function LazyBlock({
+  block,
+  sourceLine,
+  source,
+  activeProjectPath,
+  sourceTex,
+  onBlockEdit,
+  onListItemEdit,
+  onContainerTitleEdit,
   onJumpToSource,
   setActiveSourceLine,
 }) {
@@ -280,11 +333,14 @@ const LazyBlock = React.memo(function LazyBlock({
       {visible ? (
         <BlockRenderer
           block={block}
+          source={source}
           activeProjectPath={activeProjectPath}
           sourceTex={sourceTex}
           onBlockEdit={onBlockEdit}
           onListItemEdit={onListItemEdit}
+          onContainerTitleEdit={onContainerTitleEdit}
           onJumpToSource={onJumpToSource}
+          setActiveSourceLine={setActiveSourceLine}
         />
       ) : (
         <div style={{ minHeight: '24px' }} />
@@ -297,7 +353,7 @@ const LazyBlock = React.memo(function LazyBlock({
 // BlockRenderer — renders a single block based on its type
 // ─────────────────────────────────────────────────────────────────────────────
 
-function BlockRenderer({ block, activeProjectPath, sourceTex, onBlockEdit, onListItemEdit, onJumpToSource }) {
+function BlockRenderer({ block, source, activeProjectPath, sourceTex, onBlockEdit, onListItemEdit, onContainerTitleEdit, onJumpToSource, setActiveSourceLine }) {
   switch (block.type) {
     case 'preamble':
       return <PreambleBlock block={block} onJumpToSource={onJumpToSource} />;
@@ -306,9 +362,69 @@ function BlockRenderer({ block, activeProjectPath, sourceTex, onBlockEdit, onLis
     case 'paragraph':
       return <ParagraphBlock block={block} onEdit={onBlockEdit} />;
     case 'list':
-      return <ListBlock block={block} onItemEdit={onListItemEdit} />;
+      return (
+        <ListBlock
+          block={block}
+          source={source}
+          activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
+          onBlockEdit={onBlockEdit}
+          onListItemEdit={onListItemEdit}
+          onContainerTitleEdit={onContainerTitleEdit}
+          onJumpToSource={onJumpToSource}
+          setActiveSourceLine={setActiveSourceLine}
+        />
+      );
     case 'quote':
       return <QuoteBlock block={block} onEdit={onBlockEdit} />;
+    case 'frametitle':
+      return <FrameTitleBlock block={block} onEdit={onBlockEdit} />;
+    case 'titlepage':
+      return <TitlePageBlock block={block} onJumpToSource={onJumpToSource} />;
+    case 'maketitle':
+      return <MakeTitleBlock block={block} onJumpToSource={onJumpToSource} />;
+    case 'abstract':
+      return (
+        <AbstractBlock
+          block={block}
+          source={source}
+          activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
+          onBlockEdit={onBlockEdit}
+          onListItemEdit={onListItemEdit}
+          onContainerTitleEdit={onContainerTitleEdit}
+          onJumpToSource={onJumpToSource}
+          setActiveSourceLine={setActiveSourceLine}
+        />
+      );
+    case 'container':
+      return (
+        <FrameContainerBlock
+          block={block}
+          source={source}
+          activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
+          onBlockEdit={onBlockEdit}
+          onListItemEdit={onListItemEdit}
+          onContainerTitleEdit={onContainerTitleEdit}
+          onJumpToSource={onJumpToSource}
+          setActiveSourceLine={setActiveSourceLine}
+        />
+      );
+    case 'align':
+      return (
+        <AlignBlock
+          block={block}
+          source={source}
+          activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
+          onBlockEdit={onBlockEdit}
+          onListItemEdit={onListItemEdit}
+          onContainerTitleEdit={onContainerTitleEdit}
+          onJumpToSource={onJumpToSource}
+          setActiveSourceLine={setActiveSourceLine}
+        />
+      );
     case 'math':
       return <MathBlock block={block} onJumpToSource={onJumpToSource} />;
     case 'figure':
@@ -379,6 +495,19 @@ function sourceLineFromOffset(source, offset) {
   return source.slice(0, Math.max(0, offset || 0)).split('\n').length;
 }
 
+// Immutably updates the block (or list item) with the given id, searching
+// recursively through `children` (container/list-item body content) and
+// `items` (a list block's items, which themselves carry `children`).
+function updateBlockById(blocks, blockId, updater) {
+  return blocks.map((b) => {
+    if (b.id === blockId) return updater(b);
+    let next = b;
+    if (next.items) next = { ...next, items: updateBlockById(next.items, blockId, updater) };
+    if (next.children) next = { ...next, children: updateBlockById(next.children, blockId, updater) };
+    return next;
+  });
+}
+
 function ParagraphBlock({ block, onEdit }) {
   const style = {
     margin: '6px 0',
@@ -401,39 +530,66 @@ function ParagraphBlock({ block, onEdit }) {
   );
 }
 
-function ListBlock({ block, onItemEdit }) {
+// An item's body is parsed recursively (parseListItems -> parseBody), so it
+// may hold more than flat text: a nested \begin{itemize}, a display math
+// block, etc. The common case — a single paragraph of prose — still renders
+// as one inline-editable field, exactly like before. Anything richer falls
+// through to the same BlockList used everywhere else, so a nested list
+// renders as a real nested <ul>/<ol> instead of raw `\begin{itemize}` text.
+function ListBlock({
+  block,
+  source,
+  activeProjectPath,
+  sourceTex,
+  onBlockEdit,
+  onListItemEdit,
+  onContainerTitleEdit,
+  onJumpToSource,
+  setActiveSourceLine,
+}) {
   const isOrdered = block.listType === 'enumerate';
   const isDescription = block.listType === 'description';
   const ListTag = isOrdered ? 'ol' : 'ul';
   return (
     <ListTag style={{ margin: '8px 0', paddingLeft: '24px', fontSize: '13px', lineHeight: '1.6', color: 'var(--chat-text, #cccccc)' }}>
-      {block.items.map((item, i) => (
-        <li key={i} style={{ margin: '4px 0', listStyleType: isDescription ? 'none' : undefined }}>
-          {isDescription ? (
-            <span style={{ display: 'flex', gap: '6px' }}>
-              <EditableLatexText
-                as="span"
-                text={item.term}
-                onCommit={(v) => onItemEdit(block.id, i, 'term', v)}
-                style={{ fontWeight: 'bold', color: 'var(--vscode-text-light, #ffffff)', outline: 'none', whiteSpace: 'pre-wrap' }}
-              />
-              <EditableLatexText
-                as="span"
-                text={item.text}
-                onCommit={(v) => onItemEdit(block.id, i, 'text', v)}
-                style={{ outline: 'none', flex: 1, whiteSpace: 'pre-wrap' }}
-              />
-            </span>
-          ) : (
-            <EditableLatexText
-              as="span"
-              text={item.text}
-              onCommit={(v) => onItemEdit(block.id, i, 'text', v)}
-              style={{ outline: 'none', display: 'inline-block', width: '100%', whiteSpace: 'pre-wrap' }}
-            />
-          )}
-        </li>
-      ))}
+      {block.items.map((item) => {
+        const isSimpleText = item.children.length === 1 && item.children[0].type === 'paragraph';
+        const body = isSimpleText ? (
+          <EditableLatexText
+            as="span"
+            text={item.children[0].text}
+            onCommit={(v) => onBlockEdit(item.children[0].id, v)}
+            style={{ outline: 'none', display: 'inline-block', width: '100%', whiteSpace: 'pre-wrap' }}
+          />
+        ) : (
+          <BlockList
+            blocks={item.children}
+            source={source}
+            activeProjectPath={activeProjectPath}
+            sourceTex={sourceTex}
+            onBlockEdit={onBlockEdit}
+            onListItemEdit={onListItemEdit}
+            onContainerTitleEdit={onContainerTitleEdit}
+            onJumpToSource={onJumpToSource}
+            setActiveSourceLine={setActiveSourceLine}
+          />
+        );
+        return (
+          <li key={item.id} style={{ margin: '4px 0', listStyleType: isDescription ? 'none' : undefined }}>
+            {isDescription ? (
+              <span style={{ display: 'flex', gap: '6px', alignItems: isSimpleText ? 'baseline' : 'flex-start' }}>
+                <EditableLatexText
+                  as="span"
+                  text={item.term}
+                  onCommit={(v) => onListItemEdit(item.id, v)}
+                  style={{ fontWeight: 'bold', color: 'var(--vscode-text-light, #ffffff)', outline: 'none', whiteSpace: 'pre-wrap', flexShrink: 0 }}
+                />
+                <span style={{ flex: 1 }}>{body}</span>
+              </span>
+            ) : body}
+          </li>
+        );
+      })}
     </ListTag>
   );
 }
@@ -458,6 +614,385 @@ function QuoteBlock({ block, onEdit }) {
       style={style}
       editingStyle={{ background: 'var(--vscode-list-hoverBg, rgba(255,255,255,0.04))' }}
     />
+  );
+}
+
+function FrameTitleBlock({ block, onEdit }) {
+  const style = {
+    fontSize: '18px',
+    fontWeight: 'bold',
+    color: 'var(--vscode-text-light, #ffffff)',
+    margin: '0 0 10px 0',
+    outline: 'none',
+    padding: '2px 4px',
+    borderRadius: '3px',
+    whiteSpace: 'pre-wrap',
+  };
+  return (
+    <EditableLatexText
+      text={block.text}
+      onCommit={(newText) => onEdit(block.id, newText)}
+      style={style}
+      editingStyle={{ borderBottom: '1px solid var(--vscode-accent, #007acc)' }}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TitlePageBlock — Beamer `\titlepage`.
+//
+// Rendered as a preview card built from the \title/\subtitle/\author/
+// \institute/\date extracted from the preamble (parsed once by
+// latexBlockParser and carried on `block.titleMeta`), instead of leaking the
+// bare `\titlepage` command as literal text. Read-only: the underlying
+// metadata lives in the preamble, not in this block, so editing happens by
+// jumping to source.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TitlePageBlock({ block, onJumpToSource }) {
+  const { t } = useTranslation();
+  const meta = block.titleMeta || {};
+  const authors = (meta.author || '')
+    .split(/\\and\b/)
+    .map((a) => a.trim())
+    .filter(Boolean);
+  const hasAny = Boolean(meta.title || meta.subtitle || authors.length || meta.institute || meta.date);
+
+  return (
+    <div
+      onClick={() => onJumpToSource(block)}
+      title="Click to jump to source"
+      style={{
+        margin: '10px 0',
+        padding: '32px 20px',
+        textAlign: 'center',
+        background: 'linear-gradient(180deg, rgba(0,122,204,0.10), rgba(0,122,204,0.02))',
+        border: '1px solid var(--vscode-accent, #007acc)',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        transition: 'border-color 0.15s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--vscode-text-light, #ffffff)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--vscode-accent, #007acc)'; }}
+    >
+      <div style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '16px' }}>
+        {t('richTextEditor.block.titlepage', { defaultValue: 'Title Page' })}
+      </div>
+      {hasAny ? (
+        <>
+          {meta.title && (
+            <div style={{ fontSize: '22px', fontWeight: 'bold', color: 'var(--vscode-text-light, #ffffff)', marginBottom: meta.subtitle ? '6px' : '14px', lineHeight: 1.3 }}>
+              {renderStyledLatexText(meta.title)}
+            </div>
+          )}
+          {meta.subtitle && (
+            <div style={{ fontSize: '15px', color: 'var(--chat-muted, #8a8a8a)', marginBottom: '14px' }}>
+              {renderStyledLatexText(meta.subtitle)}
+            </div>
+          )}
+          {authors.length > 0 && (
+            <div style={{ fontSize: '13px', color: 'var(--chat-text, #cccccc)', marginBottom: (meta.institute || meta.date) ? '4px' : 0 }}>
+              {authors.map((author, index) => (
+                <div key={index}>{renderStyledLatexText(author)}</div>
+              ))}
+            </div>
+          )}
+          {meta.institute && (
+            <div style={{ fontSize: '12px', color: 'var(--chat-muted, #8a8a8a)', marginBottom: meta.date ? '4px' : 0 }}>
+              {renderStyledLatexText(meta.institute)}
+            </div>
+          )}
+          {meta.date && (
+            <div style={{ fontSize: '12px', color: 'var(--chat-muted, #8a8a8a)', marginTop: '10px' }}>
+              {meta.date.trim() === '\\today'
+                ? t('richTextEditor.block.titlepageToday', { defaultValue: "Today's date" })
+                : renderStyledLatexText(meta.date)}
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{ fontSize: '13px', color: 'var(--vscode-descriptionForeground, #888)', fontStyle: 'italic' }}>
+          {t('richTextEditor.block.titlepageEmpty', { defaultValue: 'No \\title, \\author or \\date defined in the preamble' })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MakeTitleBlock — standard (article/report/book) `\maketitle`.
+//
+// Rendered as the actual typeset title — centered Title/Authors/Date built
+// from the \title/\author/\date extracted from the preamble (same titleMeta
+// shape as TitlePageBlock) — instead of leaking the literal `\maketitle`
+// command as plain text. Unlike the Beamer title page, this isn't a boxed
+// slide preview: it sits inline at the top of the document the way real
+// LaTeX output would render it. Read-only: the underlying metadata lives in
+// the preamble, so editing happens by jumping to source.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MakeTitleBlock({ block, onJumpToSource }) {
+  const { t } = useTranslation();
+  const meta = block.titleMeta || {};
+  const authors = (meta.author || '')
+    .split(/\\and\b/)
+    .map((a) => a.trim())
+    .filter(Boolean);
+  const hasAny = Boolean(meta.title || authors.length || meta.date);
+
+  return (
+    <div
+      onClick={() => onJumpToSource(block)}
+      title="Click to jump to source"
+      style={{
+        margin: '16px 0 24px 0',
+        padding: '16px 8px',
+        textAlign: 'center',
+        cursor: 'pointer',
+        borderRadius: '4px',
+        transition: 'background 0.15s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-list-hoverBg, rgba(255,255,255,0.03))'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      {hasAny ? (
+        <>
+          {meta.title && (
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--vscode-text-light, #ffffff)', marginBottom: authors.length ? '10px' : '6px', lineHeight: 1.3 }}>
+              {renderStyledLatexText(meta.title)}
+            </div>
+          )}
+          {authors.length > 0 && (
+            <div style={{ fontSize: '15px', color: 'var(--chat-text, #cccccc)', marginBottom: meta.date ? '6px' : 0 }}>
+              {authors.map((author, index) => (
+                <span key={index}>
+                  {index > 0 && <span style={{ margin: '0 8px', color: 'var(--chat-muted, #8a8a8a)' }}>&middot;</span>}
+                  {renderStyledLatexText(author)}
+                </span>
+              ))}
+            </div>
+          )}
+          {meta.date && (
+            <div style={{ fontSize: '13px', color: 'var(--chat-muted, #8a8a8a)' }}>
+              {meta.date.trim() === '\\today'
+                ? t('richTextEditor.block.titlepageToday', { defaultValue: "Today's date" })
+                : renderStyledLatexText(meta.date)}
+            </div>
+          )}
+        </>
+      ) : (
+        <div style={{ fontSize: '13px', color: 'var(--vscode-descriptionForeground, #888)', fontStyle: 'italic' }}>
+          {t('richTextEditor.block.maketitleEmpty', { defaultValue: 'No \\title defined in the preamble' })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FrameContainerBlock — Beamer `frame`, `block`, `exampleblock`, `alertblock`.
+//
+// These environments hold a nested sub-document rather than flat prose, so
+// unlike the other block types they render their `children` through the
+// same BlockList/LazyBlock/BlockRenderer pipeline used at the top level —
+// full WYSIWYG editing (prose, lists, math, nested blocks/columns-to-come)
+// instead of a read-only raw-source dump.
+//
+// The title is editable wherever it lives: either the `\begin{frame}{Title}`
+// env-arg (edited via onContainerTitleEdit, which rewrites the container's
+// header) or a `\frametitle{...}` command found among the children (edited
+// like any other block, via onBlockEdit).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CONTAINER_LABEL_KEYS = {
+  frame: { key: 'richTextEditor.block.container.frame', defaultValue: 'Slide' },
+  block: { key: 'richTextEditor.block.container.block', defaultValue: 'Block' },
+  exampleblock: { key: 'richTextEditor.block.container.exampleblock', defaultValue: 'Example' },
+  alertblock: { key: 'richTextEditor.block.container.alertblock', defaultValue: 'Alert' },
+};
+
+const CONTAINER_ACCENT_COLORS = {
+  frame: 'var(--vscode-accent, #007acc)',
+  block: 'var(--vscode-widget-border, #2a2a2a)',
+  exampleblock: 'var(--diff-text-added, #4caf50)',
+  alertblock: 'var(--vscode-errorForeground, #f44747)',
+};
+
+function FrameContainerBlock({
+  block,
+  source,
+  activeProjectPath,
+  sourceTex,
+  onBlockEdit,
+  onListItemEdit,
+  onContainerTitleEdit,
+  onJumpToSource,
+  setActiveSourceLine,
+}) {
+  const { t } = useTranslation();
+  const isFrame = block.containerKind === 'frame';
+  const hasEnvArgTitle = Boolean(block.title);
+  const frametitleChild = !hasEnvArgTitle
+    ? block.children.find((c) => c.type === 'frametitle')
+    : null;
+  const bodyChildren = frametitleChild
+    ? block.children.filter((c) => c.id !== frametitleChild.id)
+    : block.children;
+  const labelInfo = CONTAINER_LABEL_KEYS[block.containerKind] || { key: '', defaultValue: block.containerKind };
+
+  return (
+    <div
+      style={{
+        margin: isFrame ? '16px 0' : '10px 0',
+        padding: isFrame ? '18px 22px' : '10px 14px',
+        background: isFrame ? 'var(--editor-bg, #1e1e1e)' : 'var(--vscode-list-hoverBg, rgba(255,255,255,0.03))',
+        border: `1px solid ${CONTAINER_ACCENT_COLORS[block.containerKind] || 'var(--vscode-widget-border, #2a2a2a)'}`,
+        borderRadius: isFrame ? '6px' : '4px',
+        boxShadow: isFrame ? '0 2px 6px rgba(0,0,0,0.25)' : 'none',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+        <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--vscode-descriptionForeground, #888)' }}>
+          {t(labelInfo.key, { defaultValue: labelInfo.defaultValue })}
+        </span>
+        <button
+          type="button"
+          onClick={() => onJumpToSource(block)}
+          title="Click to jump to source"
+          style={{ fontSize: '9px', color: 'var(--vscode-descriptionForeground, #888)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
+          {t('richTextEditor.block.jumpToSource', { defaultValue: 'source' })}
+        </button>
+      </div>
+
+      {hasEnvArgTitle ? (
+        <EditableLatexText
+          text={block.title}
+          onCommit={(v) => onContainerTitleEdit(block.id, v)}
+          style={{ fontSize: isFrame ? '18px' : '14px', fontWeight: 'bold', color: 'var(--vscode-text-light, #ffffff)', outline: 'none', margin: '0 0 10px 0', whiteSpace: 'pre-wrap' }}
+          editingStyle={{ borderBottom: '1px solid var(--vscode-accent, #007acc)' }}
+        />
+      ) : frametitleChild ? (
+        <FrameTitleBlock block={frametitleChild} onEdit={onBlockEdit} />
+      ) : (
+        <EditableLatexText
+          text=""
+          onCommit={(v) => onContainerTitleEdit(block.id, v)}
+          style={{
+            fontSize: isFrame ? '18px' : '14px',
+            fontWeight: 'bold',
+            color: 'var(--vscode-descriptionForeground, #888)',
+            outline: 'none',
+            margin: '0 0 10px 0',
+            minHeight: '1.4em',
+            whiteSpace: 'pre-wrap',
+          }}
+          editingStyle={{ borderBottom: '1px solid var(--vscode-accent, #007acc)' }}
+        />
+      )}
+
+      <BlockList
+        blocks={bodyChildren}
+        source={source}
+        activeProjectPath={activeProjectPath}
+        sourceTex={sourceTex}
+        onBlockEdit={onBlockEdit}
+        onListItemEdit={onListItemEdit}
+        onContainerTitleEdit={onContainerTitleEdit}
+        onJumpToSource={onJumpToSource}
+        setActiveSourceLine={setActiveSourceLine}
+      />
+      {bodyChildren.length === 0 && (
+        <div style={{ color: 'var(--vscode-descriptionForeground, #666)', fontSize: '12px', fontStyle: 'italic' }}>
+          {t('richTextEditor.block.emptyContainer', { defaultValue: 'Empty' })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const ALIGN_TEXT_ALIGN = { center: 'center', flushleft: 'left', flushright: 'right' };
+
+// AlignBlock — `\begin{center}`/`flushleft`/`flushright` when it does not
+// wrap a table. A pure passthrough wrapper: no border, title bar, or lock
+// icon, just the CSS alignment LaTeX itself would apply, so a centered
+// paragraph reads as centered editable text instead of a raw-source box.
+function AlignBlock({
+  block,
+  source,
+  activeProjectPath,
+  sourceTex,
+  onBlockEdit,
+  onListItemEdit,
+  onContainerTitleEdit,
+  onJumpToSource,
+  setActiveSourceLine,
+}) {
+  return (
+    <div style={{ textAlign: ALIGN_TEXT_ALIGN[block.align] || 'left' }}>
+      <BlockList
+        blocks={block.children}
+        source={source}
+        activeProjectPath={activeProjectPath}
+        sourceTex={sourceTex}
+        onBlockEdit={onBlockEdit}
+        onListItemEdit={onListItemEdit}
+        onContainerTitleEdit={onContainerTitleEdit}
+        onJumpToSource={onJumpToSource}
+        setActiveSourceLine={setActiveSourceLine}
+      />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AbstractBlock — `\begin{abstract}...\end{abstract}`.
+//
+// Renders a styled "Abstract" heading above the abstract body instead of the
+// generic read-only environment fallback (raw `\begin{abstract}` dump). The
+// body is parsed recursively (like `align`/`container`), so its prose stays
+// fully editable through the same paragraph editing pipeline used elsewhere.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AbstractBlock({
+  block,
+  source,
+  activeProjectPath,
+  sourceTex,
+  onBlockEdit,
+  onListItemEdit,
+  onContainerTitleEdit,
+  onJumpToSource,
+  setActiveSourceLine,
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      style={{
+        margin: '16px 0',
+        padding: '12px 20px',
+        background: 'var(--vscode-list-hoverBg, rgba(255,255,255,0.02))',
+        borderLeft: '3px solid var(--vscode-accent, #007acc)',
+        borderRadius: '4px',
+      }}
+    >
+      <div style={{ fontSize: '12px', fontWeight: 'bold', textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--vscode-text-light, #ffffff)', marginBottom: '8px' }}>
+        {t('richTextEditor.block.abstract', { defaultValue: 'Abstract' })}
+      </div>
+      <div style={{ fontStyle: 'italic' }}>
+        <BlockList
+          blocks={block.children}
+          source={source}
+          activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
+          onBlockEdit={onBlockEdit}
+          onListItemEdit={onListItemEdit}
+          onContainerTitleEdit={onContainerTitleEdit}
+          onJumpToSource={onJumpToSource}
+          setActiveSourceLine={setActiveSourceLine}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -1996,8 +2531,28 @@ function findFirstStyleCommand(text) {
   };
 }
 
+// Commands with no visible rendered output (spacing, page/line breaks,
+// alignment declarations). Without this, the generic `\cmd{arg}` \u2192 `arg`
+// fallback below would turn e.g. `\vspace{0.5cm}` into visible "0.5cm" text.
+// Stripped only from the *preview* \u2014 the underlying block text (and thus
+// the serialized source) is untouched, so the command is preserved on save.
+const INVISIBLE_LATEX_COMMAND_NAMES = [
+  'vspace\\*?', 'hspace\\*?', 'vskip', 'hskip',
+  'smallskip', 'medskip', 'bigskip',
+  'noindent', 'indent', 'par',
+  'newpage', 'clearpage', 'cleardoublepage',
+  'pagebreak', 'nopagebreak', 'linebreak', 'nolinebreak', 'newline',
+  'allowbreak', 'nobreak', 'enlargethispage', 'FloatBarrier',
+  'centering', 'raggedright', 'raggedleft',
+];
+const INVISIBLE_LATEX_COMMAND_RE = new RegExp(
+  `\\\\(?:${INVISIBLE_LATEX_COMMAND_NAMES.join('|')})(?:\\[[^\\]]*\\])?(?:\\{[^}]*\\})?`,
+  'g'
+);
+
 function stripSimpleLatexCommands(text) {
   return text
+    .replace(INVISIBLE_LATEX_COMMAND_RE, '')
     .replace(/``([\s\S]*?)''/g, '"$1"')
     .replace(/\\(?:label|ref|cite|eqref)\{([^}]*)\}/g, '$1')
     .replace(/\\%/g, '%')
@@ -2053,16 +2608,48 @@ function EnvironmentBlock({ block, onJumpToSource }) {
   );
 }
 
+// The opening preamble block (everything before `\begin{document}`) hides
+// `\documentclass`/`\usepackage` lines behind a compact summary instead of
+// dumping them as raw tags — those are boilerplate the user asked not to see
+// in Rich Text mode. Any other preamble content (e.g. `\newcommand`,
+// `\title`) is still shown in `block.visibleSource` for context. Nothing is
+// actually removed from the source: clicking still jumps to the full text in
+// Monaco, and serialization keeps using `block.source` unchanged.
+// The closing block (`\end{document}` onward) has no such boilerplate to
+// hide, so it keeps the original raw-dump rendering.
 function PreambleBlock({ block, onJumpToSource }) {
   const { t } = useTranslation();
+
+  if (block.postamble) {
+    return (
+      <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
+        <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '4px' }}>
+          {t('richTextEditor.block.preamble', { defaultValue: 'preamble' })}
+        </div>
+        <pre style={{ margin: 0, padding: '8px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', fontSize: '11px', overflowX: 'auto', borderRadius: '3px', maxHeight: '120px', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+          {block.raw || block.source}
+        </pre>
+      </NonEditableWrapper>
+    );
+  }
+
+  const visibleSource = (block.visibleSource || '').trim();
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
-      <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '4px' }}>
-        {t('richTextEditor.block.preamble', { defaultValue: 'preamble' })}
+      <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: visibleSource ? '4px' : 0 }}>
+        {block.documentClass
+          ? t('richTextEditor.block.preambleSummary', {
+              documentClass: block.documentClass,
+              count: block.packageCount || 0,
+              defaultValue: 'preamble — document class: {{documentClass}}, {{count}} package(s) hidden',
+            })
+          : t('richTextEditor.block.preamble', { defaultValue: 'preamble' })}
       </div>
-      <pre style={{ margin: 0, padding: '8px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', fontSize: '11px', overflowX: 'auto', borderRadius: '3px', maxHeight: '120px', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
-        {block.raw || block.source}
-      </pre>
+      {visibleSource && (
+        <pre style={{ margin: 0, padding: '8px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', fontSize: '11px', overflowX: 'auto', borderRadius: '3px', maxHeight: '120px', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+          {visibleSource}
+        </pre>
+      )}
     </NonEditableWrapper>
   );
 }

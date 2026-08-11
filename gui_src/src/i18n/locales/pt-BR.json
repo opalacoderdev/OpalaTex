@@ -299,7 +299,21 @@
       "loadingImagePreview": "Carregando preview da imagem...",
       "imagePreviewUnavailable": "Preview da imagem indisponivel - {{log}}",
       "environment": "ambiente: {{name}}",
-      "preamble": "preambulo"
+      "preamble": "preambulo",
+      "preambleSummary": "preambulo — classe do documento: {{documentClass}}, {{count}} pacote(s) ocultos",
+      "jumpToSource": "fonte",
+      "emptyContainer": "Vazio",
+      "titlepage": "Pagina de Titulo",
+      "titlepageToday": "Data de hoje",
+      "titlepageEmpty": "Nenhum \\title, \\author ou \\date definido no preambulo",
+      "maketitleEmpty": "Nenhum \\title definido no preambulo",
+      "abstract": "Resumo",
+      "container": {
+        "frame": "Slide",
+        "block": "Bloco",
+        "exampleblock": "Exemplo",
+        "alertblock": "Alerta"
+      }
     }
   },
   "chatPanel": {
@@ -434,6 +448,7 @@
     "cut": "Recortar",
     "copy": "Copiar",
     "paste": "Colar",
+    "moveTo": "Mover para...",
     "commandPalette": "Paleta de Comandos",
     "openInSystem": "Abrir com app padrão"
   },
@@ -732,6 +747,13 @@
     "cancel": "Cancelar",
     "selectFolder": "Selecionar esta pasta"
   },
+  "moveToModal": {
+    "title": "Mover para...",
+    "titleMulti": "Mover {{count}} itens para...",
+    "projectRoot": "Raiz do Projeto",
+    "noSubdirs": "Nenhum subdiretório",
+    "confirm": "Mover para cá"
+  },
   "installDepsPrompt": {
     "title": "MÓDULOS OPCIONAIS REQUERIDOS",
     "body1": "Os módulos opcionais para embeddings offline (<1>sentence-transformers</1>) não foram encontrados no ambiente.",
@@ -817,8 +839,8 @@
     "deleteSingleFile": "Tem certeza que deseja deletar o arquivo \"{{name}}\"?",
     "deleteSingleDir": "Tem certeza que deseja deletar o diretório \"{{name}}\"? Todos os arquivos internos serão removidos!",
     "moveDirectoryIntoItself": "Nao e possivel mover um diretorio para dentro dele mesmo.",
-    "itemMoved": "{{itemType}} movido de {{oldPath}} para {{newPath}}",
-    "moveFailed": "Falha ao mover: {{error}}",
+    "movePathFailed": "Falha ao mover {{path}}: {{error}}",
+    "itemsMoved": "{{count}} item(s) movido(s) com sucesso.",
     "moveError": "Erro ao mover: {{error}}",
     "projectRegistered": "Projeto '{{name}}' registrado.",
     "projectCreateError": "Erro ao criar projeto.",

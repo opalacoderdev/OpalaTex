@@ -69,7 +69,11 @@ export default function FileNode({
 
   const handleDragStart = (e) => {
     e.stopPropagation();
-    setDraggedNode({ path: node.path, isDirectory: node.isDirectory });
+    // Dragging a node that is part of the current multi-selection drags the whole selection.
+    const paths = (selectedNodes && selectedNodes.has(node.path) && selectedNodes.size > 1)
+      ? Array.from(selectedNodes)
+      : [node.path];
+    setDraggedNode({ paths });
     e.dataTransfer.setData('text/plain', node.path);
     e.dataTransfer.effectAllowed = 'move';
   };
@@ -78,7 +82,7 @@ export default function FileNode({
     e.preventDefault();
     e.stopPropagation();
     if (!isDir) return;
-    if (draggedNode && draggedNode.path !== node.path) {
+    if (draggedNode && !draggedNode.paths.includes(node.path)) {
       setDragOverPath(node.path);
       e.dataTransfer.dropEffect = 'move';
     }
@@ -97,8 +101,8 @@ export default function FileNode({
     e.stopPropagation();
     setDragOverPath(null);
     if (!isDir) return;
-    if (draggedNode && draggedNode.path !== node.path) {
-      handleMoveNode(draggedNode.path, node.path, draggedNode.isDirectory);
+    if (draggedNode && !draggedNode.paths.includes(node.path)) {
+      handleMoveNode(draggedNode.paths, node.path);
     }
   };
 

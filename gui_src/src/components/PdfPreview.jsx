@@ -926,24 +926,25 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         >
           <ZoomIn size={18} />
         </button>
-        {scale !== 1.2 && (
-          <button
-            onClick={handleResetZoom}
-            className="flex items-center justify-center rounded-md transition-colors"
-            style={{
-              width: '32px',
-              height: '32px',
-              background: 'var(--vscode-input-bg)',
-              border: '1px solid var(--vscode-border)',
-              color: 'var(--vscode-text-fg)',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
-            title={t('editorPanel.resetZoom')}
-          >
-            <RotateCcw size={18} />
-          </button>
-        )}
+        <button
+          onClick={handleResetZoom}
+          disabled={scale === 1.2}
+          className="flex items-center justify-center rounded-md transition-colors"
+          style={{
+            width: '32px',
+            height: '32px',
+            background: 'var(--vscode-input-bg)',
+            border: '1px solid var(--vscode-border)',
+            color: scale === 1.2 ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-text-fg)',
+            opacity: scale === 1.2 ? 0.5 : 1,
+            cursor: scale === 1.2 ? 'default' : 'pointer',
+          }}
+          onMouseEnter={(e) => { if (scale !== 1.2) { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; } }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = scale === 1.2 ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+          title={t('editorPanel.resetZoom')}
+        >
+          <RotateCcw size={18} />
+        </button>
         {/* Annotation toggle */}
         <button
           onClick={() => setShowAnnotations(prev => !prev)}

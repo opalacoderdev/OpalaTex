@@ -22,6 +22,7 @@ import ChatSidebar from './components/ChatSidebar';
 import ChatComparisonPanel from './components/ChatComparisonPanel';
 import BottomPanel from './components/BottomPanel';
 import ContextMenu from './components/ContextMenu';
+import MoveToModal from './components/MoveToModal';
 
 // Modals
 import InstallDepsPrompt from './components/modals/InstallDepsPrompt';
@@ -354,6 +355,7 @@ export default function App() {
   // ── Drag-and-drop ─────────────────────────────────────────────────────────
   const [draggedNode, setDraggedNode] = useState(null);
   const [dragOverPath, setDragOverPath] = useState(null);
+  const [moveModal, setMoveModal] = useState(null);
 
   // ── Panel sizing ──────────────────────────────────────────────────────────
   const [sidebarWidth, setSidebarWidth] = useState(330);
@@ -2044,17 +2046,51 @@ export default function App() {
     });
   };
 
-  const handleMoveNode = async (oldPath, targetDirPath, isDirectory) => {
-    if (!activeProject) return;
-    const nodeName = oldPath.replace(/\\/g, '/').split('/').pop();
-    const newPath = targetDirPath ? `${targetDirPath}/${nodeName}` : nodeName;
-    if (oldPath === newPath) return;
-    if (isDirectory && (newPath === oldPath || newPath.startsWith(`${oldPath}/`))) { addLog('error', t('app.moveDirectoryIntoItself')); return; }
-    try {
-      const res = await fetch('/api/file/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, oldPath, newPath }) });
-      if (res.ok) { addLog('info', t('app.itemMoved', { itemType: t(isDirectory ? 'app.itemTypeDirectory' : 'app.itemTypeFile'), oldPath, newPath })); await fetchFiles(); }
-      else { const e = await res.json(); addLog('error', t('app.moveFailed', { error: e.error })); }
-    } catch (err) { addLog('error', t('app.moveError', { error: err.message })); }
+  // Moves one or more nodes (files/directories) into targetDirPath ('' = project root).
+  const handleMoveNode = async (paths, targetDirPath) => {
+    if (!activeProject || !paths || paths.length === 0) return;
+    const uniquePaths = Array.from(new Set(paths));
+    let successCount = 0;
+    for (const oldPath of uniquePaths) {
+      const nodeName = oldPath.replace(/\\/g, '/').split('/').pop();
+      const newPath = targetDirPath ? `${targetDirPath}/${nodeName}` : nodeName;
+      if (sameFilePath(oldPath, newPath)) continue;
+      if (isFileInsidePath(targetDirPath || '', oldPath)) { addLog('error', t('app.moveDirectoryIntoItself')); continue; }
+      try {
+        const res = await fetch('/api/file/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, oldPath, newPath }) });
+        if (res.ok) {
+          successCount++;
+          setOpenFiles(prev => dedupeOpenFileList(prev.map(f => isFileInsidePath(f, oldPath) ? replaceFilePathPrefix(f, oldPath, newPath) : f), newPath));
+          setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[isFileInsidePath(k, oldPath) ? replaceFilePathPrefix(k, oldPath, newPath) : k] = v; return n; });
+          setOriginalFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[isFileInsidePath(k, oldPath) ? replaceFilePathPrefix(k, oldPath, newPath) : k] = v; return n; });
+          if (isFileInsidePath(selectedFile, oldPath)) setSelectedFile(prev => replaceFilePathPrefix(prev, oldPath, newPath));
+        } else {
+          const e = await res.json();
+          addLog('error', t('app.movePathFailed', { path: oldPath, error: e.error }));
+        }
+      } catch (err) { addLog('error', t('app.moveError', { error: err.message })); }
+    }
+    if (successCount > 0) {
+      addLog('info', t('app.itemsMoved', { count: successCount }));
+      setSelectedNodes(new Set());
+      await fetchFiles();
+    }
+  };
+
+  const handleOpenMoveModal = (node) => {
+    setContextMenu(null);
+    if (!activeProject || !node) return;
+    const paths = (selectedNodes && selectedNodes.has(node.path) && selectedNodes.size > 1)
+      ? Array.from(selectedNodes)
+      : [node.path];
+    setMoveModal({ paths });
+  };
+
+  const confirmMoveModal = async (targetDirPath) => {
+    if (!moveModal) return;
+    const paths = moveModal.paths;
+    setMoveModal(null);
+    await handleMoveNode(paths, targetDirPath);
   };
 
   // ── Project CRUD ──────────────────────────────────────────────────────────
@@ -3895,6 +3931,14 @@ export default function App() {
         onClose={() => setDirPicker(null)}
       />
 
+      <MoveToModal
+        moveModal={moveModal}
+        files={files}
+        isFileInsidePath={isFileInsidePath}
+        onConfirm={confirmMoveModal}
+        onClose={() => setMoveModal(null)}
+      />
+
       <ContextMenu
         contextMenu={contextMenu}
         rightClickedNode={rightClickedNode}
@@ -3907,6 +3951,7 @@ export default function App() {
         handlePasteNode={handlePasteNode}
         handleOpenInSystem={handleOpenInSystem}
         handleSetMainFile={handleSetMainFile}
+        handleMoveToNode={handleOpenMoveModal}
         clipboardNode={clipboardNode}
       />
 
