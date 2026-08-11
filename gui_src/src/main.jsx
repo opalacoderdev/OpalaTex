@@ -5,6 +5,7 @@ import { CustomDialogProvider } from './components/modals/CustomDialogProvider.j
 import './index.css';
 import './i18n/index.js';
 import 'katex/dist/katex.min.css';
+import './mathFont.css';
 
 
 // Clipboard setup for pywebview/GTK.
