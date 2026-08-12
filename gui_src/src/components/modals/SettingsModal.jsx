@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './CustomDialogProvider';
 import i18n from '../../i18n/index.js';
 import { safeSetLocalStorage } from '../../utils/storage';
-import { FEATURES } from '../../config/features';
 
 // IDE global settings modal (theme, font size, tab size, word wrap, optional deps).
 export default function SettingsModal({
@@ -28,18 +27,11 @@ export default function SettingsModal({
   setEphemeralParams,
   panelMaxLines,
   setPanelMaxLines,
-  globalCloudModel = 'OpalaTexCloud',
-  onCloudModelChange,
-  onAiProviderChange,
-  licenseData,
-  onReplaceSerial,
 }) {
   const { t } = useTranslation();
   const { showAlert } = useCustomDialog();
   const [selectedLang, setSelectedLang] = React.useState('');
   const [opalatexHome, setOpalaTexHome] = React.useState('');
-  const [aiProvider, setAiProvider] = React.useState('local');
-  const [cloudModel, setCloudModel] = React.useState(globalCloudModel);
   const [draftSynctexEnabled, setDraftSynctexEnabled] = React.useState(false);
   const [workspaceHiddenExtensions, setWorkspaceHiddenExtensions] = React.useState([]);
   const [tectonicInstallMessage, setTectonicInstallMessage] = React.useState('');
@@ -47,19 +39,9 @@ export default function SettingsModal({
   const [promptEvolutionIterations, setPromptEvolutionIterations] = React.useState(1);
   const [promptEvolutionMaxTokens, setPromptEvolutionMaxTokens] = React.useState(4096);
 
-  const activeTab = (settingsTab === 'preferences' || !['general', 'dependencies', 'license', 'about'].includes(settingsTab))
+  const activeTab = (settingsTab === 'preferences' || !['general', 'dependencies', 'about'].includes(settingsTab))
     ? 'general'
     : settingsTab;
-
-  const cloudModelOptions = [
-    { value: 'OpalaTexCloud', label: t('editProjectModal.opalaCloudLiteOption', 'OpalaTex Live (standard credit use)') },
-    { value: 'OpalaTexCloudGemini35Flash', label: t('editProjectModal.opalaCloudFlashOption', 'OpalaTex Flash (4x credit use)') },
-  ];
-  const normalizeCloudModel = (value) => cloudModelOptions.some(option => option.value === value) ? value : 'OpalaTexCloud';
-
-  React.useEffect(() => {
-    setCloudModel(normalizeCloudModel(globalCloudModel));
-  }, [globalCloudModel]);
 
   React.useEffect(() => {
     fetch('/api/settings/language')
@@ -70,16 +52,6 @@ export default function SettingsModal({
     fetch('/api/settings/opalatexhome')
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.path) setOpalaTexHome(data.path); })
-      .catch(() => { });
-
-    fetch('/api/settings/ai-provider')
-      .then(r => r.ok ? r.json() : null)
-      .then(cfg => {
-        if (cfg?.provider !== undefined) {
-          const effectiveProvider = (!FEATURES.enableCloudAccount && cfg.provider === 'cloud') ? 'local' : cfg.provider;
-          setAiProvider(effectiveProvider);
-        }
-      })
       .catch(() => { });
 
     fetch('/api/settings/latex')
@@ -112,14 +84,6 @@ export default function SettingsModal({
       })
       .catch(() => { });
   }, []);
-
-  const saveAiProviderSettings = (providerValue, cloudModelValue) => {
-    fetch('/api/settings/ai-provider', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: providerValue, cloud_model: cloudModelValue }),
-    }).catch(() => { });
-  };
 
   const saveLatexSettings = (draftSynctexValue) => {
     fetch('/api/settings/latex', {
@@ -183,18 +147,6 @@ export default function SettingsModal({
           >
             {t('settingsModal.tabDependencies', 'Dependencies')}
           </button>
-          {FEATURES.enableCloudAccount && (
-            <button
-              onClick={() => setSettingsTab('license')}
-              style={{
-                background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: activeTab === 'license' ? 'bold' : 'normal',
-                color: activeTab === 'license' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
-                borderBottom: activeTab === 'license' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
-              }}
-            >
-              {t('settingsModal.tabAccount', 'Opala Cloud Account')}
-            </button>
-          )}
           <button
             onClick={() => setSettingsTab('about')}
             style={{
@@ -231,54 +183,6 @@ export default function SettingsModal({
                   <option value="en">{t('settingsModal.languageEn', 'English')}</option>
                 </select>
               </div>
-
-              {/* AI Provider */}
-              <div className="flex flex-col" style={{ gap: '6px' }}>
-                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.aiProvider')}</label>
-                <select
-                  value={aiProvider}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setAiProvider(val);
-                    onAiProviderChange?.(val);
-                    saveAiProviderSettings(val, cloudModel);
-                  }}
-                  className="vscode-settings-input"
-                  style={{ width: '100%' }}
-                >
-                  <option value="local">{t('settingsModal.aiProviderLocal')}</option>
-                  {FEATURES.enableCloudAccount && (
-                    <option value="cloud">{t('settingsModal.aiProviderCloud')}</option>
-                  )}
-                </select>
-                <span style={{ fontSize: '11px', color: '#888888' }}>
-                  {t('settingsModal.aiProviderHint')}
-                </span>
-              </div>
-
-              {FEATURES.enableCloudModels && FEATURES.enableCloudAccount && aiProvider === 'cloud' && (
-                <div className="flex flex-col" style={{ gap: '6px' }}>
-                  <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.cloudModel')}</label>
-                  <select
-                    value={normalizeCloudModel(cloudModel)}
-                    onChange={(e) => {
-                      const val = normalizeCloudModel(e.target.value);
-                      setCloudModel(val);
-                      onCloudModelChange?.(val);
-                      saveAiProviderSettings(aiProvider, val);
-                    }}
-                    className="vscode-settings-input"
-                    style={{ width: '100%' }}
-                  >
-                    {cloudModelOptions.map(option => (
-                      <option key={`settings-cloud-model-${option.value}`} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                  <span style={{ fontSize: '11px', color: '#888888' }}>
-                    {t('settingsModal.cloudModelHint')}
-                  </span>
-                </div>
-              )}
 
               {/* Theme */}
               <div className="flex flex-col" style={{ gap: '6px' }}>
@@ -590,42 +494,6 @@ export default function SettingsModal({
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('settingsModal.installPandocHint')}</span>
               </div>
             </>
-          )}
-
-          {FEATURES.enableCloudAccount && activeTab === 'license' && (
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              padding: '12px',
-              border: '1px solid var(--vscode-border)',
-              borderRadius: '6px',
-              backgroundColor: 'var(--vscode-sidebar-bg)'
-            }}>
-              <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.softwareSerial')}</span>
-              <input
-                type="text"
-                readOnly
-                value={licenseData?.key || t('settingsModal.noSoftwareSerial')}
-                className="vscode-settings-input"
-                style={{
-                  width: '100%',
-                  fontFamily: 'monospace',
-                  color: licenseData?.key ? 'var(--vscode-text-fg)' : 'var(--vscode-description-fg, #aaaaaa)',
-                  cursor: 'default'
-                }}
-              />
-              <span style={{ fontSize: '11px', color: 'var(--vscode-description-fg, #aaaaaa)', lineHeight: '1.4' }}>
-                {t('settingsModal.softwareSerialHint')}
-              </span>
-              <button
-                className="vscode-button"
-                style={{ alignSelf: 'flex-start' }}
-                onClick={onReplaceSerial}
-              >
-                {t('settingsModal.replaceSoftwareSerial')}
-              </button>
-            </div>
           )}
 
           {activeTab === 'about' && (

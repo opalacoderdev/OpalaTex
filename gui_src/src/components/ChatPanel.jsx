@@ -7,7 +7,6 @@ import { readClipboard } from '../utils/clipboard.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
-import { FEATURES } from '../config/features';
 
 const normalizeForErrorMatch = (value) => String(value || '')
   .normalize('NFD')
@@ -96,7 +95,6 @@ export default function ChatPanel({
   onRefreshModels,
   onEditModels,
   onModelChange,
-  globalAiProvider
 }) {
   const { t } = useTranslation();
   const { showPrompt, showAlert, showConfirm } = useCustomDialog();
@@ -208,8 +206,6 @@ export default function ChatPanel({
   // Custom confirm state for deleting chat
   const [chatToDelete, setChatToDelete] = useState(null);
 
-  // globalAiProvider is received as a prop from App.jsx
-
   const getPromptEvolutionErrorMessage = useCallback((error) => {
     const raw = error instanceof Error ? error.message : String(error || '');
     const normalized = raw.toLowerCase();
@@ -247,7 +243,7 @@ export default function ChatPanel({
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({
           prompt: rawPrompt,
-          model: globalAiProvider === 'cloud' ? null : activeProject.model,
+          model: activeProject.model,
           project_path: activeProject?.path || activeProject?.project_name,
           stream: true,
         }),
@@ -1088,78 +1084,58 @@ export default function ChatPanel({
         <div style={modelSelectorGroupStyle}>
           <Settings2 size={12} style={{ color: 'var(--vscode-descriptionForeground)' }} />
           <span style={modelSelectorLabelStyle}>{t('chatPanel.orchestrator', 'Orchestrator')}:</span>
-          {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
-            <select
-              className="vscode-settings-input"
-              style={{ ...modelSelectorInputStyle, opacity: 0.8 }}
-              disabled
-            >
-              <option>{t('topBar.opalaCloud')}</option>
-            </select>
-          ) : (
-            <select
-              className="vscode-settings-input"
-              style={modelSelectorInputStyle}
-              value={activeProject?.model || ''}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === 'edit_models') onEditModels?.();
-                else if (val === 'refresh_models') onRefreshModels?.();
-                else onModelChange?.('model', val);
-              }}
-              disabled={!activeProject}
-              title={(globalModels || []).find(m => m.id === activeProject?.model)?.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${(globalModels || []).find(m => m.id === activeProject?.model).api_base}` : undefined}
-            >
-              {(!activeProject || !activeProject.model) && <option value="">{t('chatPanel.selectModel')}</option>}
-              {Object.entries((globalModels || []).reduce((acc, m) => { const p = m.provider || 'custom'; if (!acc[p]) acc[p] = []; acc[p].push(m); return acc; }, {})).map(([provider, models]) => (
-                <optgroup key={`orch-${provider}`} label={provider.toUpperCase()}>
-                  {models.map(m => <option key={`orch-${m.id}`} value={m.id} title={m.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${m.api_base}` : undefined}>{modelOptionLabel(m, models)}</option>)}
-                </optgroup>
-              ))}
-              <optgroup label={t('common.actions', 'Actions')}>
-                <option value="refresh_models">🔄 {t('chatPanel.refreshModels', 'Refresh Models')}</option>
-                <option value="edit_models">⚙️ {t('chatPanel.editModels', 'Edit Models...')}</option>
+          <select
+            className="vscode-settings-input"
+            style={modelSelectorInputStyle}
+            value={activeProject?.model || ''}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === 'edit_models') onEditModels?.();
+              else if (val === 'refresh_models') onRefreshModels?.();
+              else onModelChange?.('model', val);
+            }}
+            disabled={!activeProject}
+            title={(globalModels || []).find(m => m.id === activeProject?.model)?.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${(globalModels || []).find(m => m.id === activeProject?.model).api_base}` : undefined}
+          >
+            {(!activeProject || !activeProject.model) && <option value="">{t('chatPanel.selectModel')}</option>}
+            {Object.entries((globalModels || []).reduce((acc, m) => { const p = m.provider || 'custom'; if (!acc[p]) acc[p] = []; acc[p].push(m); return acc; }, {})).map(([provider, models]) => (
+              <optgroup key={`orch-${provider}`} label={provider.toUpperCase()}>
+                {models.map(m => <option key={`orch-${m.id}`} value={m.id} title={m.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${m.api_base}` : undefined}>{modelOptionLabel(m, models)}</option>)}
               </optgroup>
-            </select>
-          )}
+            ))}
+            <optgroup label={t('common.actions', 'Actions')}>
+              <option value="refresh_models">🔄 {t('chatPanel.refreshModels', 'Refresh Models')}</option>
+              <option value="edit_models">⚙️ {t('chatPanel.editModels', 'Edit Models...')}</option>
+            </optgroup>
+          </select>
         </div>
         <div style={modelSelectorGroupStyle}>
           <Cpu size={12} style={{ color: 'var(--vscode-descriptionForeground)' }} />
           <span style={modelSelectorLabelStyle}>{t('chatPanel.worker', 'Worker')}:</span>
-          {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
-            <select
-              className="vscode-settings-input"
-              style={{ ...modelSelectorInputStyle, opacity: 0.8 }}
-              disabled
-            >
-              <option>{t('topBar.opalaCloud')}</option>
-            </select>
-          ) : (
-            <select
-              className="vscode-settings-input"
-              style={modelSelectorInputStyle}
-              value={activeProject?.worker_model || ''}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === 'edit_models') onEditModels?.();
-                else if (val === 'refresh_models') onRefreshModels?.();
-                else onModelChange?.('worker_model', val);
-              }}
-              disabled={!activeProject}
-              title={(globalModels || []).find(m => m.id === activeProject?.worker_model)?.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${(globalModels || []).find(m => m.id === activeProject?.worker_model).api_base}` : undefined}
-            >
-              {(!activeProject || !activeProject.worker_model) && <option value="">{t('chatPanel.selectModel')}</option>}
-              {Object.entries((globalModels || []).reduce((acc, m) => { const p = m.provider || 'custom'; if (!acc[p]) acc[p] = []; acc[p].push(m); return acc; }, {})).map(([provider, models]) => (
-                <optgroup key={`work-${provider}`} label={provider.toUpperCase()}>
-                  {models.map(m => <option key={`work-${m.id}`} value={m.id} title={m.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${m.api_base}` : undefined}>{modelOptionLabel(m, models)}</option>)}
-                </optgroup>
-              ))}
-              <optgroup label={t('common.actions', 'Actions')}>
-                <option value="refresh_models">🔄 {t('chatPanel.refreshModels', 'Refresh Models')}</option>
-                <option value="edit_models">⚙️ {t('chatPanel.editModels', 'Edit Models...')}</option>
+          <select
+            className="vscode-settings-input"
+            style={modelSelectorInputStyle}
+            value={activeProject?.worker_model || ''}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === 'edit_models') onEditModels?.();
+              else if (val === 'refresh_models') onRefreshModels?.();
+              else onModelChange?.('worker_model', val);
+            }}
+            disabled={!activeProject}
+            title={(globalModels || []).find(m => m.id === activeProject?.worker_model)?.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${(globalModels || []).find(m => m.id === activeProject?.worker_model).api_base}` : undefined}
+          >
+            {(!activeProject || !activeProject.worker_model) && <option value="">{t('chatPanel.selectModel')}</option>}
+            {Object.entries((globalModels || []).reduce((acc, m) => { const p = m.provider || 'custom'; if (!acc[p]) acc[p] = []; acc[p].push(m); return acc; }, {})).map(([provider, models]) => (
+              <optgroup key={`work-${provider}`} label={provider.toUpperCase()}>
+                {models.map(m => <option key={`work-${m.id}`} value={m.id} title={m.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${m.api_base}` : undefined}>{modelOptionLabel(m, models)}</option>)}
               </optgroup>
-            </select>
-          )}
+            ))}
+            <optgroup label={t('common.actions', 'Actions')}>
+              <option value="refresh_models">🔄 {t('chatPanel.refreshModels', 'Refresh Models')}</option>
+              <option value="edit_models">⚙️ {t('chatPanel.editModels', 'Edit Models...')}</option>
+            </optgroup>
+          </select>
         </div>
       </div>
 

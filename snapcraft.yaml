@@ -4,11 +4,11 @@ version: "0.1.9"
 summary: AI-assisted LaTeX editor and project IDE
 description: |
   OpalaTex is a project-centric, AI-assisted LaTeX editor with a local
-  Python backend, a React desktop interface, Git integration, document
-  export tools, and optional Opala Cloud AI credits.
+  Python backend, a React desktop interface, Git integration, and document
+  export tools.
 
-  Local editing features are free and open source. Cloud registration is
-  only used for optional hosted AI requests and token balance management.
+  OpalaTex is free and open source. AI features run through local Ollama
+  models or through third-party providers configured with your own API key.
 
 base: core24
 grade: stable

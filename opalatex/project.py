@@ -11,15 +11,16 @@ from .config import DEFAULT_DB_PATH, DEFAULT_MODEL, apply_default_num_ctx
 from .api_keys import get_env_var_for_model
 
 
+_LEGACY_CLOUD_MODEL_ALIASES = {"OpalaTexCloud", "OpalaTexCloudGemini35Flash"}
+
+
 def _available_project_model(model: str | None) -> str:
+    """Fall back to the default model for projects that still store a
+    discontinued Opala Cloud model alias from before the Cloud service was
+    removed."""
     value = str(model or "")
-    try:
-        from .extensions import get_extension_manager
-        ext_mgr = get_extension_manager()
-        if not ext_mgr.has_cloud and ext_mgr.cloud.is_cloud_model(value):
-            return DEFAULT_MODEL
-    except Exception:
-        pass
+    if value in _LEGACY_CLOUD_MODEL_ALIASES:
+        return DEFAULT_MODEL
     return value
 
 

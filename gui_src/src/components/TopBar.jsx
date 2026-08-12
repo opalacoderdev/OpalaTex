@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Cpu, RefreshCw, Settings2, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { FEATURES } from '../config/features';
 
 const modelOptionLabel = (model, models) => {
   const name = model.name || model.id;
@@ -16,11 +15,8 @@ export default function TopBar({
   onRefreshModels,
   onEditModels,
   onModelChange,
-  globalAiProvider
 }) {
   const { t } = useTranslation();
-
-  // globalAiProvider is received as a prop from App.jsx
 
   // Handle Orchestrator Model change
   const handleOrchestratorChange = (e) => {
@@ -114,54 +110,34 @@ export default function TopBar({
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Settings2 size={14} style={{ color: 'var(--vscode-descriptionForeground, #888888)' }} title={t('topBar.orchestratorModel')} />
           <span style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground, #888888)' }}>{t('topBar.orchestrator')}:</span>
-          {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
-            <select
-              className="vscode-settings-input"
-              style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px', opacity: 0.8 }}
-              disabled
-            >
-              <option>{t('topBar.opalaCloud')}</option>
-            </select>
-          ) : (
-            <select
-              className="vscode-settings-input"
-              style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px' }}
-              value={projectModel}
-              onChange={handleOrchestratorChange}
-              disabled={!activeProject}
-              title={orchestratorTitle}
-            >
-              {!projectModel && <option value="">{t('topBar.selectModel')}</option>}
-              {renderOptions()}
-            </select>
-          )}
+          <select
+            className="vscode-settings-input"
+            style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px' }}
+            value={projectModel}
+            onChange={handleOrchestratorChange}
+            disabled={!activeProject}
+            title={orchestratorTitle}
+          >
+            {!projectModel && <option value="">{t('topBar.selectModel')}</option>}
+            {renderOptions()}
+          </select>
         </div>
 
         {/* Worker Model Selector */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Cpu size={14} style={{ color: 'var(--vscode-descriptionForeground, #888888)' }} title={t('topBar.workerModel')} />
           <span style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground, #888888)' }}>{t('topBar.worker')}:</span>
-          {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
-            <select
-              className="vscode-settings-input"
-              style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px', opacity: 0.8 }}
-              disabled
-            >
-              <option>{t('topBar.opalaCloud')}</option>
-            </select>
-          ) : (
-            <select
-              className="vscode-settings-input"
-              style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px' }}
-              value={projectWorkerModel}
-              onChange={handleWorkerChange}
-              disabled={!activeProject}
-              title={workerTitle}
-            >
-              {!projectWorkerModel && <option value="">{t('topBar.selectWorker')}</option>}
-              {renderOptions()}
-            </select>
-          )}
+          <select
+            className="vscode-settings-input"
+            style={{ width: '180px', padding: '2px 4px', fontSize: '12px', height: '24px' }}
+            value={projectWorkerModel}
+            onChange={handleWorkerChange}
+            disabled={!activeProject}
+            title={workerTitle}
+          >
+            {!projectWorkerModel && <option value="">{t('topBar.selectWorker')}</option>}
+            {renderOptions()}
+          </select>
         </div>
       </div>
       

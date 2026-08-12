@@ -3,8 +3,6 @@ import '@xterm/xterm/css/xterm.css';
 import { useTranslation } from 'react-i18next';
 import i18n from './i18n/index.js';
 
-import { FEATURES } from './config/features';
-
 // Utils
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
 
@@ -40,10 +38,6 @@ import DeleteProjectModal from './components/modals/DeleteProjectModal';
 
 import EditModelsModal from './components/modals/EditModelsModal';
 import AddProviderModal from './components/modals/AddProviderModal';
-import LicenseModal from './components/modals/LicenseModal';
-
-const CLOUD_MODEL_IDS = new Set(['OpalaTexCloud', 'OpalaTexCloudGemini35Flash']);
-const normalizeCloudModelId = (model, fallback = 'OpalaTexCloud') => CLOUD_MODEL_IDS.has(model) ? model : (CLOUD_MODEL_IDS.has(fallback) ? fallback : 'OpalaTexCloud');
 
 const numericMessageId = (message) => {
   if (message?.id === undefined || message?.id === null || message.id === '') return null;
@@ -391,10 +385,6 @@ export default function App() {
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
-  // ── Licensing ─────────────────────────────────────────────────────────────
-  const [licenseData, setLicenseData] = useState(null);
-  const [showLicenseModal, setShowLicenseModal] = useState(false);
-
   // ── Global Models ─────────────────────────────────────────────────────────
   const [globalModels, setGlobalModels] = useState([]);
   const [showEditModelsModal, setShowEditModelsModal] = useState(false);
@@ -409,29 +399,7 @@ export default function App() {
   const [editorFontSize, setEditorFontSize] = useState(() => Number(safeGetLocalStorage('editorFontSize', 13)));
   const [editorTabSize, setEditorTabSize] = useState(() => Number(safeGetLocalStorage('editorTabSize', 4)));
   const [editorWordWrap, setEditorWordWrap] = useState(() => safeGetLocalStorage('editorWordWrap', 'on'));
-  const [globalAiProvider, setGlobalAiProvider] = useState('local');
-  const [globalCloudModel, setGlobalCloudModel] = useState('OpalaTexCloud');
   const [showHiddenWorkspaceFiles, setShowHiddenWorkspaceFiles] = useState(false);
-
-  useEffect(() => {
-    fetch('/api/settings/ai-provider')
-      .then(r => r.ok ? r.json() : null)
-      .then(cfg => {
-        if (cfg?.provider) {
-          const effectiveProvider = (!FEATURES.enableCloudAccount && cfg.provider === 'cloud') ? 'local' : cfg.provider;
-          setGlobalAiProvider(effectiveProvider);
-          if (!FEATURES.enableCloudAccount && cfg.provider === 'cloud') {
-            fetch('/api/settings/ai-provider', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ provider: 'local', cloud_model: cfg.cloud_model || 'OpalaTexCloud' }),
-            }).catch(() => { });
-          }
-        }
-        if (cfg?.cloud_model) setGlobalCloudModel(normalizeCloudModelId(cfg.cloud_model));
-      })
-      .catch(() => { });
-  }, []);
 
   useEffect(() => {
     fetch('/api/settings/workspace')
@@ -524,14 +492,6 @@ export default function App() {
 
   // ── Effects ───────────────────────────────────────────────────────────────
   useEffect(() => {
-    // Registration identifies the Cloud account but never locks the local app.
-    fetch('/api/license/status')
-      .then(res => res.json())
-      .then(licData => {
-        setLicenseData(licData);
-      })
-      .catch(console.error);
-
     fetch('/api/onboarding/status')
       .then(res => res.json())
       .then(data => {
@@ -550,13 +510,6 @@ export default function App() {
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
     fetchProjects();
-    fetch('/api/settings/ai-provider')
-      .then(r => r.ok ? r.json() : null)
-      .then(cfg => {
-        if (cfg?.provider) setGlobalAiProvider(cfg.provider);
-        if (cfg?.cloud_model) setGlobalCloudModel(normalizeCloudModelId(cfg.cloud_model));
-      })
-      .catch(() => { });
   };
 
   const fetchGlobalModels = () => {
@@ -2105,12 +2058,9 @@ export default function App() {
     const finalProjectPath = `${basePath}${sep}${newProjName}`;
 
     try {
-      const isCloudProvider = globalAiProvider === 'cloud';
-      const projectModel = isCloudProvider ? normalizeCloudModelId(newProjModel, globalCloudModel) : newProjModel;
-      const projectWorkerModel = isCloudProvider ? normalizeCloudModelId(newProjWorkerModel, globalCloudModel) : newProjWorkerModel;
       const res = await fetch('/api/opalatex/create-project', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name: newProjName, project_path: finalProjectPath, description: newProjDesc, model: projectModel, worker_model: projectWorkerModel, mode: newProjMode, model_params: Object.keys(newProjModelParams).length ? newProjModelParams : undefined, worker_model_params: Object.keys(newProjWorkerModelParams).length ? newProjWorkerModelParams : undefined }),
+        body: JSON.stringify({ project_name: newProjName, project_path: finalProjectPath, description: newProjDesc, model: newProjModel, worker_model: newProjWorkerModel, mode: newProjMode, model_params: Object.keys(newProjModelParams).length ? newProjModelParams : undefined, worker_model_params: Object.keys(newProjWorkerModelParams).length ? newProjWorkerModelParams : undefined }),
       });
       if (res.ok) {
         addLog('info', t('app.projectRegistered', { name: newProjName }));
@@ -2535,23 +2485,6 @@ export default function App() {
       }
       return `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     };
-
-    try {
-      const r = await fetch('/api/settings/ai-provider');
-      if (r.ok) {
-        const cfg = await r.json();
-        if (cfg.provider === 'cloud') {
-          const balRes = await fetch('/api/settings/token-balance');
-          if (balRes.ok) {
-            const balData = await balRes.json();
-            if (!balData || balData.balance === undefined || balData.balance <= 0) {
-              setAlertMessage(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
-              return;
-            }
-          }
-        }
-      }
-    } catch (_) { }
 
     let userText = '';
     let displayText = '';
@@ -3343,22 +3276,6 @@ export default function App() {
    *   (avoids re-reading Monaco selection which may be gone by now).
    */
   const handleSendMessageWithPrompt = async (userText, capturedSelectedText) => {
-    try {
-      const r = await fetch('/api/settings/ai-provider');
-      if (r.ok) {
-        const cfg = await r.json();
-        if (cfg.provider === 'cloud') {
-          const balRes = await fetch('/api/settings/token-balance');
-          if (balRes.ok) {
-            const balData = await balRes.json();
-            if (!balData || balData.balance === undefined || balData.balance <= 0) {
-              setAlertMessage(t('common.noCredits', 'Sem saldo suficiente para usar a cloud. Por favor adicione créditos.'));
-              return;
-            }
-          }
-        }
-      }
-    } catch (_) { }
     if (!userText.trim() || !activeProject || isAgentRunning) return;
     setChatInput('');
     setChatMessages(prev => [...prev, { role: 'user', content: userText, timestamp: new Date().toISOString() }]);
@@ -3690,7 +3607,6 @@ export default function App() {
               onRefreshModels={fetchGlobalModels}
               onEditModels={() => setShowEditModelsModal(true)}
               onModelChange={handleProjectModelChange}
-              globalAiProvider={globalAiProvider}
             />
           )}
           <div style={{ display: isEditorMaximized || (layoutMode !== 'ide' && layoutMode !== 'chat-bottom') ? 'none' : 'contents' }}>
@@ -3777,7 +3693,6 @@ export default function App() {
               onRefreshModels={fetchGlobalModels}
               onEditModels={() => setShowEditModelsModal(true)}
               onModelChange={handleProjectModelChange}
-              globalAiProvider={globalAiProvider}
             />
 
             {(isLoadingChat || isPending) && (
@@ -3806,8 +3721,6 @@ export default function App() {
       <StatusBar
         activeProject={activeProject}
         isAgentRunning={isAgentRunning}
-        licenseData={licenseData}
-        onOpenLicense={() => setShowLicenseModal(true)}
       />
 
       {/* ── Overlays / Modals ── */}
@@ -3823,8 +3736,6 @@ export default function App() {
 
       {showNewProjectModal && (
         <NewProjectModal
-          globalAiProvider={globalAiProvider}
-          globalCloudModel={globalCloudModel}
           globalModels={globalModels}
           onClose={() => setShowNewProjectModal(false)}
           onSubmit={handleCreateProject}
@@ -3847,8 +3758,6 @@ export default function App() {
 
       {editingProject && (
         <EditProjectModal
-          globalAiProvider={globalAiProvider}
-          globalCloudModel={globalCloudModel}
           globalModels={globalModels}
           editingProject={editingProject}
           setEditingProject={setEditingProject}
@@ -3863,9 +3772,6 @@ export default function App() {
 
       {isSettingsOpen && (
         <SettingsModal
-          globalCloudModel={globalCloudModel}
-          onCloudModelChange={(val) => setGlobalCloudModel(normalizeCloudModelId(val))}
-          onAiProviderChange={(val) => setGlobalAiProvider(val)}
           onClose={() => setIsSettingsOpen(false)}
           settingsTab={settingsTab}
           setSettingsTab={setSettingsTab}
@@ -3881,8 +3787,6 @@ export default function App() {
           setEphemeralParams={setEphemeralParams}
           panelMaxLines={panelMaxLines}
           setPanelMaxLines={(val) => { setPanelMaxLines(val); safeSetLocalStorage('panelMaxLines', val); }}
-          licenseData={licenseData}
-          onReplaceSerial={() => setShowLicenseModal(true)}
           onLanguageChange={(lang) => {
             fetch('/api/settings/language', {
               method: 'POST',
@@ -3898,17 +3802,6 @@ export default function App() {
       )}
 
       {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
-      <LicenseModal
-        licenseData={licenseData}
-        isOpen={showLicenseModal}
-        onClose={() => {
-          setShowLicenseModal(false);
-          // Reload registration data after activation or account changes.
-          fetch('/api/license/status').then(r => r.json()).then(d => {
-            setLicenseData(d);
-          });
-        }}
-      />
 
       {confirmRequest && confirmRequest.type === 'interactive_terminal' ? (
         <InteractiveTerminalModal request={confirmRequest} onConfirm={sendConfirmResponse} activeProject={activeProject} />

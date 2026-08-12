@@ -219,18 +219,10 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
 
     if "ratelimit" in low or "rate limit" in low or "429" in low or "quota exceeded" in low or "resource_exhausted" in low:
         import re
-        from opalatex.ui_settings import load_ui_settings
-        ui_cfg = load_ui_settings()
-        is_cloud = ui_cfg.get("ai_provider") == "cloud"
-        
+
         delay_match = re.search(r"please retry in ([\d\.]+)s", low)
         delay_str = f" Aguarde cerca de {round(float(delay_match.group(1)))} segundos e tente novamente." if delay_match else " Aguarde alguns instantes e tente novamente."
-        
-        if is_cloud:
-            return (
-                f"Você atingiu o limite da API para o modelo {model} (Cota de tokens por minuto estourada)."
-                f"{delay_str} Dica: Isso costuma acontecer ao pedir para a IA ler arquivos gigantes de uma só vez."
-            )
+
         return f"Você atingiu o limite de requisições (Rate Limit) do provedor para o modelo {model}.{delay_str}"
 
     return msg
@@ -689,12 +681,7 @@ def print_event(event: str, data: dict):
             # Emit auxiliary thoughts to keep the Thinking tab active and alive
             thought_content = None
             if event == "agent_started":
-                from opalatex.ui_settings import load_ui_settings
-                ui_cfg = load_ui_settings()
-                if ui_cfg.get("ai_provider") == "cloud":
-                    thought_content = f"Starting execution of agent '{data.get('agent', '')}' using Opala Cloud..."
-                else:
-                    thought_content = f"Starting execution of agent '{data.get('agent', '')}' using model '{data.get('model', '')}'..."
+                thought_content = f"Starting execution of agent '{data.get('agent', '')}' using model '{data.get('model', '')}'..."
             elif event == "tool_call":
                 thought_content = _auxiliary_tool_call_thought(data.get("tool", ""), data.get("arguments", {}))
             elif event == "tool_result":

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Monitor, Cloud, Terminal, CheckCircle, X, Settings2 } from 'lucide-react';
+import { Loader2, Monitor, Terminal, CheckCircle, X, Settings2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import FEATURES from '../../config/features';
 
 export default function OnboardingModal({ onClose, onComplete }) {
   const { t, i18n } = useTranslation();
@@ -14,8 +13,6 @@ export default function OnboardingModal({ onClose, onComplete }) {
   const [apiKey, setApiKey] = useState('');
   const [apiBase, setApiBase] = useState('');
 
-  const [licenseStatus, setLicenseStatus] = useState(null);
-
   useEffect(() => {
     fetch('/api/hardware')
       .then(res => res.json())
@@ -26,22 +23,10 @@ export default function OnboardingModal({ onClose, onComplete }) {
       .then(res => res.json())
       .then(data => setOllamaStatus(data))
       .catch(console.error);
-
-    if (FEATURES.enableCloudAccount) {
-      fetch('/api/license/status')
-        .then(res => res.json())
-        .then(data => setLicenseStatus(data))
-        .catch(console.error);
-    }
   }, []);
 
-  const finishOnboarding = async (config, provider = 'local') => {
+  const finishOnboarding = async (config) => {
     try {
-      await fetch('/api/settings/ai-provider', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider })
-      });
       await fetch('/api/opalatex/create-project', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -78,33 +63,6 @@ export default function OnboardingModal({ onClose, onComplete }) {
       setStep(4);
     }
     setIsInstalling(false);
-  };
-
-  const handleOpalaCloud = async () => {
-    try {
-      const config = {
-        project_name: "Projeto Piloto (Opala Cloud)",
-        project_path: "~/OpalaTexPilot",
-        model: "OpalaTexCloud",
-        mode: "plan"
-      };
-      
-      finishOnboarding(config, 'cloud');
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleCreateCloudProject = () => {
-    const config = {
-      project_name: "Projeto Piloto (API)",
-      project_path: "~/OpalaTexPilot",
-      model: apiProvider,
-      mode: "plan"
-    };
-    if (apiKey) config.api_key = apiKey;
-    if (apiBase) config.api_base = apiBase;
-    finishOnboarding(config, 'local');
   };
 
   const vram = hardware ? parseFloat(hardware.vram_gb) || 0 : 0;
@@ -176,48 +134,8 @@ export default function OnboardingModal({ onClose, onComplete }) {
               </div>
             )}
 
-            {FEATURES.enableCloudAccount && (
-              !licenseStatus?.key ? (
-                <div style={{ backgroundColor: '#2d1e2f', padding: '14px', borderRadius: '8px', border: '1px solid #4a2f4d', marginBottom: '20px' }}>
-                  <h3 style={{ color: '#dca4e0', margin: '0 0 6px 0', fontSize: '15px', fontWeight: 'bold' }}>
-                    {t('onboarding.openSourceTitle')}
-                  </h3>
-                  <p style={{ color: '#ccc', margin: '0 0 12px 0', fontSize: '13px', lineHeight: '1.4' }}>
-                    {t('onboarding.openSourceDesc')}
-                  </p>
-                  <button 
-                    className="vscode-button"
-                    style={{ padding: '8px 16px', fontSize: '13px', borderRadius: '4px', backgroundColor: '#8a2be2', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    onClick={() => { const lang = i18n.language || 'en'; window.open(`https://opalacoder.com/?lang=${lang}#products`, '_blank'); }}
-                  >
-                    {t('onboarding.buyCreditsBtn')}
-                  </button>
-                </div>
-              ) : (
-                <div style={{ backgroundColor: '#1e282e', padding: '14px', borderRadius: '8px', border: '1px solid #2e3e48', marginBottom: '20px' }}>
-                  <h3 style={{ color: '#4fc3f7', margin: '0 0 4px 0', fontSize: '15px', fontWeight: 'bold' }}>
-                    {t('onboarding.registeredAccount')}
-                  </h3>
-                  <p style={{ color: '#ccc', margin: 0, fontSize: '13px', fontFamily: 'monospace' }}>
-                    {licenseStatus?.key}
-                  </p>
-                </div>
-              )
-            )}
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {FEATURES.enableCloudAccount && (
-                <button 
-                  className="vscode-button" 
-                  style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#007acc' }}
-                  onClick={handleOpalaCloud}
-                >
-                  <Cloud size={18} />
-                  {t('onboarding.useCloudRecommended', 'Use Opala Cloud (Recommended)')}
-                </button>
-              )}
-
-              <button 
+              <button
                 className="vscode-button" 
                 style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#3c3c3c' }}
                 onClick={() => setStep(3)} // step 3 = Ollama
@@ -318,17 +236,9 @@ export default function OnboardingModal({ onClose, onComplete }) {
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label style={{ fontSize: '12px', color: '#ccc' }}>{t('onboarding.recommendedProvider')}</label>
                 <select className="vscode-settings-input" value={apiProvider} onChange={(e) => {
-                  const val = e.target.value;
-                  setApiProvider(val);
-                  if (val === 'ollama/gemma4:31b-cloud') {
-                    setApiBase('https://ollama.com');
-                  } else {
-                    setApiBase('');
-                  }
+                  setApiProvider(e.target.value);
+                  setApiBase('');
                 }} style={{ width: '100%' }}>
-                  {FEATURES.enableCloudModels && (
-                    <option value="ollama/gemma4:31b-cloud">{t('onboarding.providerOllamaCloud')}</option>
-                  )}
                   <option value="gemini/gemini-flash-lite-latest">{t('onboarding.providerGemini')}</option>
                   <option value="anthropic/claude-3-5-sonnet-latest">{t('onboarding.providerAnthropic')}</option>
                 </select>
@@ -366,7 +276,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
                   mode: "plan"
                 };
                 if (apiBase) config.api_base = apiBase;
-                finishOnboarding(config, 'local');
+                finishOnboarding(config);
               }}>
                 {t('onboarding.skipKeyBtn')}
               </button>
@@ -379,7 +289,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 };
                 if (apiKey) config.api_key = apiKey;
                 if (apiBase) config.api_base = apiBase;
-                finishOnboarding(config, 'local');
+                finishOnboarding(config);
               }}>
                 {t('onboarding.createPilotBtn')}
               </button>

@@ -131,12 +131,6 @@ WORKER_MODEL = _initial_cfg.get("worker", _initial_cfg.get("alternative", "gemin
 DEFAULT_LITELLM_TIMEOUT_SECONDS = 600.0
 
 
-def _community_model_fallback() -> str:
-    """Return a non-cloud model for stale Community-mode Cloud aliases."""
-    if str(DEFAULT_MODEL or "").startswith("OpalaTexCloud"):
-        return "ollama/gemma4:12b"
-    return DEFAULT_MODEL
-
 def _get_llm_defaults():
     cfg = _get_agents_config()
     return {
@@ -241,14 +235,6 @@ def is_local_model(model: str | None, api_base: str | None = "") -> bool:
     """Return True when a model should use local-model context defaults."""
     model_id = str(model or "")
     api_base_value = str(api_base or "").strip().lower()
-
-    try:
-        from opalatex.cloud_client import is_cloud_model_alias, resolve_cloud_model_alias
-        if is_cloud_model_alias(model_id):
-            return False
-        model_id = resolve_cloud_model_alias(model_id)
-    except Exception:
-        pass
 
     provider = model_id.split("/", 1)[0].lower() if "/" in model_id else ""
     if provider not in {"ollama", "ollama_chat"}:
@@ -401,53 +387,13 @@ def get_agent_response_mode(agent_name: str, default: str = "last") -> str:
 
 def get_agent_model(agent_name: str, default: str | None = None) -> str:
     """Return the model configured for *agent_name* in agents.yaml, or *default*."""
-    from opalatex.extensions import get_extension_manager
-    ext_mgr = get_extension_manager()
-    ext = ext_mgr.cloud
-
     override = _get_agent_overrides().get(agent_name, {}).get("model")
     if override:
-        if not ext_mgr.has_cloud and ext.is_cloud_model(override):
-            return _community_model_fallback()
-        resolved = ext.resolve_cloud_model(override)
-        if resolved:
-            return resolved
-    
+        return override
+
     cfg = _get_agents_config()
     dyn_default = cfg.get("default", DEFAULT_MODEL)
     model = default if default is not None else dyn_default
-
-    cloud_alias_selected = ext.is_cloud_model(model)
-    if cloud_alias_selected and not ext_mgr.has_cloud:
-        return _community_model_fallback()
-
-    resolved_model = ext.resolve_cloud_model(model)
-    if resolved_model != model:
-        model = resolved_model
-
-    explicit_project_worker = False
-    try:
-        from .tools import _PROJECT_SESSION
-        explicit_project_worker = (
-            agent_name == "worker"
-            and _PROJECT_SESSION is not None
-            and bool(getattr(_PROJECT_SESSION, "worker_model", ""))
-        )
-    except Exception:
-        explicit_project_worker = False
-
-    # Apply Cloud Provider Override. A worker model explicitly configured on
-    # the project is allowed to differ from the orchestrator/provider selection.
-    from opalatex.ui_settings import load_ui_settings
-    ui_cfg = load_ui_settings()
-    if ext_mgr.has_cloud and ui_cfg.get("ai_provider") == "cloud":
-        if explicit_project_worker and not cloud_alias_selected:
-            return model
-        if cloud_alias_selected:
-            return model
-        cloud_model = ext.normalize_cloud_model(ui_cfg.get("cloud_model"), "OpalaTexCloud")
-        return ext.resolve_cloud_model(cloud_model)
-        
     return model
 
 
@@ -486,10 +432,6 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     except Exception:
         pass
 
-    # Apply Cloud Provider Override
-    from opalatex.ui_settings import load_ui_settings
-    from opalatex.licensing import _load_license_data
-    ui_cfg = load_ui_settings()
     session_model = None
     explicit_project_worker = False
     try:
@@ -508,8 +450,6 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
         if model_override and str(model_override).strip()
         else get_agent_model(agent_name, default=session_model)
     )
-    from opalatex.cloud_client import CHAT_PROXY_URL, CLOUD_MODEL_ALIASES
-    cloud_litellm_models = {meta["litellm_model"] for meta in CLOUD_MODEL_ALIASES.values()}
     from opalatex.models_store import resolve_runtime_model_id
 
     runtime_model = resolve_runtime_model_id(resolved_model)
@@ -543,45 +483,26 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
                 session_api_key = getattr(_PROJECT_SESSION, "api_key", None)
     except Exception:
         pass
-    from opalatex.extensions import get_extension_manager
-    cloud_provider_active = get_extension_manager().has_cloud and ui_cfg.get("ai_provider") == "cloud"
+    if store_api_base:
+        merged["api_base"] = normalize_ollama_api_base_for_litellm(
+            runtime_model,
+            store_api_base,
+        )
+    if store_api_key:
+        merged["api_key"] = store_api_key
+    if session_api_base:
+        merged["api_base"] = normalize_ollama_api_base_for_litellm(
+            runtime_model,
+            session_api_base,
+        )
+    if session_api_key:
+        merged["api_key"] = session_api_key
 
-    use_cloud_proxy = (
-        resolved_model in cloud_litellm_models
-        or (cloud_provider_active and not explicit_project_worker)
-    )
-
-    if use_cloud_proxy:
-        license_data = _load_license_data()
-        license_key = license_data.get("license_key", "")
-        # Force OpenAI format to proxy through our custom server
-        merged["api_base"] = CHAT_PROXY_URL
-        merged["api_key"] = license_key
-        # The proxy itself uses google/genai, but litellm expects openai format when using a generic proxy base
-        merged["custom_llm_provider"] = "openai"
+    if is_ollama_cloud_model(runtime_model):
+        merged.setdefault("api_base", OLLAMA_CLOUD_API_BASE)
+        merged.setdefault("api_key", os.getenv("OLLAMA_API_KEY", ""))
         merged.setdefault("timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
         merged.setdefault("request_timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
-    else:
-        if store_api_base:
-            merged["api_base"] = normalize_ollama_api_base_for_litellm(
-                runtime_model,
-                store_api_base,
-            )
-        if store_api_key:
-            merged["api_key"] = store_api_key
-        if session_api_base:
-            merged["api_base"] = normalize_ollama_api_base_for_litellm(
-                runtime_model,
-                session_api_base,
-            )
-        if session_api_key:
-            merged["api_key"] = session_api_key
-
-        if is_ollama_cloud_model(runtime_model):
-            merged.setdefault("api_base", OLLAMA_CLOUD_API_BASE)
-            merged.setdefault("api_key", os.getenv("OLLAMA_API_KEY", ""))
-            merged.setdefault("timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
-            merged.setdefault("request_timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
 
     for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
         merged.pop(field, None)
@@ -650,8 +571,8 @@ def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
     # Gemini 3+ deprecates request-level sampling params (temperature, top_p,
     # top_k) — Google recommends moving sampling guidance into the system
     # instructions. Only strip when using the gemini/vertex_ai provider
-    # directly (NOT when routed through the OpalaTex Cloud proxy, which uses
-    # custom_llm_provider=openai and already discards sampling params).
+    # directly (NOT when routed through an OpenAI-compatible proxy, which
+    # already discards sampling params via custom_llm_provider=openai).
     if _is_gemini3_direct_model(model, provider, custom_provider):
         _strip_gemini3_sampling_params(cleaned)
 
@@ -688,9 +609,10 @@ def _strip_openai_gpt5_default_only_sampling_params(cleaned: dict) -> None:
 def _is_gemini3_direct_model(model: str, provider: str, custom_provider: str | None) -> bool:
     """Return True for Gemini 3+ models reached via the gemini/vertex_ai provider.
 
-    The OpalaTex Cloud proxy uses custom_llm_provider=openai, so it is excluded
-    here — the proxy already discards sampling params and the DeprecationWarning
-    is only emitted by LiteLLM's vertex_and_google_ai_studio_gemini module.
+    Requests routed through an OpenAI-compatible proxy (custom_llm_provider=openai)
+    are excluded here — such proxies already discard sampling params, and the
+    DeprecationWarning is only emitted by LiteLLM's vertex_and_google_ai_studio_gemini
+    module.
     """
     if custom_provider == "openai":
         return False

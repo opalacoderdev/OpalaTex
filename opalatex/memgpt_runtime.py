@@ -209,9 +209,6 @@ def build_run_skill_tool(
     call (so /load mid-session can't leak writes into the previous project).
     """
 
-    from opalatex.ui_settings import load_ui_settings
-    __is_cloud = load_ui_settings().get("ai_provider") == "cloud"
-
     @as_tool(
         name="run_skill",
         description=(
@@ -641,8 +638,6 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     active skills. Tools = run_skill + the memory tools. Uses the framework
     MemGPTAgentBlock (classic memory) per docs/specs/04 §1.
     """
-    from opalatex.ui_settings import load_ui_settings
-    __is_cloud = load_ui_settings().get("ai_provider") == "cloud"
     from .tools import (
         read_core_memory, append_core_memory, search_conversation_history,
         set_project_context,

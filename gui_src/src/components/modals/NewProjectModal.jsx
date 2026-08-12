@@ -2,12 +2,9 @@ import React, { useState } from 'react';
 import { X, FolderOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useModelValidation } from './useModelValidation';
-import { FEATURES } from '../../config/features';
 
 // Modal for registering a new project.
 export default function NewProjectModal({
-  globalAiProvider,
-  globalCloudModel = 'OpalaTexCloud',
   globalModels = [],
   onClose,
   onSubmit,
@@ -60,26 +57,6 @@ export default function NewProjectModal({
     { id: 'orquestrador', label: t('editProjectModal.tabOrchestrator') },
     { id: 'worker', label: t('editProjectModal.tabWorker') }
   ];
-
-  const cloudNoticeStyle = {
-    padding: '8px',
-    background: 'rgba(0, 122, 204, 0.1)',
-    border: '1px solid #007acc',
-    borderRadius: '4px',
-    fontSize: '12px',
-    color: '#007acc',
-    marginTop: '4px'
-  };
-
-  const cloudModelOptions = [
-    { value: 'OpalaTexCloud', label: t('editProjectModal.opalaCloudLiteOption', 'OpalaTex Live (standard credit use)') },
-    { value: 'OpalaTexCloudGemini35Flash', label: t('editProjectModal.opalaCloudFlashOption', 'OpalaTex Flash (4x credit use)') }
-  ];
-  const normalizeCloudModel = (value) => {
-    if (cloudModelOptions.some(option => option.value === value)) return value;
-    if (cloudModelOptions.some(option => option.value === globalCloudModel)) return globalCloudModel;
-    return 'OpalaTexCloud';
-  };
 
   return (
     <div className="vscode-modal-overlay">
@@ -179,55 +156,28 @@ export default function NewProjectModal({
             <>
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.aiModel')}</label>
-                {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
-                  <>
-                    <select
-                      className="vscode-settings-input"
-                      value={normalizeCloudModel(newProjModel)}
-                      onChange={(e) => setProjectModel(e.target.value, 'main')}
-                    >
-                      {cloudModelOptions.map(option => (
-                        <option key={`new-cloud-main-${option.value}`} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                    <div style={cloudNoticeStyle}>
-                      <strong>{t('editProjectModal.opalaCloudEnabled')}</strong><br />
-                      {t('editProjectModal.cloudOrchestratorNotice')}<br />
-                      <em>{t('editProjectModal.cloudAdvancedNotice')}</em><br />
-                      <strong>{t('editProjectModal.cloudFlashCostNotice', 'Gemini 3.5 Flash consumes credits 6x faster than Lite.')}</strong>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      type="text"
-                      list="default-models"
-                      value={newProjModel}
-                      onChange={(e) => setProjectModel(e.target.value, 'main')}
-                      placeholder={t('newProjectModal.modelPlaceholder')}
-                      style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
-                    />
-                    <datalist id="default-models">
-                      {FEATURES.enableCloudModels && <option value="OpalaTexCloud" />}
-                      {(globalModels || []).map(m => (
-                        <option key={`new-model-${m.id}`} value={m.id} />
-                      ))}
-                      <option value="gemini/gemini-flash-lite-latest" />
-                      <option value="anthropic/claude-3-5-sonnet-latest" />
-                      <option value="openai/gpt-4o-mini" />
-                      <option value="openai/gpt-4o" />
-                      <option value="ollama/gemma4:12b" />
-                      <option value="ollama/gemma4:31b-cloud" />
-                    </datalist>
-                  </>
-                )}
-                {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
-                  <>
-                    {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
-                    {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
-                    {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
-                  </>
-                )}
+                <input
+                  type="text"
+                  list="default-models"
+                  value={newProjModel}
+                  onChange={(e) => setProjectModel(e.target.value, 'main')}
+                  placeholder={t('newProjectModal.modelPlaceholder')}
+                  style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
+                />
+                <datalist id="default-models">
+                  {(globalModels || []).map(m => (
+                    <option key={`new-model-${m.id}`} value={m.id} />
+                  ))}
+                  <option value="gemini/gemini-flash-lite-latest" />
+                  <option value="anthropic/claude-3-5-sonnet-latest" />
+                  <option value="openai/gpt-4o-mini" />
+                  <option value="openai/gpt-4o" />
+                  <option value="ollama/gemma4:12b" />
+                  <option value="ollama/gemma4:31b-cloud" />
+                </datalist>
+                {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
+                {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
               </div>
 
               {/* Advanced params for Orchestrator */}
@@ -272,54 +222,28 @@ export default function NewProjectModal({
             <>
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerModel')}</label>
-                {FEATURES.enableCloudModels && globalAiProvider === 'cloud' ? (
-                  <>
-                    <select
-                      className="vscode-settings-input"
-                      value={normalizeCloudModel(newProjWorkerModel)}
-                      onChange={e => setProjectModel(e.target.value, 'worker')}
-                    >
-                      {cloudModelOptions.map(option => (
-                        <option key={`new-cloud-worker-${option.value}`} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                    <div style={cloudNoticeStyle}>
-                      <strong>{t('editProjectModal.opalaCloudEnabled')}</strong><br />
-                      {t('editProjectModal.cloudWorkerNotice')}<br />
-                      <strong>{t('editProjectModal.cloudFlashCostNotice', 'Gemini 3.5 Flash consumes credits 6x faster than Lite.')}</strong>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      type="text"
-                      list="default-worker-models"
-                      value={newProjWorkerModel}
-                      onChange={e => setProjectModel(e.target.value, 'worker')}
-                      placeholder={t('newProjectModal.workerModelPlaceholder')}
-                      style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
-                    />
-                    <datalist id="default-worker-models">
-                      {FEATURES.enableCloudModels && <option value="OpalaTexCloud" />}
-                      {(globalModels || []).map(m => (
-                        <option key={`new-worker-model-${m.id}`} value={m.id} />
-                      ))}
-                      <option value="gemini/gemini-flash-lite-latest" />
-                      <option value="anthropic/claude-3-5-sonnet-latest" />
-                      <option value="openai/gpt-4o-mini" />
-                      <option value="openai/gpt-4o" />
-                      <option value="ollama/gemma4:12b" />
-                      <option value="ollama/gemma4:31b-cloud" />
-                    </datalist>
-                  </>
-                )}
-                {(globalAiProvider !== 'cloud' || !FEATURES.enableCloudModels) && (
-                  <>
-                    {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
-                    {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
-                    {workerModelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
-                  </>
-                )}
+                <input
+                  type="text"
+                  list="default-worker-models"
+                  value={newProjWorkerModel}
+                  onChange={e => setProjectModel(e.target.value, 'worker')}
+                  placeholder={t('newProjectModal.workerModelPlaceholder')}
+                  style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
+                />
+                <datalist id="default-worker-models">
+                  {(globalModels || []).map(m => (
+                    <option key={`new-worker-model-${m.id}`} value={m.id} />
+                  ))}
+                  <option value="gemini/gemini-flash-lite-latest" />
+                  <option value="anthropic/claude-3-5-sonnet-latest" />
+                  <option value="openai/gpt-4o-mini" />
+                  <option value="openai/gpt-4o" />
+                  <option value="ollama/gemma4:12b" />
+                  <option value="ollama/gemma4:31b-cloud" />
+                </datalist>
+                {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
+                {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                {workerModelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
               </div>
 
               {/* Advanced params for Worker */}

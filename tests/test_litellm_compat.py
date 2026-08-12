@@ -466,7 +466,7 @@ def test_analyze_image_resanitizes_kwargs_for_final_model(monkeypatch):
 
     monkeypatch.setattr(tools, "_PROJECT_SESSION", FakeSession())
     monkeypatch.setattr("litellm.completion", fake_completion)
-    monkeypatch.setattr("opalatex.ui_settings.load_ui_settings", lambda: {"ai_provider": "local"})
+    monkeypatch.setattr("opalatex.ui_settings.load_ui_settings", lambda: {})
     tools.set_recent_file_attachments({
         "input_file_0.jpg": {
             "type": "image",

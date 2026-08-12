@@ -66,7 +66,7 @@ def _reset_project_session(monkeypatch):
     """Restore shared runtime state and avoid leaking real UI settings into tests."""
     monkeypatch.setattr(
         "opalatex.ui_settings.load_ui_settings",
-        lambda: {"ai_provider": "local", "cloud_model": "OpalaTexCloud"},
+        lambda: {},
     )
     yield
     import opalatex.tools as _t

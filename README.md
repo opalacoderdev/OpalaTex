@@ -2,7 +2,7 @@
 
 OpalaTex is a free, open-source LaTeX editor with an integrated AI assistant. It combines a source editor, local PDF preview, project tools, Git integration, and optional local or cloud AI models.
 
-LaTeX compilation is performed locally with Tectonic. Local editor features do not require an Opala Cloud account; cloud credits and user-provided API keys are optional.
+LaTeX compilation is performed locally with Tectonic. All editor features work without any account; user-provided API keys for third-party AI providers are optional.
 
 ## Features
 

@@ -8,9 +8,8 @@ node_modules/
 plan.md
 build_staging*
 
-# --- Project runtime & Cloud overlay isolation ---
+# --- Project runtime isolation ---
 .opalacoder/
-opalatex_cloud/
 
 # --- Generated frontend build ---
 /opalatex/gui/
@@ -74,7 +73,6 @@ MANIFEST
 *.manifest
 *.spec
 !OpalaTex.spec
-!OpalaTexCloud.spec
 
 # --- Installer and packaging inputs ---
 *.iss

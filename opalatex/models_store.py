@@ -6,7 +6,6 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from .config import DEFAULT_DB_PATH, get_opalatex_home
-from .extensions import get_extension_manager
 
 _DEFAULT_MODELS_STORE_PATH = Path(get_opalatex_home()) / "models.json"
 _MODELS_STORE_PATH = _DEFAULT_MODELS_STORE_PATH
@@ -111,39 +110,17 @@ def load_models() -> List[Dict[str, Any]]:
         models = legacy_models or [normalize_model_entry(m) for m in _DEFAULT_MODELS]
         loaded_defaults = True
         
-    # Inject cloud models if provided by cloud extension, or filter them out if empty
-    ext_mgr = get_extension_manager()
-    managed_cloud_models = ext_mgr.cloud.get_cloud_models()
-    if managed_cloud_models:
-        existing_ids = {m.get("id"): m for m in models if isinstance(m, dict)}
-        insert_at = 0
-        for cloud_model in managed_cloud_models:
-            cloud_id = cloud_model["id"]
-            if cloud_id not in existing_ids:
-                models.insert(insert_at, normalize_model_entry(cloud_model))
-                insert_at += 1
-                existing_ids[cloud_id] = models[insert_at - 1]
-                loaded_defaults = True
-            else:
-                existing_entry = existing_ids[cloud_id]
-                if existing_entry.get("name") != cloud_model["name"] or existing_entry.get("provider") != cloud_model["provider"]:
-                    existing_entry["name"] = cloud_model["name"]
-                    existing_entry["provider"] = cloud_model["provider"]
-                    loaded_defaults = True
-                if "supports_thinking" not in existing_entry:
-                    existing_entry["supports_thinking"] = False
-                    loaded_defaults = True
-    else:
-        filtered = [
-            m for m in models
-            if isinstance(m, dict)
-            and str(m.get("provider", "")).lower() not in ("opalatex", "opalatex_cloud")
-            and not str(m.get("id", "")).lower().startswith("opalatex")
-        ]
-        if len(filtered) != len(models):
-            models = filtered
-            loaded_defaults = True
-        
+    # Filter out any stray Opala Cloud model entries left over from earlier versions.
+    filtered = [
+        m for m in models
+        if isinstance(m, dict)
+        and str(m.get("provider", "")).lower() not in ("opalatex", "opalatex_cloud")
+        and not str(m.get("id", "")).lower().startswith("opalatex")
+    ]
+    if len(filtered) != len(models):
+        models = filtered
+        loaded_defaults = True
+
     if loaded_defaults:
         save_models(models)
         

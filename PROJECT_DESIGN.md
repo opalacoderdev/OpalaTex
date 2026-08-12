@@ -1,12 +1,12 @@
 # OpalaTex & OpalaWebPage Project Design
 
-This document describes the software architecture and project-level design decisions of **OpalaTex** (the MIT-licensed open-source client desktop application) and its connection to the optional **OpalaWebPage** service (hosted at `https://www.opalacoder.com`), which handles Cloud accounts, AI credits, proxy requests, OTP recovery, Stripe billing, and project donations.
+This document describes the software architecture and project-level design decisions of **OpalaTex** (the MIT-licensed open-source client desktop application) and its connection to the optional **OpalaWebPage** static marketing site (hosted at `https://www.opalacoder.com`), which presents the project and links to a PayPal donation page. OpalaTex has no hosted Cloud AI service, no accounts, and no billing — the desktop app and the website are otherwise independent.
 
 ---
 
 ## 1. High-Level Architectural Diagram
 
-The diagram below outlines the communication between the OpalaTex React/Vite front-end, its local Python backend, and the remote Express.js server hosted on `opalacoder.com`.
+The diagram below outlines the communication between the OpalaTex React/Vite front-end, its local Python backend, and the user's chosen AI provider (local Ollama or a third-party API).
 
 ```mermaid
 graph TD
@@ -16,15 +16,8 @@ graph TD
         Bridge <-->|AgenticBlocks Framework| Agent[Orchestrator Agent - memgpt_runtime.py]
     end
 
-    subgraph Remote [OpalaWebPage Server - www.opalacoder.com]
-        Srv[Express.js Server - server.js] <-->|SQLite| DB[(Cloud accounts and token balances)]
-        Srv <-->|API Calls| Gemini[Google Gemini API]
-        Srv <-->|Stripe Webhooks / API| Stripe[Stripe Gateway]
-        Srv <-->|SMTP| Email[Email Server - Nodemailer]
-    end
-
-    FE -->|Credit purchase and donation links| Srv
-    BE -->|Cloud registration, balance, and AI proxy requests| Srv
+    BE <-->|LiteLLM| Provider[Local Ollama or user-configured third-party API]
+    FE -->|Donation link only, no account or billing data| Web[OpalaWebPage - www.opalacoder.com]
 ```
 
 ---
@@ -38,7 +31,6 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
 - **Agent Orchestrator (`opalatex/memgpt_runtime.py`)**: Built on the vendored **AgenticBlocks** source package (`agenticblocks/`), which ships with OpalaTex rather than being installed as an external distribution. It implements a MemGPT-like memory architecture where the primary agent manages short-term and long-term memory, dispatches actions to modular "skills" (`opalatex/skills.py`), and exposes editor/file/document tools to the model.
 - **JSON IPC Bridge (`opalatex/agent_stdin.py`)**: Owns the streamed agent run lifecycle for the IDE. It receives `/api/opalatex/run` payloads, persists user-visible chat history, normalizes attachments, coordinates pending GUI input requests, records agent activity for interruption/resume, and emits structured events back to the front-end.
 - **LiteLLM / Tool-Call Compatibility Layer (`opalatex/litellm_compat.py`)**: Wraps AgenticBlocks LLM calls at the OpalaTex boundary. It sanitizes provider kwargs, repairs transport/history issues such as orphan tool messages and concatenated JSON tool calls, and adds bounded loop breakers for repeated schema validation failures. It must not silently convert an invalid tool call into a different semantic action.
-- **Plugin and Extension System (`opalatex/extensions.py`)**: Defines `CloudExtensionInterface` and the `ExtensionManager` singleton. In Community mode, OpalaTex runs completely offline without any cloud dependencies. Optional extensions (such as `OpalaTexCloud`) dynamically register cloud models, custom licensing, and cloud proxy endpoints at build/runtime.
 - **Project Store and Attachments**:
   - `opalatex/project.py`: Persists project metadata, chat history, chat branches, message attachments, core memory snapshots, and diagnostic agent activity.
   - Diagnostic activity (`thought`, `reflection`, and `stream_chunk`) is stored in `project_activity`, scoped by project and chat. It is loaded by `/api/chat/history` to rehydrate the Thinking/Stream panel. `thought` activity is also associated back to the matching assistant turn in the chat UI as a collapsed "AI Thoughts" details block, while assistant chat message content remains limited to the visible final response.
@@ -50,16 +42,14 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
 - **Document Export Tools**:
   - `create_docx_file` and `create_pptx_file` are exposed through the agent tool registry for generated Word and PowerPoint artifacts. They should be used instead of asking an agent to write raw binary office files.
 
-### 2.2 Community Edition & Optional Cloud Extension
-- **100% Offline & Open-Source (MIT)**: The core OpalaTex Community Edition repository contains no proprietary cloud proxy calls, no cloud account tracking, and no hardcoded credit meter logic. All editing and AI features function via Ollama and user-configured providers.
-- **Pluggable Architecture**: The private `OpalaTexCloud` project builds upon OpalaTex Community via an automated overlay script in CI that injects the `opalatex_cloud` extension package and enables cloud UI feature flags (`gui_src/src/config/features.js`).
-
+### 2.2 100% Offline & Open-Source (MIT)
+The OpalaTex repository contains no cloud proxy calls, no account tracking, and no credit-meter logic. All editing and AI features function via Ollama and user-configured third-party providers (API key + optional base URL). The previous private `OpalaTexCloud` overlay project and its `opalatex_cloud` extension package have been discontinued and are no longer built or referenced from this repository.
 
 ### 2.3 Open-Source Support and Donations
 - **License**: The repository includes the standard MIT License in `LICENSE`, matching `pyproject.toml` metadata.
 - **Desktop donation UI**: Settings > About displays a PayPal donation button and the QR Code from `gui_src/public/qr-code.png`.
 - **Compiled asset**: Vite copies the QR Code to `opalatex/gui/qr-code.png` for packaged desktop builds.
-- **Separation from credits**: Donations support project maintenance and do not create Cloud accounts or add AI tokens.
+- **Separation from features**: Donations support project maintenance and do not unlock any additional application features.
 
 ### 2.4 Rich Text Editor & Math Rendering (`gui_src/src/components/RichTextEditor.jsx`)
 - **Overleaf-style Rich Text mode**: Parses LaTeX source into structured blocks; editable prose blocks (headings, paragraphs, lists, quotes) are rendered as `contentEditable` elements. Non-editable blocks (math, figures, tables, code, environments) are rendered as read-only previews with "jump to source" on click.
@@ -123,101 +113,23 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
 
 ---
 
-## 3. Remote Server Architecture (OpalaWebPage)
+## 3. OpalaWebPage (Marketing Site)
 
-The server-side component is an Express.js backend that handles Stripe credit purchases, manages Cloud registration keys and token balances, and proxies LLM requests to the Gemini API to safeguard provider keys and monitor consumption. The public website presents OpalaTex as free/open-source, offers optional Cloud credits, and links to PayPal donations.
+`OpalaWebPage` (`www.opalacoder.com`) is now a static-content Express server: it serves the built React/Vite site and public assets (installer one-liners mirroring the README, the donation QR code, privacy policy). It holds no database, no user accounts, and makes no calls to any LLM provider. Its only integration with a third party is the PayPal donation link.
 
-### 3.1 Database Schema (`opala.db` - SQLite)
+### 3.1 Donation Flow
 
-The database maintains two tables:
-
-1. **`licenses`** (legacy table name; represents Cloud accounts):
-   - `key` (TEXT, Primary Key): Unique Cloud registration key (prefixed with `OPALA-`).
-   - `token_balance` (INTEGER): Remainder of AI credits (number of available tokens).
-   - `email` (TEXT): E-mail of the purchaser.
-   - `created_at` (DATETIME): Cloud account creation timestamp.
-
-2. **`otps`**:
-   - `email` (TEXT, Primary Key): Email associated with the Cloud account.
-   - `otp` (TEXT): A random 6-digit verification code.
-   - `expires_at` (DATETIME): Code expiration timestamp (valid for 10 minutes).
-
-### 3.2 Key Server Endpoints
-
-| Method | Endpoint | Description | Auth Requirement |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/webhook` | Handles completed Stripe credit purchases and increases token balances. | Stripe signature check |
-| `POST` | `/api/create-checkout-session` | Initiates a Stripe payment session for a credit purchase. | None |
-| `GET` | `/api/get-license` | Retrieves the account registration key associated with a completed purchase. | None |
-| `GET` | `/api/get-balance` | Retrieves the remaining token balance for a Cloud account. | `Authorization: Bearer <registration_key>` |
-| `POST` | `/api/create-recharge-session` | Initiates a temporary recharge token valid for 15 minutes. | None |
-| `POST` | `/api/otp/request` | Requests a 6-digit OTP code for the registered account email. | None |
-| `POST` | `/api/otp/verify` | Verifies the OTP code to recover the Cloud registration key. | None |
-| `POST` | `/api/chat-proxy/chat/completions` | Proxies client LLM queries to the Gemini API while tracking token usage. | `Authorization: Bearer <license_key>` |
-
----
-
-## 4. Client-to-Server Integration Flow
-
-### 4.1 Cloud AI Proxy Flow (`POST /api/chat-proxy/chat/completions`)
-
-When the user selects **OpalaTex Cloud** as their AI Provider:
-1. **Request Interception**: `opalatex/config.py` overrides the standard LiteLLM config:
-   - Sets `api_base = "https://opalacoder.com/api/chat-proxy"`
-   - Sets `api_key = license_key`
-   - Sets `custom_llm_provider = "openai"` (to trick LiteLLM into formatting requests as standard OpenAI payloads).
-2. **Account & Balance Verification**: The server extracts the registration key from the `Bearer` token header, checks `opala.db`, and verifies that `token_balance > 0`. Expiration/trial status is not used.
-3. **Format Mapping**: The server translates the OpenAI schema payload (`messages` format) into the Google GenAI Contents format (handling `systemInstruction`, nested `contents` with user/model roles, and parsing tool definitions/calls).
-4. **Google Gemini Call**: The server fires the converted payload to the Gemini API using the `@google/genai` SDK. Opala Cloud model catalog is dynamically loaded from environment variables (`.env`). In UI, models are presented as **OpalaTex Live** (standard credit use) and **OpalaTex Flash** (4x credit use).
-5. **Streaming / Response Processing**: The response is piped back to the client as standard OpenAI-compatible chunks (`text/event-stream`).
-6. **Token Deduction**: The server calculates the consumed tokens (using Gemini's `usageMetadata` or input/output text estimation), applies the server-side credit multiplier for the selected model (`OpalaTex Flash` bills 4x the live model), and updates `token_balance` in `opala.db`.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Client as OpalaTex Client (LiteLLM)
-    participant Server as www.opalacoder.com (Express)
-    participant DB as SQLite (opala.db)
-    participant Gemini as Google Gemini API
-
-    Client->>Server: POST /api/chat-proxy/.../completions (Bearer: OPALA-XXXX)
-    Server->>DB: Check balance of OPALA-XXXX
-    DB-->>Server: balance = 5,000,000 tokens
-    Note over Server: Convert OpenAI payload to Gemini contents format
-    Server->>Gemini: call models.generateContentStream()
-    Gemini-->>Server: Yield content chunks
-    Server-->>Client: Stream SSE chunks (OpenAI format)
-    Note over Server: Compute total tokens consumed (totalTokenCount)
-    Server->>DB: UPDATE licenses SET token_balance = balance - consumed
-    Server->>Client: Complete response stream
-```
-
-### 4.2 Stripe Credit Purchase Flow
-
-OpalaTex is open-source and does not require a paid license. The commercial offer is an optional package of 5,000,000 Opala Cloud tokens for BRL 60.00 or USD 11.99.
-
-When a user purchases Cloud credits:
-1. Client requests a credit checkout session from `/api/create-checkout-session`.
-2. Server calls Stripe API and returns the checkout session URL.
-3. User completes the payment on Stripe's hosted gateway.
-4. Stripe fires `checkout.session.completed` hook to `/api/webhook`.
-5. The server creates an account registration key when needed, or locates the existing account, and adds `+5,000,000` tokens to `token_balance`.
-
-### 4.3 Donation Flow
-
-Donations are independent from Stripe credit purchases:
-1. The website and Settings > About expose the official PayPal donation URL.
+1. The website and the desktop app's Settings > About expose the same official PayPal donation URL.
 2. Both interfaces display the same QR Code asset supplied by the project owner.
-3. PayPal processes the donation externally in BRL.
-4. No Cloud key or token balance is created or changed by a donation.
+3. PayPal processes the donation externally.
+4. No account, key, or application state is created or changed by a donation — it is purely external to OpalaTex.
 
 ---
 
-## 5. Current Product and Licensing Decisions
+## 4. Current Product and Licensing Decisions
 
 - OpalaTex is free and open-source under the MIT License.
-- There is no trial, paid editor license, subscription, or local feature lock.
-- Local models and user-provided API keys do not require an Opala Cloud account.
-- The only paid application service is an optional package of 5,000,000 Cloud tokens for BRL 60.00 or USD 11.99.
-- Donations fund open-source maintenance and are not purchases of tokens or application features.
-- The OpalaWebPage server and its commercial rules remain separate from the public desktop client.
+- There is no trial, paid editor license, subscription, account, or local feature lock.
+- AI features run through local Ollama models or through third-party providers (Gemini, OpenAI, Anthropic, etc.) configured with the user's own API key.
+- The previously offered Opala Cloud AI proxy and paid token packages have been discontinued; OpalaTex has no paid application service.
+- Donations fund open-source maintenance and are not purchases of any token, credit, or application feature.
