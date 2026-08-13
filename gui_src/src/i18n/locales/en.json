@@ -115,7 +115,6 @@
     "reviewFileFilter": "File",
     "reviewAllFiles": "All files"
   },
-
   "editorPanel": {
     "emptyRichText": "No editable content. Open a .tex file with a document body.",
     "noFileOpen": "No File Open",
@@ -470,7 +469,6 @@
     "workerApiKey": "Worker API Key (Optional)",
     "workerApiBase": "Worker API Base URL (Optional)",
     "description": "Description",
-    "workerModel": "Worker Model",
     "workerModelPlaceholderOptional": "ollama/gemma4:12b (Optional)",
     "workerApiKeyPlaceholder": "API Key for Worker",
     "advancedParams": "Model Parameters (Advanced)",
@@ -678,6 +676,7 @@
     "localOllamaLoaded_one": "Added {{count}} local Ollama model.",
     "localOllamaLoaded_other": "Added {{count}} local Ollama models.",
     "localOllamaAlreadyConfigured": "All local Ollama models already have a configuration.",
+    "localOllamaLoaded": "{{count}} local Ollama model(s) registered.",
     "ollamaNotInstalled": "Ollama is not installed.",
     "ollamaUnavailable": "Ollama is installed, but its local service is unavailable.",
     "loadLocalOllamaFailed": "Unable to load local Ollama models.",
@@ -694,7 +693,11 @@
     "supportsThinkingHint": "Keep this off unless the model documentation explicitly says it supports thinking or reasoning parameters.",
     "generatedId": "Generated ID",
     "requiredError": "Provider and Model Name are required.",
-    "duplicateError": "A model with this provider, name, and API base URL already exists."
+    "duplicateError": "A model with this provider, name, and API base URL already exists.",
+    "providerPlaceholder": "Provider identifier",
+    "modelNamePlaceholder": "Model name as the provider exposes it",
+    "apiKeyPlaceholder": "Provider API key",
+    "apiBasePlaceholder": "API base URL (optional)"
   },
   "dirPickerModal": {
     "title": "Select Directory",
@@ -869,7 +872,6 @@
     "configCloudBtn": "Configure Cloud API and Create Pilot Project",
     "preparingOllama": "Preparing Ollama",
     "ollamaInstalledCompatible": "Ollama is already installed (v{{version}}) and compatible!",
-    "startPilot": "Start Pilot Project",
     "updateRequired": "Update Required",
     "updateMessage": "We detected Ollama (v{{version}}), but OpalaTex requires version 0.30.5 or higher to fully support tool calls.",
     "downloadUpdateBtn": "Download and Update Ollama",
@@ -880,18 +882,19 @@
     "manualInstallTitle": "Manual Installation (Linux/Mac)",
     "manualInstallMessage": "For security reasons (sudo usage), please open your terminal and run the command below:",
     "alreadyInstalledBtn": "I've installed it! Start Pilot Project",
-    "configCloudTitle": "Configure Cloud API",
-    "recommendedProvider": "Recommended Provider",
-    "providerGemini": "Google Gemini Flash Lite (Fast)",
-    "providerAnthropic": "Anthropic Claude 3.5 Sonnet",
-    "apiKeyLabel": "API Key",
-    "apiKeyPlaceholder": "Paste your key here...",
-    "apiBaseLabel": "API base URL (optional for custom cloud)",
-    "apiBasePlaceholder": "Ex: https://my-ollama-cloud.example/v1",
-    "skipKeyBtn": "Skip Key (I'll provide it later)",
     "createPilotBtn": "Create Pilot Project",
     "generating": "Loading...",
-    "configThirdPartyKey": "Configure Third-Party API Key"
+    "configThirdPartyKey": "Configure Third-Party API Key",
+    "pilotProjectName": "Pilot Project",
+    "continueToModels": "Continue",
+    "registerModelTitle": "Register your first model",
+    "registerModelMessage": "OpalaTex ships with no model. Register a provider/model to use now, or skip and configure it later under Edit Models.",
+    "registerModelBtn": "Register model",
+    "modelRegistered": "Model '{{id}}' registered.",
+    "pilotModelLabel": "Model for the pilot project",
+    "pilotModelNone": "No model (configure later)",
+    "pilotModelHint": "Optional. You can also choose it later in the chat toolbar.",
+    "skipModelBtn": "Skip (I'll configure it later)"
   },
   "common": {
     "actions": "Actions",
@@ -929,5 +932,9 @@
   "interactiveTerminalModal": {
     "title": "Interactive Terminal:",
     "finish": "Finish"
+  },
+  "modelSelect": {
+    "notInCatalog": "Not in the model catalog",
+    "notInCatalogTitle": "'{{id}}' is not registered in the model catalog. Select a registered model or add it under Edit Models."
   }
 }

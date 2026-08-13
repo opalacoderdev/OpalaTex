@@ -644,8 +644,11 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     )
 
     project_path = getattr(project, "project_path", "") or os.getcwd()
-    project_model = getattr(project, "model", None) or DEFAULT_MODEL
-    project_worker = getattr(project, "worker_model", "") or project_model or DEFAULT_MODEL
+    # An unconfigured project keeps an empty model here. The orchestrator is still
+    # built (so the project can be opened and configured), but handle_run refuses to
+    # run it instead of silently substituting DEFAULT_MODEL for the user's choice.
+    project_model = getattr(project, "model", None) or ""
+    project_worker = getattr(project, "worker_model", "") or project_model
 
     # Scope all file/terminal tools to the project directory. Without this,
     # get_project_path() falls back to the cwd (the OpalaTex repo root) and the

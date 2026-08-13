@@ -136,7 +136,8 @@ _STRINGS = {
         "empty_response_retry_info": "The model generated an empty response. Forcing an automatic correction attempt...",
         "empty_response_nudge": "You finished the requested work but did not provide a user-facing response. Now return a non-empty final response. Use a tool only if more work is required.",
         "empty_response_unresolved_error": "The agent finished without a non-empty final response after automatic correction attempts. No fallback response was saved.",
-        "project_exists_in_folder": "The folder is already being used by the project '{name}'. Only one project per folder is allowed."
+        "project_exists_in_folder": "The folder is already being used by the project '{name}'. Only one project per folder is allowed.",
+        "no_model_configured": "No model is configured for this project. Select an orchestrator model in the chat toolbar (or in Project Settings > Orchestrator) before running the agent."
     },
     "pt": {
         "active_session": "Sessão Ativa: {name}",
@@ -271,7 +272,8 @@ _STRINGS = {
         "empty_response_retry_info": "O modelo gerou uma resposta vazia. Forçando uma tentativa de correção automática...",
         "empty_response_nudge": "Você concluiu o trabalho solicitado, mas não forneceu uma resposta visível ao usuário. Agora retorne uma resposta final não vazia. Use uma ferramenta apenas se ainda houver trabalho a fazer.",
         "empty_response_unresolved_error": "O agente terminou sem uma resposta final não vazia após as tentativas automáticas de correção. Nenhuma resposta fallback foi salva.",
-        "project_exists_in_folder": "Esta pasta já está sendo usada pelo projeto '{name}'. Só é permitido um projeto por pasta."
+        "project_exists_in_folder": "Esta pasta já está sendo usada pelo projeto '{name}'. Só é permitido um projeto por pasta.",
+        "no_model_configured": "Nenhum modelo está configurado para este projeto. Selecione um modelo orquestrador na barra do chat (ou em Configurações do Projeto > Orquestrador) antes de executar o agente."
     }
 }
 

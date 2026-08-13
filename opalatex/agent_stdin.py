@@ -1157,6 +1157,19 @@ async def handle_run(data: dict):
     if "project_path" in data or "project_name" in data:
         await handle_load_project(data)
 
+    # A project starts with no model configured. Fail fast with a clear diagnostic
+    # instead of silently substituting DEFAULT_MODEL for the user's (absent) choice.
+    if (
+        agent_type in ("orchestrator", "chat_orchestrator")
+        and not model
+        and current_project is not None
+        and not str(getattr(current_project, "model", "") or "").strip()
+    ):
+        from opalatex.i18n import _ as _translate
+        print_event("error", {"agent": agent_type, "message": _translate("no_model_configured")})
+        print_event("agent_finished", {"agent": agent_type})
+        return
+
     initial_project_mode = None
     if current_project:
         initial_project_mode = current_project.mode
@@ -1730,7 +1743,8 @@ async def handle_create_project(data: dict):
     
     project_path = data.get("project_path") or os.getcwd()
     description = data.get("description", "")
-    model = data.get("model") or DEFAULT_MODEL
+    # No implicit default: a project starts with no model configured.
+    model = str(data.get("model") or "")
     mode = data.get("mode") or "auto"
     skills = data.get("skills", [])
     api_key = data.get("api_key")
@@ -1794,10 +1808,10 @@ async def handle_update_project(data: dict):
     project = store.load(project_name)
     if "display_name" in data:
         project.project_name = data["display_name"]
-    if "model" in data and data["model"]:
-        project.model = data["model"]
+    if "model" in data:
+        project.model = str(data["model"] or "")
     if "worker_model" in data:
-        project.worker_model = data["worker_model"]
+        project.worker_model = str(data["worker_model"] or "")
     if "description" in data:
         project.description = data["description"]
     if "mode" in data and data["mode"]:

@@ -676,6 +676,7 @@
     "localOllamaLoaded_one": "{{count}} modelo local do Ollama foi adicionado.",
     "localOllamaLoaded_other": "{{count}} modelos locais do Ollama foram adicionados.",
     "localOllamaAlreadyConfigured": "Todos os modelos locais do Ollama já possuem uma configuração.",
+    "localOllamaLoaded": "{{count}} modelo(s) do Ollama local cadastrado(s).",
     "ollamaNotInstalled": "Ollama não instalado.",
     "ollamaUnavailable": "O Ollama está instalado, mas o serviço local não está disponível.",
     "loadLocalOllamaFailed": "Não foi possível carregar os modelos locais do Ollama.",
@@ -692,7 +693,11 @@
     "supportsThinkingHint": "Mantenha desligado, exceto se a documentação do modelo disser explicitamente que ele suporta parâmetros de thinking ou reasoning.",
     "generatedId": "ID gerado",
     "requiredError": "Provedor e Nome do Modelo são obrigatórios.",
-    "duplicateError": "Já existe um modelo com este provedor e nome."
+    "duplicateError": "Já existe um modelo com este provedor e nome.",
+    "providerPlaceholder": "Identificador do provedor",
+    "modelNamePlaceholder": "Nome do modelo como o provedor expõe",
+    "apiKeyPlaceholder": "Chave de API do provedor",
+    "apiBasePlaceholder": "URL base da API (opcional)"
   },
   "dirPickerModal": {
     "title": "Selecionar Diretório",
@@ -867,7 +872,6 @@
     "configCloudBtn": "Configurar API em Nuvem e Criar Projeto Piloto",
     "preparingOllama": "Preparando Ollama",
     "ollamaInstalledCompatible": "Ollama já está instalado na sua máquina (v{{version}}) e é compatível!",
-    "startPilot": "Iniciar Projeto Piloto",
     "updateRequired": "Atualização Necessária",
     "updateMessage": "Detectamos o Ollama (v{{version}}), mas o OpalaTex requer a versão 0.30.5 ou superior para suportar ferramentas completas.",
     "downloadUpdateBtn": "Baixar e Atualizar Ollama",
@@ -878,18 +882,19 @@
     "manualInstallTitle": "Instalação Manual (Linux/Mac)",
     "manualInstallMessage": "Por questões de segurança (uso de sudo), pedimos que você abra seu terminal e rode o comando abaixo:",
     "alreadyInstalledBtn": "Já instalei! Iniciar Projeto Piloto",
-    "configCloudTitle": "Configurar API em Nuvem",
-    "recommendedProvider": "Provedor Recomendado",
-    "providerGemini": "Google Gemini Flash Lite (Rápido)",
-    "providerAnthropic": "Anthropic Claude 3.5 Sonnet",
-    "apiKeyLabel": "Chave da API (API Key)",
-    "apiKeyPlaceholder": "Cole sua chave aqui...",
-    "apiBaseLabel": "URL base da API (opcional para nuvem customizada)",
-    "apiBasePlaceholder": "Ex: https://meu-ollama.nuvem.com/v1",
-    "skipKeyBtn": "Pular Chave (Informo depois)",
     "createPilotBtn": "Criar Projeto Piloto",
     "generating": "Carregando...",
-    "configThirdPartyKey": "Configurar Chave de API de Terceiros"
+    "configThirdPartyKey": "Configurar Chave de API de Terceiros",
+    "pilotProjectName": "Projeto Piloto",
+    "continueToModels": "Continuar",
+    "registerModelTitle": "Cadastre seu primeiro modelo",
+    "registerModelMessage": "O OpalaTex não vem com nenhum modelo. Cadastre um provedor/modelo para usar agora, ou pule e configure depois em Editar Modelos.",
+    "registerModelBtn": "Cadastrar modelo",
+    "modelRegistered": "Modelo '{{id}}' cadastrado.",
+    "pilotModelLabel": "Modelo do projeto piloto",
+    "pilotModelNone": "Nenhum modelo (configurar depois)",
+    "pilotModelHint": "Opcional. Você também pode escolher depois na barra do chat.",
+    "skipModelBtn": "Pular (configuro depois)"
   },
   "common": {
     "actions": "Acões",
@@ -927,6 +932,9 @@
   "interactiveTerminalModal": {
     "title": "Terminal Interativo:",
     "finish": "Concluir"
+  },
+  "modelSelect": {
+    "notInCatalog": "Fora do catálogo de modelos",
+    "notInCatalogTitle": "'{{id}}' não está registrado no catálogo de modelos. Selecione um modelo registrado ou adicione-o em Editar Modelos."
   }
 }
-

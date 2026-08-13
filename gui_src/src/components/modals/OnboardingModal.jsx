@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Loader2, Monitor, Terminal, CheckCircle, X, Settings2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Loader2, Monitor, Terminal, CheckCircle, X, Settings2, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import ProviderForm from './ProviderForm';
+import ModelSelect from '../ModelSelect';
+
+const PILOT_PROJECT_PATH = '~/OpalaTexPilot';
 
 export default function OnboardingModal({ onClose, onComplete }) {
   const { t, i18n } = useTranslation();
@@ -9,9 +13,26 @@ export default function OnboardingModal({ onClose, onComplete }) {
   const [ollamaStatus, setOllamaStatus] = useState(null);
   const [isInstalling, setIsInstalling] = useState(false);
 
-  const [apiProvider, setApiProvider] = useState('gemini/gemini-flash-lite-latest');
-  const [apiKey, setApiKey] = useState('');
-  const [apiBase, setApiBase] = useState('');
+  // Model catalog state for the registration step. Nothing is pre-selected: the
+  // pilot project only gets a model when the user explicitly picks one.
+  const [catalogModels, setCatalogModels] = useState([]);
+  const [pilotModel, setPilotModel] = useState('');
+  const [savedModelId, setSavedModelId] = useState('');
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryResult, setDiscoveryResult] = useState(null);
+
+  const fetchCatalog = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/models');
+      const data = await res.json();
+      const models = data.models || [];
+      setCatalogModels(models);
+      return models;
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  }, []);
 
   useEffect(() => {
     fetch('/api/hardware')
@@ -23,7 +44,9 @@ export default function OnboardingModal({ onClose, onComplete }) {
       .then(res => res.json())
       .then(data => setOllamaStatus(data))
       .catch(console.error);
-  }, []);
+
+    fetchCatalog();
+  }, [fetchCatalog]);
 
   const finishOnboarding = async (config) => {
     try {
@@ -38,6 +61,17 @@ export default function OnboardingModal({ onClose, onComplete }) {
       console.error(e);
       onComplete(); // proceed anyway to not block user
     }
+  };
+
+  // The pilot project carries a model only when the user selected one here.
+  const createPilotProject = (modelId) => {
+    const config = {
+      project_name: t('onboarding.pilotProjectName'),
+      project_path: PILOT_PROJECT_PATH,
+      mode: 'plan'
+    };
+    if (modelId) config.model = modelId;
+    return finishOnboarding(config);
   };
 
   const handleClose = async () => {
@@ -65,29 +99,77 @@ export default function OnboardingModal({ onClose, onComplete }) {
     setIsInstalling(false);
   };
 
+  const handleRegisterModel = async (modelData) => {
+    setSavedModelId('');
+    try {
+      const res = await fetch('/api/settings/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(modelData)
+      });
+      if (!res.ok) return;
+      await fetchCatalog();
+      // The freshly registered entry is the natural choice for the pilot project,
+      // but it stays changeable in the selector below.
+      setPilotModel(modelData.id);
+      setSavedModelId(modelData.id);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDiscoverLocalOllama = async () => {
+    setIsDiscovering(true);
+    setDiscoveryResult(null);
+    setSavedModelId('');
+    try {
+      const response = await fetch('/api/settings/models/load-local-ollama', { method: 'POST' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setDiscoveryResult({ status: data.error || 'local_ollama_load_failed' });
+        return;
+      }
+      await fetchCatalog();
+      setDiscoveryResult({ status: 'loaded', count: data.added_count || 0 });
+    } catch {
+      setDiscoveryResult({ status: 'local_ollama_load_failed' });
+    } finally {
+      setIsDiscovering(false);
+    }
+  };
+
+  // Same status vocabulary as the Edit Models dialog.
+  const discoveryResultText = () => {
+    if (!discoveryResult) return '';
+    if (discoveryResult.status === 'loaded') {
+      return discoveryResult.count > 0
+        ? t('editModelsModal.localOllamaLoaded', { count: discoveryResult.count })
+        : t('editModelsModal.localOllamaAlreadyConfigured');
+    }
+    if (discoveryResult.status === 'ollama_not_installed') {
+      return t('editModelsModal.ollamaNotInstalled');
+    }
+    if (discoveryResult.status === 'ollama_unavailable') {
+      return t('editModelsModal.ollamaUnavailable');
+    }
+    return t('editModelsModal.loadLocalOllamaFailed');
+  };
+
   const vram = hardware ? parseFloat(hardware.vram_gb) || 0 : 0;
   const isHighEnd = vram >= 8;
-  let ollamaModel = "ollama/gemma4:e2b-it-qat";
-  if (vram > 32) {
-    ollamaModel = "ollama/gemma4:32b";
-  } else if (vram > 16) {
-    ollamaModel = "ollama/gemma4:26b";
-  } else if (vram >= 8) {
-    ollamaModel = "ollama/gemma4:12b";
-  }
 
   return (
     <div className="vscode-modal-overlay" style={{ zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.85)' }}>
-      <div className="vscode-modal" style={{ maxWidth: '600px', width: '90%', padding: '32px', borderRadius: '12px', border: '1px solid #3c3c3c', backgroundColor: '#1e1e1e', position: 'relative' }}>
-        
-        <button 
+      <div className="vscode-modal" style={{ maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto', padding: '32px', borderRadius: '12px', border: '1px solid #3c3c3c', backgroundColor: '#1e1e1e', position: 'relative' }}>
+
+        <button
           onClick={handleClose}
           style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0' }}
           title={t('newProjectModal.cancel')}
         >
           <X size={20} />
         </button>
-        
+
         {step === 1 && (
           <div style={{ textAlign: 'center' }}>
             <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px', color: '#fff' }}>{t('onboarding.welcome')}</h1>
@@ -95,8 +177,8 @@ export default function OnboardingModal({ onClose, onComplete }) {
               {t('onboarding.analyzingMessage')}
             </p>
             {hardware ? (
-              <button 
-                className="vscode-button" 
+              <button
+                className="vscode-button"
                 style={{ padding: '12px 24px', fontSize: '16px', borderRadius: '6px' }}
                 onClick={() => setStep(2)}
               >
@@ -136,7 +218,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <button
-                className="vscode-button" 
+                className="vscode-button"
                 style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#3c3c3c' }}
                 onClick={() => setStep(3)} // step 3 = Ollama
                 disabled={isInstalling}
@@ -145,10 +227,10 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 {t('onboarding.installOllamaBtn')}
               </button>
 
-              <button 
-                className="vscode-button" 
+              <button
+                className="vscode-button"
                 style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#3c3c3c' }}
-                onClick={() => setStep(5)} // step 5 = API
+                onClick={() => setStep(5)} // step 5 = model registration
               >
                 <Settings2 size={18} />
                 {t('onboarding.configThirdPartyKey', 'Configure Third-Party API Key')}
@@ -167,14 +249,8 @@ export default function OnboardingModal({ onClose, onComplete }) {
                   <p style={{ color: '#ccc', marginBottom: '24px' }}>
                     {t('onboarding.ollamaInstalledCompatible', { version: ollamaStatus.version || 'unknown' })}
                   </p>
-                  <button className="vscode-button" onClick={() => finishOnboarding({
-                    project_name: "Projeto Piloto (Ollama)",
-                    project_path: "~/OpalaTexPilot",
-                    model: ollamaModel,
-                    mode: "plan",
-                    api_base: "http://localhost:11434/v1"
-                  })}>
-                    {t('onboarding.startPilot')}
+                  <button className="vscode-button" onClick={() => setStep(5)}>
+                    {t('onboarding.continueToModels')}
                   </button>
                 </div>
               ) : (
@@ -186,13 +262,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
                   <button className="vscode-button" onClick={handleInstallOllama} disabled={isInstalling}>
                     {isInstalling ? t('onboarding.installStarted') : t('onboarding.downloadUpdateBtn')}
                   </button>
-                  <button className="vscode-button" style={{ marginLeft: '12px', backgroundColor: '#3c3c3c' }} onClick={() => finishOnboarding({
-                    project_name: "Projeto Piloto (Ollama)",
-                    project_path: "~/OpalaTexPilot",
-                    model: ollamaModel,
-                    mode: "plan",
-                    api_base: "http://localhost:11434/v1"
-                  })}>
+                  <button className="vscode-button" style={{ marginLeft: '12px', backgroundColor: '#3c3c3c' }} onClick={() => setStep(5)}>
                     {t('onboarding.ignoreStartBtn')}
                   </button>
                 </div>
@@ -217,13 +287,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
             <div style={{ backgroundColor: '#000', padding: '12px', borderRadius: '6px', border: '1px solid #3c3c3c', marginBottom: '24px', fontFamily: 'monospace', color: '#4ade80' }}>
               curl -fsSL https://ollama.com/install.sh | sh
             </div>
-            <button className="vscode-button" onClick={() => finishOnboarding({
-              project_name: "Projeto Piloto (Ollama)",
-              project_path: "~/OpalaTexPilot",
-              model: ollamaModel,
-              mode: "plan",
-              api_base: "http://localhost:11434/v1"
-            })}>
+            <button className="vscode-button" onClick={() => setStep(5)}>
               {t('onboarding.alreadyInstalledBtn')}
             </button>
           </div>
@@ -231,66 +295,71 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
         {step === 5 && (
           <div>
-            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#fff' }}>{t('onboarding.configCloudTitle')}</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-              <div className="flex flex-col" style={{ gap: '4px' }}>
-                <label style={{ fontSize: '12px', color: '#ccc' }}>{t('onboarding.recommendedProvider')}</label>
-                <select className="vscode-settings-input" value={apiProvider} onChange={(e) => {
-                  setApiProvider(e.target.value);
-                  setApiBase('');
-                }} style={{ width: '100%' }}>
-                  <option value="gemini/gemini-flash-lite-latest">{t('onboarding.providerGemini')}</option>
-                  <option value="anthropic/claude-3-5-sonnet-latest">{t('onboarding.providerAnthropic')}</option>
-                </select>
-              </div>
-              <div className="flex flex-col" style={{ gap: '4px' }}>
-                <label style={{ fontSize: '12px', color: '#ccc' }}>{t('onboarding.apiKeyLabel')}</label>
-                <input 
-                  type="password" 
-                  value={apiKey} 
-                  onChange={(e) => setApiKey(e.target.value)} 
-                  placeholder={t('onboarding.apiKeyPlaceholder')} 
-                  style={{ width: '100%', boxSizing: 'border-box' }}
-                />
-              </div>
-              {apiProvider.startsWith('ollama/') && (
-                <div className="flex flex-col" style={{ gap: '4px' }}>
-                  <label style={{ fontSize: '12px', color: '#ccc' }}>{t('onboarding.apiBaseLabel')}</label>
-                  <input 
-                    type="text" 
-                    value={apiBase} 
-                    onChange={(e) => setApiBase(e.target.value)} 
-                    placeholder={t('onboarding.apiBasePlaceholder')}
-                    className="vscode-settings-input"
-                    style={{ width: '100%', boxSizing: 'border-box' }}
-                  />
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button className="vscode-button" style={{ backgroundColor: '#3c3c3c' }} onClick={() => {
-                const config = {
-                  project_name: "Projeto Piloto",
-                  project_path: "~/OpalaTexPilot",
-                  model: apiProvider,
-                  mode: "plan"
-                };
-                if (apiBase) config.api_base = apiBase;
-                finishOnboarding(config);
-              }}>
-                {t('onboarding.skipKeyBtn')}
+            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px', color: '#fff' }}>{t('onboarding.registerModelTitle')}</h2>
+            <p style={{ color: '#ccc', marginBottom: '20px', fontSize: '14px', lineHeight: '1.5' }}>
+              {t('onboarding.registerModelMessage')}
+            </p>
+
+            {/* Auto-discovery of whatever the user actually has installed locally,
+                so no model name needs to be typed or suggested. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <button
+                type="button"
+                className="vscode-button-secondary"
+                onClick={handleDiscoverLocalOllama}
+                disabled={isDiscovering}
+              >
+                <RefreshCw size={14} />
+                {isDiscovering
+                  ? t('editModelsModal.loadingLocalOllama')
+                  : t('editModelsModal.loadLocalOllama')}
               </button>
-              <button className="vscode-button" onClick={() => {
-                const config = {
-                  project_name: "Projeto Piloto (API)",
-                  project_path: "~/OpalaTexPilot",
-                  model: apiProvider,
-                  mode: "plan"
-                };
-                if (apiKey) config.api_key = apiKey;
-                if (apiBase) config.api_base = apiBase;
-                finishOnboarding(config);
-              }}>
+            </div>
+
+            {discoveryResult && (
+              <div role="status" style={{ padding: '8px', marginBottom: '16px', border: '1px solid var(--vscode-widget-border)', background: 'var(--vscode-input-background)', color: 'var(--vscode-descriptionForeground)', fontSize: '12px' }}>
+                {discoveryResultText()}
+              </div>
+            )}
+
+            <div style={{ border: '1px solid #3c3c3c', borderRadius: '6px', padding: '4px 12px 12px 12px', marginBottom: '16px' }}>
+              <ProviderForm
+                existingModels={catalogModels}
+                onSubmit={handleRegisterModel}
+                actions={(
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', padding: '0 16px 8px 16px' }}>
+                    <button type="submit" className="vscode-button">
+                      {t('onboarding.registerModelBtn')}
+                    </button>
+                  </div>
+                )}
+              />
+            </div>
+
+            {savedModelId && (
+              <div role="status" style={{ padding: '8px', marginBottom: '16px', border: '1px solid #2e4e2e', background: '#1e2e1e', color: '#4ade80', fontSize: '12px' }}>
+                {t('onboarding.modelRegistered', { id: savedModelId })}
+              </div>
+            )}
+
+            <div className="flex flex-col" style={{ gap: '4px', marginBottom: '24px' }}>
+              <label style={{ fontSize: '12px', color: '#ccc' }}>{t('onboarding.pilotModelLabel')}</label>
+              <ModelSelect
+                value={pilotModel}
+                onChange={setPilotModel}
+                globalModels={catalogModels}
+                showActions={false}
+                placeholder={t('onboarding.pilotModelNone')}
+                style={{ width: '100%' }}
+              />
+              <span style={{ fontSize: '11px', color: '#888' }}>{t('onboarding.pilotModelHint')}</span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button className="vscode-button" style={{ backgroundColor: '#3c3c3c' }} onClick={() => createPilotProject('')}>
+                {t('onboarding.skipModelBtn')}
+              </button>
+              <button className="vscode-button" onClick={() => createPilotProject(pilotModel)}>
                 {t('onboarding.createPilotBtn')}
               </button>
             </div>

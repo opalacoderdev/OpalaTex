@@ -164,16 +164,12 @@ export default function NewProjectModal({
                   placeholder={t('newProjectModal.modelPlaceholder')}
                   style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
+                {/* Suggestions come only from the global model store, so the field never
+                    offers a model the project cannot actually resolve. */}
                 <datalist id="default-models">
                   {(globalModels || []).map(m => (
                     <option key={`new-model-${m.id}`} value={m.id} />
                   ))}
-                  <option value="gemini/gemini-flash-lite-latest" />
-                  <option value="anthropic/claude-3-5-sonnet-latest" />
-                  <option value="openai/gpt-4o-mini" />
-                  <option value="openai/gpt-4o" />
-                  <option value="ollama/gemma4:12b" />
-                  <option value="ollama/gemma4:31b-cloud" />
                 </datalist>
                 {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
                 {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
@@ -234,12 +230,6 @@ export default function NewProjectModal({
                   {(globalModels || []).map(m => (
                     <option key={`new-worker-model-${m.id}`} value={m.id} />
                   ))}
-                  <option value="gemini/gemini-flash-lite-latest" />
-                  <option value="anthropic/claude-3-5-sonnet-latest" />
-                  <option value="openai/gpt-4o-mini" />
-                  <option value="openai/gpt-4o" />
-                  <option value="ollama/gemma4:12b" />
-                  <option value="ollama/gemma4:31b-cloud" />
                 </datalist>
                 {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
                 {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}

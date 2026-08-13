@@ -1999,14 +1999,16 @@ class AsyncHTTPServer:
 
         # 5. Create Project
         elif path == '/api/opalatex/create-project' and method == 'POST':
-            from opalatex.config import DEFAULT_DB_PATH, DEFAULT_MODEL, is_local_model
+            from opalatex.config import DEFAULT_DB_PATH, is_local_model
             from opalatex.project import ProjectStore
             store = ProjectStore(db_path=DEFAULT_DB_PATH)
-            
+
             project_name = data.get("project_name")
             project_path = data.get("project_path") or os.getcwd()
             description = data.get("description", "")
-            model = data.get("model") or DEFAULT_MODEL
+            # A project starts with no model configured. The user selects one from
+            # the global model store; no implicit default is injected here.
+            model = str(data.get("model") or "")
             worker_model = data.get("worker_model", "")
             mode = data.get("mode") or "auto"
             skills = data.get("skills", [])
@@ -2139,7 +2141,7 @@ class AsyncHTTPServer:
 
         # 5b. Import existing project
         elif path == '/api/opalatex/import-project' and method == 'POST':
-            from opalatex.config import DEFAULT_DB_PATH, DEFAULT_MODEL
+            from opalatex.config import DEFAULT_DB_PATH
             from opalatex.project import ProjectStore
             store = ProjectStore(db_path=DEFAULT_DB_PATH)
 
@@ -2196,7 +2198,9 @@ class AsyncHTTPServer:
                 except Exception:
                     pass
 
-            model = DEFAULT_MODEL
+            # An imported project starts with no model configured; the user picks
+            # one from the global model store.
+            model = ""
 
             # Read skills from skills.yaml
             skills = ["opalatex"]
@@ -2596,10 +2600,12 @@ class AsyncHTTPServer:
             # Patch only supplied fields
             if "display_name" in data:
                 project.project_name = data["display_name"]
-            if "model" in data and data["model"]:
-                project.model = data["model"]
+            # An explicit empty value clears the selection: the project must be able
+            # to go back to "no model configured".
+            if "model" in data:
+                project.model = str(data["model"] or "")
             if "worker_model" in data:
-                project.worker_model = data["worker_model"]
+                project.worker_model = str(data["worker_model"] or "")
             if "description" in data:
                 project.description = data["description"]
             if "mode" in data and data["mode"]:

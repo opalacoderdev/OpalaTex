@@ -376,15 +376,12 @@ export default function EditProjectModal({
                   placeholder="gemini/gemini-2.5-flash"
                   style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
+                {/* Suggestions come only from the global model store, so the field never
+                    offers a model the project cannot actually resolve. */}
                 <datalist id="edit-models">
                   {(globalModels || []).map(m => (
                     <option key={`edit-model-${m.id}`} value={m.id} />
                   ))}
-                  <option value="gemini/gemini-flash-lite-latest" />
-                  <option value="anthropic/claude-3-5-sonnet-latest" />
-                  <option value="openai/gpt-4o" />
-                  <option value="ollama/gemma4:12b" />
-                  <option value="ollama/gemma4:31b-cloud" />
                 </datalist>
                 {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
                 {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
@@ -564,11 +561,6 @@ export default function EditProjectModal({
                     {(globalModels || []).map(m => (
                       <option key={`edit-worker-model-${m.id}`} value={m.id} />
                     ))}
-                    <option value="gemini/gemini-flash-lite-latest" />
-                    <option value="anthropic/claude-3-5-sonnet-latest" />
-                    <option value="openai/gpt-4o" />
-                    <option value="ollama/gemma4:12b" />
-                    <option value="ollama/gemma4:31b-cloud" />
                   </datalist>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>

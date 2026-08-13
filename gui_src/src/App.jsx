@@ -364,7 +364,9 @@ export default function App() {
   const [newProjName, setNewProjName] = useState('');
   const [newProjPath, setNewProjPath] = useState('');
   const [newProjDesc, setNewProjDesc] = useState('');
-  const [newProjModel, setNewProjModel] = useState('ollama/gemma4:12b');
+  // A new project starts with no model configured; the user picks one from the
+  // global model store (chat toolbar or Project Settings).
+  const [newProjModel, setNewProjModel] = useState('');
   const [newProjWorkerModel, setNewProjWorkerModel] = useState('');
   const [newProjMode, setNewProjMode] = useState('auto');
   const [newProjModelParams, setNewProjModelParams] = useState({});
@@ -2071,7 +2073,7 @@ export default function App() {
       if (res.ok) {
         const created = await res.json();
         addLog('info', t('app.projectRegistered', { name: newProjName }));
-        setShowNewProjectModal(false); setNewProjName(''); setNewProjPath(''); setNewProjDesc(''); setNewProjApiKey(''); setNewProjApiBase('http://localhost:11434/v1'); setNewProjWorkerApiKey(''); setNewProjWorkerApiBase(''); setNewProjModelParams({}); setNewProjWorkerModelParams({});
+        setShowNewProjectModal(false); setNewProjName(''); setNewProjPath(''); setNewProjDesc(''); setNewProjModel(''); setNewProjWorkerModel(''); setNewProjApiKey(''); setNewProjApiBase('http://localhost:11434/v1'); setNewProjWorkerApiKey(''); setNewProjWorkerApiBase(''); setNewProjModelParams({}); setNewProjWorkerModelParams({});
         fetchProjects(created.name);
       } else { const err = await res.json(); setNewProjError(err.error || t('app.projectCreateError')); addLog('error', t('app.projectCreateFailed', { error: err.error })); }
     } catch (err) { setNewProjError(err.message || t('app.projectCreateError')); addLog('error', t('app.projectCreateFailed', { error: err.message })); }
