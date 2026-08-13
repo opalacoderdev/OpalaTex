@@ -1086,8 +1086,8 @@ class ProjectStore:
                     (name, source_chat_id, target_message_id),
                 ).fetchall()
             else:
-                if message_index < 0:
-                    raise ValueError("message_index must be >= 0")
+                if message_index < -1:
+                    raise ValueError("message_index must be >= -1")
                 history = conn.execute(
                     "SELECT role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id LIMIT ?",
                     (name, source_chat_id, message_index + 1),

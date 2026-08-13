@@ -718,9 +718,7 @@ export default function ChatPanel({
         source_chat_id: sourceChatId,
         new_chat_name: newChatName,
       };
-      if (persistedMessageIndex >= 0) {
-        payload.message_index = persistedMessageIndex;
-      }
+      payload.message_index = persistedMessageIndex;
       if (selectedMessageId !== null) {
         payload.message_id = selectedMessageId;
       } else if (selectedClientMessageId) {

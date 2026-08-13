@@ -473,6 +473,22 @@ def test_branch_chat_copies_attachments(store):
     assert loaded.history[0]["_attachments"] == [att]
 
 
+def test_branch_chat_with_message_index_negative_one_copies_no_history(store):
+    # message_index=-1 is what the UI sends when branching from a chat's
+    # client-only greeting message (never persisted, so there is nothing
+    # before it to copy) — the branch should still succeed, yielding an
+    # empty new chat that shares the source's core memory.
+    store.create(**_base_args())
+    p = store.load("myproj")
+    source_chat = p.current_chat_id
+    store.append_message(p, "user", "hello")
+
+    store.branch_chat("myproj", source_chat, "branch-1", "Branch", -1)
+
+    loaded = store.load("myproj", chat_id="branch-1")
+    assert loaded.history == []
+
+
 def test_branch_chat_by_message_id_is_not_shifted_by_mode_entries(store):
     store.create(**_base_args())
     p = store.load("myproj")

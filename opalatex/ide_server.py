@@ -2120,6 +2120,7 @@ class AsyncHTTPServer:
             create_contextual_skills_defaults(abs_path)
 
             res_data = {
+                "name": project.name,
                 "project_name": project.project_name,
                 "project_path": project.project_path,
                 "skills": project.skills
@@ -2245,6 +2246,7 @@ class AsyncHTTPServer:
                 return
 
             res_data = {
+                "name": project.name,
                 "project_name": project.project_name,
                 "project_path": project.project_path,
                 "skills": project.skills,

@@ -1296,22 +1296,28 @@ export default function App() {
   };
 
   // ── API calls ─────────────────────────────────────────────────────────────
-  const fetchProjects = async () => {
+  const fetchProjects = async (forceSelectName) => {
     try {
       const res = await fetch('/api/opalatex/list-projects');
       if (res.ok) {
         const data = await res.json();
         setProjects(data.projects || []);
-        if (data.projects?.length > 0 && !activeProject) {
-          const lastActiveProjectName = localStorage.getItem('lastActiveProject');
-          let projToSelect = null;
-          if (lastActiveProjectName) {
-            projToSelect = data.projects.find(p => p.name === lastActiveProjectName && p.exists);
+        if (data.projects?.length > 0) {
+          if (forceSelectName) {
+            const forced = data.projects.find(p => p.name === forceSelectName && p.exists);
+            if (forced) { handleSelectProject(forced); return; }
           }
-          if (!projToSelect) {
-            projToSelect = data.projects.find(p => p.exists);
+          if (!activeProject) {
+            const lastActiveProjectName = localStorage.getItem('lastActiveProject');
+            let projToSelect = null;
+            if (lastActiveProjectName) {
+              projToSelect = data.projects.find(p => p.name === lastActiveProjectName && p.exists);
+            }
+            if (!projToSelect) {
+              projToSelect = data.projects.find(p => p.exists);
+            }
+            if (projToSelect) handleSelectProject(projToSelect);
           }
-          if (projToSelect) handleSelectProject(projToSelect);
         }
       }
     } catch (err) { addLog('error', t('app.failedToLoadProjects', { error: err.message })); }
@@ -2063,9 +2069,10 @@ export default function App() {
         body: JSON.stringify({ project_name: newProjName, project_path: finalProjectPath, description: newProjDesc, model: newProjModel, worker_model: newProjWorkerModel, mode: newProjMode, model_params: Object.keys(newProjModelParams).length ? newProjModelParams : undefined, worker_model_params: Object.keys(newProjWorkerModelParams).length ? newProjWorkerModelParams : undefined }),
       });
       if (res.ok) {
+        const created = await res.json();
         addLog('info', t('app.projectRegistered', { name: newProjName }));
         setShowNewProjectModal(false); setNewProjName(''); setNewProjPath(''); setNewProjDesc(''); setNewProjApiKey(''); setNewProjApiBase('http://localhost:11434/v1'); setNewProjWorkerApiKey(''); setNewProjWorkerApiBase(''); setNewProjModelParams({}); setNewProjWorkerModelParams({});
-        fetchProjects();
+        fetchProjects(created.name);
       } else { const err = await res.json(); setNewProjError(err.error || t('app.projectCreateError')); addLog('error', t('app.projectCreateFailed', { error: err.error })); }
     } catch (err) { setNewProjError(err.message || t('app.projectCreateError')); addLog('error', t('app.projectCreateFailed', { error: err.message })); }
   };
@@ -2187,7 +2194,7 @@ export default function App() {
         if (res.ok) {
           addLog('info', t('app.projectImported', { name: data.project_name }));
           setImportError('');
-          fetchProjects();
+          fetchProjects(data.name);
         } else {
           setImportError(data.error || t('app.importProjectError'));
           addLog('error', t('app.importProjectErrorDetail', { error: data.error }));
