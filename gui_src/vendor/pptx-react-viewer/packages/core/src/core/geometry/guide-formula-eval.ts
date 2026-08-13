@@ -1,7 +1,7 @@
 /**
  * OOXML DrawingML guide formula evaluator — core types and evaluation.
  *
- * Implements the formula system defined in ISO/IEC 29500-1 §20.1.9.11 (fmla)
+ * Implements the formula system defined in ISO/IEC 29500-1 §20.1.10.11 (fmla)
  * for `a:gd` guide definitions used in preset and custom geometries.
  */
 
@@ -125,7 +125,7 @@ export function resolveOperand(token: string, variables: Map<string, number>): n
  * Evaluate a single parsed formula against the current variable context.
  *
  * Implements all OOXML DrawingML formula operators as defined in
- * ISO/IEC 29500-1 section 20.1.9.11, including arithmetic (`+-`, `*\/`, `+/`),
+ * ISO/IEC 29500-1 section 20.1.10.11, including arithmetic (`+-`, `*\/`, `+/`),
  * trigonometric (`sin`, `cos`, `tan`, `atan`, `at2`), conditional (`?:`),
  * clamping (`pin`), modulus (`mod`), and combined trig functions (`cat2`, `sat2`).
  *
