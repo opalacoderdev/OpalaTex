@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, FolderOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useModelValidation } from './useModelValidation';
+import ModelSelect from '../ModelSelect';
 
 // Modal for registering a new project.
 export default function NewProjectModal({
@@ -156,21 +157,17 @@ export default function NewProjectModal({
             <>
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('newProjectModal.aiModel')}</label>
-                <input
-                  type="text"
-                  list="default-models"
-                  value={newProjModel}
-                  onChange={(e) => setProjectModel(e.target.value, 'main')}
+                {/* The catalog is the only source of project models, so the field cannot
+                    hold a model the project would not be able to resolve at run time. */}
+                <ModelSelect
+                  value={newProjModel || ''}
+                  onChange={value => setProjectModel(value, 'main')}
+                  globalModels={globalModels}
+                  showActions={false}
+                  className=""
                   placeholder={t('newProjectModal.modelPlaceholder')}
                   style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
-                {/* Suggestions come only from the global model store, so the field never
-                    offers a model the project cannot actually resolve. */}
-                <datalist id="default-models">
-                  {(globalModels || []).map(m => (
-                    <option key={`new-model-${m.id}`} value={m.id} />
-                  ))}
-                </datalist>
                 {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
                 {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
                 {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
@@ -218,19 +215,15 @@ export default function NewProjectModal({
             <>
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerModel')}</label>
-                <input
-                  type="text"
-                  list="default-worker-models"
-                  value={newProjWorkerModel}
-                  onChange={e => setProjectModel(e.target.value, 'worker')}
+                <ModelSelect
+                  value={newProjWorkerModel || ''}
+                  onChange={value => setProjectModel(value, 'worker')}
+                  globalModels={globalModels}
+                  showActions={false}
+                  className=""
                   placeholder={t('newProjectModal.workerModelPlaceholder')}
                   style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
-                <datalist id="default-worker-models">
-                  {(globalModels || []).map(m => (
-                    <option key={`new-worker-model-${m.id}`} value={m.id} />
-                  ))}
-                </datalist>
                 {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
                 {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
                 {workerModelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}

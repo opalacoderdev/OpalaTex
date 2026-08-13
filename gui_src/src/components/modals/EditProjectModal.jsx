@@ -3,6 +3,7 @@ import { X, Settings, Check, FolderOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useModelValidation } from './useModelValidation';
 import { useCustomDialog } from './CustomDialogProvider';
+import ModelSelect from '../ModelSelect';
 
 // Numeric input helper to avoid repetition in the advanced params grid.
 function ParamNumber({ label, value, onChange, step, min, max, placeholder }) {
@@ -368,21 +369,16 @@ export default function EditProjectModal({
             <>
               <div className="flex flex-col" style={{ gap: '4px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.mainModel')}</label>
-                <input
-                  type="text"
-                  list="edit-models"
-                  value={editingProject.model}
-                  onChange={e => setProjectModel(e.target.value, 'main')}
-                  placeholder="gemini/gemini-2.5-flash"
+                {/* The catalog is the only source of project models, so the field cannot
+                    hold a model the project would not be able to resolve at run time. */}
+                <ModelSelect
+                  value={editingProject.model || ''}
+                  onChange={value => setProjectModel(value, 'main')}
+                  globalModels={globalModels}
+                  showActions={false}
+                  className=""
                   style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
-                {/* Suggestions come only from the global model store, so the field never
-                    offers a model the project cannot actually resolve. */}
-                <datalist id="edit-models">
-                  {(globalModels || []).map(m => (
-                    <option key={`edit-model-${m.id}`} value={m.id} />
-                  ))}
-                </datalist>
                 {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
                 {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
                 {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
@@ -548,20 +544,15 @@ export default function EditProjectModal({
                   <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.workerModel')}</label>
                 </div>
                 <div style={{ display: 'flex', gap: '6px' }}>
-                  <input
-                    type="text"
-                    list="edit-worker-models"
-                    className="vscode-settings-input"
+                  <ModelSelect
                     value={editingProject.worker_model || ''}
-                    onChange={e => setProjectModel(e.target.value, 'worker')}
+                    onChange={value => setProjectModel(value, 'worker')}
+                    globalModels={globalModels}
+                    showActions={false}
+                    className=""
                     placeholder={t('editProjectModal.workerModelPlaceholder')}
                     style={{ flex: 1, borderColor: getBorderColor(workerModelStatus) }}
                   />
-                  <datalist id="edit-worker-models">
-                    {(globalModels || []).map(m => (
-                      <option key={`edit-worker-model-${m.id}`} value={m.id} />
-                    ))}
-                  </datalist>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                   {workerHardware ? (

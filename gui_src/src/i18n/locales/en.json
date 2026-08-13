@@ -891,6 +891,7 @@
     "registerModelMessage": "OpalaTex ships with no model. Register a provider/model to use now, or skip and configure it later under Edit Models.",
     "registerModelBtn": "Register model",
     "modelRegistered": "Model '{{id}}' registered.",
+    "modelRegisterFailed": "The model could not be registered: {{error}}",
     "pilotModelLabel": "Model for the pilot project",
     "pilotModelNone": "No model (configure later)",
     "pilotModelHint": "Optional. You can also choose it later in the chat toolbar.",

@@ -891,6 +891,7 @@
     "registerModelMessage": "O OpalaTex não vem com nenhum modelo. Cadastre um provedor/modelo para usar agora, ou pule e configure depois em Editar Modelos.",
     "registerModelBtn": "Cadastrar modelo",
     "modelRegistered": "Modelo '{{id}}' cadastrado.",
+    "modelRegisterFailed": "Não foi possível cadastrar o modelo: {{error}}",
     "pilotModelLabel": "Modelo do projeto piloto",
     "pilotModelNone": "Nenhum modelo (configurar depois)",
     "pilotModelHint": "Opcional. Você também pode escolher depois na barra do chat.",

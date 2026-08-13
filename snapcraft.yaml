@@ -35,6 +35,8 @@ apps:
     command: bin/opalatex-launch
     desktop: usr/share/applications/opalatex.desktop
     common-id: com.opalacoder.OpalaTex
+    extensions:
+      - gnome
     environment:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
@@ -45,15 +47,11 @@ apps:
     plugs:
       - audio-playback
       - browser-support
-      - desktop
-      - desktop-legacy
       - home
+      - mount-observe
       - network
       - network-bind
-      - opengl
       - removable-media
-      - wayland
-      - x11
 
 parts:
   opalatex:

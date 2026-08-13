@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Loader2, Monitor, Terminal, CheckCircle, X, Settings2, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import ProviderForm from './ProviderForm';
 import ModelSelect from '../ModelSelect';
+import { useModelCatalog } from '../../contexts/ModelCatalogProvider.jsx';
 
 const PILOT_PROJECT_PATH = '~/OpalaTexPilot';
 
@@ -13,26 +14,15 @@ export default function OnboardingModal({ onClose, onComplete }) {
   const [ollamaStatus, setOllamaStatus] = useState(null);
   const [isInstalling, setIsInstalling] = useState(false);
 
-  // Model catalog state for the registration step. Nothing is pre-selected: the
-  // pilot project only gets a model when the user explicitly picks one.
-  const [catalogModels, setCatalogModels] = useState([]);
+  // Models registered here go straight into the shared catalog, so the chat
+  // toolbar and the project dialogs list them without an app reload. Nothing is
+  // pre-selected: the pilot project only gets a model when the user picks one.
+  const { models: catalogModels, saveModel, loadLocalOllamaModels } = useModelCatalog();
   const [pilotModel, setPilotModel] = useState('');
   const [savedModelId, setSavedModelId] = useState('');
+  const [registerError, setRegisterError] = useState('');
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryResult, setDiscoveryResult] = useState(null);
-
-  const fetchCatalog = useCallback(async () => {
-    try {
-      const res = await fetch('/api/settings/models');
-      const data = await res.json();
-      const models = data.models || [];
-      setCatalogModels(models);
-      return models;
-    } catch (e) {
-      console.error(e);
-      return [];
-    }
-  }, []);
 
   useEffect(() => {
     fetch('/api/hardware')
@@ -44,9 +34,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
       .then(res => res.json())
       .then(data => setOllamaStatus(data))
       .catch(console.error);
-
-    fetchCatalog();
-  }, [fetchCatalog]);
+  }, []);
 
   const finishOnboarding = async (config) => {
     try {
@@ -99,23 +87,21 @@ export default function OnboardingModal({ onClose, onComplete }) {
     setIsInstalling(false);
   };
 
-  const handleRegisterModel = async (modelData) => {
+  const handleRegisterModel = async (modelData, { reset } = {}) => {
     setSavedModelId('');
-    try {
-      const res = await fetch('/api/settings/models', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(modelData)
-      });
-      if (!res.ok) return;
-      await fetchCatalog();
-      // The freshly registered entry is the natural choice for the pilot project,
-      // but it stays changeable in the selector below.
-      setPilotModel(modelData.id);
-      setSavedModelId(modelData.id);
-    } catch (e) {
-      console.error(e);
+    setRegisterError('');
+    const result = await saveModel(modelData);
+    if (!result.ok) {
+      // A rejected registration must be visible: silently swallowing it left the
+      // user believing the model had been added to the catalog.
+      setRegisterError(result.error || 'model_save_failed');
+      return;
     }
+    reset?.();
+    // The freshly registered entry is the natural choice for the pilot project,
+    // but it stays changeable in the selector below.
+    setPilotModel(modelData.id);
+    setSavedModelId(modelData.id);
   };
 
   const handleDiscoverLocalOllama = async () => {
@@ -123,16 +109,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
     setDiscoveryResult(null);
     setSavedModelId('');
     try {
-      const response = await fetch('/api/settings/models/load-local-ollama', { method: 'POST' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setDiscoveryResult({ status: data.error || 'local_ollama_load_failed' });
-        return;
-      }
-      await fetchCatalog();
-      setDiscoveryResult({ status: 'loaded', count: data.added_count || 0 });
-    } catch {
-      setDiscoveryResult({ status: 'local_ollama_load_failed' });
+      setDiscoveryResult(await loadLocalOllamaModels());
     } finally {
       setIsDiscovering(false);
     }
@@ -336,6 +313,12 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 )}
               />
             </div>
+
+            {registerError && (
+              <div role="alert" style={{ padding: '8px', marginBottom: '16px', border: '1px solid rgba(244, 135, 113, 0.35)', background: 'rgba(244, 135, 113, 0.12)', color: '#f48771', fontSize: '12px' }}>
+                {t('onboarding.modelRegisterFailed', { error: registerError })}
+              </div>
+            )}
 
             {savedModelId && (
               <div role="status" style={{ padding: '8px', marginBottom: '16px', border: '1px solid rgba(74, 222, 128, 0.35)', background: 'rgba(74, 222, 128, 0.12)', color: 'var(--battery-good)', fontSize: '12px' }}>

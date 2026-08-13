@@ -8,6 +8,7 @@ import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
 
 // Hooks
 import { useResizing } from './hooks/useResizing';
+import { useModelCatalog } from './contexts/ModelCatalogProvider.jsx';
 
 // Layout components
 import ActivityBar from './components/ActivityBar';
@@ -388,7 +389,16 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   // ── Global Models ─────────────────────────────────────────────────────────
-  const [globalModels, setGlobalModels] = useState([]);
+  // The catalog lives in ModelCatalogProvider so every surface (chat toolbar,
+  // project dialogs, Edit Models, onboarding) reads the same list and sees
+  // registrations made anywhere else without a reload.
+  const {
+    models: globalModels,
+    refresh: fetchGlobalModels,
+    saveModel: saveGlobalModel,
+    deleteModel: deleteGlobalModel,
+    loadLocalOllamaModels: loadLocalOllamaCatalogModels,
+  } = useModelCatalog();
   const [showEditModelsModal, setShowEditModelsModal] = useState(false);
   const [showAddProviderModal, setShowAddProviderModal] = useState(false);
   const [editingModelModalData, setEditingModelModalData] = useState(null);
@@ -514,28 +524,11 @@ export default function App() {
     fetchProjects();
   };
 
-  const fetchGlobalModels = () => {
-    fetch('/api/settings/models')
-      .then(res => res.json())
-      .then(data => {
-        if (data.models) setGlobalModels(data.models);
-      })
-      .catch(console.error);
-  };
-
-  useEffect(() => {
-    fetchGlobalModels();
-  }, []);
-
   const handleGlobalModelSave = async (modelData) => {
     try {
       const previousModelId = modelData.previous_id || modelData.id;
-      const res = await fetch('/api/settings/models', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(modelData)
-      });
-      if (res.ok) {
+      const result = await saveGlobalModel(modelData);
+      if (result.ok) {
         const projectUsesMainModel = activeProject?.model === previousModelId || activeProject?.model === modelData.id;
         const projectUsesWorkerModel = activeProject?.worker_model === previousModelId || activeProject?.worker_model === modelData.id;
         if (activeProject && (projectUsesMainModel || projectUsesWorkerModel)) {
@@ -565,39 +558,14 @@ export default function App() {
             });
           }
         }
-        fetchGlobalModels();
         setShowAddProviderModal(false);
       }
     } catch (e) { console.error(e); }
   };
 
-  const handleGlobalModelDelete = async (modelId) => {
-    try {
-      const res = await fetch('/api/settings/models', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: modelId })
-      });
-      if (res.ok) fetchGlobalModels();
-    } catch (e) { console.error(e); }
-  };
+  const handleGlobalModelDelete = (modelId) => deleteGlobalModel(modelId);
 
-  const handleLoadLocalOllamaModels = async () => {
-    try {
-      const response = await fetch('/api/settings/models/load-local-ollama', {
-        method: 'POST',
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        return { status: data.error || 'local_ollama_load_failed' };
-      }
-
-      fetchGlobalModels();
-      return { status: 'loaded', count: data.added_count || 0 };
-    } catch {
-      return { status: 'local_ollama_load_failed' };
-    }
-  };
+  const handleLoadLocalOllamaModels = () => loadLocalOllamaCatalogModels();
   const handleProjectModelChange = async (field, value) => {
     if (!activeProject) return;
     try {
