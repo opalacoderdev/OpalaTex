@@ -1,5 +1,12 @@
 /* VSCode Color Palette & Design System */
 :root {
+  /* Tells the native webview renderer (WebKitGTK/QtWebEngine) which palette
+     to use for unstyled native chrome (checkboxes, scrollbars, form-control
+     backgrounds) instead of falling back to the OS theme. Without this, some
+     Linux WebKitGTK builds paint text inputs with the OS light theme even
+     though background-color is set via CSS, because the native widget skin
+     is drawn on top. */
+  color-scheme: dark;
   --vscode-bg: #1e1e1e;
   --vscode-sidebar-bg: #252526;
   --vscode-activitybar-bg: #333333;
@@ -70,6 +77,7 @@
      blue-hover     #0047a0
    ─────────────────────────────────────────────────────────────────────── */
 .light-theme {
+  color-scheme: light;
   --vscode-bg: #f5f5f5;
   --vscode-sidebar-bg: #ebebeb;
   --vscode-activitybar-bg: #e8e8e8;

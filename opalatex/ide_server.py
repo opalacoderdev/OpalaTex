@@ -3836,10 +3836,20 @@ def start_gui_server(host="127.0.0.1", port=3000):
 
     try:
         import os as _os
-        # Force Qt backend on all platforms (including Windows). 
+        import sys as _sys
+        # Force Qt backend on all platforms (including Windows).
         # PythonNet and WinForms are extremely fragile when packaged with PyInstaller on some Windows machines.
         if 'PYWEBVIEW_GUI' not in _os.environ:
             _os.environ['PYWEBVIEW_GUI'] = 'qt'
+
+        # On Linux, QtWebEngine's GPU process can segfault at startup when Mesa's
+        # Zink/EGL layer fails to acquire a DRM render node (e.g. missing/inaccessible
+        # /dev/dri/render*, seen on some distro+driver combos). Disabling GPU
+        # compositing avoids touching that native path; users who know GPU accel
+        # works on their machine can still opt back in by setting the env var
+        # themselves before launch.
+        if _sys.platform.startswith('linux') and 'QTWEBENGINE_CHROMIUM_FLAGS' not in _os.environ:
+            _os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--disable-gpu'
 
         import webview  # pywebview
         

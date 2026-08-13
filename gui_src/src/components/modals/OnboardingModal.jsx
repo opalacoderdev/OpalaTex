@@ -159,12 +159,13 @@ export default function OnboardingModal({ onClose, onComplete }) {
   const isHighEnd = vram >= 8;
 
   return (
-    <div className="vscode-modal-overlay" style={{ zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.85)' }}>
-      <div className="vscode-modal" style={{ maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto', padding: '32px', borderRadius: '12px', border: '1px solid #3c3c3c', backgroundColor: '#1e1e1e', position: 'relative' }}>
+    <div className="vscode-modal-overlay" style={{ zIndex: 9999 }}>
+      <div className="vscode-modal" style={{ maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto', padding: '32px', borderRadius: '12px', position: 'relative' }}>
 
         <button
           onClick={handleClose}
-          style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0' }}
+          className="vscode-modal-close"
+          style={{ position: 'absolute', top: '16px', right: '16px' }}
           title={t('newProjectModal.cancel')}
         >
           <X size={20} />
@@ -172,8 +173,8 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
         {step === 1 && (
           <div style={{ textAlign: 'center' }}>
-            <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px', color: '#fff' }}>{t('onboarding.welcome')}</h1>
-            <p style={{ color: '#ccc', marginBottom: '32px', lineHeight: '1.5' }}>
+            <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '16px', color: 'var(--vscode-text-fg)' }}>{t('onboarding.welcome')}</h1>
+            <p style={{ color: 'var(--vscode-text-fg)', marginBottom: '32px', lineHeight: '1.5' }}>
               {t('onboarding.analyzingMessage')}
             </p>
             {hardware ? (
@@ -185,7 +186,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 {t('onboarding.viewRecommendation')}
               </button>
             ) : (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#007acc' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: 'var(--vscode-accent)' }}>
                 <Loader2 size={24} className="animate-spin" />
                 <span>{t('onboarding.analyzingMachine')}</span>
               </div>
@@ -195,22 +196,22 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
         {step === 2 && (
           <div>
-            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: 'var(--vscode-text-fg)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Monitor size={20} />
               {t('onboarding.hardwareDetected', { vram: hardware?.vram_gb, ram: hardware?.ram_gb })}
             </h2>
 
             {isHighEnd ? (
-              <div style={{ backgroundColor: '#1e2e1e', padding: '16px', borderRadius: '8px', border: '1px solid #2e4e2e', marginBottom: '24px' }}>
-                <h3 style={{ color: '#4ade80', margin: '0 0 8px 0', fontSize: '16px' }}>{t('onboarding.localTitle')}</h3>
-                <p style={{ color: '#ccc', margin: 0, fontSize: '14px', lineHeight: '1.5' }}>
+              <div style={{ backgroundColor: 'rgba(74, 222, 128, 0.12)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(74, 222, 128, 0.35)', marginBottom: '24px' }}>
+                <h3 style={{ color: 'var(--battery-good)', margin: '0 0 8px 0', fontSize: '16px' }}>{t('onboarding.localTitle')}</h3>
+                <p style={{ color: 'var(--vscode-text-fg)', margin: 0, fontSize: '14px', lineHeight: '1.5' }}>
                   {t('onboarding.localMessage')}
                 </p>
               </div>
             ) : (
-              <div style={{ backgroundColor: '#2e2e1e', padding: '16px', borderRadius: '8px', border: '1px solid #4e4e2e', marginBottom: '24px' }}>
-                <h3 style={{ color: '#facc15', margin: '0 0 8px 0', fontSize: '16px' }}>{t('onboarding.cloudTitle')}</h3>
-                <p style={{ color: '#ccc', margin: 0, fontSize: '14px', lineHeight: '1.5' }}>
+              <div style={{ backgroundColor: 'rgba(250, 204, 21, 0.12)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(250, 204, 21, 0.35)', marginBottom: '24px' }}>
+                <h3 style={{ color: 'var(--battery-low)', margin: '0 0 8px 0', fontSize: '16px' }}>{t('onboarding.cloudTitle')}</h3>
+                <p style={{ color: 'var(--vscode-text-fg)', margin: 0, fontSize: '14px', lineHeight: '1.5' }}>
                   {t('onboarding.cloudMessage')}
                 </p>
               </div>
@@ -218,8 +219,8 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <button
-                className="vscode-button"
-                style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#3c3c3c' }}
+                className="vscode-button-secondary"
+                style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                 onClick={() => setStep(3)} // step 3 = Ollama
                 disabled={isInstalling}
               >
@@ -228,8 +229,8 @@ export default function OnboardingModal({ onClose, onComplete }) {
               </button>
 
               <button
-                className="vscode-button"
-                style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#3c3c3c' }}
+                className="vscode-button-secondary"
+                style={{ padding: '14px', fontSize: '15px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                 onClick={() => setStep(5)} // step 5 = model registration
               >
                 <Settings2 size={18} />
@@ -241,12 +242,12 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
         {step === 3 && (
           <div style={{ textAlign: 'center' }}>
-            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#fff' }}>{t('onboarding.preparingOllama')}</h2>
+            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: 'var(--vscode-text-fg)' }}>{t('onboarding.preparingOllama')}</h2>
             {ollamaStatus?.installed ? (
               ollamaStatus.is_supported ? (
                 <div>
-                  <CheckCircle size={48} color="#4ade80" style={{ margin: '0 auto 16px auto' }} />
-                  <p style={{ color: '#ccc', marginBottom: '24px' }}>
+                  <CheckCircle size={48} color="var(--battery-good)" style={{ margin: '0 auto 16px auto' }} />
+                  <p style={{ color: 'var(--vscode-text-fg)', marginBottom: '24px' }}>
                     {t('onboarding.ollamaInstalledCompatible', { version: ollamaStatus.version || 'unknown' })}
                   </p>
                   <button className="vscode-button" onClick={() => setStep(5)}>
@@ -255,21 +256,21 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 </div>
               ) : (
                 <div>
-                  <h3 style={{ color: '#facc15', marginBottom: '16px' }}>{t('onboarding.updateRequired')}</h3>
-                  <p style={{ color: '#ccc', marginBottom: '24px', lineHeight: '1.5' }}>
+                  <h3 style={{ color: 'var(--battery-low)', marginBottom: '16px' }}>{t('onboarding.updateRequired')}</h3>
+                  <p style={{ color: 'var(--vscode-text-fg)', marginBottom: '24px', lineHeight: '1.5' }}>
                     {t('onboarding.updateMessage', { version: ollamaStatus.version })}
                   </p>
                   <button className="vscode-button" onClick={handleInstallOllama} disabled={isInstalling}>
                     {isInstalling ? t('onboarding.installStarted') : t('onboarding.downloadUpdateBtn')}
                   </button>
-                  <button className="vscode-button" style={{ marginLeft: '12px', backgroundColor: '#3c3c3c' }} onClick={() => setStep(5)}>
+                  <button className="vscode-button-secondary" style={{ marginLeft: '12px' }} onClick={() => setStep(5)}>
                     {t('onboarding.ignoreStartBtn')}
                   </button>
                 </div>
               )
             ) : (
               <div>
-                <p style={{ color: '#ccc', marginBottom: '24px' }}>{t('onboarding.installInstructions')}</p>
+                <p style={{ color: 'var(--vscode-text-fg)', marginBottom: '24px' }}>{t('onboarding.installInstructions')}</p>
                 <button className="vscode-button" onClick={handleInstallOllama} disabled={isInstalling}>
                   {isInstalling ? t('onboarding.installStarted') : t('onboarding.downloadInstallBtn')}
                 </button>
@@ -280,11 +281,11 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
         {step === 4 && (
           <div>
-            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: '#fff' }}>{t('onboarding.manualInstallTitle')}</h2>
-            <p style={{ color: '#ccc', marginBottom: '16px', lineHeight: '1.5' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '16px', color: 'var(--vscode-text-fg)' }}>{t('onboarding.manualInstallTitle')}</h2>
+            <p style={{ color: 'var(--vscode-text-fg)', marginBottom: '16px', lineHeight: '1.5' }}>
               {t('onboarding.manualInstallMessage')}
             </p>
-            <div style={{ backgroundColor: '#000', padding: '12px', borderRadius: '6px', border: '1px solid #3c3c3c', marginBottom: '24px', fontFamily: 'monospace', color: '#4ade80' }}>
+            <div style={{ backgroundColor: 'var(--vscode-terminal-bg)', padding: '12px', borderRadius: '6px', border: '1px solid var(--vscode-border)', marginBottom: '24px', fontFamily: 'monospace', color: 'var(--battery-good)' }}>
               curl -fsSL https://ollama.com/install.sh | sh
             </div>
             <button className="vscode-button" onClick={() => setStep(5)}>
@@ -295,8 +296,8 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
         {step === 5 && (
           <div>
-            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px', color: '#fff' }}>{t('onboarding.registerModelTitle')}</h2>
-            <p style={{ color: '#ccc', marginBottom: '20px', fontSize: '14px', lineHeight: '1.5' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '8px', color: 'var(--vscode-text-fg)' }}>{t('onboarding.registerModelTitle')}</h2>
+            <p style={{ color: 'var(--vscode-text-fg)', marginBottom: '20px', fontSize: '14px', lineHeight: '1.5' }}>
               {t('onboarding.registerModelMessage')}
             </p>
 
@@ -322,7 +323,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
               </div>
             )}
 
-            <div style={{ border: '1px solid #3c3c3c', borderRadius: '6px', padding: '4px 12px 12px 12px', marginBottom: '16px' }}>
+            <div style={{ border: '1px solid var(--vscode-border)', borderRadius: '6px', padding: '4px 12px 12px 12px', marginBottom: '16px' }}>
               <ProviderForm
                 existingModels={catalogModels}
                 onSubmit={handleRegisterModel}
@@ -337,13 +338,13 @@ export default function OnboardingModal({ onClose, onComplete }) {
             </div>
 
             {savedModelId && (
-              <div role="status" style={{ padding: '8px', marginBottom: '16px', border: '1px solid #2e4e2e', background: '#1e2e1e', color: '#4ade80', fontSize: '12px' }}>
+              <div role="status" style={{ padding: '8px', marginBottom: '16px', border: '1px solid rgba(74, 222, 128, 0.35)', background: 'rgba(74, 222, 128, 0.12)', color: 'var(--battery-good)', fontSize: '12px' }}>
                 {t('onboarding.modelRegistered', { id: savedModelId })}
               </div>
             )}
 
             <div className="flex flex-col" style={{ gap: '4px', marginBottom: '24px' }}>
-              <label style={{ fontSize: '12px', color: '#ccc' }}>{t('onboarding.pilotModelLabel')}</label>
+              <label style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('onboarding.pilotModelLabel')}</label>
               <ModelSelect
                 value={pilotModel}
                 onChange={setPilotModel}
@@ -352,11 +353,11 @@ export default function OnboardingModal({ onClose, onComplete }) {
                 placeholder={t('onboarding.pilotModelNone')}
                 style={{ width: '100%' }}
               />
-              <span style={{ fontSize: '11px', color: '#888' }}>{t('onboarding.pilotModelHint')}</span>
+              <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('onboarding.pilotModelHint')}</span>
             </div>
 
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button className="vscode-button" style={{ backgroundColor: '#3c3c3c' }} onClick={() => createPilotProject('')}>
+              <button className="vscode-button-secondary" onClick={() => createPilotProject('')}>
                 {t('onboarding.skipModelBtn')}
               </button>
               <button className="vscode-button" onClick={() => createPilotProject(pilotModel)}>
