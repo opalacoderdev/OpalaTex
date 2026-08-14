@@ -1,5 +1,5 @@
 import React from 'react';
-import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, PanelBottom, Terminal, History, Columns2 } from 'lucide-react';
+import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, PanelBottom, Terminal, History, Columns2, Store } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Left-side vertical activity bar (VSCode-style icon strip).
@@ -11,6 +11,7 @@ export default function ActivityBar({
   gitChangesCount,
   onOpenSettings,
   onOpenHardware,
+  onOpenSkillsStore,
   layoutMode,
   setLayoutMode,
   isTerminalCollapsed,
@@ -119,6 +120,14 @@ export default function ActivityBar({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <button
+          onClick={onOpenSkillsStore}
+          className="vscode-activitybar-btn"
+          title={t('activityBar.skillsStore', 'Skills Store')}
+        >
+          <Store size={20} />
+        </button>
+
         <button
           onClick={onOpenHardware}
           className="vscode-activitybar-btn"

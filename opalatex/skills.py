@@ -100,15 +100,36 @@ def parse_skill_md(skill_dir: str) -> dict | None:
     description = fm.get("description", "")
     model = fm.get("model", "")
     extends = fm.get("extends", "")
+    icon = fm.get("icon", "")
     return {
         "name": name,
         "description": description,
         "model": model,
         "extends": extends,
+        "icon": icon,
         "dir": os.path.abspath(skill_dir),
         "manifest": os.path.abspath(manifest),
         "body": body,
     }
+
+
+def resolve_skill_icon_path(skill_meta: dict) -> str | None:
+    """Return the absolute path to a skill's icon file, or None.
+
+    The `icon` frontmatter field names a file expected inside the skill's own
+    directory. Missing field, missing file, or an `icon` value that escapes
+    the skill directory all resolve to None so callers can fall back to a
+    default icon.
+    """
+    icon_name = skill_meta.get("icon")
+    skill_dir = skill_meta.get("dir")
+    if not icon_name or not skill_dir:
+        return None
+    base = os.path.abspath(skill_dir)
+    icon_path = os.path.abspath(os.path.join(base, icon_name))
+    if os.path.commonpath([base, icon_path]) != base or not os.path.isfile(icon_path):
+        return None
+    return icon_path
 
 
 def discover_skills(project_path: str = "") -> list[dict]:

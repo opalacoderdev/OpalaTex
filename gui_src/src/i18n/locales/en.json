@@ -14,7 +14,23 @@
     "sourceControl": "Source Control",
     "opalatexCodes": "OpalaTex Chat",
     "settings": "Settings",
-    "hardware": "Hardware"
+    "hardware": "Hardware",
+    "skillsStore": "Skills Store"
+  },
+  "skillsStore": {
+    "title": "Skills Store",
+    "tabCatalog": "Catalog",
+    "tabActive": "Active in project",
+    "noProjectHint": "Open a project to install or activate skills.",
+    "emptyCatalog": "No skills available in the catalog.",
+    "emptyActive": "No skills found for this project.",
+    "install": "Install",
+    "installing": "Installing…",
+    "installed": "Installed",
+    "activate": "Activate",
+    "deactivate": "Deactivate",
+    "mandatory": "Mandatory",
+    "close": "Close"
   },
   "statusBar": {
     "workspace": "Workspace: {{name}}",

@@ -33,6 +33,7 @@ import AlertModal from './components/modals/AlertModal';
 import InteractiveTerminalModal from './components/modals/InteractiveTerminalModal';
 import AskModal from './components/modals/AskModal';
 import HardwareModal from './components/modals/HardwareModal';
+import SkillsStoreModal from './components/modals/SkillsStoreModal';
 import OnboardingModal from './components/modals/OnboardingModal';
 import DirPickerModal from './components/modals/DirPickerModal';
 import DeleteProjectModal from './components/modals/DeleteProjectModal';
@@ -384,6 +385,7 @@ export default function App() {
   const [confirmRequest, setConfirmRequest] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
+  const [isSkillsStoreOpen, setIsSkillsStoreOpen] = useState(false);
   const [webSearchConfig, setWebSearchConfig] = useState({ enabled: true, mcp_url: '', mcp_tool: 'web_search' });
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -3329,6 +3331,7 @@ export default function App() {
           gitChangesCount={gitChanges.length}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenHardware={() => setIsHardwareModalOpen(true)}
+          onOpenSkillsStore={() => setIsSkillsStoreOpen(true)}
           layoutMode={layoutMode}
           setLayoutMode={setLayoutMode}
           isTerminalCollapsed={isTerminalCollapsed}
@@ -3776,6 +3779,10 @@ export default function App() {
 
       {isHardwareModalOpen && (
         <HardwareModal onClose={() => setIsHardwareModalOpen(false)} />
+      )}
+
+      {isSkillsStoreOpen && (
+        <SkillsStoreModal onClose={() => setIsSkillsStoreOpen(false)} projectPath={activeProject?.project_path} />
       )}
 
       {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}

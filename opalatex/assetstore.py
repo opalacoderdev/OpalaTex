@@ -77,6 +77,25 @@ def find_assets(asset_type: str, desc: str) -> list[dict]:
     return [a for a in assets if _match(a, desc)]
 
 
+def resolve_asset_icon_path(meta: dict) -> Optional[Path]:
+    """Return the absolute path to an asset's icon file, or None.
+
+    The `icon` metadata field names a file expected next to the asset's
+    `.metadata`/`.zip` pair in the store. Missing field, missing file, or an
+    `icon` value that escapes the store directory all resolve to None so
+    callers can fall back to a default icon.
+    """
+    icon_name = meta.get("icon")
+    meta_path: Optional[Path] = meta.get("_meta")
+    if not icon_name or not meta_path:
+        return None
+    store_dir = meta_path.parent.resolve()
+    icon_path = (store_dir / icon_name).resolve()
+    if not icon_path.is_relative_to(store_dir) or not icon_path.is_file():
+        return None
+    return icon_path
+
+
 def install_asset(meta: dict, project_path: str) -> str:
     """Extract a skill asset into project_path and return a summary."""
     zip_path: Path = meta["_zip"]

@@ -19,6 +19,7 @@ from opalatex.skills import (
     level1_metadata,
     find_skill_dir,
     skill_search_dirs,
+    resolve_skill_icon_path,
     MANDATORY_SKILLS,
 )
 
@@ -67,6 +68,64 @@ def test_parse_skill_md_missing_manifest_returns_none(tmp_path):
     d = tmp_path / "empty"
     d.mkdir()
     assert parse_skill_md(str(d)) is None
+
+
+def test_parse_skill_md_extracts_icon_field(tmp_path):
+    d = _write_skill(str(tmp_path / "skills"), "demo", """\
+        ---
+        name: demo
+        description: A demo skill.
+        icon: icon.png
+        ---
+    """)
+    assert parse_skill_md(d)["icon"] == "icon.png"
+
+
+def test_parse_skill_md_icon_defaults_to_empty(tmp_path):
+    d = _write_skill(str(tmp_path / "skills"), "no-icon", """\
+        ---
+        name: no-icon
+        description: No icon declared.
+        ---
+    """)
+    assert parse_skill_md(d)["icon"] == ""
+
+
+# ---------------------------------------------------------------------------
+# resolve_skill_icon_path
+# ---------------------------------------------------------------------------
+
+def test_resolve_skill_icon_path_missing_field_returns_none(tmp_path):
+    d = _write_skill(str(tmp_path / "skills"), "demo", "---\nname: demo\ndescription: D.\n---")
+    meta = parse_skill_md(d)
+    assert resolve_skill_icon_path(meta) is None
+
+
+def test_resolve_skill_icon_path_missing_file_returns_none(tmp_path):
+    d = _write_skill(str(tmp_path / "skills"), "demo",
+                      "---\nname: demo\ndescription: D.\nicon: icon.png\n---")
+    meta = parse_skill_md(d)
+    assert resolve_skill_icon_path(meta) is None
+
+
+def test_resolve_skill_icon_path_returns_path_when_present(tmp_path):
+    d = _write_skill(str(tmp_path / "skills"), "demo",
+                      "---\nname: demo\ndescription: D.\nicon: icon.png\n---")
+    icon_file = os.path.join(d, "icon.png")
+    with open(icon_file, "wb") as f:
+        f.write(b"fake-png")
+    meta = parse_skill_md(d)
+    assert resolve_skill_icon_path(meta) == os.path.abspath(icon_file)
+
+
+def test_resolve_skill_icon_path_rejects_path_traversal(tmp_path):
+    d = _write_skill(str(tmp_path / "skills"), "demo",
+                      "---\nname: demo\ndescription: D.\nicon: ../secret.png\n---")
+    outside = os.path.join(str(tmp_path / "skills"), "secret.png")
+    with open(outside, "wb") as f:
+        f.write(b"fake-png")
+    meta = parse_skill_md(d)
+    assert resolve_skill_icon_path(meta) is None
 
 
 # ---------------------------------------------------------------------------

@@ -3583,6 +3583,127 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        # 7h3. Skills Store Endpoints
+        elif path == '/api/assets' and method == 'GET':
+            from opalatex.assetstore import list_assets, resolve_asset_icon_path, VALID_TYPES
+            asset_type = query.get('type', [None])[0]
+            if asset_type and asset_type not in VALID_TYPES:
+                self.send_response(writer, 400, b'{"error":"invalid type"}', "application/json")
+                return
+            try:
+                assets = list_assets(asset_type)
+                result = [{
+                    "id": a.get("id", ""),
+                    "type": a.get("type", ""),
+                    "name": a.get("name", a.get("id", "")),
+                    "desc": a.get("desc", ""),
+                    "hasIcon": resolve_asset_icon_path(a) is not None,
+                } for a in assets]
+                self.send_response(writer, 200, json.dumps({"assets": result}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/assets/icon' and method == 'GET':
+            from opalatex.assetstore import list_assets, resolve_asset_icon_path
+            asset_id = query.get('id', [None])[0]
+            if not asset_id:
+                self.send_response(writer, 400, b'{"error":"id is required"}', "application/json")
+                return
+            match = next((a for a in list_assets('skill') if a.get('id') == asset_id), None)
+            icon_path = resolve_asset_icon_path(match) if match else None
+            if not icon_path:
+                self.send_response(writer, 404, b'{"error":"icon not found"}', "application/json")
+                return
+            try:
+                import mimetypes
+                content_type, _ = mimetypes.guess_type(str(icon_path))
+                with open(icon_path, 'rb') as f:
+                    content = f.read()
+                self.send_response(writer, 200, content, content_type or "application/octet-stream")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/assets/install' and method == 'POST':
+            from opalatex.assetstore import list_assets, install_asset
+            from opalatex.skills import read_skills_yaml, write_skills_yaml, MANDATORY_SKILLS
+            asset_id = data.get('id')
+            project_path = data.get('projectPath') or data.get('project_path')
+            if not asset_id or not project_path:
+                self.send_response(writer, 400, b'{"error":"id and projectPath are required"}', "application/json")
+                return
+            match = next((a for a in list_assets('skill') if a.get('id') == asset_id), None)
+            if not match:
+                self.send_response(writer, 404, b'{"error":"asset not found"}', "application/json")
+                return
+            try:
+                summary = install_asset(match, project_path)
+                skill_name = match.get('name', asset_id)
+                declared = read_skills_yaml(project_path) or []
+                if skill_name not in declared and skill_name not in MANDATORY_SKILLS:
+                    declared.append(skill_name)
+                    write_skills_yaml(project_path, declared)
+                self.send_response(writer, 200, json.dumps({"success": True, "message": summary}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/skills' and method == 'GET':
+            from opalatex.skills import discover_skills, active_skills, resolve_skill_icon_path, MANDATORY_SKILLS
+            project_path = query.get('projectPath', [''])[0]
+            try:
+                discovered = discover_skills(project_path)
+                active_names = {s['name'] for s in active_skills(project_path)}
+                result = [{
+                    "name": s["name"],
+                    "description": s["description"],
+                    "active": s["name"] in active_names,
+                    "mandatory": s["name"] in MANDATORY_SKILLS,
+                    "hasIcon": resolve_skill_icon_path(s) is not None,
+                } for s in discovered]
+                self.send_response(writer, 200, json.dumps({"skills": result}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/skills/icon' and method == 'GET':
+            from opalatex.skills import discover_skills, resolve_skill_icon_path
+            project_path = query.get('projectPath', [''])[0]
+            skill_name = query.get('name', [None])[0]
+            if not skill_name:
+                self.send_response(writer, 400, b'{"error":"name is required"}', "application/json")
+                return
+            match = next((s for s in discover_skills(project_path) if s['name'] == skill_name), None)
+            icon_path = resolve_skill_icon_path(match) if match else None
+            if not icon_path:
+                self.send_response(writer, 404, b'{"error":"icon not found"}', "application/json")
+                return
+            try:
+                import mimetypes
+                content_type, _ = mimetypes.guess_type(icon_path)
+                with open(icon_path, 'rb') as f:
+                    content = f.read()
+                self.send_response(writer, 200, content, content_type or "application/octet-stream")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/skills/activate' and method == 'POST':
+            from opalatex.skills import add_skill_to_project
+            project_path = data.get('projectPath') or data.get('project_path')
+            skill_name = data.get('name')
+            if not project_path or not skill_name:
+                self.send_response(writer, 400, b'{"error":"projectPath and name are required"}', "application/json")
+                return
+            changed, message = add_skill_to_project(project_path, skill_name)
+            self.send_response(writer, 200, json.dumps({"success": changed, "message": message}).encode('utf-8'), "application/json")
+
+        elif path == '/api/skills/deactivate' and method == 'POST':
+            from opalatex.skills import remove_skill_from_project
+            project_path = data.get('projectPath') or data.get('project_path')
+            skill_name = data.get('name')
+            if not project_path or not skill_name:
+                self.send_response(writer, 400, b'{"error":"projectPath and name are required"}', "application/json")
+                return
+            changed, message = remove_skill_from_project(project_path, skill_name)
+            self.send_response(writer, 200, json.dumps({"success": changed, "message": message}).encode('utf-8'), "application/json")
+
         # 7i. Problems scan
         elif path == '/api/opalatex/problems' and method == 'GET':
             project_path = query.get('projectPath', [None])[0]
