@@ -184,6 +184,8 @@
     "nextPage": "Próxima página",
     "goToPage": "Ir para página (digite o número e pressione Enter)",
     "showPdfPreview": "Mostrar preview PDF",
+    "editHtml": "Editar HTML",
+    "previewHtml": "Visualizar HTML",
     "latexHelpTitle": "Ajuda do editor LaTeX",
     "latexHelpClose": "Fechar ajuda",
     "latexHelpShortcutsTitle": "Atalhos",

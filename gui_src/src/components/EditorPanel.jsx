@@ -11,6 +11,7 @@ import { formatMessageContent } from '../utils/formatMessage';
 import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 import Split from 'react-split';
 import PdfPreview from './PdfPreview';
+import HtmlPreview from './HtmlPreview';
 import LatexPreview from './LatexPreview';
 import LatexSnippetsPanel from './LatexSnippetsPanel';
 import RichTextEditor from './RichTextEditor';
@@ -78,6 +79,7 @@ export default function EditorPanel({
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
   const isDocxFile = selectedFile && selectedFile.toLowerCase().endsWith('.docx');
   const isPptxFile = selectedFile && selectedFile.toLowerCase().endsWith('.pptx');
+  const isHtmlFile = selectedFile && /\.(html|htm)$/i.test(selectedFile);
   const isTexRelatedFile = (filename) => {
     if (!filename) return false;
     const ext = filename.split('.').pop().toLowerCase();
@@ -1314,18 +1316,20 @@ export default function EditorPanel({
             </>
           )}
 
-          {selectedFile && selectedFile.toLowerCase().endsWith('.md') && (
+          {selectedFile && (selectedFile.toLowerCase().endsWith('.md') || isHtmlFile) && (
             <>
               {isPreviewMode && (
                 <>
-                  <button
-                    onClick={handlePrintPDF}
-                    className="vscode-bottom-panel-clear-btn"
-                    style={{ padding: '6px' }}
-                    title="Imprimir / Exportar PDF"
-                  >
-                    <Printer size={12} />
-                  </button>
+                  {!isHtmlFile && (
+                    <button
+                      onClick={handlePrintPDF}
+                      className="vscode-bottom-panel-clear-btn"
+                      style={{ padding: '6px' }}
+                      title="Imprimir / Exportar PDF"
+                    >
+                      <Printer size={12} />
+                    </button>
+                  )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '4px' }}>
                     <button
                       onClick={() => setMarkdownZoomLevel(prev => Math.max(0.5, prev - 0.1))}
@@ -1353,7 +1357,7 @@ export default function EditorPanel({
                 onClick={() => setIsPreviewMode(!isPreviewMode)}
                 className="vscode-bottom-panel-clear-btn"
                 style={{ padding: '6px' }}
-                title={isPreviewMode ? "Editar Markdown" : "Visualizar Renderizado"}
+                title={isHtmlFile ? (isPreviewMode ? t('editorPanel.editHtml') : t('editorPanel.previewHtml')) : (isPreviewMode ? "Editar Markdown" : "Visualizar Renderizado")}
               >
                 {isPreviewMode ? <EyeOff size={12} style={{ color: '#4daafc' }} /> : <Eye size={12} />}
               </button>
@@ -1469,7 +1473,15 @@ export default function EditorPanel({
           </Split>
         ) : (
           <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
-            {isPreviewMode ? (
+            {isPreviewMode && isHtmlFile ? (
+              <HtmlPreview
+                html={fileContent}
+                activeProjectPath={activeProject?.project_path}
+                selectedFile={selectedFile}
+                title={t('editorPanel.previewHtml')}
+                zoomLevel={markdownZoomLevel}
+              />
+            ) : isPreviewMode ? (
               <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
                 {formatMessageContent(fileContent, activeProject?.project_path, markdownZoomLevel)}
               </div>

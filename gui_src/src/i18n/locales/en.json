@@ -184,6 +184,8 @@
     "nextPage": "Next page",
     "goToPage": "Go to page (type number and press Enter)",
     "showPdfPreview": "Show PDF preview",
+    "editHtml": "Edit HTML",
+    "previewHtml": "Preview HTML",
     "latexHelpTitle": "LaTeX editor help",
     "latexHelpClose": "Close help",
     "latexHelpShortcutsTitle": "Shortcuts",
