@@ -3,7 +3,7 @@
  *
  * Each entry encodes the canonical `presetShapeDefinitions.xml` data shipped by
  * Microsoft as part of the DrawingML reference implementation
- * (ISO/IEC 29500-1 §20.1.10.55 / §20.1.10 series): the default adjustment list
+ * (ISO/IEC 29500-1 §20.1.10.55 / §20.1.9 series): the default adjustment list
  * (`avLst`), the ordered guide list (`gdLst`), the text rectangle (`rect`), and
  * the path commands (`pathLst`) — all expressed using OOXML guide-formula
  * tokens, ready to be evaluated by `guide-formula-eval`.

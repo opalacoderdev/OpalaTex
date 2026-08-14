@@ -33,7 +33,7 @@
  * Connectors carry `fill: 'none', stroke: true` on every path. The path
  * commands describe the polyline that PowerPoint draws between the connector
  * endpoints; the bend positions are controlled by the `adjN` adjustment list
- * exactly as documented in §20.1.10.10–20.1.10.13.
+ * exactly as documented in §20.1.9.10–20.1.9.13.
  *
  * # Adding to the master table
  *
@@ -221,7 +221,7 @@ const curvedUpArrow: PresetShapeGeometryDefinition = {
 // ---------------------------------------------------------------------------
 
 // line — straight stroke from the top-left corner to the bottom-right corner.
-// Per §20.1.10.40 the canonical `line` preset is a single segment between the
+// Per §20.1.9.40 the canonical `line` preset is a single segment between the
 // two opposite corners of the bounding box. Stroke-only.
 const line: PresetShapeGeometryDefinition = {
 	name: 'line',
@@ -260,7 +260,7 @@ const lineInv: PresetShapeGeometryDefinition = {
 // ---------------------------------------------------------------------------
 
 // straightConnector1 — single straight segment between the bounding-box
-// corners (§20.1.10.10). Identical geometry to `line` but registered under the
+// corners (§20.1.9.10). Identical geometry to `line` but registered under the
 // connector preset name so OOXML <cxnSp> shapes resolve correctly.
 const straightConnector1: PresetShapeGeometryDefinition = {
 	name: 'straightConnector1',
@@ -279,7 +279,7 @@ const straightConnector1: PresetShapeGeometryDefinition = {
 
 // bentConnector2 — right-angle connector with 2 segments. The bend always
 // occurs at (r, t) so the path travels horizontally then vertically (or vice-
-// versa depending on orientation). No adjustments per §20.1.10.11.
+// versa depending on orientation). No adjustments per §20.1.9.11.
 const bentConnector2: PresetShapeGeometryDefinition = {
 	name: 'bentConnector2',
 	rect: FULL_RECT,
@@ -296,7 +296,7 @@ const bentConnector2: PresetShapeGeometryDefinition = {
 	],
 };
 
-// bentConnector3 — right-angle connector with 3 segments. Spec §20.1.10.12:
+// bentConnector3 — right-angle connector with 3 segments. Spec §20.1.9.12:
 // adj1 controls the X position (as a fraction of w / 100000) of the central
 // vertical segment. The path runs (l,t) → (x1,t) → (x1,b) → (r,b).
 const bentConnector3: PresetShapeGeometryDefinition = {
@@ -318,7 +318,7 @@ const bentConnector3: PresetShapeGeometryDefinition = {
 	],
 };
 
-// bentConnector4 — right-angle connector with 4 segments. Spec §20.1.10.13:
+// bentConnector4 — right-angle connector with 4 segments. Spec §20.1.9.13:
 // adj1 controls the X position of the first vertical bend (fraction of w),
 // adj2 controls the Y position of the second horizontal bend (fraction of h).
 // Path: (l,t) → (x1,t) → (x1,y1) → (r,y1) → (r,b).
@@ -347,7 +347,7 @@ const bentConnector4: PresetShapeGeometryDefinition = {
 	],
 };
 
-// bentConnector5 — right-angle connector with 5 segments. Spec §20.1.10.14:
+// bentConnector5 — right-angle connector with 5 segments. Spec §20.1.9.14:
 // adj1 (X1, fraction of w), adj2 (Y1, fraction of h), adj3 (X2, fraction of
 // w). Path: (l,t) → (x1,t) → (x1,y1) → (x2,y1) → (x2,b) → (r,b).
 const bentConnector5: PresetShapeGeometryDefinition = {
