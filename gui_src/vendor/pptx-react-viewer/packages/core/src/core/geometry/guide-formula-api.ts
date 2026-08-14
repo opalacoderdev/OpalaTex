@@ -15,7 +15,7 @@ import { ANGLE_SCALE, parseFormula, evaluateFormula, resolveOperand } from './gu
 /**
  * Seed the built-in variables for a shape of the given dimensions.
  *
- * Built-in variables are defined by the OOXML spec (ISO/IEC 29500-1 section 20.1.10):
+ * Built-in variables are defined by the OOXML spec (ISO/IEC 29500-1 section 20.1.9):
  * - **Position/size:** `w`, `h`, `l`, `t`, `r`, `b`, `hc` (horizontal center), `vc` (vertical center)
  * - **Width fractions:** `wd2` through `wd12` (width divided by N)
  * - **Height fractions:** `hd2` through `hd12` (height divided by N)

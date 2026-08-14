@@ -176,7 +176,7 @@ describe('preset shape curved-arrow + connector definitions', () => {
 	});
 
 	// -------------------------------------------------------------------------
-	// Connector adjustment counts (per spec §20.1.10.11–14)
+	// Connector adjustment counts (per spec §20.1.9.11–14)
 	// -------------------------------------------------------------------------
 
 	it('bentConnector2 has no adjustments', () => {

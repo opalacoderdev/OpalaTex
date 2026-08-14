@@ -7,7 +7,7 @@
  * subset of shapes where ignoring the adjustments produces a visibly wrong
  * outline (callouts, pies, donuts, block-arcs, etc.).
  *
- * Adjustment encodings (per ECMA-376 §20.1.10 / DrawingML preset shapes):
+ * Adjustment encodings (per ECMA-376 §20.1.9 / DrawingML preset shapes):
  *   - **Distance** adjustments (`adjN` for callout pointer X/Y, donut hole,
  *     band thickness, arrow head) are stored as 1/100,000ths of the body's
  *     width or height. A pointer X of 25000 means 25% of width.
