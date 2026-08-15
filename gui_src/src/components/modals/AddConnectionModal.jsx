@@ -1,11 +1,11 @@
 import React from 'react';
 import { X, Save } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import ProviderForm from './ProviderForm';
+import ProviderConnectionForm from './ProviderConnectionForm';
 
-export default function AddProviderModal({
-  editingModel,
-  existingModels = [],
+export default function AddConnectionModal({
+  editingConnection,
+  existingConnections = [],
   onClose,
   onSave
 }) {
@@ -15,13 +15,13 @@ export default function AddProviderModal({
     <div className="vscode-modal-overlay" onClick={onClose}>
       <div className="vscode-modal" style={{ width: '450px' }} onClick={e => e.stopPropagation()}>
         <div className="vscode-modal-header">
-          <h2>{editingModel ? t('addProviderModal.editTitle') : t('addProviderModal.addTitle')}</h2>
+          <h2>{editingConnection ? t('connectionForm.editTitle') : t('connectionForm.addTitle')}</h2>
           <button onClick={onClose} className="vscode-modal-close"><X size={16} /></button>
         </div>
 
-        <ProviderForm
-          editingModel={editingModel}
-          existingModels={existingModels}
+        <ProviderConnectionForm
+          editingConnection={editingConnection}
+          existingConnections={existingConnections}
           onSubmit={onSave}
           actions={(
             <div className="vscode-modal-footer">

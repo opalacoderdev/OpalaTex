@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, Monitor, Terminal, CheckCircle, X, Settings2, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import ProviderForm from './ProviderForm';
+import ModelForm from './ModelForm';
 import ModelSelect from '../ModelSelect';
 import { useModelCatalog } from '../../contexts/ModelCatalogProvider.jsx';
 
@@ -17,7 +17,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
   // Models registered here go straight into the shared catalog, so the chat
   // toolbar and the project dialogs list them without an app reload. Nothing is
   // pre-selected: the pilot project only gets a model when the user picks one.
-  const { models: catalogModels, saveModel, loadLocalOllamaModels } = useModelCatalog();
+  const { models: catalogModels, saveModel, loadLocalOllamaModels, connections: catalogConnections, saveConnection } = useModelCatalog();
   const [pilotModel, setPilotModel] = useState('');
   const [savedModelId, setSavedModelId] = useState('');
   const [registerError, setRegisterError] = useState('');
@@ -301,8 +301,10 @@ export default function OnboardingModal({ onClose, onComplete }) {
             )}
 
             <div style={{ border: '1px solid var(--vscode-border)', borderRadius: '6px', padding: '4px 12px 12px 12px', marginBottom: '16px' }}>
-              <ProviderForm
+              <ModelForm
                 existingModels={catalogModels}
+                connections={catalogConnections}
+                onSaveConnection={saveConnection}
                 onSubmit={handleRegisterModel}
                 actions={(
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', padding: '0 16px 8px 16px' }}>

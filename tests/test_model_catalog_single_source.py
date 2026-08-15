@@ -21,6 +21,7 @@ import pytest
 GUI_SRC = Path(__file__).resolve().parents[1] / "gui_src" / "src"
 PROVIDER = GUI_SRC / "contexts" / "ModelCatalogProvider.jsx"
 MODELS_ENDPOINT = "/api/settings/models"
+PROVIDERS_ENDPOINT = "/api/settings/providers"
 
 
 def _read(path: Path) -> str:
@@ -42,6 +43,27 @@ def test_only_the_provider_calls_the_models_endpoint():
     assert offenders == [], (
         "The model catalog must be read through ModelCatalogProvider; "
         f"these files fetch {MODELS_ENDPOINT} directly: {offenders}"
+    )
+
+
+def test_only_the_provider_calls_the_providers_endpoint():
+    """Provider connections (label/API key/base URL) are catalog data too --
+    the same single-source-of-truth rule as models applies, so no other
+    component keeps a private snapshot of the connections list."""
+    offenders = sorted(
+        str(path.relative_to(GUI_SRC))
+        for path in GUI_SRC.rglob("*.jsx")
+        if path != PROVIDER and PROVIDERS_ENDPOINT in _read(path)
+    )
+    offenders += sorted(
+        str(path.relative_to(GUI_SRC))
+        for path in GUI_SRC.rglob("*.js")
+        if PROVIDERS_ENDPOINT in _read(path)
+    )
+
+    assert offenders == [], (
+        "Provider connections must be read through ModelCatalogProvider; "
+        f"these files fetch {PROVIDERS_ENDPOINT} directly: {offenders}"
     )
 
 

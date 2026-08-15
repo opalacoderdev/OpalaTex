@@ -682,7 +682,8 @@
   "editModelsModal": {
     "title": "Editar Modelos / Provedores",
     "searchPlaceholder": "Buscar modelos...",
-    "addProviderModel": "Adicionar Provedor/Modelo",
+    "addProviderModel": "Adicionar Modelo",
+    "manageConnections": "Gerenciar Conexões...",
     "noModels": "Nenhum modelo encontrado.",
     "provider": "Provedor",
     "modelName": "Nome do Modelo",
@@ -700,22 +701,44 @@
     "loadLocalOllamaFailed": "Não foi possível carregar os modelos locais do Ollama.",
     "apiBaseUrl": "URL Base da API"
   },
-  "addProviderModal": {
-    "addTitle": "Adicionar Modelo / Provedor",
+  "modelForm": {
+    "addTitle": "Adicionar Modelo",
     "editTitle": "Editar Modelo",
-    "providerLabel": "Provedor (ex.: ollama, gemini, openai) *",
+    "connectionLabel": "Conexão *",
+    "connectionPlaceholder": "Selecione uma conexão",
+    "newConnectionOption": "+ Nova conexão...",
+    "saveConnectionBtn": "Salvar Conexão",
     "modelNameLabel": "Nome do Modelo (ex.: gemma4:12b) *",
-    "apiKeyLabel": "Chave de API (Opcional)",
-    "apiBaseLabel": "URL Base da API (Opcional)",
+    "modelNamePlaceholder": "Nome do modelo como o provedor expõe",
     "supportsThinkingLabel": "Este modelo suporta thinking/reasoning",
     "supportsThinkingHint": "Mantenha desligado, exceto se a documentação do modelo disser explicitamente que ele suporta parâmetros de thinking ou reasoning.",
     "generatedId": "ID gerado",
-    "requiredError": "Provedor e Nome do Modelo são obrigatórios.",
-    "duplicateError": "Já existe um modelo com este provedor e nome.",
+    "requiredError": "Conexão e Nome do Modelo são obrigatórios.",
+    "duplicateError": "Já existe um modelo com este nome nesta conexão."
+  },
+  "connectionForm": {
+    "addTitle": "Adicionar Conexão",
+    "editTitle": "Editar Conexão",
+    "labelLabel": "Rótulo *",
+    "labelPlaceholder": "ex.: Ollama Cloud, OpenAI do Trabalho",
+    "providerLabel": "Provedor (ex.: ollama, gemini, openai) *",
     "providerPlaceholder": "Identificador do provedor",
-    "modelNamePlaceholder": "Nome do modelo como o provedor expõe",
+    "apiKeyLabel": "Chave de API (Opcional)",
     "apiKeyPlaceholder": "Chave de API do provedor",
-    "apiBasePlaceholder": "URL base da API (opcional)"
+    "apiBaseLabel": "URL Base da API (Opcional)",
+    "apiBasePlaceholder": "URL base da API (opcional)",
+    "requiredError": "Rótulo e Provedor são obrigatórios."
+  },
+  "editProvidersModal": {
+    "title": "Editar Conexões",
+    "searchPlaceholder": "Buscar conexões...",
+    "addConnection": "Adicionar Conexão",
+    "noConnections": "Nenhuma conexão encontrada.",
+    "label": "Rótulo",
+    "provider": "Provedor",
+    "modelsUsing": "Modelos",
+    "deleteConfirm": "Tem certeza que deseja excluir {{label}}?",
+    "deleteFailed": "Não foi possível excluir esta conexão."
   },
   "dirPickerModal": {
     "title": "Selecionar Diretório",

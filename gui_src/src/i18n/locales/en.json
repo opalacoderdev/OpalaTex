@@ -682,7 +682,8 @@
   "editModelsModal": {
     "title": "Edit Models / Providers",
     "searchPlaceholder": "Search models...",
-    "addProviderModel": "Add Provider/Model",
+    "addProviderModel": "Add Model",
+    "manageConnections": "Manage Connections...",
     "noModels": "No models found.",
     "provider": "Provider",
     "modelName": "Model Name",
@@ -700,22 +701,44 @@
     "loadLocalOllamaFailed": "Unable to load local Ollama models.",
     "apiBaseUrl": "API Base URL"
   },
-  "addProviderModal": {
-    "addTitle": "Add Model / Provider",
+  "modelForm": {
+    "addTitle": "Add Model",
     "editTitle": "Edit Model",
-    "providerLabel": "Provider (e.g., ollama, gemini, openai) *",
+    "connectionLabel": "Connection *",
+    "connectionPlaceholder": "Select a connection",
+    "newConnectionOption": "+ New connection...",
+    "saveConnectionBtn": "Save Connection",
     "modelNameLabel": "Model Name (e.g., gemma4:12b) *",
-    "apiKeyLabel": "API Key (Optional)",
-    "apiBaseLabel": "API Base URL (Optional)",
+    "modelNamePlaceholder": "Model name as the provider exposes it",
     "supportsThinkingLabel": "This model supports thinking/reasoning",
     "supportsThinkingHint": "Keep this off unless the model documentation explicitly says it supports thinking or reasoning parameters.",
     "generatedId": "Generated ID",
-    "requiredError": "Provider and Model Name are required.",
-    "duplicateError": "A model with this provider, name, and API base URL already exists.",
+    "requiredError": "Connection and Model Name are required.",
+    "duplicateError": "A model with this name already exists for this connection."
+  },
+  "connectionForm": {
+    "addTitle": "Add Connection",
+    "editTitle": "Edit Connection",
+    "labelLabel": "Label *",
+    "labelPlaceholder": "e.g., Ollama Cloud, Work OpenAI",
+    "providerLabel": "Provider (e.g., ollama, gemini, openai) *",
     "providerPlaceholder": "Provider identifier",
-    "modelNamePlaceholder": "Model name as the provider exposes it",
+    "apiKeyLabel": "API Key (Optional)",
     "apiKeyPlaceholder": "Provider API key",
-    "apiBasePlaceholder": "API base URL (optional)"
+    "apiBaseLabel": "API Base URL (Optional)",
+    "apiBasePlaceholder": "API base URL (optional)",
+    "requiredError": "Label and Provider are required."
+  },
+  "editProvidersModal": {
+    "title": "Edit Connections",
+    "searchPlaceholder": "Search connections...",
+    "addConnection": "Add Connection",
+    "noConnections": "No connections found.",
+    "label": "Label",
+    "provider": "Provider",
+    "modelsUsing": "Models",
+    "deleteConfirm": "Are you sure you want to delete {{label}}?",
+    "deleteFailed": "Unable to delete this connection."
   },
   "dirPickerModal": {
     "title": "Select Directory",

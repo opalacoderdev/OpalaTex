@@ -3583,6 +3583,35 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        # 7h3. Provider Connection Endpoints
+        elif path == '/api/settings/providers' and method == 'GET':
+            from opalatex.models_store import load_connections
+            try:
+                connections = load_connections()
+                self.send_response(writer, 200, json.dumps({"connections": connections}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/settings/providers' and method == 'POST':
+            from opalatex.models_store import add_or_update_connection
+            try:
+                add_or_update_connection(data)
+                self.send_response(writer, 200, b'{"success":true}', "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/settings/providers' and method == 'DELETE':
+            from opalatex.models_store import delete_connection
+            try:
+                connection_id = data.get("id")
+                if not connection_id:
+                    self.send_response(writer, 400, b'{"error":"id is required"}', "application/json")
+                    return
+                success = delete_connection(connection_id)
+                self.send_response(writer, 200, json.dumps({"success": success}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
         # 7h3. Skills Store Endpoints
         elif path == '/api/assets' and method == 'GET':
             from opalatex.assetstore import list_assets, resolve_asset_icon_path, VALID_TYPES

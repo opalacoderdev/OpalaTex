@@ -13,9 +13,11 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 const ModelCatalogContext = createContext(null);
 
 const MODELS_ENDPOINT = '/api/settings/models';
+const PROVIDERS_ENDPOINT = '/api/settings/providers';
 
 export function ModelCatalogProvider({ children }) {
   const [models, setModels] = useState([]);
+  const [connections, setConnections] = useState([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -30,7 +32,21 @@ export function ModelCatalogProvider({ children }) {
     }
   }, []);
 
+  const refreshConnections = useCallback(async () => {
+    try {
+      const res = await fetch(PROVIDERS_ENDPOINT);
+      const data = await res.json();
+      const catalog = Array.isArray(data.connections) ? data.connections : [];
+      setConnections(catalog);
+      return catalog;
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  }, []);
+
   useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refreshConnections(); }, [refreshConnections]);
 
   // Registers or updates a catalog entry. Returns the backend outcome so callers
   // can surface a failure instead of silently pretending the model was saved.
@@ -73,16 +89,57 @@ export function ModelCatalogProvider({ children }) {
       const res = await fetch(`${MODELS_ENDPOINT}/load-local-ollama`, { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return { status: data.error || 'local_ollama_load_failed' };
-      await refresh();
+      await Promise.all([refresh(), refreshConnections()]);
       return { status: 'loaded', count: data.added_count || 0 };
     } catch {
       return { status: 'local_ollama_load_failed' };
     }
-  }, [refresh]);
+  }, [refresh, refreshConnections]);
+
+  // Registers or updates a provider connection (label/API key/base URL).
+  // Returns the backend outcome so callers can surface a failure instead of
+  // silently pretending the connection was saved.
+  const saveConnection = useCallback(async (connectionData) => {
+    try {
+      const res = await fetch(PROVIDERS_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(connectionData)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: data.error || 'connection_save_failed' };
+      await refreshConnections();
+      return { ok: true };
+    } catch (e) {
+      console.error(e);
+      return { ok: false, error: 'connection_save_failed' };
+    }
+  }, [refreshConnections]);
+
+  const deleteConnection = useCallback(async (connectionId) => {
+    try {
+      const res = await fetch(PROVIDERS_ENDPOINT, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: connectionId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: data.error || 'connection_delete_failed' };
+      await refreshConnections();
+      return { ok: true };
+    } catch (e) {
+      console.error(e);
+      return { ok: false, error: 'connection_delete_failed' };
+    }
+  }, [refreshConnections]);
 
   const value = useMemo(
-    () => ({ models, refresh, saveModel, deleteModel, loadLocalOllamaModels }),
-    [models, refresh, saveModel, deleteModel, loadLocalOllamaModels]
+    () => ({
+      models, refresh, saveModel, deleteModel, loadLocalOllamaModels,
+      connections, refreshConnections, saveConnection, deleteConnection,
+    }),
+    [models, refresh, saveModel, deleteModel, loadLocalOllamaModels,
+      connections, refreshConnections, saveConnection, deleteConnection]
   );
 
   return (

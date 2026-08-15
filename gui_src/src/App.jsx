@@ -39,7 +39,9 @@ import DirPickerModal from './components/modals/DirPickerModal';
 import DeleteProjectModal from './components/modals/DeleteProjectModal';
 
 import EditModelsModal from './components/modals/EditModelsModal';
-import AddProviderModal from './components/modals/AddProviderModal';
+import AddModelModal from './components/modals/AddModelModal';
+import EditProvidersModal from './components/modals/EditProvidersModal';
+import AddConnectionModal from './components/modals/AddConnectionModal';
 
 const numericMessageId = (message) => {
   if (message?.id === undefined || message?.id === null || message.id === '') return null;
@@ -400,10 +402,16 @@ export default function App() {
     saveModel: saveGlobalModel,
     deleteModel: deleteGlobalModel,
     loadLocalOllamaModels: loadLocalOllamaCatalogModels,
+    connections: providerConnections,
+    saveConnection: saveProviderConnection,
+    deleteConnection: deleteProviderConnection,
   } = useModelCatalog();
   const [showEditModelsModal, setShowEditModelsModal] = useState(false);
-  const [showAddProviderModal, setShowAddProviderModal] = useState(false);
+  const [showAddModelModal, setShowAddModelModal] = useState(false);
   const [editingModelModalData, setEditingModelModalData] = useState(null);
+  const [showEditProvidersModal, setShowEditProvidersModal] = useState(false);
+  const [showAddConnectionModal, setShowAddConnectionModal] = useState(false);
+  const [editingConnectionModalData, setEditingConnectionModalData] = useState(null);
 
   // ── IDE settings ──────────────────────────────────────────────────────────
   const [settingsTab, setSettingsTab] = useState('general');
@@ -560,10 +568,20 @@ export default function App() {
             });
           }
         }
-        setShowAddProviderModal(false);
+        setShowAddModelModal(false);
       }
     } catch (e) { console.error(e); }
   };
+
+  const handleConnectionSave = async (connectionData) => {
+    const result = await saveProviderConnection(connectionData);
+    if (result.ok) {
+      setShowAddConnectionModal(false);
+    }
+    return result;
+  };
+
+  const handleConnectionDelete = (connectionId) => deleteProviderConnection(connectionId);
 
   const handleGlobalModelDelete = (modelId) => deleteGlobalModel(modelId);
 
@@ -3839,22 +3857,51 @@ export default function App() {
           onDeleteModel={handleGlobalModelDelete}
           onEditModel={(model) => {
             setEditingModelModalData(model);
-            setShowAddProviderModal(true);
+            setShowAddModelModal(true);
           }}
-          onAddProvider={() => {
+          onAddModel={() => {
             setEditingModelModalData(null);
-            setShowAddProviderModal(true);
+            setShowAddModelModal(true);
           }}
+          onManageConnections={() => setShowEditProvidersModal(true)}
           onLoadLocalOllama={handleLoadLocalOllamaModels}
         />
       )}
 
-      {showAddProviderModal && (
-        <AddProviderModal
+      {showAddModelModal && (
+        <AddModelModal
           editingModel={editingModelModalData}
           existingModels={globalModels}
-          onClose={() => setShowAddProviderModal(false)}
+          connections={providerConnections}
+          onSaveConnection={handleConnectionSave}
+          onClose={() => setShowAddModelModal(false)}
           onSave={handleGlobalModelSave}
+        />
+      )}
+
+      {showEditProvidersModal && (
+        <EditProvidersModal
+          connections={providerConnections}
+          models={globalModels}
+          onClose={() => setShowEditProvidersModal(false)}
+          onDeleteConnection={handleConnectionDelete}
+          onEditConnection={(connection) => {
+            setEditingConnectionModalData(connection);
+            setShowAddConnectionModal(true);
+          }}
+          onAddConnection={() => {
+            setEditingConnectionModalData(null);
+            setShowAddConnectionModal(true);
+          }}
+        />
+      )}
+
+      {showAddConnectionModal && (
+        <AddConnectionModal
+          editingConnection={editingConnectionModalData}
+          existingConnections={providerConnections}
+          onClose={() => setShowAddConnectionModal(false)}
+          onSave={handleConnectionSave}
         />
       )}
     </div>

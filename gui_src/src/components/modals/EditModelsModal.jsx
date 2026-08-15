@@ -8,7 +8,8 @@ export default function EditModelsModal({
   onClose,
   onDeleteModel,
   onEditModel,
-  onAddProvider,
+  onAddModel,
+  onManageConnections,
   onLoadLocalOllama
 }) {
   const { t } = useTranslation();
@@ -82,7 +83,10 @@ export default function EditModelsModal({
                 ? t('editModelsModal.loadingLocalOllama')
                 : t('editModelsModal.loadLocalOllama')}
             </button>
-            <button className="vscode-button" onClick={onAddProvider}>
+            <button className="vscode-button-secondary" onClick={onManageConnections}>
+              {t('editModelsModal.manageConnections')}
+            </button>
+            <button className="vscode-button" onClick={onAddModel}>
               <Plus size={14} /> {t('editModelsModal.addProviderModel')}
             </button>
           </div>
@@ -112,7 +116,7 @@ export default function EditModelsModal({
                 <tbody>
                   {filteredModels.map((model) => (
                     <tr key={model.id} style={{ borderBottom: '1px solid var(--vscode-widget-border)' }} title={model.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${model.api_base}` : undefined}>
-                      <td style={{ padding: '8px' }}>{model.provider}</td>
+                      <td style={{ padding: '8px' }}>{model.connection_label || model.provider}</td>
                       <td style={{ padding: '8px' }}>{model.name}</td>
                       <td style={{ padding: '8px', color: 'var(--vscode-descriptionForeground)' }}>{model.id}</td>
                       <td style={{ padding: '8px', color: model.supports_thinking ? 'var(--vscode-textLink-foreground)' : 'var(--vscode-descriptionForeground)' }}>
