@@ -6,7 +6,7 @@
  * single-line height instead of stretching them to match the enclosed content
  * (a documented Chromium MathML limitation). STIX Two Math ships a MATH table,
  * so scoping it to <math> elements fixes stretch sizing without touching the
- * KaTeX HTML/SVG rendering path used elsewhere (e.g. LatexPreview.jsx).
+ * KaTeX HTML/SVG rendering path used elsewhere (e.g. RichTextEditor).
  * License: SIL OFL 1.1, see docs/third_party/stix-two-math-NOTICE.md.
  */
 @font-face {
