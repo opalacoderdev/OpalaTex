@@ -488,6 +488,119 @@ def test_analyze_image_resanitizes_kwargs_for_final_model(monkeypatch):
     assert "num_ctx" not in calls
     assert "top_k" not in calls
 
+def test_consolidate_leading_system_messages_merges_stray_system_messages_into_one():
+    from opalatex.litellm_compat import consolidate_leading_system_messages
+
+    messages = [
+        {"role": "system", "content": "base prompt"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "system", "content": "SYSTEM ALERT: mid-turn correction"},
+        {"role": "user", "content": "continue"},
+    ]
+
+    consolidated = consolidate_leading_system_messages(messages)
+
+    assert [m["role"] for m in consolidated] == ["system", "user", "assistant", "user"]
+    assert consolidated[0]["content"] == "base prompt\n\nSYSTEM ALERT: mid-turn correction"
+
+
+def test_consolidate_leading_system_messages_noop_for_single_system_message():
+    from opalatex.litellm_compat import consolidate_leading_system_messages
+
+    messages = [
+        {"role": "system", "content": "base prompt"},
+        {"role": "user", "content": "hi"},
+    ]
+
+    assert consolidate_leading_system_messages(messages) is messages
+
+
+def test_wrap_agent_litellm_compat_merges_mid_turn_system_alert_for_qwen3_8():
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    calls = {}
+    messages = [
+        {"role": "system", "content": "base prompt"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "system", "content": "SYSTEM ALERT: empty response correction"},
+    ]
+
+    class FakeAgent:
+        model = "ollama_chat/qwen3.8:latest"
+
+        async def _acompletion(self, messages, **kwargs):
+            calls["messages"] = messages
+            return "ok"
+
+    agent = wrap_agent_litellm_compat(FakeAgent())
+
+    import asyncio
+
+    result = asyncio.run(agent._acompletion(messages))
+
+    assert result == "ok"
+    assert [m["role"] for m in calls["messages"]] == ["system", "user", "assistant"]
+    assert calls["messages"][0]["content"] == "base prompt\n\nSYSTEM ALERT: empty response correction"
+
+
+def test_wrap_agent_litellm_compat_leaves_message_order_for_non_qwen_ollama_model():
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    calls = {}
+    messages = [
+        {"role": "system", "content": "base prompt"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "system", "content": "SYSTEM ALERT: empty response correction"},
+    ]
+
+    class FakeAgent:
+        model = "ollama_chat/gemma4:26b"
+
+        async def _acompletion(self, messages, **kwargs):
+            calls["messages"] = messages
+            return "ok"
+
+    agent = wrap_agent_litellm_compat(FakeAgent())
+
+    import asyncio
+
+    result = asyncio.run(agent._acompletion(messages))
+
+    assert result == "ok"
+    assert [m["role"] for m in calls["messages"]] == ["system", "user", "assistant", "system"]
+
+
+def test_wrap_agent_litellm_compat_leaves_message_order_for_non_ollama_provider():
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    calls = {}
+    messages = [
+        {"role": "system", "content": "base prompt"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "system", "content": "SYSTEM ALERT: empty response correction"},
+    ]
+
+    class FakeAgent:
+        model = "openai/gpt-5"
+
+        async def _acompletion(self, messages, **kwargs):
+            calls["messages"] = messages
+            return "ok"
+
+    agent = wrap_agent_litellm_compat(FakeAgent())
+
+    import asyncio
+
+    result = asyncio.run(agent._acompletion(messages))
+
+    assert result == "ok"
+    assert [m["role"] for m in calls["messages"]] == ["system", "user", "assistant", "system"]
+
+
 def test_normalize_ollama_tool_call_parse_error_keeps_diagnostic_detail():
     from opalatex.litellm_compat import _normalize_ollama_unexpected_response_error
 
