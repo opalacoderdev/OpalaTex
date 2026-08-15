@@ -1,5 +1,6 @@
 import pytest
 
+from opalatex import config as config_mod
 from opalatex import models_store
 
 
@@ -62,6 +63,70 @@ def test_load_models_defaults_supports_thinking_to_false(tmp_path, monkeypatch):
     loaded = models_store.load_models()
 
     assert loaded[0]["supports_thinking"] is False
+
+
+def test_load_models_defaults_requires_single_system_message_to_false(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/test-model",
+            "connection_id": connection_id,
+            "name": "test-model",
+        }
+    ])
+
+    loaded = models_store.load_models()
+
+    assert loaded[0]["requires_single_system_message"] is False
+
+
+def test_requires_single_system_message_round_trips_through_save_and_load(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama_chat/qwen3.8:latest",
+            "connection_id": connection_id,
+            "name": "qwen3.8:latest",
+            "requires_single_system_message": True,
+        }
+    ])
+
+    loaded = models_store.load_models()
+
+    assert loaded[0]["requires_single_system_message"] is True
+
+
+def test_config_model_requires_single_system_message_reads_catalog_flag(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama_chat/qwen3.8:latest",
+            "connection_id": connection_id,
+            "name": "qwen3.8:latest",
+            "requires_single_system_message": True,
+        },
+        {
+            "id": "ollama_chat/gemma4:26b",
+            "connection_id": connection_id,
+            "name": "gemma4:26b",
+        },
+    ])
+
+    assert config_mod.model_requires_single_system_message("ollama_chat/qwen3.8:latest") is True
+    assert config_mod.model_requires_single_system_message("ollama_chat/gemma4:26b") is False
+    assert config_mod.model_requires_single_system_message("ollama_chat/unregistered:latest") is False
 
 
 def test_load_models_filters_cloud_models_in_community_mode(tmp_path, monkeypatch):

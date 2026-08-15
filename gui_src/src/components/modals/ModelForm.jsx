@@ -34,6 +34,7 @@ export default function ModelForm({
   const [connectionId, setConnectionId] = useState('');
   const [name, setName] = useState('');
   const [supportsThinking, setSupportsThinking] = useState(false);
+  const [requiresSingleSystemMessage, setRequiresSingleSystemMessage] = useState(false);
   const [error, setError] = useState('');
   const [showNewConnection, setShowNewConnection] = useState(connections.length === 0);
 
@@ -42,9 +43,11 @@ export default function ModelForm({
       setConnectionId(editingModel.connection_id || '');
       setName(editingModel.name || '');
       setSupportsThinking(!!editingModel.supports_thinking);
+      setRequiresSingleSystemMessage(!!editingModel.requires_single_system_message);
       setShowNewConnection(false);
     } else {
       setSupportsThinking(false);
+      setRequiresSingleSystemMessage(false);
       setShowNewConnection(connections.length === 0);
     }
   }, [editingModel]);
@@ -59,6 +62,7 @@ export default function ModelForm({
     setConnectionId('');
     setName('');
     setSupportsThinking(false);
+    setRequiresSingleSystemMessage(false);
     setError('');
     setShowNewConnection(connections.length === 0);
   };
@@ -121,6 +125,7 @@ export default function ModelForm({
       connection_id: connectionId,
       name: trimmedName,
       supports_thinking: supportsThinking,
+      requires_single_system_message: requiresSingleSystemMessage,
     }, { reset });
   };
 
@@ -186,6 +191,20 @@ export default function ModelForm({
           </label>
           <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
             {t('modelForm.supportsThinkingHint')}
+          </span>
+        </div>
+
+        <div className="vscode-form-group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={requiresSingleSystemMessage}
+              onChange={e => setRequiresSingleSystemMessage(e.target.checked)}
+            />
+            {t('modelForm.requiresSingleSystemMessageLabel')}
+          </label>
+          <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+            {t('modelForm.requiresSingleSystemMessageHint')}
           </span>
         </div>
 

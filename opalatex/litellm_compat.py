@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from opalatex.config import sanitize_litellm_kwargs_for_model
+from opalatex.config import model_requires_single_system_message, sanitize_litellm_kwargs_for_model
 
 
 def sanitize_tool_call_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -79,27 +79,23 @@ def sanitize_tool_call_messages(messages: list[dict[str, Any]]) -> list[dict[str
     return cleaned
 
 
-def _is_qwen3_8_family(model: str) -> bool:
-    """True when ``model`` (with or without the ollama/ollama_chat prefix) names a qwen3.8 model."""
-    name = model.split("/", 1)[-1] if "/" in model else model
-    return "qwen3.8" in name.lower()
-
-
 def consolidate_leading_system_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Merge every ``system`` message into a single leading message.
 
-    The qwen3.8 Ollama chat template rejects a request outright with
-    ``{"error":"system message must be at the beginning"}`` as soon as more
-    than one ``system``-role message is present, even when both are
-    consecutive at the very start of the list. The chat-orchestrator always
-    sends two leading system messages (the system prompt and the recursive
-    summary) on every turn, and AgenticBlocks separately injects mid-turn
-    corrective alerts with the ``system`` role (see PROJECT_DESIGN.md 2.6) so
-    local models do not treat them as user-authored content. Merging their
-    content into a single message satisfies qwen3.8's "one system message,
-    first position" requirement without changing role or semantics. This is
-    called only for qwen3.8-family models (see ``_is_qwen3_8_family``) so
-    every other model's request shape is unaffected.
+    Some provider chat templates (observed with an Ollama-served qwen3.8)
+    reject a request outright with ``{"error":"system message must be at the
+    beginning"}`` as soon as more than one ``system``-role message is present,
+    even when both are consecutive at the very start of the list. The
+    chat-orchestrator always sends two leading system messages (the system
+    prompt and the recursive summary) on every turn, and AgenticBlocks
+    separately injects mid-turn corrective alerts with the ``system`` role
+    (see PROJECT_DESIGN.md 2.6) so local models do not treat them as
+    user-authored content. Merging their content into a single message
+    satisfies that "one system message, first position" requirement without
+    changing role or semantics. Callers should only invoke this for models
+    whose catalog entry sets ``requires_single_system_message`` (see
+    ``opalatex.config.model_requires_single_system_message``) so every other
+    model's request shape is unaffected.
     """
     system_msgs = [m for m in messages if (m or {}).get("role") == "system"]
     if len(system_msgs) <= 1:
@@ -140,7 +136,10 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
                 ),
             }]
             kwargs["tool_choice"] = "none"
-        if (model.startswith("ollama/") or model.startswith("ollama_chat/")) and _is_qwen3_8_family(model):
+        if (
+            (model.startswith("ollama/") or model.startswith("ollama_chat/"))
+            and model_requires_single_system_message(model)
+        ):
             cleaned_messages = consolidate_leading_system_messages(cleaned_messages)
         try:
             res = await original(cleaned_messages, **kwargs)

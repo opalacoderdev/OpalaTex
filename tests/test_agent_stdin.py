@@ -1212,6 +1212,48 @@ def test_ollama_context_exceeded_400_is_reported_as_context_exceeded_not_generic
     assert "Reproduce it" not in msg
 
 
+def test_ollama_system_message_order_error_suggests_enabling_catalog_flag(monkeypatch):
+    from opalatex.i18n import set_lang
+    from opalatex import config as config_mod
+
+    monkeypatch.setattr(config_mod, "model_requires_single_system_message", lambda model: False)
+
+    project = SimpleNamespace(model="ollama_chat/qwen3.8:latest", api_base="")
+    exc = Exception(
+        "litellm.APIConnectionError: Ollama_chatException - "
+        '{"error":"system message must be at the beginning"}. '
+        "Received Model Group=ollama_chat/qwen3.8:latest"
+    )
+
+    set_lang("en")
+    msg = _friendly_llm_error(exc, project)
+
+    assert "Could not connect" not in msg
+    assert "single system message" in msg
+    assert "Requires a single system message" in msg
+
+
+def test_ollama_system_message_order_error_reports_unresolved_when_flag_already_set(monkeypatch):
+    from opalatex.i18n import set_lang
+    from opalatex import config as config_mod
+
+    monkeypatch.setattr(config_mod, "model_requires_single_system_message", lambda model: True)
+
+    project = SimpleNamespace(model="ollama_chat/qwen3.8:latest", api_base="")
+    exc = Exception(
+        "litellm.APIConnectionError: Ollama_chatException - "
+        '{"error":"system message must be at the beginning"}. '
+        "Received Model Group=ollama_chat/qwen3.8:latest"
+    )
+
+    set_lang("en")
+    msg = _friendly_llm_error(exc, project)
+
+    assert "Could not connect" not in msg
+    assert "already enabled" in msg
+    assert "please report" in msg
+
+
 def test_inline_response_contract_discards_preamble_and_orphan_think_close():
     response = "This is the final output.</think>```tex\ncontent\nA replacement paragraph.\n```"
     assert _normalize_inline_fenced_replacement(response) == "A replacement paragraph."

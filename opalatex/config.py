@@ -522,6 +522,23 @@ def model_supports_thinking(model: str | None) -> bool:
         return False
 
 
+def model_requires_single_system_message(model: str | None) -> bool:
+    """Return True only when the model store explicitly flags this requirement.
+
+    Some provider chat templates (observed with an Ollama-served qwen3.8)
+    reject a request outright unless exactly one ``system``-role message is
+    present as the very first message. This is a per-model catalog capability,
+    not a provider-wide rule, since most models tolerate multiple/positioned
+    system messages fine.
+    """
+    try:
+        from opalatex.models_store import get_model
+        store_model = get_model(str(model or ""))
+        return bool(store_model and store_model.get("requires_single_system_message", False))
+    except Exception:
+        return False
+
+
 def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
     """Remove provider-incompatible kwargs before passing them to LiteLLM."""
     cleaned = dict(kwargs or {})

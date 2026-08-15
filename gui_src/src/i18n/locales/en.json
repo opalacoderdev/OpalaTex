@@ -712,6 +712,8 @@
     "modelNamePlaceholder": "Model name as the provider exposes it",
     "supportsThinkingLabel": "This model supports thinking/reasoning",
     "supportsThinkingHint": "Keep this off unless the model documentation explicitly says it supports thinking or reasoning parameters.",
+    "requiresSingleSystemMessageLabel": "Requires a single system message",
+    "requiresSingleSystemMessageHint": "Enable only if this model's chat template rejects requests with more than one system-role message (reported as \"system message must be at the beginning\"). OpalaTex will merge all system content into one leading message before sending it to this model.",
     "generatedId": "Generated ID",
     "requiredError": "Connection and Model Name are required.",
     "duplicateError": "A model with this name already exists for this connection."

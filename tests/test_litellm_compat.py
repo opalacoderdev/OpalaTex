@@ -516,8 +516,11 @@ def test_consolidate_leading_system_messages_noop_for_single_system_message():
     assert consolidate_leading_system_messages(messages) is messages
 
 
-def test_wrap_agent_litellm_compat_merges_mid_turn_system_alert_for_qwen3_8():
+def test_wrap_agent_litellm_compat_merges_mid_turn_system_alert_when_catalog_requires_it(monkeypatch):
+    from opalatex import litellm_compat
     from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    monkeypatch.setattr(litellm_compat, "model_requires_single_system_message", lambda model: True)
 
     calls = {}
     messages = [
@@ -545,8 +548,11 @@ def test_wrap_agent_litellm_compat_merges_mid_turn_system_alert_for_qwen3_8():
     assert calls["messages"][0]["content"] == "base prompt\n\nSYSTEM ALERT: empty response correction"
 
 
-def test_wrap_agent_litellm_compat_leaves_message_order_for_non_qwen_ollama_model():
+def test_wrap_agent_litellm_compat_leaves_message_order_when_catalog_does_not_require_it(monkeypatch):
+    from opalatex import litellm_compat
     from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    monkeypatch.setattr(litellm_compat, "model_requires_single_system_message", lambda model: False)
 
     calls = {}
     messages = [

@@ -196,6 +196,12 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
 
     from opalatex.i18n import _
 
+    if "system message must be at the beginning" in low:
+        from opalatex.config import model_requires_single_system_message
+        if model_requires_single_system_message(model):
+            return _("err_system_message_order_unresolved", model=model)
+        return _("err_system_message_order", model=model)
+
     if "404 page not found" in low:
         return _("err_connection_failed").format(model=model)
 

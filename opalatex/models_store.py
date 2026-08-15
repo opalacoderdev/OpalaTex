@@ -36,6 +36,7 @@ def normalize_model_entry(model: Dict[str, Any]) -> Dict[str, Any]:
     entry["api_key"] = str(entry.get("api_key", "") or "")
     entry["api_base"] = str(entry.get("api_base", "") or "")
     entry["supports_thinking"] = bool(entry.get("supports_thinking", False))
+    entry["requires_single_system_message"] = bool(entry.get("requires_single_system_message", False))
     entry["connection_id"] = str(entry.get("connection_id", "") or "")
     entry["connection_label"] = str(entry.get("connection_label", "") or "")
     return entry
@@ -166,16 +167,21 @@ def _connect() -> sqlite3.Connection:
             api_base TEXT NOT NULL DEFAULT '',
             connection_id TEXT NOT NULL DEFAULT '',
             supports_thinking INTEGER NOT NULL DEFAULT 0,
+            requires_single_system_message INTEGER NOT NULL DEFAULT 0,
             extra_json TEXT NOT NULL DEFAULT '{{}}',
             sort_order INTEGER NOT NULL DEFAULT 0
         )
         """
     )
-    # Additive migration for a `global_models` table created before the
-    # connection_id column existed. Harmlessly no-ops on a fresh table (the
-    # CREATE TABLE above already includes the column).
+    # Additive migrations for a `global_models` table created before these
+    # columns existed. Harmlessly no-op on a fresh table (the CREATE TABLE
+    # above already includes them).
     try:
         conn.execute(f"ALTER TABLE {_MODELS_TABLE} ADD COLUMN connection_id TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute(f"ALTER TABLE {_MODELS_TABLE} ADD COLUMN requires_single_system_message INTEGER NOT NULL DEFAULT 0")
     except sqlite3.OperationalError:
         pass
     _migrate_legacy_rows(conn)
@@ -200,13 +206,17 @@ def _row_to_model(row: sqlite3.Row) -> Dict[str, Any]:
         "api_key": api_key,
         "api_base": api_base,
         "supports_thinking": bool(row["supports_thinking"]),
+        "requires_single_system_message": bool(row["requires_single_system_message"]),
         "connection_id": row["connection_id"] or "",
         "connection_label": row["conn_label"] if has_connection else "",
     })
 
 
 def _model_extra_json(model: Dict[str, Any]) -> str:
-    known = {"id", "provider", "name", "api_key", "api_base", "supports_thinking", "previous_id", "connection_id", "connection_label"}
+    known = {
+        "id", "provider", "name", "api_key", "api_base", "supports_thinking",
+        "requires_single_system_message", "previous_id", "connection_id", "connection_label",
+    }
     extra = {k: v for k, v in model.items() if k not in known}
     return json.dumps(extra, ensure_ascii=False)
 
@@ -232,6 +242,7 @@ def load_models() -> List[Dict[str, Any]]:
                 gm.id AS id,
                 gm.name AS name,
                 gm.supports_thinking AS supports_thinking,
+                gm.requires_single_system_message AS requires_single_system_message,
                 gm.extra_json AS extra_json,
                 gm.sort_order AS sort_order,
                 gm.connection_id AS connection_id,
@@ -283,8 +294,8 @@ def save_models(models: List[Dict[str, Any]]) -> None:
             conn.execute(
                 f"""
                 INSERT INTO {_MODELS_TABLE}
-                (id, provider, name, api_key, api_base, connection_id, supports_thinking, extra_json, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, provider, name, api_key, api_base, connection_id, supports_thinking, requires_single_system_message, extra_json, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     model["id"],
@@ -294,6 +305,7 @@ def save_models(models: List[Dict[str, Any]]) -> None:
                     model.get("api_base", ""),
                     model.get("connection_id", ""),
                     int(bool(model.get("supports_thinking", False))),
+                    int(bool(model.get("requires_single_system_message", False))),
                     _model_extra_json(model),
                     index,
                 ),

@@ -822,7 +822,13 @@ export default function ChatPanel({
 
   // Token battery calculation
   const numCtx = parseInt(activeProject?.model_params?.num_ctx || activeProject?.agent_params?.max_context_tokens || 8192, 10);
-  const estimatedTokens = chatMessages.reduce((acc, msg) => acc + Math.ceil((msg.content?.length || 0) / 4), 0);
+  const historyTokens = chatMessages.reduce((acc, msg) => {
+    const contentLen = msg.content?.length || 0;
+    const thoughtLen = msg._thoughtStream?.length || 0;
+    return acc + Math.ceil((contentLen + thoughtLen) / 4);
+  }, 0);
+  const liveStreamTokens = Math.ceil(((chatThoughtStream?.length || 0) + (chatResponseStream?.length || 0)) / 4);
+  const estimatedTokens = historyTokens + liveStreamTokens;
   const availableTokens = Math.max(0, numCtx - estimatedTokens);
   const tokenPercentage = Math.min(100, Math.max(0, (availableTokens / numCtx) * 100));
   const isTokenExploded = availableTokens === 0;
