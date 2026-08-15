@@ -58,7 +58,7 @@ const BASE_COMPONENTS = {
     if (lang === 'tikzgraphic') {
       // LaTeX graphic preview: compile the snippet via the backend and
       // render the resulting SVG inline. The body is the raw tikzpicture
-      // source produced by `latexToMarkdown` (no Markdown escaping needed).
+      // source (no Markdown escaping needed).
       const raw = String(children);
       return (
         <GraphicPreview

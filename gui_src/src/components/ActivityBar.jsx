@@ -37,14 +37,6 @@ export default function ActivityBar({
           <PanelBottom size={22} />
         </button>
         <button
-          onClick={() => setLayoutMode(layoutMode === 'chat-compare' ? 'ide' : 'chat-compare')}
-          className={`vscode-activitybar-btn ${layoutMode === 'chat-compare' ? 'active' : ''}`}
-          title={layoutMode === 'chat-compare' ? t('activityBar.editMode') : t('activityBar.chatComparisonMode')}
-        >
-          <Columns2 size={22} />
-        </button>
-
-        <button
           onClick={() => {
             setLayoutMode('ide');
             setActiveSidebarTab(activeSidebarTab === 'explorer' ? null : 'explorer');
@@ -115,6 +107,14 @@ export default function ActivityBar({
           title="Alternar Painel Inferior (Terminal)"
         >
           <Terminal size={22} />
+        </button>
+
+        <button
+          onClick={() => setLayoutMode(layoutMode === 'chat-compare' ? 'ide' : 'chat-compare')}
+          className={`vscode-activitybar-btn ${layoutMode === 'chat-compare' ? 'active' : ''}`}
+          title={layoutMode === 'chat-compare' ? t('activityBar.editMode') : t('activityBar.chatComparisonMode')}
+        >
+          <Columns2 size={22} />
         </button>
       </div>
 

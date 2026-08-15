@@ -11,7 +11,6 @@ import { formatMessageContent } from '../utils/formatMessage';
 import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 import Split from 'react-split';
 import PdfPreview from './PdfPreview';
-import LatexPreview from './LatexPreview';
 import LatexSnippetsPanel from './LatexSnippetsPanel';
 import RichTextEditor from './RichTextEditor';
 
@@ -61,7 +60,6 @@ export default function EditorPanel({
   const { showAlert } = useCustomDialog();
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
-  const [isLatexPreviewMode, setIsLatexPreviewMode] = useState(false);
   const [isRichTextMode, setIsRichTextMode] = useState(false);
   const [isPdfPreviewCollapsed, setIsPdfPreviewCollapsed] = useState(true);
   const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
@@ -84,7 +82,7 @@ export default function EditorPanel({
     return ['tex', 'cls', 'sty', 'bib'].includes(ext);
   };
   const isTexFile = isTexRelatedFile(selectedFile);
-  const isNormalLatexEditor = isTexFile && !isRichTextMode && !isLatexPreviewMode && !isPreviewMode;
+  const isNormalLatexEditor = isTexFile && !isRichTextMode && !isPreviewMode;
 
   const saveBinaryEditor = useCallback(() => {
     if (isDocxFile) return docxEditorRef.current?.save?.() || false;
@@ -235,7 +233,6 @@ export default function EditorPanel({
   useEffect(() => {
     setIsDiffMode(false);
     setIsPreviewMode(false);
-    setIsLatexPreviewMode(false);
     setIsRichTextMode(false);
     setShowSnippetsPanel(false);
     
@@ -586,13 +583,13 @@ export default function EditorPanel({
   }, []);
 
   useEffect(() => {
-    if (isDiffMode || isRichTextMode || isLatexPreviewMode || isPreviewMode) return;
+    if (isDiffMode || isRichTextMode || isPreviewMode) return;
     const editor = localEditorRef.current;
     if (!editor) return;
     if (editor.hasTextFocus?.()) return;
     if (pendingEditorValueRef.current !== null) return;
     syncEditorValue(editor, fileContent);
-  }, [fileContent, isDiffMode, isRichTextMode, isLatexPreviewMode, isPreviewMode, selectedFile, syncEditorValue]);
+  }, [fileContent, isDiffMode, isRichTextMode, isPreviewMode, selectedFile, syncEditorValue]);
 
   const revealEditorLine = useCallback((line) => {
     if (!line || !localEditorRef.current) return false;
@@ -959,12 +956,6 @@ export default function EditorPanel({
             if (line) richTextSourceLineRef.current = line;
           }}
         />
-      ) : isLatexPreviewMode ? (
-        <LatexPreview
-          source={fileContent}
-          activeProjectPath={activeProject?.project_path}
-          zoomLevel={markdownZoomLevel}
-        />
       ) : isPreviewMode ? (
         <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
           {formatMessageContent(fileContent, activeProject?.project_path, markdownZoomLevel)}
@@ -1257,7 +1248,6 @@ export default function EditorPanel({
                     if (currentLine) richTextSourceLineRef.current = currentLine;
                     setIsRichTextMode(true);
                   }
-                  setIsLatexPreviewMode(false);
                   setIsPreviewMode(false);
                   setIsDiffMode(false);
                 }}
@@ -1295,14 +1285,6 @@ export default function EditorPanel({
                   </button>
                 </div>
               )}
-              <button
-                onClick={() => { setIsLatexPreviewMode(!isLatexPreviewMode); setIsPreviewMode(false); setIsRichTextMode(false); }}
-                className="vscode-bottom-panel-clear-btn"
-                style={{ padding: '6px' }}
-                title={isLatexPreviewMode ? 'Hide live LaTeX preview' : 'Show live LaTeX preview (subset, read-only)'}
-              >
-                <Eye size={12} style={{ color: isLatexPreviewMode ? '#4daafc' : 'inherit' }} />
-              </button>
               <button
                 onClick={() => setShowSnippetsPanel(!showSnippetsPanel)}
                 className="vscode-bottom-panel-clear-btn"
