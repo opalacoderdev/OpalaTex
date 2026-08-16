@@ -330,7 +330,7 @@
     "moreActions": "Mais acoes",
     "exportMarkdown": "Exportar como Markdown",
     "exportPDF": "Exportar como PDF / Imprimir",
-    "clearChat": "Limpar chat (Varrer)",
+    "clearChat": "Apagar Chat (Irreversível)",
     "clearAllChats": "Excluir todos os chats do projeto",
     "clearChatTitle": "Limpar chat",
     "clearChatConfirmation": "Isso excluirá permanentemente o histórico deste chat e a memória que o agente tem dele. Esta ação não pode ser desfeita.",
@@ -989,7 +989,10 @@
   "askModal": {
     "title": "Entrada Necessária",
     "placeholder": "Digite sua resposta aqui...",
-    "send": "Enviar"
+    "send": "Enviar",
+    "optionsTitle": "Selecione uma opção:",
+    "otherOption": "Outro (digite sua resposta abaixo)",
+    "otherPlaceholder": "Digite sua resposta personalizada..."
   },
   "interactiveTerminalModal": {
     "title": "Terminal Interativo:",

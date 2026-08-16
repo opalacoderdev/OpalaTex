@@ -1594,15 +1594,19 @@ async def handle_run(data: dict):
         finally:
             _gui_input_pending.pop(req_id, None)
 
-    async def _handle_run_ask_hook(prompt_text: str) -> str:
+    async def _handle_run_ask_hook(prompt_text: str, options: list[str] | None = None, is_multi_select: bool = False) -> str:
         req_id = str(uuid.uuid4())
         fut = loop.create_future()
         _gui_input_pending[req_id] = fut
-        print_event("input_request", {
+        payload = {
             "id": req_id,
             "prompt": prompt_text,
             "type": "ask"
-        })
+        }
+        if options:
+            payload["options"] = list(options)
+            payload["is_multi_select"] = bool(is_multi_select)
+        print_event("input_request", payload)
         try:
             raw = await asyncio.wait_for(asyncio.shield(fut), timeout=86400.0) # 24h wait
             return str(raw).strip()

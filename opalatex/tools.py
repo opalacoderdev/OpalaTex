@@ -995,17 +995,21 @@ def search_code(
     name="ask_question",
     is_safe=True,
     description=(
-        "Ask the user a clarifying question, request choices/preferences, or gather missing parameters during execution. "
-        "This pauses the agent run and waits for the user's text response. "
-        "Use this whenever requirements are ambiguous, options need to be selected (such as columns, formats, seeds, or files), "
-        "or user confirmation/direction is needed before taking action."
+        "Ask the user a clarifying question with optional selectable choices. "
+        "Provide 'question' and optionally a list of 2-5 distinct 'options' representing common choices. "
+        "The user will be presented with clickable choices in the UI plus an automatic 'Other' write-in field. "
+        "Use this proactively whenever collecting user choices, column selections, target formats, seed filters, or clarifying ambiguous preferences."
     )
 )
-async def ask_question(question: str) -> str:
+async def ask_question(
+    question: str,
+    options: list[str] | None = None,
+    is_multi_select: bool = False
+) -> str:
     AGENT_PROGRESS.update("ask_question", _preview(question))
     
     import opalatex.terminal as T
-    ans = await T.aask(question)
+    ans = await T.aask(question, options=options, is_multi_select=is_multi_select)
     
     if not ans:
         return "The user did not provide an answer or cancelled the prompt."

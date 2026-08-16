@@ -13,11 +13,12 @@ from opalatex.skills import parse_skill_md, find_skill_dir
 
 @pytest.mark.asyncio
 async def test_ask_question_tool_execution():
-    """Test ask_question async invocation and return string format."""
+    """Test ask_question async invocation and return string format with options."""
     raw = getattr(ask_question, "_func", None) or ask_question
-    with patch("opalatex.terminal.aask", new=AsyncMock(return_value="timestamp, level, service")):
-        res = await raw("Which fields to extract?")
+    with patch("opalatex.terminal.aask", new=AsyncMock(return_value="timestamp, level, service")) as mock_aask:
+        res = await raw("Which fields to extract?", options=["Option 1", "Option 2"])
         assert res == "User response: timestamp, level, service"
+        mock_aask.assert_called_once_with("Which fields to extract?", options=["Option 1", "Option 2"], is_multi_select=False)
 
     # Test empty / cancelled response
     with patch("opalatex.terminal.aask", new=AsyncMock(return_value="")):

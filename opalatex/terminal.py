@@ -172,12 +172,17 @@ async def aconfirm(prompt: str, default: bool = True) -> bool:
 # Optional async hook for GUI mode text input.
 _async_ask_hook = None  # type: Callable[[str], Coroutine[Any, Any, str]] | None
 
-async def aask(prompt: str) -> str:
+async def aask(prompt: str, options: list[str] | None = None, is_multi_select: bool = False) -> str:
     """Async-capable ask: delegates to GUI hook if available, sync otherwise."""
     if _async_ask_hook is not None:
-        return await _async_ask_hook(prompt)
+        try:
+            return await _async_ask_hook(prompt, options=options, is_multi_select=is_multi_select)
+        except TypeError:
+            return await _async_ask_hook(prompt)
     import asyncio
     loop = asyncio.get_event_loop()
+    if options and not is_multi_select:
+        return await loop.run_in_executor(None, choose, prompt, list(options) + ["Other / Custom input..."])
     return await loop.run_in_executor(None, ask, prompt)
 
 # Optional async hook for interactive embedded terminal

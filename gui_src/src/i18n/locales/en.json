@@ -989,7 +989,10 @@
   "askModal": {
     "title": "Input Required",
     "placeholder": "Type your answer here...",
-    "send": "Send"
+    "send": "Send",
+    "optionsTitle": "Select an option:",
+    "otherOption": "Other (write in below)",
+    "otherPlaceholder": "Type your custom response..."
   },
   "interactiveTerminalModal": {
     "title": "Interactive Terminal:",

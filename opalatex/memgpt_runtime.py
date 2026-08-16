@@ -376,6 +376,7 @@ def build_run_skill_tool(
             f"{request_hint}"
             f"IMPORTANT: To save any file content (HTML, JSON, code, Markdown, etc.) ALWAYS use the write_file tool. "
             f"RECOMMENDATION FOR EXECUTION AND TERMINATION:\n"
+            f"- Information Gathering Rule: Using ask_question to request preferred columns, formats, seed filters, or specific focus metrics from the user is an EXPECTED and RECOMMENDED behavior. It does not reduce your autonomy; it ensures execution matches user intent.\n"
             f"- If requirements, parameters, target columns, formats, or file choices are underspecified or ambiguous, use the ask_question tool to ask the user before executing destructive or arbitrary changes.\n"
             f"- If MEMGPT CONTEXT/INSTRUCTIONS contains an explicit command or script to execute, use run_command as the first native tool call.\n"
             f"- If MEMGPT CONTEXT/INSTRUCTIONS already identifies the target file, line range, or edit, do not call get_project_overview first.\n"
@@ -763,7 +764,9 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     elif project_mode == "auto":
         mode_instructions = (
             "\n🚨 **SYSTEM ALERT: You are currently in 'auto' mode.**\n"
-            "INSTRUCTIONS: You have full autonomy to execute tools, run commands, and complete tasks without asking for permission on every step.\n"
+            "INSTRUCTIONS: Potentially dangerous tools (file edits, terminal execution) are pre-authorized without safety confirmation dialogs. "
+            "However, this DOES NOT mean you should guess user preferences or avoid interaction. "
+            "Use `ask_question` whenever collecting user choices, column selections, target formats, or ambiguous preferences will produce a better result.\n"
         )
 
     project_block = (
