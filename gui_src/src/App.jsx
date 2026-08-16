@@ -438,6 +438,10 @@ export default function App() {
   const [activeChatId, setActiveChatId] = useState('');
   const [mainChatId, setMainChatId] = useState('');
   const [chats, setChats] = useState([]);
+  // The built-in tutorial lives in a reserved chat (`tutorial_<project>`). Its id and
+  // question menu come from the backend so the front-end never has to guess either.
+  const [tutorialChatId, setTutorialChatId] = useState('');
+  const [tutorialTopics, setTutorialTopics] = useState([]);
   const [theme, setTheme] = useState(() => safeGetLocalStorage('theme', 'dark'));
   const [editorFontSize, setEditorFontSize] = useState(() => Number(safeGetLocalStorage('editorFontSize', 13)));
   const [editorTabSize, setEditorTabSize] = useState(() => Number(safeGetLocalStorage('editorTabSize', 4)));
@@ -868,6 +872,61 @@ export default function App() {
     const baseMessages = [{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }];
     setChatMessages(baseMessages);
     return { chatId, baseMessages };
+  };
+
+  // Open (or reopen) the built-in tutorial chat. The backend owns the reserved chat id,
+  // the welcome text, and the question menu, so clicking the button twice returns to the
+  // same conversation instead of stacking a new welcome on top of it.
+  const handleOpenTutorial = async () => {
+    if (!activeProject) {
+      setAlertMessage(t('tutorial.needProject', 'Open or create a project first — the tutorial runs inside a project chat.'));
+      return;
+    }
+    try {
+      const res = await fetch('/api/tutorial/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_name: activeProject.name, lang: i18n.language }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || t('tutorial.openFailed', 'Failed to open the tutorial'));
+      }
+      const data = await res.json();
+      const chatId = data.chat_id;
+
+      setTutorialChatId(chatId);
+      setTutorialTopics(data.topics || []);
+      setChats(prev => prev.some(c => c.id === chatId) ? prev : [...prev, { id: chatId, name: data.name }]);
+
+      // Another chat is another history: the measured window no longer applies.
+      setChatContextUsage(null);
+      setActiveChatId(chatId);
+      setActiveProject(prev => prev ? { ...prev, current_chat_id: chatId } : null);
+      localStorage.setItem(`lastChat_${activeProject.name}`, chatId);
+      setChatMessages(data.history || []);
+
+      if (layoutMode === 'ide') setIsChatVisible(true);
+    } catch (err) {
+      setAlertMessage(err.message);
+    }
+  };
+
+  // Answer a menu topic. The server appends the question and its pre-written answer from
+  // the guide — no agent run — so the tutorial works before any model is registered.
+  const handleTutorialTopic = async (topicId) => {
+    if (!activeProject) return;
+    const res = await fetch('/api/tutorial/answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_name: activeProject.name, topic_id: topicId, lang: i18n.language }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || t('tutorial.answerFailed', 'Failed to load the tutorial answer'));
+    }
+    const data = await res.json();
+    setChatMessages(prev => [...prev, ...(data.messages || [])]);
   };
 
   useEffect(() => {
@@ -3467,6 +3526,7 @@ export default function App() {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenHardware={() => setIsHardwareModalOpen(true)}
           onOpenSkillsStore={() => setIsSkillsStoreOpen(true)}
+          onOpenTutorial={handleOpenTutorial}
           layoutMode={layoutMode}
           setLayoutMode={setLayoutMode}
           isTerminalCollapsed={isTerminalCollapsed}
@@ -3689,6 +3749,9 @@ export default function App() {
           {layoutMode === 'chat-bottom' && !isBottomMaximized && (
             <ChatPanel
               isChatMode
+              isTutorialChat={Boolean(tutorialChatId) && activeChatId === tutorialChatId}
+              tutorialTopics={tutorialTopics}
+              onTutorialTopic={handleTutorialTopic}
               chatMessages={chatMessages}
               chatInput={chatInput}
               setChatInput={setChatInput}
@@ -3776,6 +3839,9 @@ export default function App() {
           <>
             <ChatPanel
               isChatMode={layoutMode === 'chat'}
+              isTutorialChat={Boolean(tutorialChatId) && activeChatId === tutorialChatId}
+              tutorialTopics={tutorialTopics}
+              onTutorialTopic={handleTutorialTopic}
               chatMessages={chatMessages}
               chatInput={chatInput}
               setChatInput={setChatInput}

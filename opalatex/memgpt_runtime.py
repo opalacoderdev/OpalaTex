@@ -66,6 +66,7 @@ from .skills import (
 )
 
 from .tools import get_available_tools
+from .project import tutorial_chat_id
 
 CHAT_ORCHESTRATOR_SKILL = "chat-orchestrator"
 MAX_FAILED_SKILL_ATTEMPTS = 2
@@ -789,11 +790,28 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
             f"{core_memory}\n"
         )
 
+    # The tutorial chat carries the OpalaTex usage guide in the system prompt rather
+    # than in core memory or a seeded internal_history: per-chat core memory is only
+    # read when the project does not share memory, and a seeded history would be
+    # evicted and summarized away exactly when the user is still asking questions.
+    # Scoped to that one chat, so no other conversation pays context for it.
+    tutorial_block = ""
+    if getattr(project, "current_chat_id", "") == tutorial_chat_id(project.name):
+        try:
+            from .tutorial import tutorial_system_block
+            from .ui_settings import load_ui_settings
+            tutorial_block = "\n" + tutorial_system_block(
+                load_ui_settings().get("lang", "pt")
+            )
+        except Exception:
+            tutorial_block = ""
+
     system_prompt = (
         f"{_current_date_instruction()}\n\n"
         f"{body}\n\n"
         f"{project_block}\n"
         f"## Available skills (call run_skill with the skill name)\n{metadata}\n"
+        f"{tutorial_block}"
     )
 
     model = get_agent_model("memgpt", get_agent_model("chat_agent", project_model))

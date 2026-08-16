@@ -8,6 +8,7 @@ import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
 import ModelSelect from './ModelSelect.jsx';
+import TutorialMenu from './TutorialMenu.jsx';
 
 const normalizeForErrorMatch = (value) => String(value || '')
   .normalize('NFD')
@@ -57,6 +58,9 @@ const numericMessageId = (message) => {
 
 // Right-side chat panel for interacting with the OpalaTex agent.
 export default function ChatPanel({
+  isTutorialChat = false,
+  tutorialTopics = [],
+  onTutorialTopic,
   chatMessages,
   chatInput,
   setChatInput,

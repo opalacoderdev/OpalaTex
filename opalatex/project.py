@@ -113,6 +113,21 @@ def main_chat_id(project_name: str) -> str:
     return f"main_{project_name}"
 
 
+TUTORIAL_CHAT_NAME = "Tutorial"
+
+
+def tutorial_chat_id(project_name: str) -> str:
+    """The id of a project's built-in tutorial chat.
+
+    Reserved like ``main_<project>`` so the tutorial button always reopens the same
+    conversation instead of piling up a new chat per click, and so the orchestrator can
+    tell it apart when deciding whether to load the usage guide into its system prompt.
+    The chat is otherwise ordinary: it can be renamed and deleted, and reopening the
+    tutorial recreates it.
+    """
+    return f"tutorial_{project_name}"
+
+
 def _migrate_legacy_main_chat_rows(conn) -> int:
     """Reattach pre-multi-chat rows to the project's real main chat.
 

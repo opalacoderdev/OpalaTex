@@ -2094,15 +2094,15 @@ class AsyncHTTPServer:
                 threading.Thread(target=pull_model, daemon=True).start()
             
             if "piloto" in project_name.lower() or "pilot" in project_name.lower():
-                from opalatex.onboarding import PILOT_SKILL_CONTENT_PT, PILOT_SKILL_CONTENT_EN
+                from opalatex.onboarding import PILOT_SKILL_NAME, pilot_skill_content
                 from opalatex.ui_settings import load_ui_settings
                 from opalatex.skills import write_skills_yaml
-                
+
                 cfg = load_ui_settings()
                 lang = cfg.get("lang", "pt")
-                skill_content = PILOT_SKILL_CONTENT_EN if lang.startswith("en") else PILOT_SKILL_CONTENT_PT
-                
-                skill_dir = os.path.join(abs_path, ".opalatex", "skills", "tutorial_opalatex")
+                skill_content = pilot_skill_content(lang)
+
+                skill_dir = os.path.join(abs_path, ".opalatex", "skills", PILOT_SKILL_NAME)
                 os.makedirs(skill_dir, exist_ok=True)
                 with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
                     f.write(skill_content.strip() + "\n")
@@ -2110,12 +2110,12 @@ class AsyncHTTPServer:
                 # Activate the skill without overwriting command-line
                 from opalatex.skills import read_skills_yaml
                 existing_skills = read_skills_yaml(abs_path)
-                if "tutorial_opalatex" not in existing_skills:
-                    existing_skills.append("tutorial_opalatex")
+                if PILOT_SKILL_NAME not in existing_skills:
+                    existing_skills.append(PILOT_SKILL_NAME)
                 write_skills_yaml(abs_path, existing_skills)
-                
-                if "tutorial_opalatex" not in project.skills:
-                    project.skills.append("tutorial_opalatex")
+
+                if PILOT_SKILL_NAME not in project.skills:
+                    project.skills.append(PILOT_SKILL_NAME)
                     store.save(project)
 
             from opalatex.project import create_contextual_skills_defaults
@@ -2681,6 +2681,95 @@ class AsyncHTTPServer:
             chat_id = str(uuid.uuid4())
             store.create_chat(project_name, chat_id, chat_name)
             self.send_response(writer, 200, json.dumps({"id": chat_id, "name": chat_name}).encode(), "application/json")
+
+        # 6a-bis. Built-in tutorial chat.
+        #
+        # The front-end never supplies the tutorial text: it opens the chat and then
+        # names a topic, and the server answers from `opalatex/guides/tutorial.<lang>.md`.
+        # That keeps the guide the single source of truth for the menu answers and for
+        # the block injected into the orchestrator's system prompt, and it means the
+        # tutorial works before any provider or model has been registered.
+        elif path == '/api/tutorial/open' and method == 'POST':
+            from opalatex.config import DEFAULT_DB_PATH
+            from opalatex.project import (
+                ChatNotFoundError, ProjectStore, TUTORIAL_CHAT_NAME, tutorial_chat_id,
+            )
+            from opalatex.tutorial import load_intro, topic_menu
+            from opalatex.ui_settings import load_ui_settings
+            store = ProjectStore(db_path=DEFAULT_DB_PATH)
+            project_name = data.get("project_name")
+            if not project_name:
+                self.send_response(writer, 400, b'{"error":"project_name required"}', "application/json")
+                return
+            if not store.exists(project_name):
+                self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
+                return
+            lang = data.get("lang") or load_ui_settings().get("lang", "pt")
+            chat_id = tutorial_chat_id(project_name)
+            created = False
+            try:
+                project = store.load(project_name, chat_id=chat_id)
+            except ChatNotFoundError:
+                project = None
+            if project is None:
+                store.create_chat(project_name, chat_id, TUTORIAL_CHAT_NAME)
+                created = True
+                project = store.load(project_name, chat_id=chat_id)
+            if not project:
+                self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
+                return
+            # Seed the intro once. Reopening the tutorial must return to the same
+            # conversation, not stack another welcome message on top of it.
+            if not project.history:
+                store.append_message(project, "assistant", load_intro(lang))
+            chat_name = next(
+                (c.get("name") for c in (project.chats or []) if c.get("id") == chat_id),
+                TUTORIAL_CHAT_NAME,
+            )
+            self.send_response(writer, 200, json.dumps({
+                "chat_id": chat_id,
+                "name": chat_name,
+                "created": created,
+                "history": project.history,
+                "topics": topic_menu(lang),
+            }, ensure_ascii=False).encode('utf-8'), "application/json")
+
+        elif path == '/api/tutorial/answer' and method == 'POST':
+            from opalatex.config import DEFAULT_DB_PATH
+            from opalatex.project import ChatNotFoundError, ProjectStore, tutorial_chat_id
+            from opalatex.tutorial import get_topic
+            from opalatex.ui_settings import load_ui_settings
+            store = ProjectStore(db_path=DEFAULT_DB_PATH)
+            project_name = data.get("project_name")
+            topic_id = data.get("topic_id")
+            if not project_name or not topic_id:
+                self.send_response(writer, 400, b'{"error":"project_name and topic_id required"}', "application/json")
+                return
+            lang = data.get("lang") or load_ui_settings().get("lang", "pt")
+            topic = get_topic(topic_id, lang)
+            if topic is None:
+                # Answering the nearest topic instead would reply to a question the
+                # user never asked. Fail loudly.
+                self.send_response(writer, 404, json.dumps({
+                    "error": f"unknown tutorial topic '{topic_id}'"
+                }).encode('utf-8'), "application/json")
+                return
+            chat_id = tutorial_chat_id(project_name)
+            try:
+                project = store.load(project_name, chat_id=chat_id)
+            except ChatNotFoundError as exc:
+                self.send_response(writer, 404, json.dumps({"error": str(exc)}).encode('utf-8'), "application/json")
+                return
+            if not project:
+                self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
+                return
+            appended_from = len(project.history)
+            store.append_message(project, "user", topic["question"])
+            store.append_message(project, "assistant", topic["answer"])
+            self.send_response(writer, 200, json.dumps({
+                "chat_id": chat_id,
+                "messages": project.history[appended_from:],
+            }, ensure_ascii=False).encode('utf-8'), "application/json")
 
         # 6b. Update Project (patch fields without resetting history)
         elif path == '/api/opalatex/update-project' and method == 'POST':
