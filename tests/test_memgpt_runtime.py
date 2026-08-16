@@ -18,8 +18,10 @@ from opalatex.memgpt_runtime import (
     build_run_skill_tool,
     make_intercepted_send_message,
     _current_date_instruction,
+    _is_failed_worker_result,
     _recent_failed_skill_attempts,
     _sanitize_skill_result_for_prompt,
+    _strip_serialized_tool_calls,
     _tool_calls_count,
 )
 from opalatex.project import ProjectData
@@ -222,6 +224,90 @@ def test_sanitize_skill_result_for_prompt_removes_raw_tool_json():
 
     assert sanitized == "[CRITICAL WORKER CRASH: model produced invalid/truncated JSON tool-call arguments.]"
     assert "write_file" not in sanitized
+
+
+# A tool call the model printed as text instead of issuing (observed with a 2.6B
+# local model delegating to the log skill).
+_SERIALIZED_TOOL_CALL = (
+    '{"order": 1, "id": "call_35c2d544", "function": {"name": "search_code", '
+    '"arguments": {"query": "logs/Experiment_Batch.jsonl", "max_results": 50}}}'
+)
+# A structured payload the same model started emitting as text and never closed.
+_UNCLOSED_REPORT = (
+    '{\n  "user": "analise o log logs/Experiment_Batch.jsonl",\n'
+    '  "task": "Analyze the JSONL log file.",\n  "constraints": \n  -1.5,\n'
+)
+
+
+def test_sanitize_skill_result_for_prompt_replaces_serialized_tool_call():
+    sanitized = _sanitize_skill_result_for_prompt(_SERIALIZED_TOOL_CALL)
+
+    assert "WORKER PROTOCOL ERROR" in sanitized
+    assert "search_code" not in sanitized
+    assert "arguments" not in sanitized
+
+
+def test_sanitize_skill_result_for_prompt_keeps_prose_around_serialized_tool_call():
+    sanitized = _sanitize_skill_result_for_prompt(
+        f"I located the file.\n{_SERIALIZED_TOOL_CALL}\nWaiting for the result."
+    )
+
+    assert "I located the file." in sanitized
+    assert "Waiting for the result." in sanitized
+    assert "WORKER PROTOCOL ERROR" in sanitized
+    assert "max_results" not in sanitized
+
+
+def test_sanitize_skill_result_for_prompt_preserves_legitimate_json_data():
+    result = '{"result": "No matches for \'thebibliography\' in report.tex."}'
+
+    assert _sanitize_skill_result_for_prompt(result) == result
+
+
+def test_sanitize_skill_result_for_prompt_replaces_unclosed_json_report():
+    sanitized = _sanitize_skill_result_for_prompt(_UNCLOSED_REPORT)
+
+    assert "WORKER PROTOCOL ERROR" in sanitized
+    assert "constraints" not in sanitized
+
+
+def test_strip_serialized_tool_calls_reports_whether_it_matched():
+    _, matched = _strip_serialized_tool_calls(_SERIALIZED_TOOL_CALL)
+    assert matched is True
+
+    text = "Condensed 480 lines into logs/summary.csv."
+    unchanged, matched = _strip_serialized_tool_calls(text)
+    assert matched is False
+    assert unchanged == text
+
+
+def test_worker_result_without_a_summary_counts_as_failure():
+    assert _is_failed_worker_result(_SERIALIZED_TOOL_CALL) is True
+    assert _is_failed_worker_result(_UNCLOSED_REPORT) is True
+    assert _is_failed_worker_result("") is True
+    assert _is_failed_worker_result(
+        "Condensed 480 log lines into logs/summary.csv (5 columns)."
+    ) is False
+
+
+def test_run_skill_breaks_redelegation_after_reports_without_summary(tmp_path):
+    """Two junk reports must trip the loop breaker even when each context differs.
+
+    The identical-call loop detection in the agent block cannot see this: every
+    delegation carried a different ``context`` string, so no signature repeated.
+    """
+    m = build_chat_orchestrator(_project(tmp_path), None)
+    m._skill_run_history = [
+        {"skill": "log-table-condenser", "context": "analyze the log", "result": _SERIALIZED_TOOL_CALL},
+        {"skill": "log-table-condenser", "context": "extract metrics", "result": _UNCLOSED_REPORT},
+    ]
+    run_skill = build_run_skill_tool(m, str(tmp_path), "ollama/proj")
+    raw = getattr(run_skill, "_func", None) or run_skill
+
+    result = asyncio.run(raw("log-table-condenser", "summarize the schema"))
+
+    assert "WORKER LOOP BREAKER" in result
+    assert _recent_failed_skill_attempts(m, "log-table-condenser") == 2
 
 
 def test_tool_calls_count_accepts_int_like_values():

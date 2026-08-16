@@ -1774,6 +1774,14 @@ async def handle_run(data: dict):
                 agent._last_worker_chat_response = ""
                 agent._worker_response_emitted = False
 
+            print(f"\n{'='*30} [DIAGNOSTIC: ORCHESTRATOR TURN START] {'='*30}")
+            print(f"[DIAGNOSTIC] Agent: {agent_type} | Model: {getattr(agent, 'model', 'unknown')}")
+            print(f"[DIAGNOSTIC] Incoming Prompt: {prompt[:300]!r}")
+            if hasattr(agent, "tools"):
+                tool_names = [getattr(t, "name", str(t)) for t in agent.tools]
+                print(f"[DIAGNOSTIC] Registered Tools ({len(tool_names)}): {tool_names}")
+            print(f"{'='*80}\n")
+
             with apply_meta_params(agent, _meta_overrides):
                 resp_obj = await agent.run(AgentInput(prompt=prompt, attachments=final_attachments))
             response = _sanitize_model_response(resp_obj.response or "", thought_chunks)

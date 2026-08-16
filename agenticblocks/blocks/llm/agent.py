@@ -593,6 +593,17 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
             if not kwargs.get("stream", False):
                 await self._invoke_on_thinking(reasoning or "")
 
+            print(f"[DIAGNOSTIC LLM ITERATION {iteration_count}] AgentBlock: '{self.name}' | Model: {self.model}")
+            if reasoning:
+                print(f"  -> Thinking preview: {reasoning[:200]}...")
+            if message.tool_calls:
+                tc_summary = [f"{tc.function.name}({tc.function.arguments[:120]})" for tc in message.tool_calls]
+                print(f"  -> Native Tool Calls: {tc_summary}")
+            else:
+                print(f"  -> No Native Tool Calls. Text output preview: {content[:200]}...")
+                if "{" in content and ("tool_name" in content or "tool_calls" in content or "run_command" in content or "read_file" in content):
+                    print(f"  [!] DIAGNOSTIC WARNING: Model emitted JSON tool call format inside plain text content!")
+
             # Track the last text produced by the LLM (used by on_max_iterations="return_last").
             if content:
                 last_response = content

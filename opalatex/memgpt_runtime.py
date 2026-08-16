@@ -23,7 +23,9 @@ from __future__ import annotations
 from datetime import datetime
 from opalatex.tools import read_file
 from opalatex.tools import get_project_overview
+import json
 import os
+import re
 from typing import Any
 
 from agenticblocks.blocks.llm.agent import AgentInput, LLMAgentBlock
@@ -72,16 +74,128 @@ CHAT_ORCHESTRATOR_SKILL = "chat-orchestrator"
 MAX_FAILED_SKILL_ATTEMPTS = 2
 
 
+_SERIALIZED_TOOL_CALL_MARKER = (
+    "[WORKER PROTOCOL ERROR: the worker serialized a tool call as text instead of "
+    "invoking it, so this attempt produced no result.]"
+)
+_BROKEN_SERIALIZATION_MARKER = (
+    "[WORKER PROTOCOL ERROR: the worker emitted a structured payload as text and "
+    "did not close it, so this attempt produced no usable report.]"
+)
+
+
+def _is_tool_call_payload(value: Any) -> bool:
+    """True when parsed JSON has the shape of a tool call rather than of data."""
+    if isinstance(value, list):
+        return any(_is_tool_call_payload(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+    if "tool_calls" in value:
+        return True
+    function = value.get("function")
+    if isinstance(function, dict) and isinstance(function.get("name"), str):
+        return True
+    if isinstance(value.get("tool_name"), str):
+        return True
+    return isinstance(value.get("name"), str) and (
+        "arguments" in value or "parameters" in value
+    )
+
+
+def _iter_json_spans(text: str):
+    """Yield ``(start, end)`` spans of balanced ``{...}``/``[...]`` blocks in ``text``."""
+    depth = 0
+    start = -1
+    in_string = False
+    escaped = False
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "{[":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char in "}]" and depth:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                yield start, index + 1
+                start = -1
+
+
+def _strip_serialized_tool_calls(text: str) -> tuple[str, bool]:
+    """Replace tool-call JSON emitted as text with a fixed marker.
+
+    Weak local models sometimes print a tool call instead of issuing it. Replaying
+    that payload verbatim into the next worker prompt teaches the next model to do
+    the same, so the payload never reaches a prompt — only the marker does.
+    """
+    spans = []
+    for start, end in _iter_json_spans(text):
+        try:
+            parsed = json.loads(text[start:end])
+        except Exception:
+            continue
+        if _is_tool_call_payload(parsed):
+            spans.append((start, end))
+    if not spans:
+        return text, False
+
+    kept: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        kept.append(text[cursor:start])
+        cursor = end
+    kept.append(text[cursor:])
+    cleaned = " ".join(part.strip() for part in kept if part.strip())
+    return (f"{cleaned} {_SERIALIZED_TOOL_CALL_MARKER}".strip() if cleaned
+            else _SERIALIZED_TOOL_CALL_MARKER), True
+
+
+def _is_broken_serialization(text: str) -> bool:
+    """True when a report opens as a JSON document but does not parse as one.
+
+    That is a failed serialization, not a summary: the model started emitting a
+    structured payload as text and truncated it.
+    """
+    stripped = text.strip()
+    if not stripped.startswith(("{", "[")):
+        return False
+    if not re.search(r'"\s*:', stripped):
+        return False
+    try:
+        json.loads(stripped)
+    except Exception:
+        return True
+    return False
+
+
 def _is_failed_worker_result(result: Any) -> bool:
     text = str(result or "")
+    if not text.strip():
+        return True
     lowered = text.lower()
-    return (
+    if (
         "[critical worker crash]" in lowered
         or "[aviso: o worker terminou sem um resumo claro" in lowered
         or "tools used by worker: 0" in lowered
         or "0 chamadas de ferramenta" in lowered
         or "tool-call json parsing failed" in lowered
-    )
+        or "worker protocol error" in lowered
+    ):
+        return True
+    # A report that is a serialized tool call, or a JSON document the model never
+    # closed, carries no summary: the delegation produced nothing usable and must
+    # count towards the loop breaker instead of resetting it.
+    _, has_tool_call_payload = _strip_serialized_tool_calls(text)
+    return has_tool_call_payload or _is_broken_serialization(text)
 
 
 def _recent_failed_skill_attempts(memgpt: MemGPTAgentBlock, skill_name: str) -> int:
@@ -102,6 +216,9 @@ def _sanitize_skill_result_for_prompt(result: Any, *, limit: int = 500) -> str:
         return "[CRITICAL WORKER CRASH: model produced invalid/truncated JSON tool-call arguments.]"
     if "[aviso: o worker terminou sem um resumo claro" in lowered:
         return "[WORKER NO-ACTION: worker finished without a clear summary or tool calls.]"
+    text, had_tool_call_payload = _strip_serialized_tool_calls(text)
+    if not had_tool_call_payload and _is_broken_serialization(text):
+        return _BROKEN_SERIALIZATION_MARKER
     if len(text) > limit:
         return text[:limit] + "... [truncated]"
     return text
@@ -213,17 +330,11 @@ def build_run_skill_tool(
     @as_tool(
         name="run_skill",
         description=(
-            "Delegate the current task to a registered skill. Pass the skill name (exactly matching "
-            "one of the active skills shown to you under 'Available skills') and a context string with "
-            "relevant facts or instructions. "
-            "CRITICAL: You must ONLY call run_skill with a skill name that is explicitly listed "
-            "in the 'Available skills' section of your system prompt. Do NOT invent skill names, and "
-            "do NOT call non-existent skills like 'search_files', 'list_files', or 'edit_file'. "
-            "Before choosing, read EVERY entry in 'Available skills' and pick the most specific one: a "
-            "skill whose description names the file type or the operation the user asked for always "
-            "outranks a general-purpose one. 'command-line' is the last resort for terminal execution "
-            "when no specialized skill matches; it is not a fallback for work another active skill "
-            "describes. To locate text in project files, use your direct search_code tool instead."
+            "Delegate the current task to a registered skill AFTER requirements and user intent are clear. "
+            "DO NOT call run_skill on broad, generic, or open-ended user requests (such as 'analise o log', 'melhore o texto', 'processe o arquivo') "
+            "before asking the user for their desired focus/preferences via ask_question first. "
+            "Pass the skill name (matching one of the active skills under 'Available skills') and a context string. "
+            "CRITICAL: You must ONLY call run_skill with a skill name explicitly listed in 'Available skills'. Do NOT invent skill names."
         ),
     )
     async def run_skill(skill_name: str, context: str) -> str:
@@ -241,6 +352,11 @@ def build_run_skill_tool(
                 "Only after the user approves the plan may you execute it."
             )
             
+        print(f"\n{'-'*25} [DIAGNOSTIC: RUN_SKILL START] {'-'*25}")
+        print(f"[DIAGNOSTIC] Delegating to skill: '{skill_name}'")
+        print(f"[DIAGNOSTIC] Context passed:\n{context}")
+        print(f"{'-'*75}\n")
+
         skill_dir = find_skill_dir(skill_name, project_path)
         if skill_dir is None:
             active = [s["name"] for s in active_skills(project_path)]
@@ -554,9 +670,14 @@ def build_run_skill_tool(
             out = await sub_agent.run(AgentInput(prompt=prompt))
             out_text = out.response if hasattr(out, "response") else str(out)
             tool_calls = getattr(out, "tool_calls_made", "?")
+            print(f"\n{'-'*25} [DIAGNOSTIC: WORKER FINISHED] {'-'*25}")
+            print(f"[DIAGNOSTIC] Worker '{skill_name}' tool calls made: {tool_calls}")
+            print(f"[DIAGNOSTIC] Worker output preview ({len(out_text)} chars):\n{out_text[:300]}...")
+            print(f"{'-'*75}\n")
         except Exception as e:
             out_text = f"[CRITICAL WORKER CRASH] A exceção não tratada interrompeu o worker: {str(e)}"
             tool_calls = "?"
+            print(f"[DIAGNOSTIC WORKER CRASH]: {e}")
 
         finally:
             set_worker_context(False)
@@ -589,6 +710,13 @@ def build_run_skill_tool(
                 or "max iterations reached" in worker_summary.lower()
             ):
                 worker_summary = f"[AVISO: O worker terminou sem um resumo claro. Ele realizou {tool_calls} chamadas de ferramenta e o último texto gerado foi: {out_text}]"
+
+        # A serialized tool call is not a report. Neutralise it here, before the text
+        # reaches the orchestrator's context, the stored history, or the next worker
+        # prompt — otherwise every consumer downstream learns the broken pattern.
+        worker_summary, had_tool_call_payload = _strip_serialized_tool_calls(worker_summary)
+        if not had_tool_call_payload and _is_broken_serialization(worker_summary):
+            worker_summary = _BROKEN_SERIALIZATION_MARKER
 
         memgpt._last_worker_summary = worker_summary
 
@@ -824,6 +952,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     from .tools import create_plan, ask_question
 
     orchestrator_tools = [
+        wrap_tool(ask_question),
         wrap_tool(read_core_memory), 
         wrap_tool(read_file), 
         wrap_tool(read_content_pos),
@@ -838,7 +967,6 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         wrap_tool(create_docx_file),
         wrap_tool(create_pptx_file),
         wrap_tool(create_plan),
-        wrap_tool(ask_question),
     ]
     if enable_achievements:
         from .tools import update_achievements_memory
