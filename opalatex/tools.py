@@ -1180,8 +1180,14 @@ def replace_content_range(path: str, start_pos: int, end_pos: int, content: str)
     name="read_content_pos",
     is_safe=True,
     description=(
-        "Read a specific range of lines from a file. "
-        "start_pos and end_pos are 1-indexed line numbers (inclusive)."
+        "Page through a file by 1-indexed line numbers (inclusive start_pos/end_pos). "
+        "This is the paging tool read_file points to when a whole-file read is too big "
+        "for the remaining context window: call search_code first to find a target line, "
+        "or start at (1, N) to page sequentially from the top. If the requested range is "
+        "larger than what still fits the context budget, the returned text is capped and "
+        "a trailing note reports the total line count, how many lines remain, and the "
+        "start_pos to pass on the next call — always re-read that note rather than "
+        "assuming the full requested range came back."
     )
 )
 def read_content_pos(path: str, start_pos: int, end_pos: int) -> str:
@@ -1191,7 +1197,7 @@ def read_content_pos(path: str, start_pos: int, end_pos: int) -> str:
         raise ValueError(f"Error resolving path: {e}")
 
     AGENT_PROGRESS.update("read_content_pos", f"path={_preview(resolved)} lines={start_pos}-{end_pos}")
-    
+
     try:
         if os.path.isdir(resolved):
             raise ValueError(f"Error: '{_preview(resolved)}' is a directory, not a file.")
@@ -1207,19 +1213,77 @@ def read_content_pos(path: str, start_pos: int, end_pos: int) -> str:
 
     try:
         lines = _read_text_file(resolved).splitlines(keepends=True)
-            
+        total_lines = len(lines)
+
         start_idx = start_pos - 1
-        end_idx = min(len(lines), end_pos)
-        
-        if start_idx >= len(lines):
+
+        if start_idx >= total_lines:
             return (
                 f"No content read: start_pos {start_pos} is beyond the end of the file "
-                f"(total lines: {len(lines)}). Use start_pos <= {len(lines)} or locate "
+                f"(total lines: {total_lines}). Use start_pos <= {total_lines} or locate "
                 "the target section before retrying."
             )
-            
+
+        requested_end_idx = min(total_lines, end_pos)
+
+        # A page must fit the remaining context budget on its own: read_content_pos is
+        # the escape hatch read_file's own refusal points models toward, so it cannot
+        # reproduce the same unbounded-read overflow just because the caller asked for
+        # a wide range. Cap the slice instead of refusing outright -- paging tools are
+        # expected to return partial pages -- but always say so explicitly (PROJECT_DESIGN
+        # 2.6, no silent substitution): a capped page must never look like the full
+        # requested range.
+        budget_chars = free_context_chars()
+        if budget_chars <= 0:
+            window = context_window_tokens()
+            used = used_context_tokens()
+            raise ValueError(
+                f"Error: the context window is exhausted ({used:,} of {window:,} tokens "
+                f"already used), so '{_preview(resolved)}' cannot be read further. "
+                "Summarize what you already know and answer, or ask the user to start a "
+                "new chat or raise num_ctx in the project settings."
+            )
+
+        end_idx = start_idx
+        consumed = 0
+        for idx in range(start_idx, requested_end_idx):
+            consumed += len(lines[idx])
+            if consumed > budget_chars and end_idx > start_idx:
+                break
+            end_idx = idx + 1
+            if consumed > budget_chars:
+                break
+
         selected_lines = lines[start_idx:end_idx]
-        return "".join(selected_lines)
+        content = "".join(selected_lines)
+        line_truncated = False
+        if len(content) > budget_chars:
+            # A single line alone exceeds the whole page budget (e.g. a minified JSON
+            # line); still make forward progress instead of returning nothing.
+            content = content[:budget_chars]
+            line_truncated = True
+
+        actual_end_pos = end_idx
+        remaining_lines = total_lines - end_idx
+
+        notes = []
+        if line_truncated:
+            notes.append(f"line {actual_end_pos} was itself too long to fit and was cut short")
+        elif end_idx < requested_end_idx:
+            notes.append(f"capped to fit the remaining context budget (you asked through line {end_pos})")
+        if remaining_lines > 0:
+            notes.append(f"{remaining_lines:,} more line(s) remain")
+
+        if notes:
+            content += (
+                f"\n\n[Showing lines {start_pos}-{actual_end_pos} of {total_lines:,} total "
+                f"lines in '{_preview(resolved)}': " + "; ".join(notes) + ". "
+                f"Call read_content_pos({path!r}, {actual_end_pos + 1}, <end_pos>) to continue.]"
+            )
+
+        return content
+    except ValueError:
+        raise
     except Exception as e:
         raise ValueError(f"Error reading {_preview(resolved)}: {e}")
 
