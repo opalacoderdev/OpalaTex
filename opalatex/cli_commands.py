@@ -84,6 +84,9 @@ async def cmd_clear(state: REPLState, _args: list[str]) -> None:
         state.memgpt = build_chat_orchestrator(state.project, state.store)
         from .archival import clear_archival
         clear_archival(state.project.name)
+        # Every chat is gone, so no stored measurement describes anything.
+        from .token_usage import reset_context_usage
+        reset_context_usage()
         T.success("Project global memory and all chats cleared.")
     else:
         T.warning("Ação cancelada.")
@@ -92,15 +95,10 @@ async def cmd_clear(state: REPLState, _args: list[str]) -> None:
 async def cmd_clear_chat(state: REPLState, _args: list[str]) -> None:
     chat_id = getattr(state.project, "current_chat_id", "main")
     if await T.aconfirm(f"Are you sure you want to clear chat '{chat_id}' history?"):
-        state.store.clear_project_history(state.project.name, chat_id)
-        if not getattr(state.project, "use_shared_memory", True):
-            state.store.update_chat_core_memory(state.project.name, chat_id, "")
-        # Re-load project
-        state.project = state.store.load(state.project.name, chat_id=chat_id)
+        from .chat_ops import clear_chat
+        state.project = clear_chat(state.project, state.store, chat_id)
         from .memgpt_runtime import build_chat_orchestrator
         state.memgpt = build_chat_orchestrator(state.project, state.store)
-        from .archival import clear_archival_chat
-        clear_archival_chat(state.project.name, chat_id)
         T.success(f"Chat '{chat_id}' cleared.")
     else:
         T.warning("Ação cancelada.")

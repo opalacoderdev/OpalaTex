@@ -308,6 +308,8 @@
   },
   "chatPanel": {
     "header": "OPALATEX CHAT",
+    "contextMeasured": "Contexto: {{used}} usados / {{available}} livres de {{total}} tokens.\nJanela efetiva: num_ctx={{total}} — este é o teto real, não o máximo do modelo. Aumente num_ctx nas configurações do projeto para usar mais.",
+    "contextEstimated": "Contexto: ~{{used}} usados / ~{{available}} livres de {{total}} tokens (estimado até a primeira resposta do modelo).\nJanela efetiva: num_ctx={{total}} — este é o teto real, não o máximo do modelo.",
     "orchestrator": "Orquestrador",
     "worker": "Worker",
     "refreshModels": "Atualizar Modelos",
@@ -320,6 +322,9 @@
     "exportPDF": "Exportar como PDF / Imprimir",
     "clearChat": "Limpar chat (Varrer)",
     "clearAllChats": "Excluir todos os chats do projeto",
+    "clearChatTitle": "Limpar chat",
+    "clearChatConfirmation": "Isso excluirá permanentemente o histórico deste chat e a memória que o agente tem dele. Esta ação não pode ser desfeita.",
+    "clearChatFailed": "Não foi possível limpar o chat: {{message}}",
     "clearAllChatsTitle": "Excluir todos os chats",
     "clearAllChatsConfirmation": "Isso excluirá permanentemente todos os chats e seus históricos deste projeto. Esta ação não pode ser desfeita.",
     "clearAllChatsFailed": "Não foi possível excluir todos os chats: {{message}}",

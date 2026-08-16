@@ -64,6 +64,8 @@ export default function ChatPanel({
   isInterruptPending = false,
   chatThoughtStream,
   chatResponseStream,
+  chatContextUsage,
+  setChatContextUsage,
   activeProject,
   isChatVisible,
   setIsChatVisible,
@@ -642,6 +644,41 @@ export default function ChatPanel({
     }
   };
 
+  // Clearing the chat is a server-side operation, not a UI reset: it erases the
+  // stored conversation and the orchestrator's working memory. Hiding the
+  // bubbles while the agent still remembers everything would misrepresent both
+  // the conversation and the context indicator.
+  const handleClearChat = async () => {
+    if (!activeProject || isAgentRunning) return;
+
+    setShowChatActionsMenu(false);
+    const confirmed = await showConfirm(
+      t('chatPanel.clearChatConfirmation', 'This will permanently delete this chat\'s history and the agent\'s memory of it. This cannot be undone.'),
+      t('chatPanel.clearChatTitle', 'Clear chat')
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch('/api/chat/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_name: activeProject.name, chat_id: activeChatId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
+
+      setChatInput('');
+      setPendingAttachments([]);
+      setChatContextUsage?.(null);
+      onClearChat?.();
+    } catch (err) {
+      console.error('Failed to clear chat:', err);
+      showAlert(t('chatPanel.clearChatFailed', 'Could not clear the chat: {{message}}', {
+        message: err?.message || String(err),
+      }));
+    }
+  };
+
   const handleClearAllChats = async () => {
     if (!activeProject || isAgentRunning) return;
 
@@ -668,6 +705,8 @@ export default function ChatPanel({
       setChatInput('');
       setPendingAttachments([]);
       setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);
+      // Every chat was deleted server-side, so the measured occupancy is gone too.
+      setChatContextUsage?.(null);
     } catch (err) {
       console.error('Failed to clear all chats:', err);
       showAlert(t('chatPanel.clearAllChatsFailed', 'Could not delete all chats: {{message}}', {
@@ -821,8 +860,21 @@ export default function ChatPanel({
     height: '22px',
   };
 
-  // Token battery calculation
-  const numCtx = parseInt(activeProject?.model_params?.num_ctx || activeProject?.agent_params?.max_context_tokens || 8192, 10);
+  // Token battery calculation.
+  //
+  // The authoritative number is prompt_tokens from the provider, reported by the
+  // backend after every LLM call: it is the only measurement that includes the
+  // system prompt, the tool JSON schemas, the tool calls and the tool results —
+  // and those, not the visible bubbles, are what fills an agent context window.
+  //
+  // The character estimate below is a fallback for the state before the first
+  // measured call of a conversation. It is deliberately not mixed into the
+  // measured value: adding a guess on top of a measurement would make the gauge
+  // wrong in a way that looks precise.
+  const measuredTokens = chatContextUsage?.promptTokens || 0;
+  const isMeasuredContext = measuredTokens > 0;
+  const numCtx = chatContextUsage?.contextWindow
+    || parseInt(activeProject?.model_params?.num_ctx || activeProject?.agent_params?.max_context_tokens || 8192, 10);
   const historyTokens = chatMessages.reduce((acc, msg) => {
     const contentLen = msg.content?.length || 0;
     const thoughtLen = msg._thoughtStream?.length || 0;
@@ -830,11 +882,17 @@ export default function ChatPanel({
   }, 0);
   const liveStreamTokens = Math.ceil(((chatThoughtStream?.length || 0) + (chatResponseStream?.length || 0)) / 4);
   const estimatedTokens = historyTokens + liveStreamTokens;
-  const availableTokens = Math.max(0, numCtx - estimatedTokens);
-  const tokenPercentage = Math.min(100, Math.max(0, (availableTokens / numCtx) * 100));
+  const usedTokens = isMeasuredContext ? measuredTokens : estimatedTokens;
+  const availableTokens = Math.max(0, numCtx - usedTokens);
+  // The bar drains like a battery (remaining), but the number states how much is
+  // CONSUMED — that is what "token consumption" means to the reader, and a bare
+  // remaining-percentage is trivially misread as its opposite.
+  const remainingPercentage = Math.min(100, Math.max(0, (availableTokens / numCtx) * 100));
+  const consumedPercentage = Math.min(100, Math.max(0, 100 - remainingPercentage));
   const isTokenExploded = availableTokens === 0;
   // Cheia (verde), perto do limite (amarela), explodiu (vermelha)
-  const batteryColor = isTokenExploded ? 'var(--battery-exploded)' : tokenPercentage <= 20 ? 'var(--battery-low)' : 'var(--battery-good)';
+  const batteryColor = isTokenExploded ? 'var(--battery-exploded)' : remainingPercentage <= 20 ? 'var(--battery-low)' : 'var(--battery-good)';
+  const formatTokens = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : `${n}`);
 
   if (!isChatVisible) return null;
 
@@ -857,7 +915,10 @@ export default function ChatPanel({
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div 
-            title={`Contexto: ${availableTokens} disponíveis / ${numCtx} total`}
+            title={t(
+              isMeasuredContext ? 'chatPanel.contextMeasured' : 'chatPanel.contextEstimated',
+              { used: usedTokens, available: availableTokens, total: numCtx },
+            )}
             style={{ 
               display: 'flex', alignItems: 'center', gap: '4px', 
               marginRight: '8px', cursor: 'help',
@@ -875,19 +936,24 @@ export default function ChatPanel({
                 display: 'flex'
               }}>
                 <div style={{
-                  width: `${Math.min(100, tokenPercentage)}%`, 
-                  backgroundColor: batteryColor, 
-                  height: '100%', 
+                  width: `${Math.min(100, remainingPercentage)}%`,
+                  backgroundColor: batteryColor,
+                  height: '100%',
                   transition: 'width 0.3s'
                 }} />
               </div>
               <div style={{
-                width: '2px', height: '3px', 
-                backgroundColor: batteryColor, 
+                width: '2px', height: '3px',
+                backgroundColor: batteryColor,
                 borderRadius: '0 1px 1px 0'
               }} />
             </div>
-            <span>{Math.round(tokenPercentage)}%</span>
+            <span>
+              {Math.round(consumedPercentage)}%
+              <span style={{ opacity: 0.75, marginLeft: '4px' }}>
+                {formatTokens(usedTokens)}/{formatTokens(numCtx)}
+              </span>
+            </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '4px' }}>
             <input 
@@ -973,10 +1039,8 @@ export default function ChatPanel({
                 <button
                   type="button"
                   className="vscode-overflow-menu-item"
-                  onClick={() => {
-                    onClearChat?.();
-                    setShowChatActionsMenu(false);
-                  }}
+                  onClick={handleClearChat}
+                  disabled={!activeProject || isAgentRunning}
                   role="menuitem"
                 >
                   <Eraser size={14} />

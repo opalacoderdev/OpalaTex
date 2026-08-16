@@ -2345,6 +2345,39 @@ class AsyncHTTPServer:
             clear_archival_chat(project_name, chat_id)
             self.send_response(writer, 200, b'{"status":"ok"}', "application/json")
 
+        elif path == '/api/chat/clear' and method == 'POST':
+            # Same effects as the /clear_chat command: both call chat_ops.clear_chat.
+            from opalatex.config import DEFAULT_DB_PATH
+            from opalatex.project import ProjectStore
+            from opalatex.chat_ops import clear_chat
+
+            project_name = data.get("project_name")
+            chat_id = data.get("chat_id") or "main"
+            if not project_name:
+                self.send_response(writer, 400, b'{"error":"project_name required"}', "application/json")
+                return
+
+            store = ProjectStore(db_path=DEFAULT_DB_PATH)
+            project = store.load(project_name, chat_id=chat_id)
+            if not project:
+                self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
+                return
+
+            clear_chat(project, store, chat_id)
+
+            # Drop the in-memory orchestrator so a stale internal_history cannot
+            # be written back over the cleared state by a later turn.
+            import opalatex.agent_stdin as _agent_stdin
+            if getattr(_agent_stdin, "current_memgpt", None) is not None:
+                _agent_stdin.current_memgpt = None
+
+            self.send_response(
+                writer,
+                200,
+                json.dumps({"status": "ok", "chat_id": chat_id}).encode('utf-8'),
+                "application/json",
+            )
+
         elif path == '/api/chat/clear-all' and method == 'POST':
             from opalatex.config import DEFAULT_DB_PATH
             from opalatex.project import ProjectStore
@@ -2368,6 +2401,9 @@ class AsyncHTTPServer:
                 return
 
             clear_archival(project_name)
+            # Every chat is gone, so no stored measurement describes anything.
+            from opalatex.token_usage import reset_context_usage
+            reset_context_usage()
             self.send_response(
                 writer,
                 200,
@@ -2522,7 +2558,19 @@ class AsyncHTTPServer:
                 self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
                 return
             activity = store.list_activity(project_name, chat_id)
-            self.send_response(writer, 200, json.dumps({"history": project.history, "activity": activity}).encode(), "application/json")
+            # The measured context occupancy lives in the server process, so a
+            # browser reload can rehydrate the real number instead of dropping
+            # back to the character estimate. Scoped so another chat's
+            # measurement is never returned here.
+            from opalatex.token_usage import context_scope_key, get_context_usage
+            context_usage = get_context_usage(
+                context_scope_key(project.project_path or "", chat_id)
+            )
+            self.send_response(writer, 200, json.dumps({
+                "history": project.history,
+                "activity": activity,
+                "context_usage": context_usage,
+            }).encode(), "application/json")
 
         elif path == '/api/chat/list' and method == 'GET':
             from opalatex.config import DEFAULT_DB_PATH

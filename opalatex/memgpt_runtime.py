@@ -412,7 +412,9 @@ def build_run_skill_tool(
             loop_detection_limit=worker_agent_params.get("loop_detection_limit", 3),
         )
         from .litellm_compat import wrap_agent_litellm_compat
+        from .token_usage import attach_usage_tracking
         wrap_agent_litellm_compat(sub_agent)
+        attach_usage_tracking(sub_agent)
 
         from opalatex.agent_stdin import _record_turn_thought, print_event
 
@@ -850,7 +852,11 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         response_mode=_agent_params.get("response_mode", get_agent_response_mode("memgpt")),
     )
     from .litellm_compat import wrap_agent_litellm_compat
+    from .token_usage import attach_usage_tracking
     wrap_agent_litellm_compat(memgpt)
+    # Report real context occupancy for the CLI path too, not only for runs that
+    # go through agent_stdin.
+    attach_usage_tracking(memgpt)
 
     from opalatex.agent_stdin import _record_turn_thought, print_event
     

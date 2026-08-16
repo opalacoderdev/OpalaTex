@@ -465,6 +465,36 @@ def read_file(path: str) -> str:
         # Catch cases like [Errno 36] File name too long if path contains code
         raise ValueError(f"Error: invalid path argument ({e.strerror}). 'read_file' expects a file path, not file contents.")
 
+    # A whole-file read is the fastest way to destroy a context window: the
+    # result is appended to history, MemGPT cannot evict the current user turn
+    # to make room, and the provider then truncates the request from the front —
+    # silently dropping the very question being answered. Refuse the read with a
+    # diagnostic instead of returning content that cannot fit (PROJECT_DESIGN
+    # 2.6, no silent substitution): the model is told how to page through the
+    # file rather than having its request quietly turned into a partial one.
+    budget_chars = free_context_chars()
+    try:
+        size = os.path.getsize(resolved)
+    except OSError:
+        size = 0
+    if size > budget_chars:
+        window = context_window_tokens()
+        used = used_context_tokens()
+        if budget_chars <= 0:
+            raise ValueError(
+                f"Error: the context window is exhausted ({used:,} of {window:,} tokens "
+                f"already used), so '{_preview(resolved)}' cannot be read. Summarize what "
+                "you already know and answer, or ask the user to start a new chat or raise "
+                "num_ctx in the project settings."
+            )
+        raise ValueError(
+            f"Error: '{_preview(resolved)}' is {size:,} bytes (~{size // 4:,} tokens) and does "
+            f"not fit the remaining context budget (~{budget_chars // 4:,} tokens of the "
+            f"{window:,}-token window, {used:,} already used). Do not retry read_file on this "
+            f"path. Use search_code(pattern, path) to locate the relevant lines, then "
+            f"read_content_pos(path, start_pos, end_pos) to read only that range."
+        )
+
     try:
         return _read_text_file(resolved)
     except Exception as e:
@@ -1410,23 +1440,46 @@ async def create_plan(plan_content: str) -> str:
         raise ValueError("The user REJECTED the plan. Wait for the user to provide feedback in the chat.")
 
 
-def _truncate_to_context_budget(text: str, reserve_pct: int = 50) -> str:
-    """Truncate *text* so it fits within the active model's free context budget.
+def context_window_tokens() -> int:
+    """Return the active context window, which is what num_ctx actually caps."""
+    model_params = getattr(_PROJECT_SESSION, "model_params", None) or {}
+    try:
+        return int(model_params.get("num_ctx") or 8192)
+    except (TypeError, ValueError):
+        return 8192
 
-    Mirrors the free_tokens/free_chars budget used for PDF attachment truncation
-    in agent_stdin.py: num_ctx minus a rough estimate of tokens already spent on
-    chat history. Only *reserve_pct* of what remains is granted to the tool
-    result, leaving room for the rest of the conversation and the model's reply.
+
+def used_context_tokens() -> int:
+    """Return how much of the window is already occupied.
+
+    Prefers the provider-reported `prompt_tokens` of the last call (see
+    opalatex.token_usage), which is the only figure that counts the system
+    prompt, the tool schemas and previous tool results. The char/4 estimate over
+    project_history is the fallback before the first measured call, and it
+    understates the real occupancy badly.
     """
-    session = _PROJECT_SESSION
-    model_params = getattr(session, "model_params", None) or {}
-    num_ctx = int(model_params.get("num_ctx") or 8192)
-    history = getattr(session, "history", None) or []
-    history_tokens = len(json.dumps(history)) // 4
-    free_tokens = max(0, num_ctx - history_tokens)
-    free_chars = free_tokens * 4
-    allowed_chars = int(free_chars * reserve_pct / 100)
+    from opalatex.token_usage import get_context_prompt_tokens
 
+    measured = get_context_prompt_tokens()
+    if measured is not None:
+        return measured
+    history = getattr(_PROJECT_SESSION, "history", None) or []
+    return len(json.dumps(history)) // 4
+
+
+def free_context_chars(reserve_pct: int = 50) -> int:
+    """Return how many characters a tool result may still add.
+
+    Only *reserve_pct* of the remaining window is granted to any single tool
+    result, leaving room for the rest of the turn and the model's own reply.
+    """
+    free_tokens = max(0, context_window_tokens() - used_context_tokens())
+    return int(free_tokens * 4 * reserve_pct / 100)
+
+
+def _truncate_to_context_budget(text: str, reserve_pct: int = 50) -> str:
+    """Truncate *text* so it fits within the active model's free context budget."""
+    allowed_chars = free_context_chars(reserve_pct)
     if allowed_chars <= 0 or len(text) <= allowed_chars:
         return text
     return (

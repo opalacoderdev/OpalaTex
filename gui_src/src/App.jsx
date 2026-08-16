@@ -281,7 +281,23 @@ export default function App() {
   const chatThoughtStreamRef = useRef('');
   const [chatResponseStream, setChatResponseStream] = useState('');
   const chatResponseStreamRef = useRef('');
+  // Provider-reported occupancy of the orchestrator context window, emitted by
+  // the backend after every LLM call. Null until the first measured call of a
+  // conversation, when the panel falls back to a character estimate.
+  const [chatContextUsage, setChatContextUsage] = useState(null);
   const agentResumeEventsRef = useRef([]);
+  // Shape the backend's measured usage for the panel. A payload without
+  // prompt_tokens carries no measurement, so the panel keeps estimating.
+  const contextUsageFromPayload = (payload) => (
+    payload && payload.prompt_tokens > 0
+      ? {
+        promptTokens: payload.prompt_tokens,
+        completionTokens: payload.completion_tokens || 0,
+        totalTokens: payload.total_tokens || 0,
+        contextWindow: payload.context_window || 0,
+      }
+      : null
+  );
   const [chatInput, setChatInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
@@ -674,6 +690,8 @@ export default function App() {
 
         // Show a blank state while we load — avoid flash of stale greeting
         setChatMessages([]);
+        // The measurement described the previous project's window.
+        setChatContextUsage(null);
         setIsLoadingChat(true);
 
         // Fetch chats
@@ -701,6 +719,8 @@ export default function App() {
               .then(res => res.json())
               .then(histData => {
                 startTransition(() => {
+                  // The server still holds the measured window for this chat.
+                  setChatContextUsage(contextUsageFromPayload(histData.context_usage));
                   if (histData.history && histData.history.length > 0) {
                     // Restore previous conversation
                     setChatMessages(attachThoughtActivityToMessages(histData.history, histData.activity || []));
@@ -752,6 +772,7 @@ export default function App() {
       setProblems([]);
       setChats([]);
       setChatMessages([]);
+      setChatContextUsage(null);
       setActiveChatId('main');
       setComparisonChats({ left: 'main', right: 'main' });
       setGitChanges([]);
@@ -765,6 +786,8 @@ export default function App() {
   const handleSwitchChat = async (id) => {
     if (!activeProject || id === activeChatId) return;
     setIsLoadingChat(true);
+    // Another chat is another history: the measured window no longer applies.
+    setChatContextUsage(null);
     setActiveChatId(id);
     setActiveProject(prev => prev ? { ...prev, current_chat_id: id } : null);
     localStorage.setItem(`lastChat_${activeProject.name}`, id);
@@ -776,6 +799,7 @@ export default function App() {
           const data = await res.json();
           const greeting = activeProject.project_name || activeProject.name;
           startTransition(() => {
+            setChatContextUsage(contextUsageFromPayload(data.context_usage));
             if (data.history && data.history.length > 0) {
               setChatMessages(attachThoughtActivityToMessages(data.history, data.activity || []));
             } else {
@@ -2340,6 +2364,12 @@ export default function App() {
       case 'achievements_update':
         setAchievementsMemory(data.content);
         break;
+      case 'token_usage':
+        // prompt_tokens is the size of the request the provider just billed, so
+        // it already accounts for the system prompt, the tool schemas, the tool
+        // calls and the tool results — none of which reach chatMessages.
+        setChatContextUsage(prev => contextUsageFromPayload(data) || prev);
+        break;
       case 'stream_chunk':
         const visibleStreamChunk = sanitizeVisibleStreamChunk(data.content);
         addLog('stream_chunk', visibleStreamChunk, data.agent);
@@ -2634,6 +2664,8 @@ export default function App() {
           setConfirmRequest({ id: result.id, prompt: result.prompt, options: result.options || ['yes', 'no'], default: result.default || 'yes', type: result.type || 'confirm', isSlashCommand: true });
           addLog('info', t('app.waitingConfirmation', { prompt: result.prompt }));
         } else if (result.status === 'done') {
+          // /clear and /clear_chat erase the context the indicator described.
+          setChatContextUsage(contextUsageFromPayload(result.context_usage));
           setChatMessages(prev => [...prev, { role: 'assistant', content: (result.messages || []).join('\n') || 'Comando executado.', timestamp: new Date().toISOString() }]);
         } else {
           setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Erro: ${result.error || 'desconhecido'}`, is_error: true, timestamp: new Date().toISOString() }]);
@@ -3632,6 +3664,8 @@ export default function App() {
               isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}
               chatResponseStream={chatResponseStream}
+              chatContextUsage={chatContextUsage}
+              setChatContextUsage={setChatContextUsage}
               activeProject={activeProject}
               isChatVisible={isChatVisible}
               setIsChatVisible={setIsChatVisible}
@@ -3716,6 +3750,8 @@ export default function App() {
               isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}
               chatResponseStream={chatResponseStream}
+              chatContextUsage={chatContextUsage}
+              setChatContextUsage={setChatContextUsage}
               activeProject={activeProject}
               isChatVisible={isChatVisible}
               setIsChatVisible={setIsChatVisible}

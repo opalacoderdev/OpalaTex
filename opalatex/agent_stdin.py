@@ -66,6 +66,9 @@ _ACTIVE_THOUGHT_SUPPRESSED = False
 MAX_THOUGHT_CHARS_PER_TURN = 24_000
 MAX_THOUGHT_CHUNK_CHARS = 4_000
 
+# Context window assumed when neither the project nor the agent declares one.
+DEFAULT_CONTEXT_WINDOW = 8192
+
 # Pending GUI input requests: maps request-id -> asyncio.Future so that the
 # /api/opalatex/input_response endpoint can resolve them.
 _gui_input_pending: dict = {}
@@ -143,7 +146,18 @@ try:
 except Exception:
     pass
 
+from agenticblocks.blocks.llm.tokens import count_message_tokens
 from opalatex.chat_meta_params import parse_meta_params, apply_meta_params
+from opalatex.token_usage import (
+    CONTEXT_AGENTS as TOKEN_CONTEXT_AGENTS,
+    attach_usage_tracking,
+    context_scope_key,
+    get_context_prompt_tokens,
+    record_context_tokens,
+    set_context_scope,
+    set_context_window,
+    set_usage_listener,
+)
 
 def _friendly_llm_error(exc: Exception, project=None) -> str:
     """Convert a LiteLLM/agent exception into a user-friendly message."""
@@ -1095,7 +1109,24 @@ async def handle_slash_command(data: dict) -> dict:
 
     await cmd_task
     response_text = "\n".join(m for m in messages if m is not None) or f"Comando {cmd} concluído."
-    return {"status": "done", "messages": [response_text]}
+    # A command may have erased the context the panel indicator was describing
+    # (/clear, /clear_chat). Return the occupancy that is true now — null once it
+    # was reset — so the indicator does not keep reporting a deleted conversation.
+    return {
+        "status": "done",
+        "messages": [response_text],
+        "context_usage": _current_context_usage(data.get("chat_id")),
+    }
+
+
+def _current_context_usage(chat_id: str | None) -> dict | None:
+    """Return the measured occupancy for the chat a request refers to."""
+    from opalatex.token_usage import get_context_usage
+
+    return get_context_usage(context_scope_key(
+        getattr(current_project, "project_path", "") or "",
+        chat_id or "",
+    ))
 
 
 # Pending slash-command tasks awaiting user confirmation
@@ -1151,6 +1182,30 @@ def _restore_transient_project_mode(initial_project_mode: str | None, agent_type
         current_store.save(current_project)
 
 
+def _resolve_context_window(agent: object, *model_param_sources: dict) -> int:
+    """Return the window size the measured token usage is reported against.
+
+    The agent's own ``max_context_tokens`` wins because MemGPT already resolved
+    it from ``num_ctx`` and evicts against that exact number; the raw project
+    parameters are only consulted for agents that do not carry one.
+    """
+    candidates = [
+        getattr(agent, "max_context_tokens", None),
+        (getattr(agent, "model_kwargs", None) or {}).get("num_ctx"),
+    ]
+    for source in model_param_sources:
+        candidates.append((source or {}).get("num_ctx"))
+
+    for value in candidates:
+        try:
+            window = int(value)
+        except (TypeError, ValueError):
+            continue
+        if window > 0:
+            return window
+    return DEFAULT_CONTEXT_WINDOW
+
+
 async def handle_run(data: dict):
     global current_project, current_store, current_memgpt
     
@@ -1171,6 +1226,15 @@ async def handle_run(data: dict):
     # Setup project context if provided
     if "project_path" in data or "project_name" in data:
         await handle_load_project(data)
+
+    # Measured context occupancy belongs to one conversation. Rebinding the
+    # scope drops a measurement taken for a different project or chat instead of
+    # reporting it against the history now loaded.
+    if agent_type in TOKEN_CONTEXT_AGENTS:
+        set_context_scope(context_scope_key(
+            getattr(current_project, "project_path", "") or "",
+            data.get("chat_id") or "",
+        ))
 
     # A project starts with no model configured. Fail fast with a clear diagnostic
     # instead of silently substituting DEFAULT_MODEL for the user's (absent) choice.
@@ -1338,7 +1402,8 @@ async def handle_run(data: dict):
         )
     from opalatex.litellm_compat import wrap_agent_litellm_compat
     wrap_agent_litellm_compat(agent)
-    
+    attach_usage_tracking(agent)
+
     # Setup message history if provided (for custom/standard LLMAgentBlock)
     if messages_history and hasattr(agent, "internal_history"):
         agent.internal_history.clear()
@@ -1462,6 +1527,23 @@ async def handle_run(data: dict):
         _process_visible_chunk(chunk)
 
     def _on_iteration(_step: int, messages: list) -> None:
+        # Fires just before each LLM call, so the request assembled here already
+        # carries the tool results produced since the previous call. Counting it
+        # now is what makes the context indicator move while the agent is still
+        # working, instead of only when the provider reports usage afterwards.
+        if agent_type in TOKEN_CONTEXT_AGENTS:
+            try:
+                assembled = count_message_tokens(agent.model, messages)
+                record_context_tokens(assembled)
+                print_event("token_usage", {
+                    "agent": agent_type,
+                    "context_window": _context_window,
+                    "prompt_tokens": assembled,
+                    "source": "local",
+                })
+            except Exception:
+                pass
+
         last = messages[-1] if messages else {}
         content = last.get("content") or ""
         if _should_emit_iteration_reflection(last):
@@ -1570,6 +1652,30 @@ async def handle_run(data: dict):
     T._async_ask_hook = _handle_run_ask_hook
     T._async_interactive_terminal_hook = _handle_run_interactive_terminal_hook
 
+    # Report what the provider charges for each request of this turn, so the
+    # panel indicator tracks the real window instead of a char count over the
+    # visible bubbles. Only the chat orchestrator is reported: sub-agents run
+    # their own histories and do not describe the conversation's window.
+    _context_window = _resolve_context_window(
+        agent,
+        data.get("model_params") or {},
+        getattr(current_project, "model_params", {}) or {},
+    )
+
+    if agent_type in TOKEN_CONTEXT_AGENTS:
+        set_context_window(_context_window)
+
+    def _report_token_usage(usage_agent: str, record: dict) -> None:
+        if usage_agent not in TOKEN_CONTEXT_AGENTS:
+            return
+        print_event("token_usage", {
+            "agent": usage_agent,
+            "context_window": _context_window,
+            **record,
+        })
+
+    set_usage_listener(_report_token_usage)
+
     try:
         try:
             # --- Attachment processing: vision gate + smart PDF truncation ---
@@ -1585,11 +1691,19 @@ async def handle_run(data: dict):
 
             pdf_truncate_enabled = _mp.get("pdf_truncate", True)
             pdf_truncate_pct = int(_mp.get("pdf_truncate_pct", 50))
-            num_ctx = int(_mp.get("num_ctx", 8192))
+            num_ctx = int(_mp.get("num_ctx", DEFAULT_CONTEXT_WINDOW))
 
-            # Rough token estimate: history JSON length / 4 chars-per-token
-            _hist = getattr(current_project, "history", []) or []
-            history_tokens = len(json.dumps(_hist)) // 4
+            # Budget the attachment against what the provider charged for the
+            # previous request of this chat. project_history holds neither the
+            # system prompt, nor the tool schemas, nor any tool result, so its
+            # JSON length understates the occupied window by a wide margin and
+            # lets a truncated PDF still overflow the context. The char/4
+            # estimate remains only as the pre-measurement fallback, on the very
+            # first request of a conversation.
+            history_tokens = get_context_prompt_tokens()
+            if history_tokens is None:
+                _hist = getattr(current_project, "history", []) or []
+                history_tokens = len(json.dumps(_hist)) // 4
             free_tokens = max(0, num_ctx - history_tokens)
             free_chars = free_tokens * 4  # back to chars
 
@@ -1768,6 +1882,7 @@ async def handle_run(data: dict):
                 pass
         T._async_confirm_hook = orig_async_confirm_hook
         T._async_ask_hook = orig_async_ask_hook
+        set_usage_listener(None)
         _ACTIVE_THOUGHT_CHUNKS = None
         _restore_transient_project_mode(
             locals().get("initial_project_mode"),

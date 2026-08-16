@@ -308,6 +308,8 @@
   },
   "chatPanel": {
     "header": "OPALATEX CHAT",
+    "contextMeasured": "Context: {{used}} used / {{available}} free of {{total}} tokens.\nEffective window: num_ctx={{total}} — this is the real cap, not the model's maximum. Raise num_ctx in the project settings to use more.",
+    "contextEstimated": "Context: ~{{used}} used / ~{{available}} free of {{total}} tokens (estimated until the first model response).\nEffective window: num_ctx={{total}} — this is the real cap, not the model's maximum.",
     "orchestrator": "Orchestrator",
     "worker": "Worker",
     "refreshModels": "Refresh Models",
@@ -320,6 +322,9 @@
     "exportPDF": "Export as PDF / Print",
     "clearChat": "Clear chat",
     "clearAllChats": "Delete all project chats",
+    "clearChatTitle": "Clear chat",
+    "clearChatConfirmation": "This will permanently delete this chat's history and the agent's memory of it. This cannot be undone.",
+    "clearChatFailed": "Could not clear the chat: {{message}}",
     "clearAllChatsTitle": "Delete all chats",
     "clearAllChatsConfirmation": "This will permanently delete every chat and its history for this project. This cannot be undone.",
     "clearAllChatsFailed": "Could not delete all chats: {{message}}",

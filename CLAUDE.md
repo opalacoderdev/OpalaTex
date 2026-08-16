@@ -8,9 +8,9 @@
 
 1.1. Do not implement kludges, ad hoc semantic fallbacks, or hidden behavior substitutions without explicit user authorization. In particular, do not "fix" an invalid tool call by silently converting it into a different action. Preserve tool contracts, fail fast with a clear diagnostic, add bounded loop breakers when needed, and ask the user before introducing compatibility hacks.
 
-2. Dever apply direct patch ou modifications in external lib without user authorization.
+2. `agenticblocks/` is first-party source in this repository, not a third-party dependency. Change it like any other project code when the framework genuinely lacks a capability: add the feature to the block itself, in a general form that stays useful outside OpalaTex, and cover it with tests. Do not push OpalaTex-specific behavior down into the framework, and do not break existing callers. Genuinely external dependencies (litellm, pydantic, anything under `site-packages`) must still never be patched without explicit user authorization.
 
-3. Dont call directly litellm (always use agenticblocks). If need same feature dont supported by agenticblocks, alert me and ask me about to do.
+3. Don't call litellm directly — always go through agenticblocks. If agenticblocks lacks a feature you need, add it there (see rule 2) instead of reaching around the framework, and tell me what you added.
 
 # Project Guide
 
@@ -20,11 +20,12 @@ Hardcoded text in UI components, default values, error messages, and string lite
 
 ## Architecture
 
-This project uses the **AgenticBlocks.IO** framework.
-Before starting any task, read the library source and documentation at:
+This project uses the **AgenticBlocks.IO** framework, whose source lives in this
+repository under [agenticblocks/](./agenticblocks/) — read it there, since the
+vendored copy is the one that actually runs. Upstream reference:
 https://github.com/gilzamir/agenticblocks
 
-Key things to understand from that repo:
+Key things to understand from that source:
 - How blocks are structured and composed
 - How agents communicate and dispatch events
 - Naming conventions used throughout the framework

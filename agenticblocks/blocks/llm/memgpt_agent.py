@@ -11,6 +11,7 @@ from agenticblocks.core.agent import AgentBlock
 from agenticblocks.blocks.llm.agent import (
     AgentInput, AgentOutput, _get_shared_router, _print_debug_report
 )
+from agenticblocks.blocks.llm.tokens import count_message_tokens
 from agenticblocks.tools.a2a_bridge import block_to_tool_schema
 from agenticblocks.core.block import Block
 from agenticblocks.core.function_block import as_tool
@@ -106,6 +107,15 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     """Optional callback invoked after each LLM call with standard content chunks.
     Signature: `def callback(chunk: str) -> Any`.
     Can be a synchronous or asynchronous function."""
+    on_token_usage: Optional[Callable[["TokenUsage"], Any]] = None
+    """Optional callback invoked after each LLM call with token statistics.
+    Fires once per heartbeat call, carrying the provider-reported prompt,
+    completion and total token counts for that call. `prompt_tokens` measures the
+    whole assembled request -- system prompt, recursive summary, tool schemas,
+    tool calls and tool results included -- so it is the only accurate reading of
+    how full the context window is.
+    Signature: `def callback(usage: TokenUsage) -> Any`.
+    Can be a synchronous or asynchronous function."""
 
     # Memória de estado persistente do agente
     internal_history: List[Dict[str, Any]] = Field(default_factory=list)
@@ -135,6 +145,13 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                 self.on_chunk(chunk)
 
     async def _emit_token_usage(self, response: Any, step: int) -> None:
+        """
+        Extracts token usage from a LiteLLM response and emits a TokenUsage record:
+          - Appends to ExecutionContext.token_stats (when inside a WorkflowExecutor run).
+          - Invokes self.on_token_usage callback (when set).
+
+        Safe to call when no ExecutionContext is active (standalone use).
+        """
         usage = getattr(response, "usage", None)
         record = TokenUsage(
             block_name=self.name,
@@ -143,18 +160,23 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
             completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
             total_tokens=getattr(usage, "total_tokens", 0) or 0,
         )
+
+        # Push to the shared ExecutionContext when running inside WorkflowExecutor
         try:
             ctx = _current_ctx.get()
             await ctx.add_token_usage(record)
         except LookupError:
-            pass
+            pass  # Running standalone, outside a WorkflowExecutor
+
+        # Invoke optional user-supplied callback
+        if self.on_token_usage:
+            if inspect.iscoroutinefunction(self.on_token_usage):
+                await self.on_token_usage(record)
+            else:
+                self.on_token_usage(record)
 
     def _estimate_tokens(self, messages: List[Dict[str, Any]]) -> int:
-        try:
-            return litellm.token_counter(model=self.model, messages=messages)
-        except Exception:
-            text = json.dumps(messages)
-            return len(text) // 4
+        return count_message_tokens(self.model, messages)
 
     def _get_safe_eviction_index(self, history: List[Dict[str, Any]], target_count: int) -> int:
         """Finds a safe index to evict up to, ensuring we don't split tool calls from their results.
