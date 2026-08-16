@@ -19,6 +19,7 @@ from opalatex.memgpt_runtime import (
     make_intercepted_send_message,
     _current_date_instruction,
     _is_failed_worker_result,
+    _recent_failed_delegations,
     _recent_failed_skill_attempts,
     _sanitize_skill_result_for_prompt,
     _strip_serialized_tool_calls,
@@ -308,6 +309,45 @@ def test_run_skill_breaks_redelegation_after_reports_without_summary(tmp_path):
 
     assert "WORKER LOOP BREAKER" in result
     assert _recent_failed_skill_attempts(m, "log-table-condenser") == 2
+
+
+def test_run_skill_breaks_delegation_loop_when_the_orchestrator_alternates_skills(tmp_path):
+    """Switching specialist must not reset the breaker.
+
+    Observed run: log-table-condenser, log-table-condenser, command-line,
+    log-table-condenser, log-table-condenser — five delegations, none with a
+    report, because the per-skill counter stops scanning at the first entry
+    belonging to another skill.
+    """
+    m = build_chat_orchestrator(_project(tmp_path), None)
+    m._skill_run_history = [
+        {"skill": "log-table-condenser", "context": "c1", "result": _SERIALIZED_TOOL_CALL},
+        {"skill": "log-table-condenser", "context": "c2", "result": _UNCLOSED_REPORT},
+        {"skill": "command-line", "context": "c3", "result": _UNCLOSED_REPORT},
+    ]
+    run_skill = build_run_skill_tool(m, str(tmp_path), "ollama/proj")
+    raw = getattr(run_skill, "_func", None) or run_skill
+
+    # The per-skill counter cannot see this: the newest entry is another skill.
+    assert _recent_failed_skill_attempts(m, "log-table-condenser") == 0
+    assert _recent_failed_delegations(m) == 3
+
+    result = asyncio.run(raw("log-table-condenser", "c4"))
+
+    assert "DELEGATION LOOP BREAKER" in result
+    assert "ask_question" in result
+
+
+def test_delegation_counter_resets_after_a_usable_report(tmp_path):
+    m = build_chat_orchestrator(_project(tmp_path), None)
+    m._skill_run_history = [
+        {"skill": "log-table-condenser", "context": "c1", "result": _SERIALIZED_TOOL_CALL},
+        {"skill": "command-line", "context": "c2", "result": _UNCLOSED_REPORT},
+        {"skill": "log-table-condenser", "context": "c3",
+         "result": "Condensed 480 log lines into logs/summary.csv (5 columns)."},
+    ]
+
+    assert _recent_failed_delegations(m) == 0
 
 
 def test_tool_calls_count_accepts_int_like_values():

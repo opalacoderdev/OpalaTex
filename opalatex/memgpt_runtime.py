@@ -72,6 +72,7 @@ from .project import tutorial_chat_id
 
 CHAT_ORCHESTRATOR_SKILL = "chat-orchestrator"
 MAX_FAILED_SKILL_ATTEMPTS = 2
+MAX_FAILED_DELEGATIONS = 3
 
 
 _SERIALIZED_TOOL_CALL_MARKER = (
@@ -203,6 +204,22 @@ def _recent_failed_skill_attempts(memgpt: MemGPTAgentBlock, skill_name: str) -> 
     for run in reversed(getattr(memgpt, "_skill_run_history", [])):
         if run.get("skill") != skill_name:
             break
+        if not _is_failed_worker_result(run.get("result", "")):
+            break
+        attempts += 1
+    return attempts
+
+
+def _recent_failed_delegations(memgpt: MemGPTAgentBlock) -> int:
+    """Count trailing failed delegations regardless of which skill ran them.
+
+    ``_recent_failed_skill_attempts`` stops at the first entry belonging to another
+    skill, so alternating between two skills keeps its count at zero forever. An
+    orchestrator that cannot get a usable report is in the same dead end whether it
+    reworded the context or switched specialist, so this counter ignores the name.
+    """
+    attempts = 0
+    for run in reversed(getattr(memgpt, "_skill_run_history", [])):
         if not _is_failed_worker_result(run.get("result", "")):
             break
         attempts += 1
@@ -619,6 +636,16 @@ def build_run_skill_tool(
         # Inject previous attempts for the same skill to keep a Markovian state
         if not hasattr(memgpt, "_skill_run_history"):
             memgpt._skill_run_history = []
+
+        failed_delegations = _recent_failed_delegations(memgpt)
+        if failed_delegations >= MAX_FAILED_DELEGATIONS:
+            return (
+                f"[SYSTEM ALERT] DELEGATION LOOP BREAKER: the last {failed_delegations} "
+                "delegations, across every skill you tried, came back without a usable "
+                "report. Switching skills or rewording the context is not fixing this. "
+                "Stop delegating for this task: use your direct tools, ask the user what "
+                "they need with ask_question, or return a concise normal-text blocker."
+            )
 
         failed_attempts = _recent_failed_skill_attempts(memgpt, skill_name)
         if failed_attempts >= MAX_FAILED_SKILL_ATTEMPTS:
