@@ -149,3 +149,4 @@ venv.bak/
 
 # --- Snap packages (build artifacts) ---
 /*.snap
+.opalatex/

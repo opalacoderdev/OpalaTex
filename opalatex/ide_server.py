@@ -2337,10 +2337,11 @@ class AsyncHTTPServer:
             if not project_name or not chat_id:
                 self.send_response(writer, 400, b'{"error":"project_name and chat_id required"}', "application/json")
                 return
-            if chat_id == "main":
-                self.send_response(writer, 400, b'{"error":"Cannot delete main chat"}', "application/json")
+            try:
+                store.delete_chat(project_name, chat_id)
+            except ValueError as exc:
+                self.send_response(writer, 400, json.dumps({"error": str(exc)}).encode('utf-8'), "application/json")
                 return
-            store.delete_chat(project_name, chat_id)
             from opalatex.archival import clear_archival_chat
             clear_archival_chat(project_name, chat_id)
             self.send_response(writer, 200, b'{"status":"ok"}', "application/json")
@@ -2348,21 +2349,27 @@ class AsyncHTTPServer:
         elif path == '/api/chat/clear' and method == 'POST':
             # Same effects as the /clear_chat command: both call chat_ops.clear_chat.
             from opalatex.config import DEFAULT_DB_PATH
-            from opalatex.project import ProjectStore
+            from opalatex.project import ChatNotFoundError, ProjectStore
             from opalatex.chat_ops import clear_chat
 
             project_name = data.get("project_name")
-            chat_id = data.get("chat_id") or "main"
+            chat_id = data.get("chat_id") or None
             if not project_name:
                 self.send_response(writer, 400, b'{"error":"project_name required"}', "application/json")
                 return
 
             store = ProjectStore(db_path=DEFAULT_DB_PATH)
-            project = store.load(project_name, chat_id=chat_id)
+            try:
+                project = store.load(project_name, chat_id=chat_id)
+            except ChatNotFoundError as exc:
+                self.send_response(writer, 404, json.dumps({"error": str(exc)}).encode('utf-8'), "application/json")
+                return
             if not project:
                 self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
                 return
 
+            # ``chat_id`` may have been None: clear the chat the project resolved to.
+            chat_id = project.current_chat_id
             clear_chat(project, store, chat_id)
 
             # Drop the in-memory orchestrator so a stale internal_history cannot
@@ -2546,17 +2553,24 @@ class AsyncHTTPServer:
 
         elif path == '/api/chat/history' and method == 'GET':
             from opalatex.config import DEFAULT_DB_PATH
-            from opalatex.project import ProjectStore
+            from opalatex.project import ChatNotFoundError, ProjectStore
             store = ProjectStore(db_path=DEFAULT_DB_PATH)
             project_name = query.get("project_name", [""])[0]
-            chat_id = query.get("chat_id", ["main"])[0]
+            chat_id = query.get("chat_id", [""])[0] or None
             if not project_name:
                 self.send_response(writer, 400, b'{"error":"project_name required"}', "application/json")
                 return
-            project = store.load(project_name, chat_id=chat_id)
+            try:
+                project = store.load(project_name, chat_id=chat_id)
+            except ChatNotFoundError as exc:
+                # Answering with another chat's history is what made the panel
+                # show one chat in the selector and a different one in the body.
+                self.send_response(writer, 404, json.dumps({"error": str(exc)}).encode('utf-8'), "application/json")
+                return
             if not project:
                 self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
                 return
+            chat_id = project.current_chat_id
             activity = store.list_activity(project_name, chat_id)
             # The measured context occupancy lives in the server process, so a
             # browser reload can rehydrate the real number instead of dropping
@@ -2567,6 +2581,7 @@ class AsyncHTTPServer:
                 context_scope_key(project.project_path or "", chat_id)
             )
             self.send_response(writer, 200, json.dumps({
+                "chat_id": chat_id,
                 "history": project.history,
                 "activity": activity,
                 "context_usage": context_usage,
@@ -2584,7 +2599,15 @@ class AsyncHTTPServer:
             if not project:
                 self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
                 return
-            self.send_response(writer, 200, json.dumps({"chats": project.chats}).encode(), "application/json")
+            # The client must not guess which chat is the default: it is a real
+            # stored id, never the literal "main". Loading without a chat id
+            # resolves it — the main chat, or the first one for a project whose
+            # main chat an older build deleted.
+            self.send_response(writer, 200, json.dumps({
+                "chats": project.chats,
+                "main_chat_id": project.current_chat_id,
+                "current_chat_id": project.current_chat_id,
+            }).encode(), "application/json")
 
         elif path == '/api/chat/search' and method == 'GET':
             from opalatex.config import DEFAULT_DB_PATH
@@ -2679,8 +2702,9 @@ class AsyncHTTPServer:
                 else:
                     self.send_response(writer, 404, json.dumps({"error": f"Project '{project_name}' not found"}).encode(), "application/json")
                     return
-            chat_id = data.get("chat_id") or data.get("current_chat_id") or "main"
-            project = store.load(project_name, chat_id=chat_id)
+            # This endpoint patches project fields, not chat content, so it loads
+            # the default chat instead of trusting a client-supplied chat id.
+            project = store.load(project_name)
 
             # Patch only supplied fields
             if "display_name" in data:

@@ -191,6 +191,34 @@ def _print_debug_report(
     print(f"{'═' * 56}\n")
 
 
+def _tool_call_signature(function_name: str, arguments: Any) -> str:
+    """Return a stable identity for a tool call, used by loop detection.
+
+    Arguments are normalised through JSON when possible so that semantically
+    identical calls emitted with different key ordering or spacing collapse to
+    the same signature.
+    """
+    raw = arguments if isinstance(arguments, str) else json.dumps(arguments, default=str)
+    try:
+        parsed = json.loads(raw)
+        normalised = json.dumps(parsed, sort_keys=True, default=str)
+    except Exception:
+        normalised = (raw or "").strip()
+    return f"{function_name}:{normalised}"
+
+
+def _loop_block_message(function_name: str, limit: int) -> str:
+    """Corrective tool result returned when loop detection blocks a repeat call."""
+    return json.dumps({
+        "error": (
+            f"SYSTEM ALERT: Loop detected. You already called '{function_name}' "
+            f"{limit} times with these exact arguments and it did not resolve the task. "
+            "This call was BLOCKED and not executed. Do NOT repeat it. Change the "
+            "arguments, use a different tool, or stop and report what is blocking you."
+        )
+    })
+
+
 # Registry of routers shared by model — Flyweight pattern.
 # LiteLLM.Router manages connection pooling; the same Router is reused
 # for all block instances that target the same model.
@@ -233,6 +261,13 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     """Optional Pydantic model class to enforce a structured response schema."""
     debug: bool = False
     """When True, print a structured debug report at the end of each run."""
+    loop_detection: bool = True
+    """When True, block a tool call that repeats an identical (name, arguments)
+    signature more than ``loop_detection_limit`` times in a single run. Weak models
+    frequently retry a failing call verbatim instead of correcting it; the block is
+    reported back as a corrective tool result so the model can change approach."""
+    loop_detection_limit: int = 3
+    """Number of identical tool calls allowed before ``loop_detection`` blocks them."""
     use_shared_router: bool = True
     """When True, uses a shared litellm.Router for connection pooling."""
     model_kargs: Dict[str, Any] = Field(default_factory=dict)
@@ -443,6 +478,7 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
         iteration_count = 0
         last_response: str = ""
         tool_usage: Dict[str, int] = defaultdict(int)
+        tool_call_signatures: Dict[str, int] = defaultdict(int)
         termination_reason: str = "unknown"
 
         try:
@@ -653,6 +689,21 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                 self._current_tool_call_count = tool_call_count
                 function_name = tool_call.function.name
                 tool_usage[function_name] += 1
+
+                # Break verbatim retry loops before the call is executed: a weak model
+                # that keeps re-issuing an identical failing call would otherwise burn
+                # the whole tool budget without ever changing approach.
+                if self.loop_detection:
+                    signature = _tool_call_signature(function_name, tool_call.function.arguments)
+                    tool_call_signatures[signature] += 1
+                    if tool_call_signatures[signature] > self.loop_detection_limit:
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": function_name,
+                            "content": _loop_block_message(function_name, self.loop_detection_limit),
+                        })
+                        continue
 
                 # Look for the matching native tool (connected blocks).
                 matched_block = next((b for b in self.tools if b.name == function_name), None)

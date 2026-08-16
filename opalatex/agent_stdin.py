@@ -780,6 +780,7 @@ from opalatex.tools import (
     run_python_script,
     run_interactive_command,
     search_code,
+    ask_question,
     ask_human,
     get_project_overview,
     write_content_pos,
@@ -798,6 +799,7 @@ ALL_TOOLS_MAP = {
     "run_python_script": run_python_script,
     "run_interactive_command": run_interactive_command,
     "search_code": search_code,
+    "ask_question": ask_question,
     "ask_human": ask_human,
     "get_project_overview": get_project_overview,
     "write_content_pos": write_content_pos,
@@ -841,36 +843,14 @@ def wrap_tool(original_tool):
         dump_kwargs = input_data.model_dump()
         print_event("tool_call", {"tool": name, "arguments": dump_kwargs})
         
-        global _recent_tool_calls
-        if '_recent_tool_calls' not in globals():
-            globals()['_recent_tool_calls'] = []
-            
-        call_signature = f"{name}:{json.dumps(dump_kwargs, sort_keys=True)}"
-        _recent_tool_calls.append(call_signature)
-        if len(_recent_tool_calls) > 10:
-            _recent_tool_calls.pop(0)
-            
-        count = 0
-        for sig in reversed(_recent_tool_calls):
-            if sig == call_signature:
-                count += 1
-            else:
-                break
-                
+        # Repeated-call loop breaking lives in the agent blocks themselves
+        # (`loop_detection` / `loop_detection_limit`), so it covers workers too --
+        # worker tools never pass through wrap_tool. The previous copy here used a
+        # module-global window that was never reset between turns, so a turn could
+        # start already "in a loop" because of the previous one.
         is_error = False
         res_val = "Execution cancelled or failed unexpectedly."
         try:
-            import opalatex.agent_stdin
-            proj = getattr(opalatex.agent_stdin, "current_project", None)
-            loop_enabled = True
-            loop_limit = 3
-            if proj and hasattr(proj, "model_params") and isinstance(proj.model_params, dict):
-                loop_enabled = proj.model_params.get("loop_detection", True)
-                loop_limit = proj.model_params.get("loop_detection_limit", 3)
-
-            if loop_enabled and count >= loop_limit:
-                raise ValueError(f"Loop detected: You called '{name}' with these exact arguments {count} times in a row without success. Stop repeating this tool call! If this is an interactive CLI command (like npm create), use 'run_interactive_command' instead. Otherwise, try a different approach.")
-
             result = await original_run(input_data)
             if hasattr(result, "result"):
                 res_val = result.result
@@ -912,7 +892,9 @@ async def handle_load_project(data: dict):
     db_path = data.get("db") or DEFAULT_DB_PATH
     
     current_store = ProjectStore(db_path=db_path)
-    chat_id = data.get("chat_id", "main")
+    # No chat id means "the project's default chat"; a literal sentinel here
+    # would silently resolve to whatever chat happened to be stored last.
+    chat_id = data.get("chat_id") or None
     if current_store.exists(project_name):
         current_project = current_store.load(project_name, chat_id=chat_id)
         if data.get("project_path"):

@@ -3,6 +3,8 @@
 import sqlite3
 import json
 import os
+import sys
+import uuid
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
@@ -90,6 +92,104 @@ def _normalize_compile_on_save(partial: bool, full: bool) -> tuple[bool, bool]:
     if partial:
         return True, False
     return False, False
+
+
+MAIN_CHAT_NAME = "Main Chat"
+
+# The default `project_history.chat_id` and `project_activity.chat_id` were
+# created with, back when a project had exactly one conversation. No chat is
+# ever stored under this id — the default chat is `main_<project>` — so rows
+# still carrying it belong to no chat. See `_migrate_legacy_main_chat_rows`.
+LEGACY_MAIN_CHAT_ID = "main"
+
+
+def main_chat_id(project_name: str) -> str:
+    """The id of a project's default chat.
+
+    There is no chat whose id is the literal ``"main"``: the default chat is
+    created as ``main_<project>``. Callers must resolve the id through this
+    helper instead of hardcoding a sentinel that matches no stored row.
+    """
+    return f"main_{project_name}"
+
+
+def _migrate_legacy_main_chat_rows(conn) -> int:
+    """Reattach pre-multi-chat rows to the project's real main chat.
+
+    ``chat_id`` was added to ``project_history`` and ``project_activity`` with
+    ``DEFAULT 'main'`` and never backfilled, so every message written before
+    multi-chat support points at an id no ``project_chats`` row carries. Each
+    read path scopes by a real chat id, which left those conversations stored
+    but unreachable. Returns how many rows were moved.
+
+    Only the legacy sentinel is remapped. An unrecognised id from some other
+    source is not evidence that its rows belong to the main chat, and merging
+    them there would fabricate a history the user never had.
+    """
+    moved = 0
+    project_names = [r["name"] for r in conn.execute("SELECT name, created_at FROM projects").fetchall()]
+    for name in project_names:
+        # A project that genuinely owns a chat with this id is not a legacy
+        # project: its rows belong to that chat and must be left alone.
+        if conn.execute(
+            "SELECT 1 FROM project_chats WHERE project = ? AND id = ?",
+            (name, LEGACY_MAIN_CHAT_ID),
+        ).fetchone():
+            continue
+
+        orphan_count = conn.execute(
+            """
+            SELECT (SELECT COUNT(*) FROM project_history  WHERE project = ? AND chat_id = ?)
+                 + (SELECT COUNT(*) FROM project_activity WHERE project = ? AND chat_id = ?)
+            """,
+            (name, LEGACY_MAIN_CHAT_ID, name, LEGACY_MAIN_CHAT_ID),
+        ).fetchone()[0]
+        if not orphan_count:
+            continue
+
+        target_id = main_chat_id(name)
+        if not conn.execute(
+            "SELECT 1 FROM project_chats WHERE project = ? AND id = ?", (name, target_id)
+        ).fetchone():
+            # An older build could delete the main chat (the guard compared
+            # against the sentinel, which matched nothing). Recreate it with the
+            # project's own creation time so it still sorts first in the list.
+            created_at = conn.execute(
+                "SELECT created_at FROM projects WHERE name = ?", (name,)
+            ).fetchone()["created_at"]
+            conn.execute(
+                "INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
+                (target_id, name, MAIN_CHAT_NAME, created_at, ""),
+            )
+
+        # `idx_project_history_client_message_id` is unique per (project, chat,
+        # client_message_id). A legacy row whose id already exists in the target
+        # chat would abort the move, so drop the duplicate marker rather than the
+        # message: the id only deduplicates in-flight sends, and these are done.
+        conn.execute(
+            """
+            UPDATE project_history SET client_message_id = ''
+            WHERE project = ? AND chat_id = ? AND client_message_id != ''
+              AND EXISTS (
+                  SELECT 1 FROM project_history AS target
+                  WHERE target.project = ? AND target.chat_id = ?
+                    AND target.client_message_id = project_history.client_message_id
+              )
+            """,
+            (name, LEGACY_MAIN_CHAT_ID, name, target_id),
+        )
+
+        conn.execute(
+            "UPDATE project_history SET chat_id = ? WHERE project = ? AND chat_id = ?",
+            (target_id, name, LEGACY_MAIN_CHAT_ID),
+        )
+        conn.execute(
+            "UPDATE project_activity SET chat_id = ? WHERE project = ? AND chat_id = ?",
+            (target_id, name, LEGACY_MAIN_CHAT_ID),
+        )
+        moved += orphan_count
+
+    return moved
 
 
 def _init_schema(db_path: str) -> None:
@@ -264,13 +364,31 @@ def _init_schema(db_path: str) -> None:
             """
         )
 
+        # Runs after the indexes exist, so the move honours them. Idempotent:
+        # once the rows carry a real chat id there is nothing left to match.
+        moved = _migrate_legacy_main_chat_rows(conn)
+        if moved:
+            print(
+                f"[opalatex] Reattached {moved} pre-multi-chat row(s) to their project's main chat.",
+                file=sys.stderr,
+            )
+
+
+class ChatNotFoundError(ValueError):
+    """Raised when a caller asks for a chat that does not exist in a project.
+
+    Silently answering with a different chat is what made a stale id look like
+    a working one: the selector showed one chat while the history came from
+    another. An unknown id is a bug in the caller, so it fails loudly.
+    """
+
 
 @dataclass
 class ProjectData:
     name: str
     use_shared_memory: bool = False
     chats: list = field(default_factory=list)
-    current_chat_id: str = "main"
+    current_chat_id: str = ""
     mode: str = "plan"
     model: str = ""
     worker_model: str = ""   # "" → falls back to the project.model
@@ -294,6 +412,12 @@ class ProjectData:
     compile_on_save_partial: bool = True
     compile_on_save_full: bool = False
     history: list = field(default_factory=list)   # [{role, content}]
+
+    def __post_init__(self) -> None:
+        # Everything scoped per chat (archival memory, core memory, context
+        # measurement) keys off this id, so it must always name a real chat.
+        if not self.current_chat_id:
+            self.current_chat_id = main_chat_id(self.name)
 
     def clear_state(self) -> None:
         self.request = ""
@@ -533,12 +657,12 @@ class ProjectStore:
                 (name, now, now, mode, model, worker_model, project_name, abs_proj_path, json.dumps(_skills), description, "", json.dumps(_model_params), json.dumps(_worker_model_params), 0, "", os.path.abspath(git_root_path) if git_root_path else "", 1, 0),
             )
             # Create default main chat if it doesn't exist
-            chat_id = f"main_{name}"
+            chat_id = main_chat_id(name)
             conn.execute(
                 "INSERT OR IGNORE INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
-                (chat_id, name, "Main Chat", now, "")
+                (chat_id, name, MAIN_CHAT_NAME, now, "")
             )
-        return ProjectData(name=name, use_shared_memory=False, chats=[{"id": chat_id, "name": "Main Chat"}], current_chat_id=chat_id, mode=mode, model=model, worker_model=worker_model, project_name=project_name, project_path=abs_proj_path, skills=_skills, description=description, core_memory="", model_params=_model_params, worker_model_params=_worker_model_params, api_key=api_key or "", api_base=api_base or "", worker_api_key=worker_api_key or "", worker_api_base=worker_api_base or "", main_file="", git_root_path=os.path.abspath(git_root_path) if git_root_path else "", compile_on_save_partial=True, compile_on_save_full=False)
+        return ProjectData(name=name, use_shared_memory=False, chats=[{"id": chat_id, "name": MAIN_CHAT_NAME}], current_chat_id=chat_id, mode=mode, model=model, worker_model=worker_model, project_name=project_name, project_path=abs_proj_path, skills=_skills, description=description, core_memory="", model_params=_model_params, worker_model_params=_worker_model_params, api_key=api_key or "", api_base=api_base or "", worker_api_key=worker_api_key or "", worker_api_base=worker_api_base or "", main_file="", git_root_path=os.path.abspath(git_root_path) if git_root_path else "", compile_on_save_partial=True, compile_on_save_full=False)
 
     def overwrite(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, use_shared_memory: bool = False) -> ProjectData:
         self.delete(name)
@@ -577,32 +701,47 @@ class ProjectStore:
             conn.execute("DELETE FROM projects WHERE name=?", (old_name,))
         return True
 
-    def load(self, name: str, chat_id: str = "main") -> Optional[ProjectData]:
+    def load(self, name: str, chat_id: Optional[str] = None) -> Optional[ProjectData]:
+        """Load a project, scoped to one chat.
+
+        ``chat_id=None`` means "the project's default chat" and resolves to the
+        main chat. An explicit id that no chat carries raises
+        :class:`ChatNotFoundError` rather than quietly returning some other
+        chat's history.
+        """
         with _conn(self.db_path) as conn:
             row = conn.execute(
                 "SELECT * FROM projects WHERE name = ?", (name,)
             ).fetchone()
             if row is None:
                 return None
-                
+
             chats_rows = conn.execute(
                 "SELECT id, name FROM project_chats WHERE project = ? ORDER BY created_at ASC", (name,)
             ).fetchall()
             chats = [{"id": r["id"], "name": r["name"]} for r in chats_rows]
-            
-            if not any(c["id"] == chat_id for c in chats):
-                if chats:
-                    chat_id = chats[-1]["id"]
-                else:
-                    chat_id = f"main_{name}"
-                    try:
-                        conn.execute("INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)", (chat_id, name, "Main Chat", datetime.now(timezone.utc).isoformat(), ""))
-                    except sqlite3.IntegrityError:
-                        # Fallback if somehow it already exists but wasn't in chats?
-                        chat_id = str(uuid.uuid4())
-                        conn.execute("INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)", (chat_id, name, "Main Chat", datetime.now(timezone.utc).isoformat(), ""))
-                    chats = [{"id": chat_id, "name": "Main Chat"}]
-                    
+
+            if not chats:
+                # A project always owns at least its main chat; repair the row
+                # instead of returning a project nothing can be written to.
+                repaired_id = main_chat_id(name)
+                try:
+                    conn.execute("INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)", (repaired_id, name, MAIN_CHAT_NAME, datetime.now(timezone.utc).isoformat(), ""))
+                except sqlite3.IntegrityError:
+                    # Fallback if somehow it already exists but wasn't in chats?
+                    repaired_id = str(uuid.uuid4())
+                    conn.execute("INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)", (repaired_id, name, MAIN_CHAT_NAME, datetime.now(timezone.utc).isoformat(), ""))
+                chats = [{"id": repaired_id, "name": MAIN_CHAT_NAME}]
+
+            if chat_id is None:
+                default_id = main_chat_id(name)
+                chat_id = default_id if any(c["id"] == default_id for c in chats) else chats[0]["id"]
+            elif not any(c["id"] == chat_id for c in chats):
+                raise ChatNotFoundError(
+                    f"Chat '{chat_id}' does not exist in project '{name}'"
+                )
+
+
             hist_rows = conn.execute(
                 "SELECT id, role, content, timestamp, client_message_id, attachments FROM project_history"
                 " WHERE project = ? AND chat_id = ? AND deleted_at = '' ORDER BY id",
@@ -903,7 +1042,7 @@ class ProjectStore:
 
     def clear_all_chats(self, name: str) -> dict:
         """Remove every project chat and recreate an empty main chat."""
-        main_chat = {"id": f"main_{name}", "name": "Main Chat"}
+        main_chat = {"id": main_chat_id(name), "name": MAIN_CHAT_NAME}
         with _conn(self.db_path) as conn:
             project = conn.execute("SELECT 1 FROM projects WHERE name = ?", (name,)).fetchone()
             if project is None:
@@ -1061,6 +1200,20 @@ class ProjectStore:
             conn.execute("INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)", (chat_id, name, chat_name, now, ""))
 
     def delete_chat(self, name: str, chat_id: str) -> None:
+        # The main chat is the fallback every restore lands on; deleting it
+        # would leave the project pointing at a chat that no longer exists.
+        if chat_id == main_chat_id(name):
+            raise ValueError(f"Cannot delete the main chat of project '{name}'")
+        with _conn(self.db_path) as conn:
+            # Projects whose main chat an older build already deleted are
+            # protected by count instead: a project with no chat at all has
+            # nowhere to restore to.
+            remaining = conn.execute(
+                "SELECT COUNT(*) FROM project_chats WHERE project = ? AND id != ?",
+                (name, chat_id),
+            ).fetchone()[0]
+            if not remaining:
+                raise ValueError(f"Cannot delete the last chat of project '{name}'")
         with _conn(self.db_path) as conn:
             conn.execute("DELETE FROM project_chats WHERE project = ? AND id = ?", (name, chat_id))
             conn.execute("DELETE FROM project_history WHERE project = ? AND chat_id = ?", (name, chat_id))

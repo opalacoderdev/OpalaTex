@@ -96,6 +96,17 @@ _PROJECT_PATH: str = ""
 _PROJECT_SESSION = None
 _PROJECT_STORE = None
 
+# Toggled by run_skill() around a worker sub-agent's execution. Skill workers
+# don't have the run_skill tool (only the orchestrator does), so read_file's
+# large-file guidance must not tell a worker to "delegate via run_skill" —
+# that advice is a dead end for it.
+_IN_SKILL_WORKER: bool = False
+
+
+def set_worker_context(active: bool) -> None:
+    global _IN_SKILL_WORKER
+    _IN_SKILL_WORKER = active
+
 def set_project_context(session, store=None) -> None:
     global _PROJECT_PATH, _PROJECT_SESSION, _PROJECT_STORE
     _PROJECT_SESSION = session
@@ -494,16 +505,30 @@ def read_file(path: str) -> str:
         _DATA_EXTS = {".jsonl", ".csv", ".tsv", ".log"}
         ext = os.path.splitext(resolved)[1].lower()
         if ext in _DATA_EXTS:
+            if _IN_SKILL_WORKER:
+                # You are the worker, not the orchestrator: you have no run_skill
+                # tool, so telling you to "delegate via run_skill" is a dead end.
+                routing_hint = (
+                    "IMPORTANT: You are a skill worker and do NOT have a run_skill tool. "
+                    "Use the processing script or command listed in your skill instructions "
+                    "(via run_command) to inspect or condense this file instead of reading it "
+                    "directly. If your skill has no such script, report back that the file is "
+                    "too large to process directly."
+                )
+            else:
+                routing_hint = (
+                    "IMPORTANT: Check your Available skills list for a specialized "
+                    "log/data processing skill and delegate to it with run_skill. "
+                    "If no such skill is active, use the command-line skill to run "
+                    "a small streaming Python script that processes the file."
+                )
             raise ValueError(
                 f"Error: '{_preview(resolved)}' is a large data/log file "
                 f"({size:,} bytes, ~{size // 4:,} tokens) and does not fit "
                 f"the remaining context budget (~{budget_chars // 4:,} tokens "
                 f"of the {window:,}-token window, {used:,} already used). "
                 f"Do NOT retry read_file or read_content_pos on this path. "
-                f"IMPORTANT: Check your Available skills list for a specialized "
-                f"log/data processing skill and delegate to it with run_skill. "
-                f"If no such skill is active, use the command-line skill to run "
-                f"a small streaming Python script that processes the file."
+                f"{routing_hint}"
             )
         raise ValueError(
             f"Error: '{_preview(resolved)}' is {size:,} bytes (~{size // 4:,} tokens) and does "
@@ -967,25 +992,28 @@ def search_code(
         raise ValueError(f"Error searching code in {_preview(resolved)}: {e}")
 
 @opalatex_tool(
-    name="ask_human",
+    name="ask_question",
     is_safe=True,
     description=(
-        "Pause execution and ask the human a critical question. "
-        "Use ONLY for genuinely dangerous or irreversible operations such as: "
-        "running 'rm -rf', 'sudo' commands, accessing credentials, or modifying files outside the workspace. "
-        "NEVER use for: creating directories, creating files, writing code, installing common packages (npm, pip), "
-        "or any standard development task. Just do those things directly."
+        "Ask the user a clarifying question, request choices/preferences, or gather missing parameters during execution. "
+        "This pauses the agent run and waits for the user's text response. "
+        "Use this whenever requirements are ambiguous, options need to be selected (such as columns, formats, seeds, or files), "
+        "or user confirmation/direction is needed before taking action."
     )
 )
-async def ask_human(question: str) -> str:
-    AGENT_PROGRESS.update("ask_human", _preview(question))
+async def ask_question(question: str) -> str:
+    AGENT_PROGRESS.update("ask_question", _preview(question))
     
     import opalatex.terminal as T
     ans = await T.aask(question)
     
     if not ans:
         return "The user did not provide an answer or cancelled the prompt."
-    return f"The user responded: {ans}"
+    return f"User response: {ans}"
+
+# Backward compatibility alias
+ask_human = ask_question
+
 
 
 @opalatex_tool(
@@ -1328,7 +1356,9 @@ def get_available_tools():
         run_command,
         run_background_command,
         run_interactive_command,
-        analyze_image
+        analyze_image,
+        ask_question,
+        ask_human,
     ]
 
 

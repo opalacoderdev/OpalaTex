@@ -49,7 +49,9 @@ def test_small_file_is_read_normally(tmp_path, monkeypatch):
 
 
 def test_oversized_file_is_refused_with_a_paging_diagnostic(tmp_path, monkeypatch):
-    target = tmp_path / "Experiment_Batch.jsonl"
+    # A prose/source file has no streaming skill behind it, so the model is told
+    # to page through it. Structured data/log files take the routing branch below.
+    target = tmp_path / "thesis.tex"
     target.write_text("x" * 400_000, encoding="utf-8")
     # 128K window, almost all of it already occupied.
     _use_window(monkeypatch, num_ctx=128000, used_tokens=120_000)
@@ -62,6 +64,47 @@ def test_oversized_file_is_refused_with_a_paging_diagnostic(tmp_path, monkeypatc
     assert "does not fit the remaining context budget" in message
     assert "read_content_pos" in message
     assert "search_code" in message
+
+
+def test_oversized_log_routes_the_orchestrator_to_a_skill(tmp_path, monkeypatch):
+    target = tmp_path / "Experiment_Batch.jsonl"
+    target.write_text("x" * 400_000, encoding="utf-8")
+    _use_window(monkeypatch, num_ctx=128000, used_tokens=120_000)
+    monkeypatch.setattr(tools, "_resolve_path", lambda p: str(target))
+    monkeypatch.setattr(tools, "_IN_SKILL_WORKER", False)
+
+    with pytest.raises(ValueError) as excinfo:
+        _read_file(str(target))
+
+    message = str(excinfo.value)
+    assert "large data/log file" in message
+    assert "run_skill" in message
+
+
+def test_oversized_log_does_not_tell_a_worker_to_use_run_skill(tmp_path, monkeypatch):
+    # Skill workers are not given the run_skill tool, so the orchestrator-facing
+    # advice would send them chasing a tool they cannot call -- which is what
+    # pushed a small model into improvising broken run_command retries instead.
+    target = tmp_path / "Experiment_Batch.jsonl"
+    target.write_text("x" * 400_000, encoding="utf-8")
+    _use_window(monkeypatch, num_ctx=128000, used_tokens=120_000)
+    monkeypatch.setattr(tools, "_resolve_path", lambda p: str(target))
+    monkeypatch.setattr(tools, "_IN_SKILL_WORKER", True)
+
+    with pytest.raises(ValueError) as excinfo:
+        _read_file(str(target))
+
+    message = str(excinfo.value)
+    assert "large data/log file" in message
+    assert "run_skill" not in message.replace("do NOT have a run_skill tool", "")
+    assert "run_command" in message
+
+
+def test_worker_context_flag_round_trips():
+    tools.set_worker_context(True)
+    assert tools._IN_SKILL_WORKER is True
+    tools.set_worker_context(False)
+    assert tools._IN_SKILL_WORKER is False
 
 
 def test_exhausted_window_reports_exhaustion_rather_than_paging(tmp_path, monkeypatch):

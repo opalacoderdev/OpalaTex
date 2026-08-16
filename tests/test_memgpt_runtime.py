@@ -56,6 +56,25 @@ def test_build_chat_orchestrator_has_run_skill_and_memory_tools(tmp_path):
     assert {"read_core_memory", "append_core_memory", "search_conversation_history"} <= names
 
 
+def test_orchestrator_enables_loop_detection_by_default(tmp_path):
+    m = build_chat_orchestrator(_project(tmp_path), None)
+    assert m.loop_detection is True
+    assert m.loop_detection_limit == 3
+
+
+def test_orchestrator_honours_project_loop_detection_settings(tmp_path):
+    # The setting is exposed in the project UI; it must actually reach the block.
+    # It previously only fed a duplicate breaker in wrap_tool, which skipped workers.
+    project = ProjectData(
+        name="t", project_name="t",
+        project_path=str(tmp_path), model="ollama/proj-model",
+        model_params={"loop_detection": False, "loop_detection_limit": 7},
+    )
+    m = build_chat_orchestrator(project, None)
+    assert m.loop_detection is False
+    assert m.loop_detection_limit == 7
+
+
 def test_chat_orchestrator_exposes_surgical_edit_tools(tmp_path):
     m = build_chat_orchestrator(_project(tmp_path), None)
     names = {getattr(t, "name", None) for t in m.tools}

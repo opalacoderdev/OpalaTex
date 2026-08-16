@@ -262,3 +262,136 @@ async def test_update_project_endpoint_updates_model(tmp_path, monkeypatch):
     loaded = store.load("myproj")
     assert loaded.model == "ollama/new-model:latest"
 
+
+
+def _api_harness(tmp_path, monkeypatch):
+    """A server whose responses are collected instead of written to a socket."""
+    db_path = str(tmp_path / "projects.db")
+    store = ProjectStore(db_path=db_path)
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
+
+    server = AsyncHTTPServer()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+    return store, server, responses
+
+
+@pytest.mark.asyncio
+async def test_chat_history_rejects_an_unknown_chat_id(tmp_path, monkeypatch):
+    """The stale-id case that made the selector and the transcript disagree.
+
+    A client holding the sentinel ``"main"`` used to be answered with the most
+    recently created chat, so the panel showed "Main Chat" over another chat's
+    messages. It must fail instead, letting the client fall back to a real id.
+    """
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    project = store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.append_message(project, "user", "message in main")
+    store.create_chat("myproj", "second", "Second Chat")
+    second = store.load("myproj", chat_id="second")
+    store.append_message(second, "user", "message in second")
+
+    await server.route_api(
+        "GET",
+        "/api/chat/history",
+        {"project_name": ["myproj"], "chat_id": ["main"]},
+        {},
+        b"",
+        AsyncMock(),
+    )
+
+    status_code, data, _ = responses[0]
+    assert status_code == 404
+    assert "main" in data["error"]
+
+
+@pytest.mark.asyncio
+async def test_chat_history_without_chat_id_returns_the_main_chat(tmp_path, monkeypatch):
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    project = store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.append_message(project, "user", "message in main")
+    store.create_chat("myproj", "second", "Second Chat")
+    second = store.load("myproj", chat_id="second")
+    store.append_message(second, "user", "message in second")
+
+    await server.route_api(
+        "GET",
+        "/api/chat/history",
+        {"project_name": ["myproj"]},
+        {},
+        b"",
+        AsyncMock(),
+    )
+
+    status_code, data, _ = responses[0]
+    assert status_code == 200
+    assert data["chat_id"] == "main_myproj"
+    assert [m["content"] for m in data["history"]] == ["message in main"]
+
+
+@pytest.mark.asyncio
+async def test_chat_history_names_the_chat_it_answered_for(tmp_path, monkeypatch):
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "second", "Second Chat")
+    second = store.load("myproj", chat_id="second")
+    store.append_message(second, "user", "message in second")
+
+    await server.route_api(
+        "GET",
+        "/api/chat/history",
+        {"project_name": ["myproj"], "chat_id": ["second"]},
+        {},
+        b"",
+        AsyncMock(),
+    )
+
+    status_code, data, _ = responses[0]
+    assert status_code == 200
+    assert data["chat_id"] == "second"
+    assert [m["content"] for m in data["history"]] == ["message in second"]
+
+
+@pytest.mark.asyncio
+async def test_chat_list_reports_the_real_main_chat_id(tmp_path, monkeypatch):
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "second", "Second Chat")
+
+    await server.route_api(
+        "GET",
+        "/api/chat/list",
+        {"project_name": ["myproj"]},
+        {},
+        b"",
+        AsyncMock(),
+    )
+
+    status_code, data, _ = responses[0]
+    assert status_code == 200
+    assert data["main_chat_id"] == "main_myproj"
+    assert [c["id"] for c in data["chats"]] == ["main_myproj", "second"]
+
+
+@pytest.mark.asyncio
+async def test_chat_delete_refuses_the_main_chat(tmp_path, monkeypatch):
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+
+    await server.route_api(
+        "POST",
+        "/api/chat/delete",
+        {},
+        {},
+        json.dumps({"project_name": "myproj", "chat_id": "main_myproj"}).encode("utf-8"),
+        AsyncMock(),
+    )
+
+    status_code, data, _ = responses[0]
+    assert status_code == 400
+    assert "main chat" in data["error"]
+    assert store.load("myproj").chats == [{"id": "main_myproj", "name": "Main Chat"}]

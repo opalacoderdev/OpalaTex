@@ -302,10 +302,12 @@ def build_run_skill_tool(
             
         scripts_hint = ""
         if script_paths:
-            listing = "\n".join(f"  {p}" for p in script_paths)
+            listing = "\n".join(f'  "{p}"' for p in script_paths)
             scripts_hint = (
                 f"\nScripts available in this skill (use the ABSOLUTE path with "
-                f"run_command):\n{listing}\n"
+                f"run_command, keeping the double quotes shown below — paths may "
+                f"contain spaces):\n{listing}\n"
+                f"Example: run_command('python \"{script_paths[0]}\" sample \"<log_file_path>\"')\n"
             )
         request_hint = ""
         if request_file:
@@ -361,6 +363,7 @@ def build_run_skill_tool(
             "  - create_pptx_file: Creates a PowerPoint .pptx file from a JSON slide outline. Use it instead of writing raw binary PPTX content.\n"
             "  - run_command: Executes terminal commands (e.g., running tests, build scripts, or exploring the OS). Use it to interact with the environment and validate code.\n"
             "  - search_conversation_history: Searches past interactions. Use it to recall previous decisions, context, or code snippets from the chat history.\n"
+            "  - ask_question: Asks the user a clarifying question or requests preferences/inputs during execution and waits for their response. Use it whenever you need user clarification or choices before proceeding.\n"
             "# Metadata: "
             f"{meta['body']}\n\n"
             f"You are executing the '{skill_name}' skill. "
@@ -370,6 +373,7 @@ def build_run_skill_tool(
             f"{request_hint}"
             f"IMPORTANT: To save any file content (HTML, JSON, code, Markdown, etc.) ALWAYS use the write_file tool. "
             f"RECOMMENDATION FOR EXECUTION AND TERMINATION:\n"
+            f"- If requirements, parameters, target columns, formats, or file choices are underspecified or ambiguous, use the ask_question tool to ask the user before executing destructive or arbitrary changes.\n"
             f"- If MEMGPT CONTEXT/INSTRUCTIONS contains an explicit command or script to execute, use run_command as the first native tool call.\n"
             f"- If MEMGPT CONTEXT/INSTRUCTIONS already identifies the target file, line range, or edit, do not call get_project_overview first.\n"
             f"- For large .tex, .log, or source files, never call read_file just to find a section or marker; use search_code to locate the marker, then read_content_pos for the returned line range.\n"
@@ -545,6 +549,8 @@ def build_run_skill_tool(
                 )
         except Exception:
             worker_checkpoint_id = None
+        from .tools import set_worker_context
+        set_worker_context(True)
         try:
             out = await sub_agent.run(AgentInput(prompt=prompt))
             out_text = out.response if hasattr(out, "response") else str(out)
@@ -554,6 +560,7 @@ def build_run_skill_tool(
             tool_calls = "?"
 
         finally:
+            set_worker_context(False)
             if worker_checkpoint_id and worker_checkpoint_project_path:
                 try:
                     from opalatex.vcs import finalize_agent_turn_checkpoint
@@ -796,7 +803,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     enable_achievements = model_params.get("enable_achievements", True)
     
     from .agent_stdin import wrap_tool
-    from .tools import create_plan
+    from .tools import create_plan, ask_question
 
     orchestrator_tools = [
         wrap_tool(read_core_memory), 
@@ -812,7 +819,8 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         wrap_tool(analyze_image),
         wrap_tool(create_docx_file),
         wrap_tool(create_pptx_file),
-        wrap_tool(create_plan)
+        wrap_tool(create_plan),
+        wrap_tool(ask_question),
     ]
     if enable_achievements:
         from .tools import update_achievements_memory
@@ -851,6 +859,10 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         debug=_agent_params.get("debug", False),
         use_shared_router=_agent_params.get("use_shared_router", True),
         response_mode=_agent_params.get("response_mode", get_agent_response_mode("memgpt")),
+        loop_detection=_agent_params.get("loop_detection", model_params.get("loop_detection", True)),
+        loop_detection_limit=_agent_params.get(
+            "loop_detection_limit", model_params.get("loop_detection_limit", 3)
+        ),
     )
     from .litellm_compat import wrap_agent_litellm_compat
     from .token_usage import attach_usage_tracking

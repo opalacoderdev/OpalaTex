@@ -319,7 +319,7 @@ export default function App() {
   // ── UI state ──────────────────────────────────────────────────────────────
   const [layoutMode, setLayoutMode] = useState('ide');
   const isChatLayout = layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare';
-  const [comparisonChats, setComparisonChats] = useState({ left: 'main', right: 'main' });
+  const [comparisonChats, setComparisonChats] = useState({ left: '', right: '' });
   const [activeComparisonPanel, setActiveComparisonPanel] = useState('left');
   const [comparisonScales, setComparisonScales] = useState({ left: 1, right: 1 });
   const [isChatVisible, setIsChatVisible] = useState(false);
@@ -431,7 +431,12 @@ export default function App() {
 
   // ── IDE settings ──────────────────────────────────────────────────────────
   const [settingsTab, setSettingsTab] = useState('general');
-  const [activeChatId, setActiveChatId] = useState('main');
+  // Empty until the chat list loads. There is no chat whose id is the literal
+  // "main": the default chat is stored as `main_<project>`, so a sentinel here
+  // would render a selector value that matches no option while the body showed
+  // whatever chat the server fell back to.
+  const [activeChatId, setActiveChatId] = useState('');
+  const [mainChatId, setMainChatId] = useState('');
   const [chats, setChats] = useState([]);
   const [theme, setTheme] = useState(() => safeGetLocalStorage('theme', 'dark'));
   const [editorFontSize, setEditorFontSize] = useState(() => Number(safeGetLocalStorage('editorFontSize', 13)));
@@ -700,12 +705,25 @@ export default function App() {
           .then(data => {
             const loadedChats = data.chats || [];
             setChats(loadedChats);
+            const projectMainChatId = data.main_chat_id || (loadedChats.length > 0 ? loadedChats[0].id : '');
+            setMainChatId(projectMainChatId);
 
-            // Set active chat id: use the one stored in the project or fall back to the first chat
+            // Restore the last chat, but only if it still exists. Every candidate
+            // is checked against the loaded list: an id the project no longer has
+            // (a deleted chat, or a sentinel written by an older build) must not
+            // reach the server, which would answer with a different chat's
+            // history and leave the selector disagreeing with the transcript.
+            const isKnownChat = (id) => !!id && loadedChats.some(c => c.id === id);
             const savedChatId = localStorage.getItem(`lastChat_${activeProject.name}`);
-            let currentChatId = savedChatId || activeProject.current_chat_id || (loadedChats.length > 0 ? loadedChats[0].id : 'main');
-            if (currentChatId !== 'main' && !loadedChats.find(c => c.id === currentChatId)) {
-              currentChatId = loadedChats.length > 0 ? loadedChats[0].id : 'main';
+            const currentChatId = [savedChatId, activeProject.current_chat_id, projectMainChatId]
+              .find(isKnownChat) || (loadedChats.length > 0 ? loadedChats[0].id : '');
+            if (savedChatId !== currentChatId) {
+              // Drop the stale pointer so the next reopen does not repeat this.
+              if (currentChatId) {
+                localStorage.setItem(`lastChat_${activeProject.name}`, currentChatId);
+              } else {
+                localStorage.removeItem(`lastChat_${activeProject.name}`);
+              }
             }
             setActiveChatId(currentChatId);
             const alternateChatId = loadedChats.find((chat) => chat.id !== currentChatId)?.id || currentChatId;
@@ -716,7 +734,16 @@ export default function App() {
 
             // Now fetch history for this chat
             fetch(`/api/chat/history?project_name=${encodeURIComponent(activeProject.name)}&chat_id=${encodeURIComponent(currentChatId)}&t=${Date.now()}`)
-              .then(res => res.json())
+              .then(async res => {
+                const payload = await res.json();
+                if (!res.ok) throw new Error(payload?.error || `history request failed: ${res.status}`);
+                // The server names the chat it answered for; anything else would
+                // put another conversation under this selector.
+                if (payload.chat_id && payload.chat_id !== currentChatId) {
+                  throw new Error(`history returned chat ${payload.chat_id}, expected ${currentChatId}`);
+                }
+                return payload;
+              })
               .then(histData => {
                 startTransition(() => {
                   // The server still holds the measured window for this chat.
@@ -773,8 +800,9 @@ export default function App() {
       setChats([]);
       setChatMessages([]);
       setChatContextUsage(null);
-      setActiveChatId('main');
-      setComparisonChats({ left: 'main', right: 'main' });
+      setActiveChatId('');
+      setMainChatId('');
+      setComparisonChats({ left: '', right: '' });
       setGitChanges([]);
       setTerminalLogs([]);
       setAchievementsMemory('');
@@ -784,7 +812,7 @@ export default function App() {
   }, [activeProject]);
 
   const handleSwitchChat = async (id) => {
-    if (!activeProject || id === activeChatId) return;
+    if (!activeProject || !id || id === activeChatId) return;
     setIsLoadingChat(true);
     // Another chat is another history: the measured window no longer applies.
     setChatContextUsage(null);
@@ -797,6 +825,9 @@ export default function App() {
         const res = await fetch(`/api/chat/history?project_name=${encodeURIComponent(activeProject.name)}&chat_id=${encodeURIComponent(id)}&t=${Date.now()}`);
         if (res.ok) {
           const data = await res.json();
+          if (data.chat_id && data.chat_id !== id) {
+            throw new Error(`history returned chat ${data.chat_id}, expected ${id}`);
+          }
           const greeting = activeProject.project_name || activeProject.name;
           startTransition(() => {
             setChatContextUsage(contextUsageFromPayload(data.context_usage));
@@ -3508,6 +3539,7 @@ export default function App() {
                 chats={chats}
                 activeChatId={layoutMode === 'chat-compare' ? comparisonChats[activeComparisonPanel] : activeChatId}
                 setActiveChatId={setActiveChatId}
+                mainChatId={mainChatId}
                 setChats={setChats}
                 activeProject={activeProject}
                 setChatMessages={setChatMessages}
@@ -3683,6 +3715,7 @@ export default function App() {
               setWebSearchConfig={setWebSearchConfig}
               activeChatId={activeChatId}
               setActiveChatId={setActiveChatId}
+              mainChatId={mainChatId}
               chats={chats}
               setChats={setChats}
               setChatMessages={setChatMessages}
@@ -3771,6 +3804,7 @@ export default function App() {
               setWebSearchConfig={setWebSearchConfig}
               activeChatId={activeChatId}
               setActiveChatId={setActiveChatId}
+              mainChatId={mainChatId}
               chats={chats}
               setChats={setChats}
               setChatMessages={setChatMessages}

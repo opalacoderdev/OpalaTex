@@ -21,7 +21,9 @@ This skill provides the sub-agent with tools to manipulate files and directories
         run_command,
         run_background_command,
         run_interactive_command,
-        search_conversation_history
+        search_conversation_history,
+        ask_question
+
 
 
 1. write_file: **Use `write_file` directly to create or overwrite any file.** Do NOT use `command_executor.py` for writing file content — shell quoting breaks with multi-line, HTML, CSS, or JavaScript content.
@@ -129,6 +131,11 @@ Examples:
 ```
 search_conversation_history("tictactoe")
 search_conversation_history("src")
+```
+
+12. ask_question: use ask_question to ask the user clarifying questions, prompt for choices, or gather missing parameters during execution without aborting the task. For example:
+```
+ask_question("Found multiple configuration files: [config.json, config.yaml]. Which one should I update?")
 ```
 
 

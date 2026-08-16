@@ -9,7 +9,8 @@ import litellm
 
 from agenticblocks.core.agent import AgentBlock
 from agenticblocks.blocks.llm.agent import (
-    AgentInput, AgentOutput, _get_shared_router, _print_debug_report
+    AgentInput, AgentOutput, _get_shared_router, _print_debug_report,
+    _tool_call_signature, _loop_block_message
 )
 from agenticblocks.blocks.llm.tokens import count_message_tokens
 from agenticblocks.tools.a2a_bridge import block_to_tool_schema
@@ -68,6 +69,11 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     response_mode: str = "all"
     """Controls collection of legacy ``send_message`` compatibility calls."""
     debug: bool = False
+    loop_detection: bool = True
+    """When True, block a tool call that repeats an identical (name, arguments)
+    signature more than ``loop_detection_limit`` times in a single run."""
+    loop_detection_limit: int = 3
+    """Number of identical tool calls allowed before ``loop_detection`` blocks them."""
     use_shared_router: bool = True
     model_kargs: Dict[str, Any] = Field(default_factory=dict)
     """LiteLLM/Model keyword arguments (HTTP clients, timeouts, temperature, etc.)."""
@@ -383,6 +389,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         heartbeats_used = 0
         tool_call_count = 0
         tool_usage: Dict[str, int] = defaultdict(int)
+        tool_call_signatures: Dict[str, int] = defaultdict(int)
         termination_reason = "unknown"
         direct_final_response = None
         accumulated_responses = []
@@ -538,6 +545,23 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                     messages.append(err_res)
                     wants_heartbeat = True
                     continue
+
+                # Break verbatim retry loops before the call is executed. send_message is
+                # exempt: it is a communication pseudo-tool handled below, not an action.
+                if self.loop_detection and function_name != "send_message":
+                    signature = _tool_call_signature(function_name, tool_call.function.arguments)
+                    tool_call_signatures[signature] += 1
+                    if tool_call_signatures[signature] > self.loop_detection_limit:
+                        err_res = {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": function_name,
+                            "content": _loop_block_message(function_name, self.loop_detection_limit),
+                        }
+                        self.internal_history.append(err_res)
+                        messages.append(err_res)
+                        wants_heartbeat = True
+                        continue
 
                 if function_name == "send_message":
                     try:

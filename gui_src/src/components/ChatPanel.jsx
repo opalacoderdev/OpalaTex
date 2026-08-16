@@ -80,6 +80,7 @@ export default function ChatPanel({
   setWebSearchConfig,
   activeChatId,
   setActiveChatId,
+  mainChatId = '',
   chats,
   setChats,
   setChatMessages,
@@ -616,14 +617,14 @@ export default function ChatPanel({
 
   const handleDeleteChatClick = (id, e) => {
     e.stopPropagation();
-    if (!activeProject || id === 'main') return;
+    if (!activeProject || !id || id === mainChatId) return;
     setChatToDelete(id);
   };
 
   const confirmDeleteChat = async () => {
-    if (!activeProject || !chatToDelete || chatToDelete === 'main') return;
+    if (!activeProject || !chatToDelete || chatToDelete === mainChatId) return;
     const id = chatToDelete;
-    
+
     try {
       const res = await fetch('/api/chat/delete', {
         method: 'POST',
@@ -634,8 +635,12 @@ export default function ChatPanel({
       const newChats = chats.filter(c => c.id !== id);
       setChats(newChats);
       if (activeChatId === id) {
-        // Switch to main if we deleted the current one
-        handleSwitchChat('main', newChats);
+        // Fall back to a chat that actually exists. The main chat's id is
+        // `main_<project>`, never the literal "main".
+        const fallbackId = newChats.some(c => c.id === mainChatId)
+          ? mainChatId
+          : (newChats[0]?.id || '');
+        handleSwitchChat(fallbackId, newChats);
       }
       setChatToDelete(null);
     } catch (err) {
@@ -1090,7 +1095,7 @@ export default function ChatPanel({
             <button onClick={handleCreateChatClick} title={t('chatSidebar.newChat', 'Novo Chat')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#4ec9b0', display: 'flex', alignItems: 'center', padding: '2px' }}>
               <Plus size={14} />
             </button>
-            {activeChatId !== 'main' && (
+            {activeChatId && activeChatId !== mainChatId && (
               <button onClick={(e) => handleDeleteChatClick(activeChatId, e)} title={t('chatPanel.deleteCurrentChat', 'Deletar Chat Atual')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#f87171', display: 'flex', alignItems: 'center', padding: '2px' }}>
                 <Trash2 size={14} />
               </button>
