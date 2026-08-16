@@ -257,6 +257,39 @@ async def test_answer_before_open_reports_the_missing_chat(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_chat_list_publishes_the_tutorial_chat_id_only_once_it_exists(tmp_path, monkeypatch):
+    """The client must not reconstruct the reserved id to recognise the chat."""
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    store.create("myproj", "auto", "", project_path=str(tmp_path / "project"))
+
+    async def chat_list():
+        await server.route_api(
+            "GET", "/api/chat/list", {"project_name": ["myproj"]}, {}, b"", AsyncMock()
+        )
+        return responses[-1][1]
+
+    assert (await chat_list())["tutorial_chat_id"] == ""
+
+    await _post(server, "/api/tutorial/open", {"project_name": "myproj"})
+
+    assert (await chat_list())["tutorial_chat_id"] == "tutorial_myproj"
+
+
+@pytest.mark.asyncio
+async def test_topics_endpoint_serves_the_menu_alone(tmp_path, monkeypatch):
+    _store, server, responses = _api_harness(tmp_path, monkeypatch)
+
+    await server.route_api(
+        "GET", "/api/tutorial/topics", {"lang": ["en"]}, {}, b"", AsyncMock()
+    )
+
+    status_code, data, _ = responses[-1]
+    assert status_code == 200
+    assert [t["id"] for t in data["topics"]] == [t["id"] for t in load_topics("en")]
+    assert "history" not in data
+
+
+@pytest.mark.asyncio
 async def test_tutorial_history_is_readable_through_the_normal_chat_endpoint(tmp_path, monkeypatch):
     store, server, responses = _api_harness(tmp_path, monkeypatch)
     store.create("myproj", "auto", "", project_path=str(tmp_path / "project"))

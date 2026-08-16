@@ -2603,10 +2603,18 @@ class AsyncHTTPServer:
             # stored id, never the literal "main". Loading without a chat id
             # resolves it — the main chat, or the first one for a project whose
             # main chat an older build deleted.
+            #
+            # The tutorial chat is published the same way, and only when it actually
+            # exists, so the front-end can recognise it after a reload (to show the
+            # question menu) without reconstructing the reserved id itself.
+            from opalatex.project import tutorial_chat_id
+            tutorial_id = tutorial_chat_id(project_name)
+            has_tutorial = any(c.get("id") == tutorial_id for c in (project.chats or []))
             self.send_response(writer, 200, json.dumps({
                 "chats": project.chats,
                 "main_chat_id": project.current_chat_id,
                 "current_chat_id": project.current_chat_id,
+                "tutorial_chat_id": tutorial_id if has_tutorial else "",
             }).encode(), "application/json")
 
         elif path == '/api/chat/search' and method == 'GET':
@@ -2731,6 +2739,17 @@ class AsyncHTTPServer:
                 "name": chat_name,
                 "created": created,
                 "history": project.history,
+                "topics": topic_menu(lang),
+            }, ensure_ascii=False).encode('utf-8'), "application/json")
+
+        elif path == '/api/tutorial/topics' and method == 'GET':
+            # The question menu on its own, for a tutorial chat reopened from the chat
+            # sidebar after a reload. Reusing /api/tutorial/open here would also return
+            # the history and overwrite what the panel already rendered.
+            from opalatex.tutorial import topic_menu
+            from opalatex.ui_settings import load_ui_settings
+            lang = query.get("lang", [""])[0] or load_ui_settings().get("lang", "pt")
+            self.send_response(writer, 200, json.dumps({
                 "topics": topic_menu(lang),
             }, ensure_ascii=False).encode('utf-8'), "application/json")
 

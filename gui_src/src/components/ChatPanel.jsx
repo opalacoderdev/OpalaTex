@@ -1782,6 +1782,15 @@ export default function ChatPanel({
         <div ref={chatEndRef} />
       </div>
 
+      {/* Tutorial question menu (built-in tutorial chat only) */}
+      {isTutorialChat && (
+        <TutorialMenu
+          topics={tutorialTopics}
+          disabled={isAgentRunning}
+          onSelectTopic={(topicId) => runChatAction(() => onTutorialTopic?.(topicId))}
+        />
+      )}
+
       {/* Input form */}
       <form
         onSubmit={handleFormSubmit}

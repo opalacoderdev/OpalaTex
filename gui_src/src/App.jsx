@@ -711,6 +711,10 @@ export default function App() {
             setChats(loadedChats);
             const projectMainChatId = data.main_chat_id || (loadedChats.length > 0 ? loadedChats[0].id : '');
             setMainChatId(projectMainChatId);
+            // Published by the server (empty when the project has no tutorial chat) so
+            // the question menu reappears when the tutorial is reopened from the chat
+            // sidebar rather than from the ActivityBar button.
+            setTutorialChatId(data.tutorial_chat_id || '');
 
             // Restore the last chat, but only if it still exists. Every candidate
             // is checked against the loaded list: an id the project no longer has
@@ -911,6 +915,18 @@ export default function App() {
       setAlertMessage(err.message);
     }
   };
+
+  // The menu must also appear when the tutorial chat is reopened from the chat sidebar,
+  // where nothing went through /api/tutorial/open and so no topics were returned.
+  useEffect(() => {
+    if (!tutorialChatId || activeChatId !== tutorialChatId || tutorialTopics.length) return;
+    let cancelled = false;
+    fetch(`/api/tutorial/topics?lang=${encodeURIComponent(i18n.language || 'en')}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (!cancelled && data?.topics) setTutorialTopics(data.topics); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [tutorialChatId, activeChatId, tutorialTopics.length]);
 
   // Answer a menu topic. The server appends the question and its pre-written answer from
   // the guide — no agent run — so the tutorial works before any model is registered.

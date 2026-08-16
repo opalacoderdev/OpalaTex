@@ -15,7 +15,17 @@
     "opalatexCodes": "OpalaTex Chat",
     "settings": "Configurações",
     "hardware": "Hardware",
-    "skillsStore": "Loja de Skills"
+    "skillsStore": "Loja de Skills",
+    "tutorial": "Tutorial"
+  },
+  "tutorial": {
+    "menuTitle": "Tópicos do tutorial",
+    "menuHint": "Escolha uma pergunta para receber a resposta na hora, ou digite a sua abaixo.",
+    "collapse": "Recolher o menu do tutorial",
+    "expand": "Expandir o menu do tutorial",
+    "needProject": "Abra ou crie um projeto primeiro — o tutorial roda dentro de um chat de projeto.",
+    "openFailed": "Não foi possível abrir o tutorial",
+    "answerFailed": "Não foi possível carregar a resposta do tutorial"
   },
   "skillsStore": {
     "title": "Loja de Skills",
