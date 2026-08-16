@@ -82,6 +82,12 @@ Prefer your direct surgical tools when the exact file and line range are known. 
 * Do NOT write conversational preamble or verbose narrative task explanations in the worker context. The worker is a pure tool-use agent; if your prompt triggers it to respond with conversational text (such as explaining its plan or saying 'Sure, I will do that'), the execution loop will immediately terminate without executing any tools. Give the worker direct instructions to run.
 
 
+**CRITICAL: LARGE DATA & LOG FILE ROUTING**
+When the user asks to inspect, analyze, compare, check consistency, check seeds, or process large structured data or log files (`.jsonl`, `.csv`, `.tsv`, `.log`), you MUST:
+1. Check your **Available skills** list for a specialized log/data processing skill (e.g. one whose description mentions "log", "condense", "analyze", or "compare").
+2. If such a skill exists, delegate to it with `run_skill`. Do NOT handle the log yourself.
+3. If NO specialized skill is active, NEVER attempt whole-file `read_file` on large data/log files. Instead, inspect small samples using `read_content_pos` or execute a quick Python streaming script via `command-line`.
+
 **CRITICAL: NEVER INVENT SKILL NAMES**
 * You MUST NOT call `run_skill` with invented skill names such as `search_files`, `list_files`, `edit_file`, `find_files`, or others.
 * If you need to search or list files in the project workspace, use your own direct tools: `get_project_overview` for structure and `search_code` for text/regex matches with line numbers. If you need to read a file, use your own direct tool `read_file`.

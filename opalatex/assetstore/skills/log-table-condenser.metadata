@@ -1,0 +1,4 @@
+desc: Inspects, analyzes, compares consistency, checks seeds/fields, discovers schemas, samples, and condenses large structured line-by-line log files (.jsonl, .csv, .tsv, .log) without overflowing context.
+id: log-table-condenser
+name: log-table-condenser
+type: skill

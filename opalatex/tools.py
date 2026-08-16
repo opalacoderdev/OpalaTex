@@ -487,6 +487,24 @@ def read_file(path: str) -> str:
                 "you already know and answer, or ask the user to start a new chat or raise "
                 "num_ctx in the project settings."
             )
+        # Structured data/log files should be routed to a specialized skill
+        # rather than paged through manually.  The redirect is strongest here
+        # because weak models obey error-message guidance more reliably than
+        # system-prompt instructions.
+        _DATA_EXTS = {".jsonl", ".csv", ".tsv", ".log"}
+        ext = os.path.splitext(resolved)[1].lower()
+        if ext in _DATA_EXTS:
+            raise ValueError(
+                f"Error: '{_preview(resolved)}' is a large data/log file "
+                f"({size:,} bytes, ~{size // 4:,} tokens) and does not fit "
+                f"the remaining context budget (~{budget_chars // 4:,} tokens "
+                f"of the {window:,}-token window, {used:,} already used). "
+                f"Do NOT retry read_file or read_content_pos on this path. "
+                f"IMPORTANT: Check your Available skills list for a specialized "
+                f"log/data processing skill and delegate to it with run_skill. "
+                f"If no such skill is active, use the command-line skill to run "
+                f"a small streaming Python script that processes the file."
+            )
         raise ValueError(
             f"Error: '{_preview(resolved)}' is {size:,} bytes (~{size // 4:,} tokens) and does "
             f"not fit the remaining context budget (~{budget_chars // 4:,} tokens of the "
