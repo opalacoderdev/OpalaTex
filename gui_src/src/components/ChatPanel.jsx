@@ -700,22 +700,23 @@ export default function ChatPanel({
  
     try {
       const projectName = activeProject?.name || '';
-      const persistedMessageIndex = chatMessages
-        .slice(0, messageIndex + 1)
-        .filter(msg => numericMessageId(msg) !== null)
-        .length - 1;
       const selectedMessageId = numericMessageId(message);
       const selectedClientMessageId = String(message?.client_message_id || '').trim();
       const sourceChatId = message?.chat_id || activeChatId;
+      // Branch from the stored message itself. A UI position is not a usable
+      // anchor: rendered messages and stored rows do not line up.
+      if (selectedMessageId === null && !selectedClientMessageId) {
+        await showAlert(t('chatPanel.branchAnchorMissing', 'This message cannot be branched: it has no stored identifier.'));
+        return;
+      }
       const payload = {
         project_name: projectName,
         source_chat_id: sourceChatId,
         new_chat_name: newChatName,
       };
-      payload.message_index = persistedMessageIndex;
       if (selectedMessageId !== null) {
         payload.message_id = selectedMessageId;
-      } else if (selectedClientMessageId) {
+      } else {
         payload.client_message_id = selectedClientMessageId;
       }
       const res = await fetch('/api/chat/branch', {

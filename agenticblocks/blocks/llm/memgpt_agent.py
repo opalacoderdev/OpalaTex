@@ -17,6 +17,9 @@ from agenticblocks.core.function_block import as_tool
 from agenticblocks.runtime.state import TokenUsage, _current_ctx
 
 
+DEFAULT_RECURSIVE_SUMMARY = "No history has been evicted yet."
+
+
 def _is_ollama_tool_call_json_escape_error(exc: Exception) -> bool:
     """Return whether Ollama rejected a model-generated tool argument string."""
     message = str(exc).lower()
@@ -106,7 +109,7 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
 
     # Memória de estado persistente do agente
     internal_history: List[Dict[str, Any]] = Field(default_factory=list)
-    recursive_summary: str = "Nenhum histórico removido ainda."
+    recursive_summary: str = DEFAULT_RECURSIVE_SUMMARY
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -154,8 +157,22 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
             return len(text) // 4
 
     def _get_safe_eviction_index(self, history: List[Dict[str, Any]], target_count: int) -> int:
-        """Finds a safe index to evict up to, ensuring we don't split tool calls from their results."""
-        if target_count >= len(history): return len(history)
+        """Finds a safe index to evict up to, ensuring we don't split tool calls from their results.
+
+        The last ``user`` message is the turn currently being answered, so eviction
+        never crosses it: dropping it would make the agent answer a question that is
+        no longer in context. Returning 0 means "nothing can be safely evicted" and
+        the caller must leave the history untouched.
+        """
+        # The clamp comes first: asking to evict the whole history must still stop
+        # at the current turn.
+        last_user_index = max(
+            (i for i, msg in enumerate(history) if (msg or {}).get("role") == "user"),
+            default=len(history),
+        )
+        target_count = min(target_count, last_user_index, len(history))
+        if target_count <= 0:
+            return 0
         safe_index = target_count
         while safe_index < len(history):
             msg = history[safe_index]
@@ -168,18 +185,24 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                     safe_index += 1
                     continue
             break
+        # Adjacency repair may have walked past the current turn (e.g. an orphan
+        # tool call left by an interrupted run sits right before it). Keeping the
+        # user message always wins; any orphan left behind is repaired downstream.
+        if safe_index > last_user_index:
+            return last_user_index
         return safe_index
 
     async def _summarize(self, messages_to_evict: List[Dict[str, Any]]) -> str:
-        """Gera um novo resumo recursivo a partir do resumo anterior e das mensagens removidas."""
+        """Build a new recursive summary from the previous one plus the evicted messages."""
         summary_prompt = (
-            f"RESUMO ATUAL: {self.recursive_summary}\n\n"
-            f"NOVAS MENSAGENS EJETADAS DO CONTEXTO:\n{json.dumps(messages_to_evict, indent=2)}\n\n"
-            "Crie um novo resumo conciso que incorpore as informações chave do resumo atual e das novas mensagens ejetadas."
+            f"CURRENT SUMMARY: {self.recursive_summary}\n\n"
+            f"NEW MESSAGES EVICTED FROM CONTEXT:\n{json.dumps(messages_to_evict, indent=2)}\n\n"
+            "Write a new concise summary that incorporates the key information from the "
+            "current summary and from the newly evicted messages."
         )
         try:
             resp = await self._acompletion(
-                [{"role": "system", "content": "Você é um sumarizador conciso de conversas."},
+                [{"role": "system", "content": "You are a concise conversation summarizer."},
                  {"role": "user", "content": summary_prompt}],
                 **self.model_kargs
             )
@@ -290,7 +313,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
     def load_state(self, state: Dict[str, Any]) -> None:
         """Restore the agent's internal state from a serialized dictionary."""
         self.internal_history = state.get("internal_history", [])
-        self.recursive_summary = state.get("recursive_summary", "Nenhum histórico removido ainda.")
+        self.recursive_summary = state.get("recursive_summary", DEFAULT_RECURSIVE_SUMMARY)
 
     async def run(self, input: AgentInput) -> AgentOutput:
         start_time = time.monotonic()
@@ -320,8 +343,20 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                         "text": f"\n\n[Content of attached file '{att['name']}']:\n{att['data']}"
                     })
             user_content = parts
-        # Adiciona a entrada do usuário ao histórico interno
-        self.internal_history.append({"role": "user", "content": user_content})
+
+        # Append the incoming prompt to the internal history. Runtime corrections
+        # enter as "system" so local models do not read framework feedback as
+        # user-authored content.
+        input_role = input.role or "user"
+        if input_role not in ("user", "system"):
+            raise ValueError(
+                f"MemGPTAgentBlock accepts AgentInput(role='user'|'system'); got '{input_role}'."
+            )
+        if input_role != "user" and not isinstance(user_content, str):
+            raise ValueError(
+                "Attachments require AgentInput(role='user'); a system prompt cannot carry them."
+            )
+        self.internal_history.append({"role": input_role, "content": user_content})
 
         heartbeats_used = 0
         tool_call_count = 0
@@ -346,11 +381,11 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                 if self.debug: print(f"[DEBUG] Contexto excedeu limite de evictação ({current_tokens} tokens). Iniciando evictação FIFO...")
                 target_evict = max(1, len(self.internal_history) // 4)
                 safe_evict_idx = self._get_safe_eviction_index(self.internal_history, target_evict)
-                
-                if safe_evict_idx == 0 and len(self.internal_history) > 0:
-                    safe_evict_idx = 1
-                
-                if safe_evict_idx < len(self.internal_history):
+
+                # 0 means nothing can be evicted without dropping the current user
+                # turn. Leave the history alone; the memory-pressure alert below
+                # still tells the model to be economical.
+                if safe_evict_idx > 0 and safe_evict_idx < len(self.internal_history):
                     to_evict = self.internal_history[:safe_evict_idx]
                     self.internal_history = self.internal_history[safe_evict_idx:]
                     
@@ -459,7 +494,12 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             heartbeats_used += 1
             wants_heartbeat = False
             empty_send_message_violation = False
-            
+            # OpenAI-compatible endpoints require every "tool" result to follow its
+            # assistant tool_calls message with nothing in between. Corrective
+            # alerts raised while processing one call are buffered and flushed
+            # after the whole batch, so they never split the tool block.
+            pending_system_alerts: List[Dict[str, Any]] = []
+
             for tool_call in message.tool_calls:
                 tool_call_count += 1
                 function_name = tool_call.function.name
@@ -499,16 +539,14 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                             }
                             self.internal_history.append(tool_result)
                             messages.append(tool_result)
-                            alert_msg = {
+                            pending_system_alerts.append({
                                 "role": "system",
                                 "content": (
                                     "SYSTEM ALERT: The legacy send_message call was empty. "
                                     "Return a non-empty final response in normal text, or issue a native tool call "
                                     "if an action is still required."
                                 )
-                            }
-                            self.internal_history.append(alert_msg)
-                            messages.append(alert_msg)
+                            })
                             continue
                         
                         hb_req = args.get("request_heartbeat", False)
@@ -561,6 +599,11 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                         err_res = {"role": "tool", "tool_call_id": tool_call.id, "name": function_name, "content": json.dumps({"error": str(e)})}
                         self.internal_history.append(err_res)
                         messages.append(err_res)
+
+            # The tool block is complete: it is now safe to add corrective alerts.
+            for alert in pending_system_alerts:
+                self.internal_history.append(alert)
+                messages.append(alert)
 
             if empty_send_message_violation:
                 if heartbeats_used > self.max_heartbeats:

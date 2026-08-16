@@ -607,7 +607,11 @@ def _empty_response_failure_message() -> str:
     return _("empty_response_unresolved_error")
 
 
-_PERSISTED_ACTIVITY_EVENTS = {"thought", "reflection", "stream_chunk"}
+# Panel diagnostics kept across reloads. "error" is included so a failed turn still
+# shows its error bubble after the chat is reopened: it is UI-visible state that must
+# not enter project_history, because the model must not read its own failures back as
+# conversation (PROJECT_DESIGN 2.5).
+_PERSISTED_ACTIVITY_EVENTS = {"thought", "reflection", "stream_chunk", "error"}
 INTERRUPTED_AGENT_HISTORY_MARKER = "[INTERRUPTED] The user interrupted the agent execution."
 
 
@@ -643,7 +647,9 @@ def _persist_activity_event(event: str, data: dict) -> None:
             event,
             content=str(content),
             agent=str(data.get("agent") or ""),
-            payload={k: v for k, v in data.items() if k not in {"content"}},
+            # "trace" is a developer-only stack trace: it stays on the live event
+            # stream but is not persisted, so it can never resurface in a panel.
+            payload={k: v for k, v in data.items() if k not in {"content", "trace"}},
         )
     except Exception:
         pass
@@ -1133,11 +1139,14 @@ def _restore_transient_project_mode(initial_project_mode: str | None, agent_type
     previous_mode = current_project.mode
     current_project.mode = initial_project_mode
     if current_store:
-        current_store.append_message(
+        current_store.append_activity(
             current_project,
-            "system",
-            f"[MODE] Transient mode change ('{previous_mode}') restored to "
-            f"'{initial_project_mode}' at end of turn.",
+            "mode",
+            content=(
+                f"[MODE] Transient mode change ('{previous_mode}') restored to "
+                f"'{initial_project_mode}' at end of turn."
+            ),
+            agent=agent_type,
         )
         current_store.save(current_project)
 
@@ -1179,14 +1188,16 @@ async def handle_run(data: dict):
     initial_project_mode = None
     if current_project:
         initial_project_mode = current_project.mode
-        # Record the mode at the start of this turn in chat history.
-        # This gives the agent a reliable audit trail entry for every turn,
-        # independent of what mode the system prompt currently injects.
+        # Record the mode at the start of this turn as diagnostic activity. It is an
+        # audit entry, not part of the conversation: keeping it out of
+        # project_history stops it from consuming the model's context window and
+        # from injecting a mid-history system message (PROJECT_DESIGN 2.5/2.7).
         if current_store and agent_type in ("orchestrator", "chat_orchestrator"):
-            current_store.append_message(
+            current_store.append_activity(
                 current_project,
-                "system",
-                f"[MODE] Agent turn started. Current mode: '{initial_project_mode}'.",
+                "mode",
+                content=f"[MODE] Agent turn started. Current mode: '{initial_project_mode}'.",
+                agent=agent_type,
             )
 
     if current_project and current_project.project_path:
@@ -1633,8 +1644,9 @@ async def handle_run(data: dict):
 
             # Save user message to store immediately so it's not lost if the agent crashes
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
+                user_message_id = None
                 try:
-                    current_store.append_message(
+                    user_message_id = current_store.append_message(
                         current_project,
                         "user",
                         user_history_content,
@@ -1642,8 +1654,18 @@ async def handle_run(data: dict):
                         client_message_id=client_message_id,
                     )
                 except TypeError:
-                    current_store.append_message(current_project, "user", user_history_content, attachments=raw_attachments)
+                    user_message_id = current_store.append_message(
+                        current_project, "user", user_history_content, attachments=raw_attachments
+                    )
                 current_store.save(current_project)
+                # Hand the stored id back to the UI. Without it the front-end has no
+                # stable anchor for this message during the session, and any edit or
+                # branch would have to guess its position in the stored history.
+                if user_message_id is not None:
+                    print_event("user_message_saved", {
+                        "message_id": user_message_id,
+                        "client_message_id": client_message_id,
+                    })
 
             if agent_type in ("orchestrator", "chat_orchestrator"):
                 clear_worker_message_buffer()
@@ -1670,8 +1692,17 @@ async def handle_run(data: dict):
                 from opalatex.i18n import _
                 print_event("info", {"message": _("empty_response_retry_info")})
                 retry_prompt = _empty_response_retry_prompt(worker_summary)
+                # This is framework feedback, not something the user typed. Sending it
+                # with the system role keeps runtime corrections out of the user's
+                # voice (PROJECT_DESIGN 2.6). Agents without a conversation history
+                # reject a non-user role, so they keep the default.
+                retry_input = (
+                    AgentInput(prompt=retry_prompt, role="system")
+                    if hasattr(agent, "internal_history")
+                    else AgentInput(prompt=retry_prompt)
+                )
                 with apply_meta_params(agent, _meta_overrides):
-                    resp_obj = await agent.run(AgentInput(prompt=retry_prompt))
+                    resp_obj = await agent.run(retry_input)
                 response = _sanitize_model_response(resp_obj.response or "", thought_chunks)
                 if response and data.get("inline_response_contract") == "replacement_only":
                     response = _normalize_inline_fenced_replacement(response)
@@ -1690,7 +1721,12 @@ async def handle_run(data: dict):
             # Save assistant response and achievements
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
                 if tools_mod.TURN_ACHIEVEMENTS:
-                    current_store.append_message(current_project, "system", f"Achievements logged during this turn:\n{tools_mod.TURN_ACHIEVEMENTS}")
+                    current_store.append_activity(
+                        current_project,
+                        "achievements",
+                        content=f"Achievements logged during this turn:\n{tools_mod.TURN_ACHIEVEMENTS}",
+                        agent=agent_type,
+                    )
                 if persisted_response:
                     assistant_message_id = current_store.append_message(current_project, "assistant", persisted_response)
                 _restore_transient_project_mode(initial_project_mode, agent_type)
@@ -1715,6 +1751,15 @@ async def handle_run(data: dict):
             user_msg = _friendly_llm_error(e, current_project)
             print_event("error", {"message": user_msg, "trace": err_msg})
     finally:
+        # Persist the orchestrator's working memory even when the turn failed or was
+        # interrupted: the partial context is what a resume needs, and the
+        # compatibility layer repairs any tool call left without its result.
+        if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
+            try:
+                from opalatex.memgpt_runtime import save_chat_orchestrator_state
+                save_chat_orchestrator_state(agent, current_project, current_store)
+            except Exception:
+                pass
         if turn_checkpoint_id and turn_checkpoint_project_path:
             try:
                 from opalatex.vcs import finalize_agent_turn_checkpoint

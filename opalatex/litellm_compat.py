@@ -17,6 +17,15 @@ def sanitize_tool_call_messages(messages: list[dict[str, Any]]) -> list[dict[str
     valid tool-call/result pairs intact, but downgrades incomplete tool-call
     records to plain assistant text so the provider never receives an orphaned
     function call id.
+
+    The only invariant enforced is the provider one: every ``tool_calls`` id must
+    have its matching ``tool`` result. What comes *before* the assistant message is
+    not checked — ``assistant`` followed by ``assistant`` is valid everywhere, and
+    the agent loop legitimately produces it (an empty-response correction, for
+    example, inserts a ``system`` alert between two assistant turns). A ``system``
+    alert that lands inside an otherwise complete tool block is re-emitted after
+    the block instead of invalidating it: role and content are preserved, only the
+    position changes, which is a transport-shape repair (PROJECT_DESIGN 2.6).
     """
     cleaned: list[dict[str, Any]] = []
     idx = 0
@@ -26,7 +35,7 @@ def sanitize_tool_call_messages(messages: list[dict[str, Any]]) -> list[dict[str
 
         if msg.get("role") != "assistant" or not msg.get("tool_calls"):
             if msg.get("role") == "tool":
-                cleaned.append(_orphan_tool_as_user_message(msg))
+                cleaned.append(_orphan_tool_as_system_message(msg))
             else:
                 cleaned.append(msg)
             idx += 1
@@ -47,26 +56,35 @@ def sanitize_tool_call_messages(messages: list[dict[str, Any]]) -> list[dict[str
         seen: set[str] = set()
         buffered_tool_messages: list[dict[str, Any]] = []
         orphan_tool_messages: list[dict[str, Any]] = []
+        deferred_system_messages: list[dict[str, Any]] = []
         idx += 1
 
-        while idx < len(messages) and (messages[idx] or {}).get("role") == "tool":
-            tool_msg = dict(messages[idx] or {})
-            tool_call_id = tool_msg.get("tool_call_id")
-            if tool_call_id in expected and tool_call_id not in seen:
-                buffered_tool_messages.append(tool_msg)
-                seen.add(tool_call_id)
-            else:
-                orphan_tool_messages.append(tool_msg)
-            idx += 1
+        while idx < len(messages):
+            candidate = dict(messages[idx] or {})
+            role = candidate.get("role")
+            if role == "tool":
+                tool_call_id = candidate.get("tool_call_id")
+                if tool_call_id in expected and tool_call_id not in seen:
+                    buffered_tool_messages.append(candidate)
+                    seen.add(tool_call_id)
+                else:
+                    orphan_tool_messages.append(candidate)
+                idx += 1
+                continue
+            if role == "system" and expected - seen:
+                # A corrective alert raised while the tool batch was still being
+                # processed. Keep it, but move it past the tool block.
+                deferred_system_messages.append(candidate)
+                idx += 1
+                continue
+            break
 
         by_id = {m.get("tool_call_id"): m for m in buffered_tool_messages}
-        previous_role = _previous_conversation_role(cleaned)
-        has_valid_turn_order = previous_role in {"user", "tool"}
-        has_all_expected_outputs = expected <= set(by_id)
-        if not has_all_expected_outputs or not has_valid_turn_order:
+        if not expected <= set(by_id):
             cleaned.append(_assistant_tool_calls_as_text(msg, tool_calls))
             for tool_msg in buffered_tool_messages + orphan_tool_messages:
-                cleaned.append(_orphan_tool_as_user_message(tool_msg))
+                cleaned.append(_orphan_tool_as_system_message(tool_msg))
+            cleaned.extend(deferred_system_messages)
             continue
 
         cleaned.append(msg)
@@ -74,7 +92,8 @@ def sanitize_tool_call_messages(messages: list[dict[str, Any]]) -> list[dict[str
             tool_call_id = tool_call["id"]
             cleaned.append(by_id[tool_call_id])
         for orphan in orphan_tool_messages:
-            cleaned.append(_orphan_tool_as_user_message(orphan))
+            cleaned.append(_orphan_tool_as_system_message(orphan))
+        cleaned.extend(deferred_system_messages)
 
     return cleaned
 
@@ -254,14 +273,6 @@ def sanitize_agent_state(agent: Any) -> None:
     _sanitize_agent_history_in_place(agent)
 
 
-def _previous_conversation_role(messages: list[dict[str, Any]]) -> str | None:
-    for msg in reversed(messages):
-        role = msg.get("role")
-        if role != "system":
-            return role
-    return None
-
-
 def _sanitize_agent_history_in_place(agent: Any) -> None:
     history = getattr(agent, "internal_history", None)
     if isinstance(history, list):
@@ -270,11 +281,18 @@ def _sanitize_agent_history_in_place(agent: Any) -> None:
             history[:] = sanitized
 
 
-def _orphan_tool_as_user_message(msg: dict[str, Any]) -> dict[str, str]:
+def _orphan_tool_as_system_message(msg: dict[str, Any]) -> dict[str, str]:
+    """Re-role a tool result that lost its assistant tool call.
+
+    The result cannot keep the ``tool`` role without a matching ``tool_call_id``,
+    and it must not become a ``user`` message either: it is runtime output, not
+    something the person said (PROJECT_DESIGN 2.6, runtime correction role
+    isolation). ``system`` is the only role that preserves that distinction.
+    """
     name = msg.get("name") or "unknown"
     content = msg.get("content") or ""
     return {
-        "role": "user",
+        "role": "system",
         "content": f"[Recovered orphan tool result from '{name}']\n{content}",
     }
 

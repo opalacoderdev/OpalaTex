@@ -208,6 +208,14 @@ def _init_schema(db_path: str) -> None:
             );
         """)
 
+        # Per-chat MemGPT working state (internal history + recursive summary), so the
+        # orchestrator's context management survives turns and restarts instead of
+        # being rebuilt from a raw slice of the chat every time.
+        try:
+            conn.execute("ALTER TABLE project_chats ADD COLUMN agent_state TEXT NOT NULL DEFAULT '{}'")
+        except sqlite3.OperationalError:
+            pass
+
         try:
             conn.execute("ALTER TABLE project_history ADD COLUMN chat_id TEXT NOT NULL DEFAULT 'main'")
         except sqlite3.OperationalError:
@@ -220,6 +228,24 @@ def _init_schema(db_path: str) -> None:
 
         try:
             conn.execute("ALTER TABLE project_history ADD COLUMN client_message_id TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+
+        # Soft delete: editing a message hides the superseded tail from the chat
+        # and from the model, but never destroys it. Physical deletion is reserved
+        # for explicit user actions (clear chat, delete project).
+        try:
+            conn.execute("ALTER TABLE project_history ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE project_history ADD COLUMN superseded_by TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            conn.execute("ALTER TABLE project_activity ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''")
         except sqlite3.OperationalError:
             pass
 
@@ -578,7 +604,8 @@ class ProjectStore:
                     chats = [{"id": chat_id, "name": "Main Chat"}]
                     
             hist_rows = conn.execute(
-                "SELECT id, role, content, timestamp, client_message_id, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id",
+                "SELECT id, role, content, timestamp, client_message_id, attachments FROM project_history"
+                " WHERE project = ? AND chat_id = ? AND deleted_at = '' ORDER BY id",
                 (name, chat_id),
             ).fetchall()
             # Read api_key and api_base from local .env if it exists.
@@ -836,7 +863,7 @@ class ProjectStore:
                 """
                 SELECT id, timestamp, event, agent, content, payload
                 FROM project_activity
-                WHERE project = ? AND chat_id = ?
+                WHERE project = ? AND chat_id = ? AND deleted_at = ''
                 ORDER BY id DESC
                 LIMIT ?
                 """,
@@ -865,9 +892,14 @@ class ProjectStore:
             if chat_id:
                 conn.execute("DELETE FROM project_history WHERE project = ? AND chat_id = ?", (name, chat_id))
                 conn.execute("DELETE FROM project_activity WHERE project = ? AND chat_id = ?", (name, chat_id))
+                # The agent's working memory belongs to the conversation that was
+                # just erased: keeping it would let the agent recall a chat the
+                # user deleted.
+                conn.execute("UPDATE project_chats SET agent_state = '{}' WHERE project = ? AND id = ?", (name, chat_id))
             else:
                 conn.execute("DELETE FROM project_history WHERE project = ?", (name,))
                 conn.execute("DELETE FROM project_activity WHERE project = ?", (name,))
+                conn.execute("UPDATE project_chats SET agent_state = '{}' WHERE project = ?", (name,))
 
     def clear_all_chats(self, name: str) -> dict:
         """Remove every project chat and recreate an empty main chat."""
@@ -886,40 +918,89 @@ class ProjectStore:
             )
         return main_chat
 
-    def truncate_chat_history_from_index(self, name: str, chat_id: str, from_index: int) -> list[int]:
-        if from_index < 0:
-            raise ValueError("from_index must be >= 0")
+    def supersede_chat_history_from_message(
+        self,
+        name: str,
+        chat_id: str,
+        *,
+        message_id: int | None = None,
+        client_message_id: str = "",
+        superseded_by: str = "",
+    ) -> list[int]:
+        """Soft-delete the anchor message and every message after it in the chat.
+
+        The anchor is addressed by stable id (``message_id`` or
+        ``client_message_id``), never by position: UI indexes and stored rows do
+        not line up (stored audit entries are not rendered, and messages created
+        in the running session may not carry a stored id yet), and a positional
+        cut silently destroys unrelated turns. An anchor that cannot be resolved
+        raises instead of falling back to a position.
+
+        Rows are marked, not deleted: editing a message hides its old answer from
+        the chat and from the model, but the conversation stays auditable and
+        recoverable. Physical deletion belongs to explicit user actions.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        clean_superseded_by = str(superseded_by or "").strip()
         with _conn(self.db_path) as conn:
-            rows = conn.execute(
-                "SELECT id FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id",
-                (name, chat_id),
-            ).fetchall()
-            if from_index >= len(rows):
-                raise ValueError("from_index is outside the chat history")
-            deleted_rows = rows[from_index:]
-            deleted_ids = [int(r["id"]) for r in deleted_rows]
-            cutoff = conn.execute(
-                "SELECT timestamp FROM project_history WHERE project = ? AND chat_id = ? AND id = ?",
-                (name, chat_id, deleted_ids[0]),
-            ).fetchone()
-            placeholders = ",".join("?" for _ in deleted_ids)
-            conn.execute(
-                f"DELETE FROM project_history WHERE project = ? AND chat_id = ? AND id IN ({placeholders})",
-                (name, chat_id, *deleted_ids),
+            anchor_id = self._resolve_chat_message_id(
+                conn,
+                name,
+                chat_id,
+                message_id=message_id,
+                client_message_id=client_message_id,
             )
-            if cutoff:
-                conn.execute(
-                    "DELETE FROM project_activity WHERE project = ? AND chat_id = ? AND timestamp >= ?",
-                    (name, chat_id, cutoff["timestamp"]),
+            if anchor_id is None:
+                raise ValueError(
+                    "message_id or client_message_id is required to supersede chat history"
                 )
+
+            rows = conn.execute(
+                """
+                SELECT id, timestamp FROM project_history
+                WHERE project = ? AND chat_id = ? AND id >= ? AND deleted_at = ''
+                ORDER BY id
+                """,
+                (name, chat_id, anchor_id),
+            ).fetchall()
+            if not rows:
+                return []
+
+            superseded_ids = [int(r["id"]) for r in rows]
+            cutoff_timestamp = rows[0]["timestamp"]
+            placeholders = ",".join("?" for _ in superseded_ids)
+            conn.execute(
+                f"""
+                UPDATE project_history SET deleted_at = ?, superseded_by = ?
+                WHERE project = ? AND chat_id = ? AND id IN ({placeholders})
+                """,
+                (now, clean_superseded_by, name, chat_id, *superseded_ids),
+            )
+            conn.execute(
+                """
+                UPDATE project_activity SET deleted_at = ?
+                WHERE project = ? AND chat_id = ? AND timestamp >= ? AND deleted_at = ''
+                """,
+                (now, name, chat_id, cutoff_timestamp),
+            )
+            # The agent's working memory still holds the superseded turns. Drop it so
+            # the next run re-seeds from the visible conversation instead of replying
+            # to a message the user just replaced.
+            conn.execute(
+                "UPDATE project_chats SET agent_state = '{}' WHERE project = ? AND id = ?",
+                (name, chat_id),
+            )
+
+        # The vector index is a derived artifact, not the source of truth: drop the
+        # superseded entries so archival search stops returning replaced content.
         try:
             from .archival import get_collection
             collection = get_collection(name)
-            collection.delete(ids=[str(i) for i in deleted_ids])
+            collection.delete(ids=[str(i) for i in superseded_ids])
         except Exception:
             pass
 
-        return deleted_ids
+        return superseded_ids
 
     def get_chat_core_memory(self, name: str, chat_id: str) -> str:
         with _conn(self.db_path) as conn:
@@ -935,13 +1016,40 @@ class ProjectStore:
                 SELECT c.id, c.name, MIN(h.content) as snippet
                 FROM project_history h
                 JOIN project_chats c ON h.chat_id = c.id AND h.project = c.project
-                WHERE h.project = ? AND h.content LIKE ?
+                WHERE h.project = ? AND h.content LIKE ? AND h.deleted_at = ''
                 GROUP BY c.id
                 ORDER BY MAX(h.timestamp) DESC
                 LIMIT 20
             """
             rows = conn.execute(sql, (name, f"%{query}%")).fetchall()
             return [dict(r) for r in rows]
+
+    def get_chat_agent_state(self, name: str, chat_id: str) -> dict:
+        """Return the persisted MemGPT working state for a chat ({} when absent)."""
+        with _conn(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT agent_state FROM project_chats WHERE project = ? AND id = ?",
+                (name, chat_id),
+            ).fetchone()
+        if not row:
+            return {}
+        try:
+            state = json.loads(row["agent_state"] or "{}")
+        except Exception:
+            return {}
+        return state if isinstance(state, dict) else {}
+
+    def save_chat_agent_state(self, name: str, chat_id: str, state: dict) -> None:
+        """Persist the MemGPT working state for a chat."""
+        try:
+            payload = json.dumps(state or {}, ensure_ascii=False)
+        except Exception:
+            return
+        with _conn(self.db_path) as conn:
+            conn.execute(
+                "UPDATE project_chats SET agent_state = ? WHERE project = ? AND id = ?",
+                (payload, name, chat_id),
+            )
 
     def update_chat_core_memory(self, name: str, chat_id: str, core_memory: str) -> None:
         with _conn(self.db_path) as conn:
@@ -1080,7 +1188,7 @@ class ProjectStore:
                     """
                     SELECT role, content, timestamp, attachments
                     FROM project_history
-                    WHERE project = ? AND chat_id = ? AND id <= ?
+                    WHERE project = ? AND chat_id = ? AND id <= ? AND deleted_at = ''
                     ORDER BY id
                     """,
                     (name, source_chat_id, target_message_id),
@@ -1089,7 +1197,8 @@ class ProjectStore:
                 if message_index < -1:
                     raise ValueError("message_index must be >= -1")
                 history = conn.execute(
-                    "SELECT role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id LIMIT ?",
+                    "SELECT role, content, timestamp, attachments FROM project_history"
+                    " WHERE project = ? AND chat_id = ? AND deleted_at = '' ORDER BY id LIMIT ?",
                     (name, source_chat_id, message_index + 1),
                 ).fetchall()
             
@@ -1112,7 +1221,7 @@ class ProjectStore:
                     """
                     SELECT timestamp, event, agent, content, payload
                     FROM project_activity
-                    WHERE project = ? AND chat_id = ? AND timestamp <= ?
+                    WHERE project = ? AND chat_id = ? AND timestamp <= ? AND deleted_at = ''
                     ORDER BY id
                     """,
                     (name, source_chat_id, last_timestamp),
@@ -1135,11 +1244,35 @@ class ProjectStore:
                         ),
                     )
 
-    def branch_chat_prefix(self, name: str, source_chat_id: str, new_chat_id: str, new_chat_name: str, limit: int) -> list[dict]:
-        if limit < 0:
-            raise ValueError("limit must be >= 0")
+    def branch_chat_before_message(
+        self,
+        name: str,
+        source_chat_id: str,
+        new_chat_id: str,
+        new_chat_name: str,
+        *,
+        message_id: int | None = None,
+        client_message_id: str = "",
+    ) -> list[dict]:
+        """Copy every message stored *before* the anchor into a new chat.
+
+        Used when editing a message that is not the last one: the original chat is
+        left untouched and the edit continues on a branch. The anchor is a stable
+        id for the same reason as ``supersede_chat_history_from_message``.
+        """
         with _conn(self.db_path) as conn:
             now = datetime.now(timezone.utc).isoformat()
+            anchor_id = self._resolve_chat_message_id(
+                conn,
+                name,
+                source_chat_id,
+                message_id=message_id,
+                client_message_id=client_message_id,
+            )
+            if anchor_id is None:
+                raise ValueError(
+                    "message_id or client_message_id is required to branch a chat"
+                )
             row = conn.execute("SELECT core_memory FROM project_chats WHERE project = ? AND id = ?", (name, source_chat_id)).fetchone()
             core_memory = row["core_memory"] if row else ""
             conn.execute(
@@ -1147,8 +1280,9 @@ class ProjectStore:
                 (new_chat_id, name, new_chat_name, now, core_memory),
             )
             history = conn.execute(
-                "SELECT role, content, timestamp, attachments FROM project_history WHERE project = ? AND chat_id = ? ORDER BY id LIMIT ?",
-                (name, source_chat_id, limit),
+                "SELECT role, content, timestamp, attachments FROM project_history"
+                " WHERE project = ? AND chat_id = ? AND id < ? AND deleted_at = '' ORDER BY id",
+                (name, source_chat_id, anchor_id),
             ).fetchall()
             copied = []
             for hist_row in history:
@@ -1176,7 +1310,7 @@ class ProjectStore:
                     """
                     SELECT timestamp, event, agent, content, payload
                     FROM project_activity
-                    WHERE project = ? AND chat_id = ? AND timestamp <= ?
+                    WHERE project = ? AND chat_id = ? AND timestamp <= ? AND deleted_at = ''
                     ORDER BY id
                     """,
                     (name, source_chat_id, last_timestamp),

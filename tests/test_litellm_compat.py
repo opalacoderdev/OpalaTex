@@ -34,7 +34,7 @@ def test_sanitize_tool_call_messages_converts_orphan_tool_message():
     ])
 
     assert sanitized == [
-        {"role": "user", "content": "[Recovered orphan tool result from 'read_file']\nok"}
+        {"role": "system", "content": "[Recovered orphan tool result from 'read_file']\nok"}
     ]
 
 
@@ -61,7 +61,8 @@ def test_sanitize_tool_call_messages_preserves_complete_tool_pair():
     assert sanitize_tool_call_messages(messages) == messages
 
 
-def test_sanitize_tool_call_messages_strips_tool_call_with_invalid_turn_order():
+def test_sanitize_tool_call_messages_preserves_pair_after_assistant_turn():
+    """assistant -> assistant(tool_calls) is valid: only id matching is enforced."""
     from opalatex.litellm_compat import sanitize_tool_call_messages
 
     messages = [
@@ -71,29 +72,47 @@ def test_sanitize_tool_call_messages_strips_tool_call_with_invalid_turn_order():
             "content": "",
             "tool_calls": [
                 {
-                    "id": "call_bad_order",
+                    "id": "call_after_assistant",
                     "type": "function",
                     "function": {"name": "read_file", "arguments": '{"path":"x"}'},
                 }
             ],
         },
-        {"role": "tool", "tool_call_id": "call_bad_order", "name": "read_file", "content": "ok"},
+        {"role": "tool", "tool_call_id": "call_after_assistant", "name": "read_file", "content": "ok"},
     ]
 
-    sanitized = sanitize_tool_call_messages(messages)
-
-    assert sanitized[0] == messages[0]
-    assert sanitized[1]["role"] == "assistant"
-    assert "tool_calls" not in sanitized[1]
-    assert "read_file" in sanitized[1]["content"]
-    assert sanitized[2]["role"] == "user"
-    assert "Recovered orphan tool result" in sanitized[2]["content"]
+    assert sanitize_tool_call_messages(messages) == messages
 
 
-def test_sanitize_tool_call_messages_strips_tool_call_at_history_start():
+def test_sanitize_tool_call_messages_preserves_pair_after_system_alert():
+    """The empty-response correction inserts a system alert before the next turn."""
     from opalatex.litellm_compat import sanitize_tool_call_messages
 
-    sanitized = sanitize_tool_call_messages([
+    messages = [
+        {"role": "user", "content": "edit the file"},
+        {"role": "assistant", "content": "(removed: empty response)"},
+        {"role": "system", "content": "SYSTEM ALERT: You returned no text and no native tool call."},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_after_alert",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_after_alert", "name": "read_file", "content": "ok"},
+    ]
+
+    assert sanitize_tool_call_messages(messages) == messages
+
+
+def test_sanitize_tool_call_messages_preserves_pair_at_history_start():
+    from opalatex.litellm_compat import sanitize_tool_call_messages
+
+    messages = [
         {"role": "system", "content": "summary"},
         {
             "role": "assistant",
@@ -107,12 +126,65 @@ def test_sanitize_tool_call_messages_strips_tool_call_at_history_start():
             ],
         },
         {"role": "tool", "tool_call_id": "call_at_start", "name": "read_file", "content": "ok"},
+    ]
+
+    assert sanitize_tool_call_messages(messages) == messages
+
+
+def test_sanitize_tool_call_messages_moves_interleaved_system_alert_past_tool_block():
+    """A system alert must never split an assistant tool_calls message from its results."""
+    from opalatex.litellm_compat import sanitize_tool_call_messages
+
+    alert = {"role": "system", "content": "SYSTEM ALERT: The legacy send_message call was empty."}
+    assistant = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "send_message", "arguments": "{}"}},
+            {"id": "c2", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+        ],
+    }
+    first_result = {"role": "tool", "tool_call_id": "c1", "name": "send_message", "content": "err"}
+    second_result = {"role": "tool", "tool_call_id": "c2", "name": "read_file", "content": "ok"}
+
+    sanitized = sanitize_tool_call_messages([
+        {"role": "user", "content": "hi"},
+        assistant,
+        first_result,
+        alert,
+        second_result,
     ])
 
-    assert sanitized[0]["role"] == "system"
+    assert sanitized == [
+        {"role": "user", "content": "hi"},
+        assistant,
+        first_result,
+        second_result,
+        alert,
+    ]
+
+
+def test_sanitize_tool_call_messages_downgrades_only_when_a_result_is_missing():
+    from opalatex.litellm_compat import sanitize_tool_call_messages
+
+    sanitized = sanitize_tool_call_messages([
+        {"role": "user", "content": "hi"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
+                {"id": "c2", "type": "function", "function": {"name": "write_file", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "name": "read_file", "content": "ok"},
+    ])
+
     assert sanitized[1]["role"] == "assistant"
     assert "tool_calls" not in sanitized[1]
-    assert sanitized[2]["role"] == "user"
+    assert "read_file" in sanitized[1]["content"]
+    assert sanitized[2]["role"] == "system"
+    assert "Recovered orphan tool result" in sanitized[2]["content"]
 
 
 def test_wrap_agent_litellm_compat_adds_drop_params(monkeypatch):

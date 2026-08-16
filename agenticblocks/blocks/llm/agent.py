@@ -145,6 +145,15 @@ class AgentInput(BaseModel):
     prompt: str
     attachments: list = Field(default_factory=list)
     """Optional list of attachment descriptors [{type, data, mime, name}] for multimodal messages."""
+    role: str = "user"
+    """Conversation role this prompt enters the history as.
+
+    Defaults to "user", which is the normal case: a person is talking to the agent.
+    Blocks that keep a conversation history (MemGPTAgentBlock) also accept "system"
+    so runtime/framework corrections are injected as system feedback instead of
+    impersonating the user. Blocks without a persistent history reject anything
+    other than "user".
+    """
 
 class AgentOutput(BaseModel):
     response: str
@@ -392,6 +401,15 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
 
     async def run(self, input: AgentInput) -> AgentOutput:
         start_time = time.monotonic()
+
+        # This block builds a fresh [system, user] pair on every run, so there is no
+        # history for a system-role prompt to be appended to. Fail fast instead of
+        # silently turning it into a user message.
+        if input.role != "user":
+            raise ValueError(
+                f"{type(self).__name__} only accepts AgentInput(role='user'); "
+                f"got '{input.role}'."
+            )
 
         _prev_callbacks = list(litellm.callbacks)
 

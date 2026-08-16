@@ -2428,13 +2428,35 @@ class AsyncHTTPServer:
             store = ProjectStore(db_path=DEFAULT_DB_PATH)
             project_name = data.get("project_name")
             chat_id = data.get("chat_id")
-            from_index = data.get("from_index")
-            if not project_name or not chat_id or from_index is None:
-                self.send_response(writer, 400, b'{"error":"project_name, chat_id and from_index required"}', "application/json")
+            message_id = data.get("message_id")
+            client_message_id = data.get("client_message_id") or ""
+            superseded_by = data.get("superseded_by") or ""
+            # Anchored by stable id only: a positional cut cannot be trusted because
+            # UI indexes and stored rows do not line up.
+            if not project_name or not chat_id or (message_id is None and not client_message_id):
+                self.send_response(
+                    writer,
+                    400,
+                    b'{"error":"project_name, chat_id and message_id/client_message_id required"}',
+                    "application/json",
+                )
                 return
             try:
-                deleted_ids = store.truncate_chat_history_from_index(project_name, chat_id, int(from_index))
-                self.send_response(writer, 200, json.dumps({"status": "ok", "deleted_ids": deleted_ids}).encode('utf-8'), "application/json")
+                superseded_ids = store.supersede_chat_history_from_message(
+                    project_name,
+                    chat_id,
+                    message_id=int(message_id) if message_id is not None else None,
+                    client_message_id=client_message_id,
+                    superseded_by=superseded_by,
+                )
+                self.send_response(
+                    writer,
+                    200,
+                    json.dumps({"status": "ok", "superseded_ids": superseded_ids}).encode('utf-8'),
+                    "application/json",
+                )
+            except ValueError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             return
@@ -2448,13 +2470,26 @@ class AsyncHTTPServer:
             project_name = data.get("project_name")
             source_chat_id = data.get("source_chat_id")
             new_chat_name = data.get("new_chat_name") or "Edited branch"
-            message_index = data.get("message_index")
-            if not project_name or not source_chat_id or message_index is None:
-                self.send_response(writer, 400, b'{"error":"project_name, source_chat_id and message_index required"}', "application/json")
+            message_id = data.get("message_id")
+            client_message_id = data.get("client_message_id") or ""
+            if not project_name or not source_chat_id or (message_id is None and not client_message_id):
+                self.send_response(
+                    writer,
+                    400,
+                    b'{"error":"project_name, source_chat_id and message_id/client_message_id required"}',
+                    "application/json",
+                )
                 return
             new_chat_id = str(uuid.uuid4())
             try:
-                history = store.branch_chat_prefix(project_name, source_chat_id, new_chat_id, new_chat_name, int(message_index))
+                history = store.branch_chat_before_message(
+                    project_name,
+                    source_chat_id,
+                    new_chat_id,
+                    new_chat_name,
+                    message_id=int(message_id) if message_id is not None else None,
+                    client_message_id=client_message_id,
+                )
                 self.send_response(
                     writer,
                     200,
@@ -2466,6 +2501,8 @@ class AsyncHTTPServer:
                     }).encode('utf-8'),
                     "application/json",
                 )
+            except ValueError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             return

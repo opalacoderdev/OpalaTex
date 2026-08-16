@@ -600,10 +600,13 @@ def test_restore_transient_project_mode_never_persists_auto(initial_mode):
 
         assert project.mode == initial_mode
         assert store.load("myproj").mode == initial_mode
+        # The audit entry is diagnostic activity, not a chat message: it must not
+        # occupy the model's context window.
         assert any(
-            "Transient mode change ('auto') restored" in message["content"]
-            for message in project.history
+            "Transient mode change ('auto') restored" in item["content"]
+            for item in store.list_activity("myproj", project.current_chat_id)
         )
+        assert not any(message["role"] == "system" for message in project.history)
     finally:
         agent_stdin.current_project = previous_project
         agent_stdin.current_store = previous_store
@@ -638,31 +641,80 @@ def test_create_plan_temporary_auto_does_not_save_project_mode(monkeypatch):
         tools.set_project_context(None, None)
 
 
-def test_truncate_chat_history_from_index_removes_suffix(store):
+def test_supersede_chat_history_hides_suffix_without_deleting_rows(store):
     store.create(**_base_args())
     p = store.load("myproj")
     first_id = store.append_message(p, "user", "first")
     reply_id = store.append_message(p, "assistant", "first reply")
     second_id = store.append_message(p, "user", "second")
 
-    deleted_ids = store.truncate_chat_history_from_index("myproj", p.current_chat_id, 1)
+    superseded = store.supersede_chat_history_from_message(
+        "myproj", p.current_chat_id, message_id=reply_id, superseded_by="edit-1"
+    )
 
     loaded = store.load("myproj", chat_id=p.current_chat_id)
-    assert deleted_ids == [reply_id, second_id]
+    assert superseded == [reply_id, second_id]
+    assert [m["content"] for m in loaded.history] == ["first"]
     assert loaded.history[0]["id"] == first_id
-    assert len(deleted_ids) == 2
+
+    # The rows are still on disk, marked and attributable to the edit that replaced them.
+    import sqlite3
+
+    conn = sqlite3.connect(store.db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id, deleted_at, superseded_by FROM project_history WHERE project = ? ORDER BY id",
+            ("myproj",),
+        ).fetchall()
+    finally:
+        conn.close()
+    assert [r[0] for r in rows] == [first_id, reply_id, second_id]
+    assert rows[0][1] == ""
+    assert all(r[1] != "" and r[2] == "edit-1" for r in rows[1:])
+
+
+def test_supersede_chat_history_accepts_client_message_id(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    store.append_message(p, "user", "first")
+    target_id = store.append_message(p, "user", "second", client_message_id="cid-2")
+    store.append_message(p, "assistant", "second reply")
+
+    superseded = store.supersede_chat_history_from_message(
+        "myproj", p.current_chat_id, client_message_id="cid-2"
+    )
+
+    loaded = store.load("myproj", chat_id=p.current_chat_id)
+    assert superseded[0] == target_id
     assert [m["content"] for m in loaded.history] == ["first"]
 
 
-def test_truncate_chat_history_from_index_removes_future_activity(store):
+def test_supersede_chat_history_requires_a_stable_anchor(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    store.append_message(p, "user", "first")
+
+    with pytest.raises(ValueError):
+        store.supersede_chat_history_from_message("myproj", p.current_chat_id)
+
+    with pytest.raises(ValueError):
+        store.supersede_chat_history_from_message(
+            "myproj", p.current_chat_id, client_message_id="does-not-exist"
+        )
+
+    loaded = store.load("myproj", chat_id=p.current_chat_id)
+    assert [m["content"] for m in loaded.history] == ["first"]
+
+
+def test_supersede_chat_history_hides_future_activity(store):
     store.create(**_base_args())
     p = store.load("myproj")
     store.append_message(p, "user", "first")
     store.append_activity(p, "thought", "first thought", agent="chat_orchestrator")
-    store.append_message(p, "assistant", "first reply")
+    reply_id = store.append_message(p, "assistant", "first reply")
     store.append_activity(p, "stream_chunk", "future stream", agent="chat_orchestrator")
 
-    store.truncate_chat_history_from_index("myproj", p.current_chat_id, 1)
+    store.supersede_chat_history_from_message("myproj", p.current_chat_id, message_id=reply_id)
 
     activity = store.list_activity("myproj", p.current_chat_id)
     assert [(item["event"], item["content"]) for item in activity] == [
@@ -670,21 +722,35 @@ def test_truncate_chat_history_from_index_removes_future_activity(store):
     ]
 
 
-def test_branch_chat_prefix_copies_messages_before_index(store):
+def test_branch_chat_before_message_copies_earlier_messages(store):
     store.create(**_base_args())
     p = store.load("myproj")
     source_chat = p.current_chat_id
     att = {"type": "image", "data": "abc123", "mime": "image/jpeg", "name": "shot.jpg"}
     store.append_message(p, "user", "first", attachments=[att])
     store.append_message(p, "assistant", "first reply")
-    store.append_message(p, "user", "second")
+    anchor_id = store.append_message(p, "user", "second")
 
-    copied = store.branch_chat_prefix("myproj", source_chat, "branch-edit", "Edited", 2)
+    copied = store.branch_chat_before_message(
+        "myproj", source_chat, "branch-edit", "Edited", message_id=anchor_id
+    )
 
     loaded = store.load("myproj", chat_id="branch-edit")
+    source = store.load("myproj", chat_id=source_chat)
     assert [m["content"] for m in copied] == ["first", "first reply"]
     assert [m["content"] for m in loaded.history] == ["first", "first reply"]
     assert loaded.history[0]["_attachments"] == [att]
+    # Branching must not touch the source chat.
+    assert [m["content"] for m in source.history] == ["first", "first reply", "second"]
+
+
+def test_branch_chat_before_message_requires_a_stable_anchor(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    store.append_message(p, "user", "first")
+
+    with pytest.raises(ValueError):
+        store.branch_chat_before_message("myproj", p.current_chat_id, "branch-x", "Edited")
 
 
 # ---------------------------------------------------------------------------

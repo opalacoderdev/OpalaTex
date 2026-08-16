@@ -1308,7 +1308,12 @@ def search_conversation_history(query: str, limit: int = 5) -> str:
         raise ValueError(f"Error searching Archival Memory: {e}")
 
 def _record_mode_event(content: str) -> None:
-    """Append a system-level state-change event to the chat history immediately.
+    """Record a state-change event as diagnostic activity, not as a chat message.
+
+    ``project_history`` holds only the visible conversation (what the model reads);
+    audit entries belong to ``project_activity`` (PROJECT_DESIGN 2.5). The agent
+    still learns the outcome within the turn: it is returned in the ``create_plan``
+    tool result.
 
     This is a fire-and-forget helper: it must never raise, because it is called
     inside tool functions and an exception here would surface as a tool error.
@@ -1316,7 +1321,12 @@ def _record_mode_event(content: str) -> None:
     if not _PROJECT_SESSION or not _PROJECT_STORE:
         return
     try:
-        _PROJECT_STORE.append_message(_PROJECT_SESSION, "system", content)
+        _PROJECT_STORE.append_activity(
+            _PROJECT_SESSION,
+            "plan_decision",
+            content=content,
+            agent="chat_orchestrator",
+        )
     except Exception:
         pass  # never let history recording crash the tool
 

@@ -984,10 +984,14 @@ export default function App() {
     return collected.reverse();
   };
 
+  // Only the visible conversation is replayed to the agent. Legacy "system" rows
+  // (stored [MODE]/achievements audit entries) are never sent: they are not part of
+  // the conversation and a mid-history system message breaks chat templates that
+  // require the system message to come first.
   const serializeChatHistoryForAgent = (messages, limit = 18) => (
     (messages || [])
       .slice(-limit)
-      .filter(msg => msg && (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'system'))
+      .filter(msg => msg && (msg.role === 'user' || msg.role === 'assistant'))
       .map(msg => ({
         role: msg.role,
         content: compactTextForAgent(msg.content || '', 4000),
@@ -1095,6 +1099,33 @@ export default function App() {
     return Number.isFinite(ms) ? ms : null;
   };
 
+  // Agent errors are stored as activity, not as chat messages: the model must never
+  // read its own failures back as conversation. They are re-inserted here, in
+  // timestamp order, so a failed turn still shows its error bubble after a reload.
+  const mergeErrorActivityIntoMessages = (messages = [], activity = []) => {
+    const errors = (activity || [])
+      .filter(item => item?.event === 'error' && String(item.content || item.payload?.message || '').trim())
+      .map(item => ({
+        role: 'assistant',
+        content: t('app.agentError', '🔴 Erro do Agente: {{message}}', {
+          message: String(item.content || item.payload?.message || ''),
+        }),
+        is_error: true,
+        timestamp: item.timestamp,
+        _fromActivity: true,
+      }));
+    if (!errors.length) return messages;
+
+    const merged = [...messages, ...errors];
+    merged.sort((left, right) => {
+      const leftTime = activityTimestampMs(left.timestamp);
+      const rightTime = activityTimestampMs(right.timestamp);
+      if (leftTime === null || rightTime === null || leftTime === rightTime) return 0;
+      return leftTime - rightTime;
+    });
+    return merged;
+  };
+
   const attachThoughtActivityToMessages = (history = [], activity = []) => {
     const messages = (history || []).map(message => ({ ...message }));
     const thoughts = (activity || [])
@@ -1104,7 +1135,7 @@ export default function App() {
         content: String(item.content || item.payload?.content || ''),
       }));
 
-    if (!messages.length || !thoughts.length) return messages;
+    if (!messages.length || !thoughts.length) return mergeErrorActivityIntoMessages(messages, activity);
 
     let thoughtIndex = 0;
     let pendingThoughts = [];
@@ -1134,7 +1165,7 @@ export default function App() {
       }
     }
 
-    return messages;
+    return mergeErrorActivityIntoMessages(messages, activity);
   };
 
   const addLog = (type, message, agent) =>
@@ -2455,6 +2486,17 @@ export default function App() {
           }
         }
         break;
+      case 'user_message_saved':
+        // Stamp the stored id on the optimistic user message so editing, retrying
+        // and branching have a stable anchor during this session.
+        setChatMessages(prev => prev.map(msg => (
+          msg.role === 'user'
+            && msg.client_message_id === data.client_message_id
+            && msg.id === undefined
+            ? { ...msg, id: data.message_id }
+            : msg
+        )));
+        break;
       case 'agent_finished': addLog('info', t('app.processingCompleted', 'Processamento concluído.')); break;
       case 'input_request':
         setConfirmRequest({ ...data, id: data.id, prompt: data.prompt, options: data.options || ['yes', 'no'], default: data.default || 'yes', type: data.type || 'confirm' });
@@ -2517,15 +2559,20 @@ export default function App() {
     if (!clientMessageId) {
       clientMessageId = makeClientMessageId();
     }
-    if (options.replaceFromIndex !== undefined) {
+    if (options.supersedeFrom) {
       try {
+        // Anchor the cut on the stored message id (or its client id), never on a
+        // UI position: the rendered list and the stored rows do not line up, and a
+        // wrong position would supersede unrelated turns.
         const truncateRes = await fetch('/api/chat/truncate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             project_name: activeProject.name,
             chat_id: targetChatId,
-            from_index: options.replaceFromIndex,
+            message_id: options.supersedeFrom.messageId ?? undefined,
+            client_message_id: options.supersedeFrom.clientMessageId || '',
+            superseded_by: clientMessageId,
           }),
         });
         if (!truncateRes.ok) {
@@ -2553,9 +2600,8 @@ export default function App() {
         if (options.baseMessages) {
           return [...options.baseMessages, userMsg];
         }
-        if (options.replaceFromIndex !== undefined) {
-          const replaceUiIndex = options.replaceUiIndex ?? options.replaceFromIndex;
-          return [...prev.slice(0, replaceUiIndex), userMsg];
+        if (options.replaceUiIndex !== undefined) {
+          return [...prev.slice(0, options.replaceUiIndex), userMsg];
         }
         if (retryMsg) {
           const idx = prev.indexOf(retryMsg);
@@ -2679,15 +2725,19 @@ export default function App() {
     }
 
     const attachments = originalMessage._attachments || [];
-    const persistedMessageIndex = chatMessages
-      .slice(0, messageIndex)
-      .filter(msg => numericMessageId(msg) !== null)
-      .length;
+    const messageAnchor = {
+      messageId: numericMessageId(originalMessage),
+      clientMessageId: String(originalMessage.client_message_id || '').trim(),
+    };
+    if (!messageAnchor.messageId && !messageAnchor.clientMessageId) {
+      addLog('error', t('app.editAnchorMissing', 'This message cannot be edited: it has no stored identifier.'));
+      return;
+    }
     if (messageIndex === lastUserIndex) {
       await handleSendMessage(null, null, {
         overrideText: nextContent,
         overrideAttachments: attachments,
-        replaceFromIndex: persistedMessageIndex,
+        supersedeFrom: messageAnchor,
         replaceUiIndex: messageIndex,
       });
       return;
@@ -2703,7 +2753,8 @@ export default function App() {
           project_name: activeProject.name,
           source_chat_id: activeChatId,
           new_chat_name: newChatName,
-          message_index: persistedMessageIndex,
+          message_id: messageAnchor.messageId ?? undefined,
+          client_message_id: messageAnchor.clientMessageId || '',
         }),
       });
       if (!res.ok) {
@@ -2739,6 +2790,8 @@ export default function App() {
     const attachments = message._attachments || [];
     if (!content.trim() && attachments.length === 0) return;
     if (message.client_message_id) {
+      // The stored row is reused (append_message dedupes on client_message_id),
+      // so the user turn is answered again without being rewritten.
       await handleSendMessage(null, null, {
         overrideText: content,
         overrideAttachments: attachments,
@@ -2747,14 +2800,15 @@ export default function App() {
       });
       return;
     }
-    const persistedMessageIndex = chatMessages
-      .slice(0, messageIndex)
-      .filter(msg => numericMessageId(msg) !== null)
-      .length;
+    const messageId = numericMessageId(message);
+    if (messageId === null) {
+      addLog('error', t('app.retryAnchorMissing', 'This message cannot be retried: it has no stored identifier.'));
+      return;
+    }
     await handleSendMessage(null, null, {
       overrideText: content,
       overrideAttachments: attachments,
-      replaceFromIndex: persistedMessageIndex,
+      supersedeFrom: { messageId, clientMessageId: '' },
       replaceUiIndex: messageIndex,
     });
   };

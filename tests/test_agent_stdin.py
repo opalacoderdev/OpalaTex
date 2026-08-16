@@ -539,6 +539,7 @@ async def test_handle_run_does_not_promote_worker_message_without_orchestrator_r
 
     events = []
     saved_messages = []
+    saved_activity = []
 
     class FakeProject:
         name = "proj"
@@ -550,6 +551,9 @@ async def test_handle_run_does_not_promote_worker_message_without_orchestrator_r
     class FakeStore:
         def append_message(self, _project, role, content, attachments=None):
             saved_messages.append((role, content))
+
+        def append_activity(self, _project, event, content="", agent="", payload=None):
+            saved_activity.append((event, content))
 
         def save(self, _project):
             pass
@@ -608,6 +612,7 @@ async def test_handle_run_reports_error_when_orchestrator_never_sends_message(mo
 
     events = []
     saved_messages = []
+    saved_activity = []
     prompts = []
 
     class FakeProject:
@@ -620,6 +625,9 @@ async def test_handle_run_reports_error_when_orchestrator_never_sends_message(mo
     class FakeStore:
         def append_message(self, _project, role, content, attachments=None):
             saved_messages.append((role, content))
+
+        def append_activity(self, _project, event, content="", agent="", payload=None):
+            saved_activity.append((event, content))
 
         def save(self, _project):
             pass
@@ -721,9 +729,15 @@ async def test_handle_run_does_not_duplicate_user_message_on_failed_retries(monk
     assert loaded.history[0].get("client_message_id") == "client-turn-1" or any(
         m.get("client_message_id") == "client-turn-1" for m in loaded.history if m["role"] == "user"
     )
-    # Each handle_run call records a [MODE] system entry at turn start
-    mode_messages = [m for m in loaded.history if m["role"] == "system" and m["content"].startswith("[MODE] Agent turn started")]
-    assert len(mode_messages) == 3, f"Expected 3 [MODE] entries, got {len(mode_messages)}"
+    # Each handle_run call records a [MODE] turn-start entry as diagnostic activity.
+    # It must never land in project_history: the chat holds the visible conversation
+    # only, which is exactly what the model reads back (PROJECT_DESIGN 2.5).
+    assert not any(m["role"] == "system" for m in loaded.history)
+    mode_activity = [
+        item for item in store.list_activity("proj", project.current_chat_id)
+        if item["event"] == "mode" and item["content"].startswith("[MODE] Agent turn started")
+    ]
+    assert len(mode_activity) == 3, f"Expected 3 [MODE] entries, got {len(mode_activity)}"
     assistant_errors = [m["content"] for m in loaded.history if m["role"] == "assistant"]
     assert assistant_errors == []
     assert [data["message"] for event, data in events if event == "error"] == [
@@ -740,6 +754,7 @@ async def test_handle_run_persists_visible_response_without_thought_snapshot(mon
 
     events = []
     saved_messages = []
+    saved_activity = []
 
     class FakeProject:
         name = "proj"
@@ -751,6 +766,9 @@ async def test_handle_run_persists_visible_response_without_thought_snapshot(mon
     class FakeStore:
         def append_message(self, _project, role, content, attachments=None):
             saved_messages.append((role, content))
+
+        def append_activity(self, _project, event, content="", agent="", payload=None):
+            saved_activity.append((event, content))
 
         def save(self, _project):
             pass
@@ -796,6 +814,7 @@ async def test_handle_run_does_not_persist_auxiliary_thought_events_in_chat_hist
 
     events = []
     saved_messages = []
+    saved_activity = []
 
     class FakeProject:
         name = "proj"
@@ -807,6 +826,9 @@ async def test_handle_run_does_not_persist_auxiliary_thought_events_in_chat_hist
     class FakeStore:
         def append_message(self, _project, role, content, attachments=None):
             saved_messages.append((role, content))
+
+        def append_activity(self, _project, event, content="", agent="", payload=None):
+            saved_activity.append((event, content))
 
         def save(self, _project):
             pass
@@ -862,6 +884,7 @@ async def test_handle_run_checkpoints_direct_file_writes(monkeypatch, tmp_path):
 
     events = []
     saved_messages = []
+    saved_activity = []
 
     class FakeProject:
         name = "proj"
@@ -873,6 +896,9 @@ async def test_handle_run_checkpoints_direct_file_writes(monkeypatch, tmp_path):
     class FakeStore:
         def append_message(self, _project, role, content, attachments=None):
             saved_messages.append((role, content))
+
+        def append_activity(self, _project, event, content="", agent="", payload=None):
+            saved_activity.append((event, content))
 
         def save(self, _project):
             pass
@@ -942,6 +968,7 @@ async def test_handle_run_removes_turn_checkpoints_without_file_changes(monkeypa
 
     events = []
     saved_messages = []
+    saved_activity = []
 
     class FakeProject:
         name = "proj"
@@ -953,6 +980,9 @@ async def test_handle_run_removes_turn_checkpoints_without_file_changes(monkeypa
     class FakeStore:
         def append_message(self, _project, role, content, attachments=None):
             saved_messages.append((role, content))
+
+        def append_activity(self, _project, event, content="", agent="", payload=None):
+            saved_activity.append((event, content))
 
         def save(self, _project):
             pass
@@ -1005,6 +1035,7 @@ async def test_handle_run_finalizes_checkpoint_when_agent_errors(monkeypatch, tm
 
     events = []
     saved_messages = []
+    saved_activity = []
 
     class FakeProject:
         name = "proj"
@@ -1016,6 +1047,9 @@ async def test_handle_run_finalizes_checkpoint_when_agent_errors(monkeypatch, tm
     class FakeStore:
         def append_message(self, _project, role, content, attachments=None):
             saved_messages.append((role, content))
+
+        def append_activity(self, _project, event, content="", agent="", payload=None):
+            saved_activity.append((event, content))
 
         def save(self, _project):
             pass

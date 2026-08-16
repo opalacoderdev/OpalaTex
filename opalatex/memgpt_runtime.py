@@ -600,6 +600,68 @@ def build_run_skill_tool(
 # Chat-orchestrator (the fixed MemGPT)
 # ---------------------------------------------------------------------------
 
+CHAT_HISTORY_SEED_LIMIT = 10
+_SEEDED_ROLES = ("user", "assistant")
+
+
+def restore_chat_orchestrator_state(memgpt: MemGPTAgentBlock, project, store) -> bool:
+    """Restore the MemGPT working state saved for this chat.
+
+    The orchestrator is rebuilt on every turn (the system prompt depends on mode,
+    core memory and the active skills), so without this its context management —
+    FIFO eviction and the recursive summary — would restart from scratch each time
+    and only a raw slice of the chat would survive. Returns False when there is no
+    saved state and the caller must seed from persisted history instead.
+    """
+    if store is None:
+        return False
+    chat_id = getattr(project, "current_chat_id", "") or ""
+    if not chat_id:
+        return False
+    try:
+        state = store.get_chat_agent_state(project.name, chat_id)
+    except Exception:
+        return False
+    if not state or not state.get("internal_history"):
+        return False
+    memgpt.load_state(state)
+    return True
+
+
+def save_chat_orchestrator_state(memgpt: MemGPTAgentBlock, project, store) -> None:
+    """Persist the MemGPT working state for this chat (best effort)."""
+    if store is None or memgpt is None:
+        return
+    chat_id = getattr(project, "current_chat_id", "") or ""
+    if not chat_id:
+        return
+    try:
+        store.save_chat_agent_state(project.name, chat_id, memgpt.dump_state())
+    except Exception:
+        pass
+
+
+def seed_chat_orchestrator_history(memgpt: MemGPTAgentBlock, project) -> None:
+    """Seed the working context from persisted history.
+
+    Only the visible conversation is replayed. ``system``/``tool`` rows are never
+    seeded: a mid-history system message breaks chat templates that require the
+    system message to come first (PROJECT_DESIGN 2.7), and a stored tool row would
+    arrive without its ``tool_call_id``. Message content is replayed verbatim —
+    prefixing a timestamp would teach the model to echo that prefix in its own
+    answers; the current date is already supplied by the system prompt.
+    """
+    history = getattr(project, "history", None) or []
+    for msg in history[-CHAT_HISTORY_SEED_LIMIT:]:
+        role = msg.get("role", "")
+        if role not in _SEEDED_ROLES:
+            continue
+        content = msg.get("content", "")
+        if role == "assistant" and str(content).lstrip().startswith("Agent Error:"):
+            continue
+        memgpt.internal_history.append({"role": role, "content": content})
+
+
 def _chat_orchestrator_body(project_path: str) -> str:
     """Return the chat-orchestrator SKILL.md body, or a minimal fallback."""
     skill_dir = find_skill_dir(CHAT_ORCHESTRATOR_SKILL, project_path)
@@ -779,7 +841,9 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         model_kwargs=_llm_kwargs,
         max_heartbeats=_agent_params.get("max_heartbeats", get_agent_max_heartbeats("memgpt", 20)),
         max_context_tokens=_agent_params.get("max_context_tokens", model_params.get("num_ctx", _llm_kwargs.get("num_ctx", 8192))),
-        eviction_threshold=_agent_params.get("eviction_threshold", 1.0),
+        # Start evicting before the window is completely full: at 1.0 there is no
+        # headroom left for the model's own answer once the request is assembled.
+        eviction_threshold=_agent_params.get("eviction_threshold", 0.85),
         memory_pressure_threshold=_agent_params.get("memory_pressure_threshold", 0.7),
         debug=_agent_params.get("debug", False),
         use_shared_router=_agent_params.get("use_shared_router", True),
@@ -846,20 +910,8 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
             memgpt.on_thinking = _orch_on_thinking
         memgpt.on_chunk = _orch_on_chunk
 
-    # Seed the working context from persisted history so the conversation restores
-    # across restarts (the old chat_agent did this; the MemGPT starts empty).
-    _VALID_ROLES = {"user", "assistant", "system", "tool"}
-    history = getattr(project, "history", None) or []
-    for msg in history[-10:]:
-        role = msg.get("role", "assistant")
-        if role not in _VALID_ROLES:
-            role = "assistant"
-        content = msg.get("content", "")
-        if role == "assistant" and str(content).lstrip().startswith("Agent Error:"):
-            continue
-        if msg.get("timestamp"):
-            content = f"[{msg['timestamp']}] {content}"
-        memgpt.internal_history.append({"role": role, "content": content})
+    if not restore_chat_orchestrator_state(memgpt, project, store):
+        seed_chat_orchestrator_history(memgpt, project)
 
     # run_skill is bound to this MemGPT instance (interceptor needs its history)
     # and to the project (so it can re-scope file tools on each call).

@@ -8,7 +8,7 @@ from opalatex.project import ProjectStore
 
 
 @pytest.mark.asyncio
-async def test_chat_truncate_endpoint_returns_deleted_ids(tmp_path, monkeypatch):
+async def test_chat_truncate_endpoint_returns_superseded_ids(tmp_path, monkeypatch):
     db_path = str(tmp_path / "projects.db")
     store = ProjectStore(db_path=db_path)
     project = store.create(
@@ -40,7 +40,7 @@ async def test_chat_truncate_endpoint_returns_deleted_ids(tmp_path, monkeypatch)
         json.dumps({
             "project_name": "myproj",
             "chat_id": project.current_chat_id,
-            "from_index": 1,
+            "message_id": reply_id,
         }).encode("utf-8"),
         writer,
     )
@@ -48,12 +48,54 @@ async def test_chat_truncate_endpoint_returns_deleted_ids(tmp_path, monkeypatch)
     assert responses == [
         (
             200,
-            {"status": "ok", "deleted_ids": [reply_id, second_id]},
+            {"status": "ok", "superseded_ids": [reply_id, second_id]},
             "application/json",
         )
     ]
     loaded = store.load("myproj", chat_id=project.current_chat_id)
     assert [m["id"] for m in loaded.history] == [first_id]
+
+
+@pytest.mark.asyncio
+async def test_chat_truncate_endpoint_rejects_request_without_stable_anchor(tmp_path, monkeypatch):
+    """A positional index is not accepted: it cannot be mapped to stored rows safely."""
+    db_path = str(tmp_path / "projects.db")
+    store = ProjectStore(db_path=db_path)
+    project = store.create(
+        name="myproj",
+        mode="plan",
+        model="fake/model",
+        project_name="My Project",
+        project_path=str(tmp_path / "project"),
+    )
+    store.append_message(project, "user", "first")
+    store.append_message(project, "assistant", "first reply")
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
+
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    server.send_response = lambda _w, status, body, ctype="text/plain": responses.append(
+        (status, json.loads(body.decode("utf-8")), ctype)
+    )
+
+    await server.route_api(
+        "POST",
+        "/api/chat/truncate",
+        {},
+        {},
+        json.dumps({
+            "project_name": "myproj",
+            "chat_id": project.current_chat_id,
+            "from_index": 1,
+        }).encode("utf-8"),
+        writer,
+    )
+
+    assert responses[0][0] == 400
+    loaded = store.load("myproj", chat_id=project.current_chat_id)
+    assert [m["content"] for m in loaded.history] == ["first", "first reply"]
 
 @pytest.mark.asyncio
 async def test_clear_all_chats_endpoint_resets_project_chats(tmp_path, monkeypatch):
