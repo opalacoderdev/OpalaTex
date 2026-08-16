@@ -217,11 +217,13 @@ def build_run_skill_tool(
             "one of the active skills shown to you under 'Available skills') and a context string with "
             "relevant facts or instructions. "
             "CRITICAL: You must ONLY call run_skill with a skill name that is explicitly listed "
-            "in the 'Available skills' section of your system prompt. Do NOT invent skill names. "
-            "If the task requires terminal commands, directory manipulation, or complex file editing, "
-            "delegate to the 'command-line' skill. If you need to locate text in project files, "
-            "use your direct search_code tool. Do NOT try to call non-existent skills like "
-            "'search_files', 'list_files', or 'edit_file'."
+            "in the 'Available skills' section of your system prompt. Do NOT invent skill names, and "
+            "do NOT call non-existent skills like 'search_files', 'list_files', or 'edit_file'. "
+            "Before choosing, read EVERY entry in 'Available skills' and pick the most specific one: a "
+            "skill whose description names the file type or the operation the user asked for always "
+            "outranks a general-purpose one. 'command-line' is the last resort for terminal execution "
+            "when no specialized skill matches; it is not a fallback for work another active skill "
+            "describes. To locate text in project files, use your direct search_code tool instead."
         ),
     )
     async def run_skill(skill_name: str, context: str) -> str:
@@ -398,11 +400,6 @@ def build_run_skill_tool(
 
         from .config import get_project_agent_params
         worker_agent_params = get_project_agent_params("worker")
-
-        #print(f"\n[DEBUG] === worker ({skill_name}) parameters ===")
-        #print(f"model: {model}")
-        #print(f"kwargs: {worker_kwargs}")
-        #print(f"==============================================\n")
 
         sub_agent = LLMAgentBlock(
             name=f"skill_{skill_name}",
@@ -856,11 +853,6 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
                 _llm_kwargs["api_base"] = _llm_kwargs["api_base"][:-4]
                 
     _agent_params = get_project_agent_params()
-
-    #print(f"\n[DEBUG] === chat_orchestrator parameters ===")
-    #print(f"model: {model}")
-    #print(f"kwargs: {_llm_kwargs}")
-    #print(f"============================================\n")
 
     memgpt = MemGPTAgentBlock(
         name="chat_orchestrator",

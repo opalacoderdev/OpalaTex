@@ -670,8 +670,7 @@ def resolve_model_for_thinking(model: str, llm_kwargs: dict) -> str:
     if not model_supports_thinking(selected_model):
         llm_kwargs.pop("think", None)
         llm_kwargs.pop("reasoning_effort", None)
-    
-    if model.startswith("ollama/"):
+    if model.startswith("ollama/") and (llm_kwargs.get("think") or llm_kwargs.get("reasoning_effort")):
         return "ollama_chat/" + model[len("ollama/"):]
     return model
 

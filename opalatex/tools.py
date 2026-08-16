@@ -1358,7 +1358,6 @@ def get_available_tools():
         run_interactive_command,
         analyze_image,
         ask_question,
-        ask_human,
     ]
 
 
