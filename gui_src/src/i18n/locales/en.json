@@ -398,6 +398,7 @@
     "generateResponseTooltip": "Generate an assistant response from this message",
     "hideThink": "Hide <think>",
     "hideThinkTooltip": "Hide <think> blocks from chat",
+    "closeChat": "Close chat",
     "tryAgain": "Try Again",
     "continue": "Continue",
     "attachFile": "Attach image, PDF, DOCX, or PPTX",

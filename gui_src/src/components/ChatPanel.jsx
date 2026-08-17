@@ -924,22 +924,24 @@ export default function ChatPanel({
       />
       {/* Header */}
       <div className="vscode-chat-header">
-        <span className="vscode-sidebar-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <MessageSquare size={12} style={{ color: '#007acc' }} />
-          <span>{t('chatPanel.header')}</span>
+        <span className="vscode-sidebar-title vscode-chat-header-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <MessageSquare size={12} style={{ color: '#007acc', flexShrink: 0 }} />
+          <span className="vscode-chat-header-title-text">{t('chatPanel.header')}</span>
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div 
+        <div className="vscode-chat-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div
+            className="vscode-chat-context-badge"
             title={t(
               isDerivedContext
                 ? 'chatPanel.contextDerived'
                 : isMeasuredContext ? 'chatPanel.contextMeasured' : 'chatPanel.contextEstimated',
               { used: usedTokens, available: availableTokens, total: numCtx },
             )}
-            style={{ 
-              display: 'flex', alignItems: 'center', gap: '4px', 
+            style={{
+              display: 'flex', alignItems: 'center', gap: '4px',
               marginRight: '8px', cursor: 'help',
               opacity: 0.9,
+              flexShrink: 0,
               fontSize: '10px',
               color: batteryColor
             }}
@@ -965,14 +967,14 @@ export default function ChatPanel({
                 borderRadius: '0 1px 1px 0'
               }} />
             </div>
-            <span>
+            <span style={{ whiteSpace: 'nowrap' }}>
               {Math.round(remainingPercentage)}%
-              <span style={{ opacity: 0.75, marginLeft: '4px' }}>
+              <span className="vscode-chat-context-detail" style={{ opacity: 0.75, marginLeft: '4px' }}>
                 {formatTokens(availableTokens)}/{formatTokens(numCtx)}
               </span>
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '4px', flexShrink: 0 }}>
             <input 
               type="checkbox" 
               id="hide-think-cb" 
@@ -985,13 +987,14 @@ export default function ChatPanel({
               style={{ cursor: 'pointer', margin: 0 }}
               title={t('chatPanel.hideThinkTooltip', 'Ocultar blocos <think> do chat')}
             />
-            <label htmlFor="hide-think-cb" style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)', cursor: 'pointer', userSelect: 'none' }} title={t('chatPanel.hideThinkTooltip', 'Ocultar blocos <think> do chat')}>
+            <label htmlFor="hide-think-cb" className="vscode-chat-hide-think-label" style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }} title={t('chatPanel.hideThinkTooltip', 'Ocultar blocos <think> do chat')}>
               {t('chatPanel.hideThink', 'Hide Think')}
             </label>
           </div>
           <button
             onClick={zoomOut}
             disabled={chatZoom <= MIN_ZOOM + 1e-9}
+            className="vscode-chat-header-btn"
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)', opacity: chatZoom <= MIN_ZOOM + 1e-9 ? 0.4 : 1 }}
             title={t('chatPanel.zoomOut', 'Diminuir Zoom')}
           >
@@ -999,6 +1002,7 @@ export default function ChatPanel({
           </button>
           <button
             onClick={zoomReset}
+            className="vscode-chat-header-btn"
             style={{
               background: 'transparent', border: '1px solid var(--vscode-border, #3c3c3c)',
               borderRadius: '3px', cursor: 'pointer', color: 'var(--vscode-text-fg)',
@@ -1011,12 +1015,13 @@ export default function ChatPanel({
           <button
             onClick={zoomIn}
             disabled={chatZoom >= MAX_ZOOM - 1e-9}
+            className="vscode-chat-header-btn"
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)', opacity: chatZoom >= MAX_ZOOM - 1e-9 ? 0.4 : 1 }}
             title={t('chatPanel.zoomIn', 'Aumentar Zoom')}
           >
             <ZoomIn size={14} />
           </button>
-          <div ref={chatActionsMenuRef} className="vscode-overflow-menu-wrap">
+          <div ref={chatActionsMenuRef} className="vscode-overflow-menu-wrap" style={{ flexShrink: 0 }}>
             <button
               onClick={() => setShowChatActionsMenu(prev => !prev)}
               className="vscode-bottom-panel-clear-btn"
@@ -1079,7 +1084,10 @@ export default function ChatPanel({
           {!isChatMode && (
             <button
               onClick={() => setIsChatVisible(false)}
+              className="vscode-chat-header-btn"
               style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)' }}
+              title={t('chatPanel.closeChat', 'Close chat')}
+              aria-label={t('chatPanel.closeChat', 'Close chat')}
             >
               <X size={14} />
             </button>

@@ -976,6 +976,54 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  /* `.vscode-chat` clips its overflow, so anything the header pushes past the
+     panel's right edge (the close button, last in the row) becomes invisible
+     and unclickable. Wrapping is the last-resort guarantee that it never
+     happens; the container queries below keep the row on a single line for the
+     usual panel widths by dropping the lowest-priority labels first. */
+  flex-wrap: wrap;
+  container-type: inline-size;
+}
+
+.vscode-chat-header-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.vscode-chat-header-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The actions never shrink: their children cannot shrink either, so a shrinking
+   container would just let them spill out of it. */
+.vscode-chat-header-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.vscode-chat-header-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+
+/* Progressive disclosure, widest-first: the token counter detail (still in the
+   tooltip) goes first, then the "hide think" label (still in its tooltip). */
+@container (max-width: 494px) {
+  .vscode-chat-context-detail {
+    display: none;
+  }
+}
+
+@container (max-width: 432px) {
+  .vscode-chat-hide-think-label {
+    display: none;
+  }
 }
 
 .vscode-chat-toolbar {

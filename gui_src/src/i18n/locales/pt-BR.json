@@ -398,6 +398,7 @@
     "generateResponseTooltip": "Gerar uma resposta do agente a partir desta mensagem",
     "hideThink": "Ocultar <think>",
     "hideThinkTooltip": "Ocultar blocos <think> do chat",
+    "closeChat": "Fechar chat",
     "tryAgain": "Tentar Novamente",
     "continue": "Continuar",
     "attachFile": "Anexar imagem, PDF, DOCX ou PPTX",
