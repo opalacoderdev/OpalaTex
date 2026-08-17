@@ -322,6 +322,7 @@
     "header": "OPALATEX CHAT",
     "contextMeasured": "Contexto: {{used}} usados / {{available}} livres de {{total}} tokens.\nJanela efetiva: num_ctx={{total}} — este é o teto real, não o máximo do modelo. Aumente num_ctx nas configurações do projeto para usar mais.",
     "contextEstimated": "Contexto: ~{{used}} usados / ~{{available}} livres de {{total}} tokens (estimado até a primeira resposta do modelo).\nJanela efetiva: num_ctx={{total}} — este é o teto real, não o máximo do modelo.",
+    "contextDerived": "Contexto: {{used}} usados / {{available}} livres de {{total}} tokens, contados a partir da conversa que este chat vai restaurar (o último turno deste chat é anterior à medição armazenada; os schemas das tools não entram na conta, então o valor real é um pouco maior).\nJanela efetiva: num_ctx={{total}} — este é o teto real, não o máximo do modelo. A próxima mensagem substitui isto pela contagem do próprio provedor.",
     "orchestrator": "Orquestrador",
     "worker": "Worker",
     "refreshModels": "Atualizar Modelos",

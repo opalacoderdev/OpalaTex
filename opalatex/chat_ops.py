@@ -17,9 +17,11 @@ from .token_usage import context_scope_key, reset_context_usage
 def clear_chat(project: Any, store: Any, chat_id: str) -> Any:
     """Erase one chat and everything derived from it. Returns the reloaded project.
 
-    ``clear_project_history`` also resets the chat's ``agent_state``, so the next
-    turn rebuilds the orchestrator with an empty ``internal_history`` rather than
-    restoring the conversation the user just deleted.
+    ``clear_project_history`` also resets the chat's ``agent_state`` and its
+    persisted ``context_usage``, so the next turn rebuilds the orchestrator with
+    an empty ``internal_history`` rather than restoring the conversation the user
+    just deleted, and reopening the chat cannot rehydrate the occupancy of a
+    window that no longer exists.
     """
     store.clear_project_history(project.name, chat_id)
 

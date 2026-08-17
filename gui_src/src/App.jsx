@@ -288,6 +288,10 @@ export default function App() {
   const agentResumeEventsRef = useRef([]);
   // Shape the backend's measured usage for the panel. A payload without
   // prompt_tokens carries no measurement, so the panel keeps estimating.
+  // `source` says where the number came from: the provider, a local count of the
+  // assembled request, or a count of the restored working state for a chat whose
+  // last turn predates the persisted measurement. The panel labels them
+  // differently instead of presenting all three as the provider's number.
   const contextUsageFromPayload = (payload) => (
     payload && payload.prompt_tokens > 0
       ? {
@@ -295,6 +299,7 @@ export default function App() {
         completionTokens: payload.completion_tokens || 0,
         totalTokens: payload.total_tokens || 0,
         contextWindow: payload.context_window || 0,
+        source: payload.source || '',
       }
       : null
   );
@@ -906,8 +911,9 @@ export default function App() {
       setTutorialTopics(data.topics || []);
       setChats(prev => prev.some(c => c.id === chatId) ? prev : [...prev, { id: chatId, name: data.name }]);
 
-      // Another chat is another history: the measured window no longer applies.
-      setChatContextUsage(null);
+      // Another chat is another history: the previous chat's measurement no
+      // longer applies, and this one's comes back with its transcript.
+      setChatContextUsage(contextUsageFromPayload(data.context_usage));
       setActiveChatId(chatId);
       setActiveProject(prev => prev ? { ...prev, current_chat_id: chatId } : null);
       localStorage.setItem(`lastChat_${activeProject.name}`, chatId);

@@ -794,6 +794,73 @@ def save_chat_orchestrator_state(memgpt: MemGPTAgentBlock, project, store) -> No
         pass
 
 
+def derive_context_usage_from_state(project, store) -> dict | None:
+    """Count the window a chat's *restored* context will occupy, or ``None``.
+
+    A conversation that last ran before the measurement was persisted has no
+    provider number stored, and the front-end's character estimate over the
+    visible bubbles is not a usable stand-in: it cannot see the system prompt,
+    the recursive summary, the tool calls or the tool results, so it draws an
+    almost full battery for an almost full window.
+
+    What *is* available is the thing that actually fills the window: the working
+    state the orchestrator will restore on the next turn. Rebuilding the same
+    message list ``MemGPTAgentBlock`` sends (system prompt + recursive summary +
+    internal history) and counting it with the model's own tokenizer is the same
+    measurement the ``source: "local"`` count already reports before each call --
+    not an estimate of a different quantity. It is still not the provider's
+    number: the tool JSON schemas travel outside ``messages``, and the probe
+    carries no tools so their descriptions are absent from the rendered MemGPT
+    rules. Both omissions make it read slightly low, which the ``source`` field
+    records so the panel can say where the number came from.
+
+    Returns ``None`` when there is no saved state, which is the honest answer for
+    a chat that never ran.
+    """
+    if store is None or project is None:
+        return None
+    chat_id = getattr(project, "current_chat_id", "") or ""
+    if not chat_id:
+        return None
+    try:
+        state = store.get_chat_agent_state(project.name, chat_id)
+    except Exception:
+        return None
+    if not state or not state.get("internal_history"):
+        return None
+
+    project_model = getattr(project, "model", None) or ""
+    model = get_agent_model("memgpt", get_agent_model("chat_agent", project_model))
+    try:
+        probe = MemGPTAgentBlock(
+            name="chat_orchestrator",
+            system_prompt=chat_orchestrator_system_prompt(project, store),
+            model=model,
+        )
+        probe.load_state(state)
+        tokens = probe.count_context_tokens()
+    except Exception:
+        return None
+    if tokens <= 0:
+        return None
+
+    from .config import resolve_effective_num_ctx
+
+    record = {
+        "prompt_tokens": tokens,
+        "completion_tokens": 0,
+        "total_tokens": tokens,
+        "source": "state",
+    }
+    try:
+        window = int(resolve_effective_num_ctx("memgpt", project_model) or 0)
+    except Exception:
+        window = 0
+    if window > 0:
+        record["context_window"] = window
+    return record
+
+
 def seed_chat_orchestrator_history(memgpt: MemGPTAgentBlock, project) -> None:
     """Seed the working context from persisted history.
 
@@ -853,29 +920,19 @@ def _chat_orchestrator_body(project_path: str, profile: str = "full") -> str:
     )
 
 
-def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
-    """Build the fixed MemGPT chat-orchestrator for a project.
+def chat_orchestrator_system_prompt(project, store=None) -> str:
+    """Render the chat-orchestrator system prompt for a project.
 
-    The system prompt = chat-orchestrator SKILL.md body + Level-1 metadata of the
-    active skills. Tools = run_skill + the memory tools. Uses the framework
-    MemGPTAgentBlock (classic memory) per docs/specs/04 §1.
+    Extracted from ``build_chat_orchestrator`` so a caller that only needs the
+    prompt -- measuring how full a restored context is, for instance -- does not
+    have to build the whole agent. Deliberately free of side effects: unlike the
+    builder, it never calls ``set_project_context``, which rescopes the global
+    file/terminal tools and must not be triggered by a read-only request while
+    another project's turn is running.
     """
-    from .tools import (
-        read_core_memory, append_core_memory, search_conversation_history,
-        set_project_context,
-    )
-
     project_path = getattr(project, "project_path", "") or os.getcwd()
-    # An unconfigured project keeps an empty model here. The orchestrator is still
-    # built (so the project can be opened and configured), but handle_run refuses to
-    # run it instead of silently substituting DEFAULT_MODEL for the user's choice.
     project_model = getattr(project, "model", None) or ""
     project_worker = getattr(project, "worker_model", "") or project_model
-
-    # Scope all file/terminal tools to the project directory. Without this,
-    # get_project_path() falls back to the cwd (the OpalaTex repo root) and the
-    # sub-agent's write_file/run_command would act outside the project.
-    set_project_context(project, store)
 
     # Resolved early because the prompt profile (full/light) depends on the
     # orchestrator's model and, in turn, decides which skill-body variant and
@@ -952,6 +1009,37 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         f"## Available skills (call run_skill with the skill name)\n{metadata}\n"
         f"{tutorial_block}"
     )
+    return system_prompt
+
+
+def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
+    """Build the fixed MemGPT chat-orchestrator for a project.
+
+    The system prompt = chat-orchestrator SKILL.md body + Level-1 metadata of the
+    active skills. Tools = run_skill + the memory tools. Uses the framework
+    MemGPTAgentBlock (classic memory) per docs/specs/04 §1.
+    """
+    from .tools import (
+        read_core_memory, append_core_memory, search_conversation_history,
+        set_project_context,
+    )
+
+    project_path = getattr(project, "project_path", "") or os.getcwd()
+    # An unconfigured project keeps an empty model here. The orchestrator is still
+    # built (so the project can be opened and configured), but handle_run refuses to
+    # run it instead of silently substituting DEFAULT_MODEL for the user's choice.
+    project_model = getattr(project, "model", None) or ""
+    project_worker = getattr(project, "worker_model", "") or project_model
+
+    # Scope all file/terminal tools to the project directory. Without this,
+    # get_project_path() falls back to the cwd (the OpalaTex repo root) and the
+    # sub-agent's write_file/run_command would act outside the project.
+    set_project_context(project, store)
+
+    system_prompt = chat_orchestrator_system_prompt(project, store)
+    # Resolved again here (cheap and pure) because the LiteLLM kwargs and the
+    # thinking route below need the model, not just the prompt.
+    model = get_agent_model("memgpt", get_agent_model("chat_agent", project_model))
 
     _llm_kwargs = get_agent_llm_kwargs("memgpt")
     

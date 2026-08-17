@@ -357,6 +357,69 @@ async def test_chat_history_names_the_chat_it_answered_for(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_chat_history_serves_the_occupancy_stored_for_that_chat(tmp_path, monkeypatch):
+    """Reopening a chat must report its measured window, not an empty one.
+
+    The in-process measurement holds a single scope, so running any other
+    conversation (or restarting the server) leaves nothing for this chat. The
+    endpoint then answered ``context_usage: null`` and the panel fell back to the
+    character estimate, showing a full battery for a nearly full window.
+    """
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "second", "Second Chat")
+    store.save_chat_context_usage("myproj", "second", {
+        "prompt_tokens": 34_500,
+        "completion_tokens": 800,
+        "total_tokens": 35_300,
+        "context_window": 1_000_000,
+    })
+
+    # Another conversation owns the in-process slot, exactly as it would after
+    # sending a message in a different chat.
+    from opalatex import token_usage
+    token_usage.set_context_scope(token_usage.context_scope_key("/elsewhere", "other"))
+    token_usage.record_context_tokens(999)
+
+    try:
+        await server.route_api(
+            "GET",
+            "/api/chat/history",
+            {"project_name": ["myproj"], "chat_id": ["second"]},
+            {},
+            b"",
+            AsyncMock(),
+        )
+    finally:
+        token_usage.set_context_scope("reset")
+
+    status_code, data, _ = responses[0]
+    assert status_code == 200
+    assert data["context_usage"]["prompt_tokens"] == 34_500
+    assert data["context_usage"]["context_window"] == 1_000_000
+
+
+@pytest.mark.asyncio
+async def test_chat_history_reports_no_occupancy_for_an_unmeasured_chat(tmp_path, monkeypatch):
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "second", "Second Chat")
+
+    await server.route_api(
+        "GET",
+        "/api/chat/history",
+        {"project_name": ["myproj"], "chat_id": ["second"]},
+        {},
+        b"",
+        AsyncMock(),
+    )
+
+    status_code, data, _ = responses[0]
+    assert status_code == 200
+    assert data["context_usage"] is None
+
+
+@pytest.mark.asyncio
 async def test_chat_list_reports_the_real_main_chat_id(tmp_path, monkeypatch):
     store, server, responses = _api_harness(tmp_path, monkeypatch)
     store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))

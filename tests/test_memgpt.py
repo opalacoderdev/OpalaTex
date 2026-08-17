@@ -55,3 +55,45 @@ async def test_context_probe():
 
 if __name__ == "__main__":
     asyncio.run(test())
+
+
+# ---------------------------------------------------------------------------
+# Request assembly is a public capability of the block
+# ---------------------------------------------------------------------------
+
+def test_build_request_messages_is_what_the_run_loop_sends():
+    """The main context: system prompt, recursive summary, then the history.
+
+    `run` assembles its request from this method, so a caller that measures how
+    full the window is measures the same list the model receives.
+    """
+    from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
+
+    agent = MemGPTAgentBlock(
+        name="probe", system_prompt="SYSTEM PROMPT", model="fake/model",
+    )
+    agent.internal_history = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi"},
+    ]
+    agent.recursive_summary = "Older turns were about LaTeX."
+
+    messages = agent.build_request_messages()
+
+    assert [m["role"] for m in messages] == ["system", "system", "user", "assistant"]
+    assert messages[0]["content"].startswith("SYSTEM PROMPT")
+    assert "Older turns were about LaTeX." in messages[1]["content"]
+    assert messages[2:] == agent.internal_history
+
+
+def test_count_context_tokens_grows_with_the_history():
+    from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
+
+    agent = MemGPTAgentBlock(name="probe", system_prompt="SYSTEM", model="fake/model")
+    empty = agent.count_context_tokens()
+
+    agent.internal_history = [{"role": "user", "content": "word " * 500}]
+    filled = agent.count_context_tokens()
+
+    assert empty > 0
+    assert filled > empty + 400

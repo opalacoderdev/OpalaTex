@@ -1111,6 +1111,37 @@ def _current_context_usage(chat_id: str | None) -> dict | None:
     ))
 
 
+def _persist_context_usage(chat_id: str | None) -> None:
+    """Store this turn's measured occupancy next to the chat it describes.
+
+    The in-process measurement is a single slot bound to one project/chat scope,
+    so the next run of any other conversation drops it — and the server process
+    keeps nothing across a restart. Without a persisted copy, coming back to a
+    chat that had filled most of its window answered ``context_usage: null`` and
+    the panel fell back to the character estimate over the visible bubbles,
+    reporting a nearly empty context for a conversation the orchestrator restores
+    in full from ``agent_state``.
+
+    Only a real measurement is written. A turn that failed before any LLM call
+    has nothing to say about the window, and erasing the previous number would
+    replace a true value with a guess.
+    """
+    if current_store is None or current_project is None:
+        return
+    target_chat = str(chat_id or getattr(current_project, "current_chat_id", "") or "")
+    if not target_chat:
+        return
+    usage = _current_context_usage(chat_id)
+    if not usage:
+        return
+    try:
+        current_store.save_chat_context_usage(
+            current_project.name, target_chat, usage,
+        )
+    except Exception:
+        pass
+
+
 # Pending slash-command tasks awaiting user confirmation
 _pending_slash_tasks: dict = {}
 
@@ -1869,6 +1900,11 @@ async def handle_run(data: dict):
                 save_chat_orchestrator_state(agent, current_project, current_store)
             except Exception:
                 pass
+        # The occupancy describes the working state saved just above, so it is
+        # persisted in the same place and for the same reason: an interrupted or
+        # failed turn already consumed the window it reports.
+        if agent_type in TOKEN_CONTEXT_AGENTS:
+            _persist_context_usage(data.get("chat_id"))
         if turn_checkpoint_id and turn_checkpoint_project_path:
             try:
                 from opalatex.vcs import finalize_agent_turn_checkpoint

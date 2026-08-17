@@ -322,6 +322,7 @@
     "header": "OPALATEX CHAT",
     "contextMeasured": "Context: {{used}} used / {{available}} free of {{total}} tokens.\nEffective window: num_ctx={{total}} — this is the real cap, not the model's maximum. Raise num_ctx in the project settings to use more.",
     "contextEstimated": "Context: ~{{used}} used / ~{{available}} free of {{total}} tokens (estimated until the first model response).\nEffective window: num_ctx={{total}} — this is the real cap, not the model's maximum.",
+    "contextDerived": "Context: {{used}} used / {{available}} free of {{total}} tokens, counted from the conversation this chat will restore (this chat's last turn predates the stored measurement; the tool schemas are not included, so the real figure is slightly higher).\nEffective window: num_ctx={{total}} — this is the real cap, not the model's maximum. The next message replaces this with the provider's own count.",
     "orchestrator": "Orchestrator",
     "worker": "Worker",
     "refreshModels": "Refresh Models",

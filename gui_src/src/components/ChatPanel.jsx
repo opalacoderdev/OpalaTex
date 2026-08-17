@@ -885,6 +885,11 @@ export default function ChatPanel({
   // wrong in a way that looks precise.
   const measuredTokens = chatContextUsage?.promptTokens || 0;
   const isMeasuredContext = measuredTokens > 0;
+  // A count of the restored working state, for a conversation whose last turn
+  // predates the persisted measurement. It is a real token count of what the
+  // agent will replay, but it omits the tool schemas the provider also charges
+  // for, so it is labelled as its own thing rather than as the provider number.
+  const isDerivedContext = isMeasuredContext && chatContextUsage?.source === 'state';
   const numCtx = chatContextUsage?.contextWindow
     || parseInt(activeProject?.model_params?.num_ctx || activeProject?.agent_params?.max_context_tokens || activeProject?.effective_num_ctx || 8192, 10);
   const historyTokens = chatMessages.reduce((acc, msg) => {
@@ -926,7 +931,9 @@ export default function ChatPanel({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <div 
             title={t(
-              isMeasuredContext ? 'chatPanel.contextMeasured' : 'chatPanel.contextEstimated',
+              isDerivedContext
+                ? 'chatPanel.contextDerived'
+                : isMeasuredContext ? 'chatPanel.contextMeasured' : 'chatPanel.contextEstimated',
               { used: usedTokens, available: availableTokens, total: numCtx },
             )}
             style={{ 

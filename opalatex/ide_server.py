@@ -69,6 +69,43 @@ def _normalize_rel_path(path: str) -> str:
     return path.replace("\\", "/").strip("/")
 
 
+async def _chat_context_usage(store, project, chat_id: str) -> dict | None:
+    """Return the occupancy to report when a chat is (re)opened, best source first.
+
+    1. The in-process measurement, when it belongs to this chat: the freshest
+       value, updated during the turn itself.
+    2. The provider measurement persisted with the chat's working state, which is
+       what survives switching chats and restarting the server.
+    3. A count of the restored context itself, for a conversation whose last turn
+       predates the persisted measurement. Reading nothing here would send the
+       panel back to a character estimate over the visible bubbles — an almost
+       empty reading for an almost full window.
+
+    Only the count in (3) is expensive (it tokenizes the whole saved history), so
+    it runs off the event loop: this server shares one thread across every
+    request, and a long chat's state is megabytes of JSON.
+    """
+    from opalatex.token_usage import context_scope_key, get_context_usage
+
+    usage = get_context_usage(
+        context_scope_key(getattr(project, "project_path", "") or "", chat_id)
+    )
+    if usage:
+        return usage
+    try:
+        stored = store.get_chat_context_usage(project.name, chat_id)
+    except Exception:
+        stored = None
+    if stored:
+        return stored
+
+    from opalatex.memgpt_runtime import derive_context_usage_from_state
+    try:
+        return await asyncio.to_thread(derive_context_usage_from_state, project, store)
+    except Exception:
+        return None
+
+
 def _ollama_tags_url_for_model_info(model_name: str, api_base: str | None = "") -> str:
     """Return the Ollama /api/tags URL for model validation."""
     from opalatex.config import (
@@ -2572,14 +2609,10 @@ class AsyncHTTPServer:
                 return
             chat_id = project.current_chat_id
             activity = store.list_activity(project_name, chat_id)
-            # The measured context occupancy lives in the server process, so a
-            # browser reload can rehydrate the real number instead of dropping
-            # back to the character estimate. Scoped so another chat's
-            # measurement is never returned here.
-            from opalatex.token_usage import context_scope_key, get_context_usage
-            context_usage = get_context_usage(
-                context_scope_key(project.project_path or "", chat_id)
-            )
+            # The measured context occupancy is rehydrated here so reopening a
+            # chat reports the real number instead of dropping back to the
+            # character estimate.
+            context_usage = await _chat_context_usage(store, project, chat_id)
             self.send_response(writer, 200, json.dumps({
                 "chat_id": chat_id,
                 "history": project.history,
@@ -2734,12 +2767,17 @@ class AsyncHTTPServer:
                 (c.get("name") for c in (project.chats or []) if c.get("id") == chat_id),
                 TUTORIAL_CHAT_NAME,
             )
+            tutorial_context_usage = await _chat_context_usage(store, project, chat_id)
             self.send_response(writer, 200, json.dumps({
                 "chat_id": chat_id,
                 "name": chat_name,
                 "created": created,
                 "history": project.history,
                 "topics": topic_menu(lang),
+                # This endpoint replaces the panel's transcript, so it must also
+                # carry the chat's measured occupancy: the tutorial chat holds a
+                # real conversation once the user asks follow-up questions there.
+                "context_usage": tutorial_context_usage,
             }, ensure_ascii=False).encode('utf-8'), "application/json")
 
         elif path == '/api/tutorial/topics' and method == 'GET':

@@ -332,6 +332,16 @@ def _init_schema(db_path: str) -> None:
         except sqlite3.OperationalError:
             pass
 
+        # Last measured occupancy of the chat's context window. It belongs next to
+        # the working state it describes: the state survives a chat switch or a
+        # restart, so the indicator built from it must survive them too, instead of
+        # falling back to the character estimate over a conversation the agent will
+        # replay in full on the next turn.
+        try:
+            conn.execute("ALTER TABLE project_chats ADD COLUMN context_usage TEXT NOT NULL DEFAULT '{}'")
+        except sqlite3.OperationalError:
+            pass
+
         try:
             conn.execute("ALTER TABLE project_history ADD COLUMN chat_id TEXT NOT NULL DEFAULT 'main'")
         except sqlite3.OperationalError:
@@ -1083,11 +1093,14 @@ class ProjectStore:
                 # The agent's working memory belongs to the conversation that was
                 # just erased: keeping it would let the agent recall a chat the
                 # user deleted.
-                conn.execute("UPDATE project_chats SET agent_state = '{}' WHERE project = ? AND id = ?", (name, chat_id))
+                conn.execute(
+                    "UPDATE project_chats SET agent_state = '{}', context_usage = '{}' WHERE project = ? AND id = ?",
+                    (name, chat_id),
+                )
             else:
                 conn.execute("DELETE FROM project_history WHERE project = ?", (name,))
                 conn.execute("DELETE FROM project_activity WHERE project = ?", (name,))
-                conn.execute("UPDATE project_chats SET agent_state = '{}' WHERE project = ?", (name,))
+                conn.execute("UPDATE project_chats SET agent_state = '{}', context_usage = '{}' WHERE project = ?", (name,))
 
     def clear_all_chats(self, name: str) -> dict:
         """Remove every project chat and recreate an empty main chat."""
@@ -1175,7 +1188,7 @@ class ProjectStore:
             # the next run re-seeds from the visible conversation instead of replying
             # to a message the user just replaced.
             conn.execute(
-                "UPDATE project_chats SET agent_state = '{}' WHERE project = ? AND id = ?",
+                "UPDATE project_chats SET agent_state = '{}', context_usage = '{}' WHERE project = ? AND id = ?",
                 (name, chat_id),
             )
 
@@ -1236,6 +1249,52 @@ class ProjectStore:
         with _conn(self.db_path) as conn:
             conn.execute(
                 "UPDATE project_chats SET agent_state = ? WHERE project = ? AND id = ?",
+                (payload, name, chat_id),
+            )
+
+    def get_chat_context_usage(self, name: str, chat_id: str) -> dict:
+        """Return the last measured context occupancy for a chat ({} when absent).
+
+        Only a record carrying a positive ``prompt_tokens`` is a measurement; an
+        empty or zeroed row means "never measured", and the caller must keep
+        estimating rather than report an empty window.
+        """
+        with _conn(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT context_usage FROM project_chats WHERE project = ? AND id = ?",
+                (name, chat_id),
+            ).fetchone()
+        if not row:
+            return {}
+        try:
+            usage = json.loads(row["context_usage"] or "{}")
+        except Exception:
+            return {}
+        if not isinstance(usage, dict):
+            return {}
+        try:
+            prompt = int(usage.get("prompt_tokens") or 0)
+        except (TypeError, ValueError):
+            return {}
+        return usage if prompt > 0 else {}
+
+    def save_chat_context_usage(self, name: str, chat_id: str, usage: dict | None) -> None:
+        """Persist the measured context occupancy for a chat.
+
+        ``None`` (or a record with no ``prompt_tokens``) clears the stored value:
+        the caller has nothing measured to report and must not leave a previous
+        turn's number describing the current one.
+        """
+        payload = "{}"
+        if usage:
+            try:
+                if int(usage.get("prompt_tokens") or 0) > 0:
+                    payload = json.dumps(usage, ensure_ascii=False)
+            except (TypeError, ValueError):
+                payload = "{}"
+        with _conn(self.db_path) as conn:
+            conn.execute(
+                "UPDATE project_chats SET context_usage = ? WHERE project = ? AND id = ?",
                 (payload, name, chat_id),
             )
 

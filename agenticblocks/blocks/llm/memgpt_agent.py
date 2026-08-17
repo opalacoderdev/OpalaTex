@@ -184,6 +184,25 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     def _estimate_tokens(self, messages: List[Dict[str, Any]]) -> int:
         return count_message_tokens(self.model, messages)
 
+    def build_request_messages(self) -> List[Dict[str, Any]]:
+        """Return the messages a request would carry for the current state.
+
+        The main context is the system prompt, the recursive summary of what was
+        evicted, and the internal history — in that order. ``run`` assembles the
+        request from here, so a caller that needs to know how full the window is
+        (a context indicator, an eviction check, a budget for the next tool
+        result) measures the same list the model will actually receive instead of
+        re-deriving it and drifting from it.
+        """
+        return [
+            {"role": "system", "content": self._build_system_prompt()},
+            {"role": "system", "content": f"Recursive Summary of older messages: {self.recursive_summary}"},
+        ] + self.internal_history
+
+    def count_context_tokens(self) -> int:
+        """Return the token count of the current main context, for this model."""
+        return self._estimate_tokens(self.build_request_messages())
+
     def _get_safe_eviction_index(self, history: List[Dict[str, Any]], target_count: int) -> int:
         """Finds a safe index to evict up to, ensuring we don't split tool calls from their results.
 
@@ -394,14 +413,9 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         direct_final_response = None
         accumulated_responses = []
         
-        final_system_prompt = self._build_system_prompt()
-
         while True:
             # --- Gerenciamento de Contexto (FIFO Queue & Summarization) ---
-            messages = [
-                {"role": "system", "content": final_system_prompt},
-                {"role": "system", "content": f"Recursive Summary of older messages: {self.recursive_summary}"}
-            ] + self.internal_history
+            messages = self.build_request_messages()
 
             current_tokens = self._estimate_tokens(messages)
 
@@ -420,10 +434,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                     
                     self.recursive_summary = await self._summarize(to_evict)
                     
-                    messages = [
-                        {"role": "system", "content": final_system_prompt},
-                        {"role": "system", "content": f"Recursive Summary of older messages: {self.recursive_summary}"}
-                    ] + self.internal_history
+                    messages = self.build_request_messages()
                     current_tokens = self._estimate_tokens(messages)
                 else:
                     if self.debug: print("[DEBUG] Falha ao evictar: impossível quebrar o histórico de forma segura.")
