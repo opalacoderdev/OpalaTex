@@ -77,7 +77,7 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
     return fm, body
 
 
-def parse_skill_md(skill_dir: str) -> dict | None:
+def parse_skill_md(skill_dir: str, profile: str = "full") -> dict | None:
     """Parse a skill directory's SKILL.md into a metadata dict, or None.
 
     Returned dict:
@@ -86,6 +86,15 @@ def parse_skill_md(skill_dir: str) -> dict | None:
       manifest (absolute path to SKILL.md),
       body (Level-2 instructions text).
     The directory name is the canonical fallback for `name`.
+
+    *profile* (see `opalatex/prompt_profiles.py`) optionally overrides the body
+    with a sibling ``SKILL.<profile>.md`` file when one exists next to
+    ``SKILL.md`` — e.g. ``SKILL.light.md`` for a condensed body. Frontmatter
+    (name/description/model/extends/icon) always comes from the canonical
+    SKILL.md so routing metadata never depends on which profile is active; the
+    variant file needs no frontmatter of its own. "full" (the default) never
+    looks for a variant, so existing skills with no variant file are
+    unaffected.
     """
     manifest = os.path.join(skill_dir, SKILL_MANIFEST)
     if not os.path.isfile(manifest):
@@ -96,6 +105,19 @@ def parse_skill_md(skill_dir: str) -> dict | None:
     except Exception:
         return None
     fm, body = _parse_frontmatter(text)
+
+    profile = (profile or "full").strip().lower()
+    if profile and profile != "full":
+        variant_path = os.path.join(skill_dir, f"SKILL.{profile}.md")
+        if os.path.isfile(variant_path):
+            try:
+                with open(variant_path, "r", encoding="utf-8") as vf:
+                    variant_text = vf.read()
+                _, variant_body = _parse_frontmatter(variant_text)
+                body = variant_body or body
+            except Exception:
+                pass
+
     name = fm.get("name") or os.path.basename(os.path.normpath(skill_dir))
     description = fm.get("description", "")
     model = fm.get("model", "")

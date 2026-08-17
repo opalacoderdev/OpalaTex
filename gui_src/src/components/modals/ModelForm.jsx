@@ -35,6 +35,7 @@ export default function ModelForm({
   const [name, setName] = useState('');
   const [supportsThinking, setSupportsThinking] = useState(false);
   const [requiresSingleSystemMessage, setRequiresSingleSystemMessage] = useState(false);
+  const [promptProfile, setPromptProfile] = useState('full');
   const [error, setError] = useState('');
   const [showNewConnection, setShowNewConnection] = useState(connections.length === 0);
 
@@ -44,10 +45,12 @@ export default function ModelForm({
       setName(editingModel.name || '');
       setSupportsThinking(!!editingModel.supports_thinking);
       setRequiresSingleSystemMessage(!!editingModel.requires_single_system_message);
+      setPromptProfile(editingModel.prompt_profile || 'full');
       setShowNewConnection(false);
     } else {
       setSupportsThinking(false);
       setRequiresSingleSystemMessage(false);
+      setPromptProfile('full');
       setShowNewConnection(connections.length === 0);
     }
   }, [editingModel]);
@@ -63,6 +66,7 @@ export default function ModelForm({
     setName('');
     setSupportsThinking(false);
     setRequiresSingleSystemMessage(false);
+    setPromptProfile('full');
     setError('');
     setShowNewConnection(connections.length === 0);
   };
@@ -126,6 +130,7 @@ export default function ModelForm({
       name: trimmedName,
       supports_thinking: supportsThinking,
       requires_single_system_message: requiresSingleSystemMessage,
+      prompt_profile: promptProfile,
     }, { reset });
   };
 
@@ -178,6 +183,28 @@ export default function ModelForm({
             onChange={e => setName(e.target.value)}
             placeholder={t('modelForm.modelNamePlaceholder')}
           />
+        </div>
+
+        <div className="vscode-form-group">
+          <label>{t('modelForm.promptProfileLabel')}</label>
+          <div role="radiogroup" aria-label={t('modelForm.promptProfileLabel')} style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+            {['full', 'light'].map(profile => (
+              <button
+                key={profile}
+                type="button"
+                role="radio"
+                aria-checked={promptProfile === profile}
+                onClick={() => setPromptProfile(profile)}
+                className={promptProfile === profile ? 'vscode-button' : 'vscode-button-secondary'}
+                style={{ flex: 1, fontWeight: promptProfile === profile ? 600 : 400 }}
+              >
+                {t(`modelForm.promptProfile.${profile}`)}
+              </button>
+            ))}
+          </div>
+          <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+            {t(`modelForm.promptProfile.${promptProfile}Hint`)}
+          </span>
         </div>
 
         <div className="vscode-form-group">

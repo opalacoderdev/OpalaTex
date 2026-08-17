@@ -133,6 +133,45 @@ def test_current_date_instruction_formats_english_date():
     assert "web_search" in instruction
 
 
+def test_build_chat_orchestrator_uses_light_prompt_profile_for_light_model(tmp_path, monkeypatch):
+    """A model catalog entry with prompt_profile="light" must render the
+    condensed chat-orchestrator body/mode-instructions, not the full ones."""
+    from opalatex import models_store
+
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", tmp_path / "models_store.json")
+    models_store.add_or_update_connection(
+        {"id": "c1", "label": "c", "provider": "ollama", "api_key": "", "api_base": ""}
+    )
+    models_store.add_or_update_model({
+        "id": "ollama/light-model", "connection_id": "c1", "name": "light-model",
+        "prompt_profile": "light",
+    })
+
+    project = ProjectData(
+        name="t", project_name="t",
+        project_path=str(tmp_path), model="ollama/light-model", mode="auto",
+    )
+    m = build_chat_orchestrator(project, None)
+
+    assert "Mode: auto." in m.system_prompt
+    assert "PRIMARY RULE" not in m.system_prompt
+    assert "\U0001F6A8 **SYSTEM ALERT" not in m.system_prompt
+
+
+def test_build_chat_orchestrator_default_model_keeps_full_prompt_profile(tmp_path, monkeypatch):
+    """An unregistered/default model must keep today's unabridged prompt."""
+    from opalatex import models_store
+
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", tmp_path / "models_store.json")
+
+    project = _project(tmp_path)
+    project.mode = "auto"
+    m = build_chat_orchestrator(project, None)
+
+    assert "PRIMARY RULE" in m.system_prompt
+    assert "\U0001F6A8 **SYSTEM ALERT: You are currently in 'auto' mode." in m.system_prompt
+
+
 def test_uses_framework_memgpt_block(tmp_path):
     from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
     m = build_chat_orchestrator(_project(tmp_path), None)
@@ -401,6 +440,65 @@ def test_run_skill_worker_disables_shared_router(tmp_path, monkeypatch):
     assert captured["use_shared_router"] is False
     assert "search_code" in {getattr(tool, "name", None) for tool in captured["tools"]}
 
+
+def test_run_skill_worker_uses_light_prompt_profile_and_skill_variant(tmp_path, monkeypatch):
+    """A worker model catalog entry with prompt_profile="light" must render the
+    condensed worker preamble and pick up the delegated skill's SKILL.light.md
+    body (command-line ships one) instead of the full SKILL.md."""
+    import opalatex.memgpt_runtime as runtime
+    from opalatex import models_store
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", tmp_path / "models_store.json")
+    models_store.add_or_update_connection(
+        {"id": "c1", "label": "c", "provider": "ollama", "api_key": "", "api_base": ""}
+    )
+    models_store.add_or_update_model({
+        "id": "ollama/light-worker", "connection_id": "c1", "name": "light-worker",
+        "prompt_profile": "light",
+    })
+
+    captured = {}
+
+    class FakeLLMAgentBlock:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.name = kwargs.get("name", "")
+            self.model = kwargs.get("model", "")
+            self.tools = kwargs.get("tools", [])
+            self.model_kwargs = kwargs.get("model_kwargs", {})
+            self.on_iteration = None
+            self.on_thinking = None
+            self.on_chunk = None
+
+        async def _acompletion(self, _messages, **_kwargs):
+            return SimpleNamespace(choices=[])
+
+        async def run(self, _input):
+            return SimpleNamespace(response="done", tool_calls_made=1)
+
+    monkeypatch.setattr(runtime, "LLMAgentBlock", FakeLLMAgentBlock)
+    project = _project(tmp_path)
+    project.mode = "auto"
+    project.worker_model = "ollama/light-worker"
+    m = build_chat_orchestrator(project, None)
+    run_skill = build_run_skill_tool(
+        m,
+        str(tmp_path),
+        project_model=project.model,
+        project_worker=project.worker_model,
+        _project_ref=project,
+    )
+    raw = getattr(run_skill, "_func", None) or run_skill
+
+    result = asyncio.run(raw("command-line", "inspect the project"))
+
+    assert "done" in result
+    system_prompt = captured["system_prompt"]
+    assert "Tools: get_project_overview" in system_prompt
+    assert "Command Line Skill (light)" in system_prompt
+    assert "RECOMMENDATION FOR EXECUTION AND TERMINATION" not in system_prompt
+    assert "CRITICAL: LARGE FILES & TRUNCATION PREVENTION" not in system_prompt
 
 
 def test_build_chat_orchestrator_scopes_project_path(tmp_path):

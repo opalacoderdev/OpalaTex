@@ -453,9 +453,29 @@ def build_run_skill_tool(
                 f"(do NOT type the request text into the command — use the file).\n"
             )
         worker_kwargs = get_agent_llm_kwargs("worker")
-        
+
         model = get_agent_model("worker", model)
-        
+
+        # Resolved before the ollama_chat/ remap below, so the models_store lookup
+        # (keyed on the stored "ollama/<name>" id) still matches.
+        from .config import model_prompt_profile
+        from .prompt_profiles import get_profile, DEFAULT_PROFILE
+        worker_profile = model_prompt_profile(model)
+        worker_profile_spec = get_profile(worker_profile)
+
+        # Re-resolve the skill (and parent, if any) body for the profile now that
+        # the worker's model is known. Frontmatter (model/extends) was already
+        # read above from the canonical SKILL.md and is profile-independent.
+        if worker_profile != DEFAULT_PROFILE:
+            profiled = parse_skill_md(skill_dir, profile=worker_profile)
+            if profiled and profiled.get("body"):
+                body_for_profile = profiled["body"]
+                if parent_dir:
+                    profiled_parent = parse_skill_md(parent_dir, profile=worker_profile)
+                    if profiled_parent and profiled_parent.get("body"):
+                        body_for_profile = profiled_parent["body"] + "\n\n" + body_for_profile
+                meta["body"] = body_for_profile
+
         from .config import resolve_model_for_thinking
         model = resolve_model_for_thinking(model, worker_kwargs)
         
@@ -480,52 +500,19 @@ def build_run_skill_tool(
             )
 
         system = (
-            "#ROLE: "
-            "You are a problem-solving agent. You must use your available tools and skills "
-            "to fulfill the user's request provided in your context. "
-            "\n--- WORKER RESPONSE CONTRACT ---\n"
-            "Use native provider tool calls only when an action is required. If the task requires reading, editing, or executing something, make the appropriate native tool call before reporting completion.\n"
-            "Never serialize a tool call as JSON or Markdown text. If no action is needed or the work is complete, return a concise normal-text report.\n"
-            "--------------------------------------------\n\n"
-            "Your specific tools are:\n"
-            "  - get_project_overview: Returns the project's folder and file structure. Use it only when the target file is unknown.\n"
-            "  - search_code: Searches project files using Python and returns matching paths with line numbers. Use it to locate sections, labels, definitions, or markers before line-based reads/edits.\n"
-            "  - read_file: Reads the complete contents of a file. Use it only for small files or when full-file context is truly needed.\n"
-            "  - read_content_pos: Reads a specific snippet of a file by providing start and end line numbers. Use it for targeted reading of large files.\n"
-            "  - write_file: Writes or completely overwrites a file. Use it to create new files or replace existing ones entirely. NEVER use run_command with echo/cat to write files.\n"
-            "  - write_content_pos: Inserts content before a specific 1-indexed line in an existing file.\n"
-            "  - replace_content_range: Replaces an inclusive 1-indexed line range in an existing file. Use it for surgical edits to large files.\n"
-            "  - create_docx_file: Creates a Word .docx file from Markdown-like text. Use it instead of writing raw binary DOCX content.\n"
-            "  - create_pptx_file: Creates a PowerPoint .pptx file from a JSON slide outline. Use it instead of writing raw binary PPTX content.\n"
-            "  - run_command: Executes terminal commands (e.g., running tests, build scripts, or exploring the OS). Use it to interact with the environment and validate code.\n"
-            "  - search_conversation_history: Searches past interactions. Use it to recall previous decisions, context, or code snippets from the chat history.\n"
-            "  - ask_question: Asks the user a clarifying question or requests preferences/inputs during execution and waits for their response. Use it whenever you need user clarification or choices before proceeding.\n"
-            "# Metadata: "
-            f"{meta['body']}\n\n"
-            f"You are executing the '{skill_name}' skill. "
-            f"Work inside the project directory: {project_path}\n"
-            f"The skill directory is: {skill_dir}\n"
-            f"{scripts_hint}"
-            f"{request_hint}"
-            f"IMPORTANT: To save any file content (HTML, JSON, code, Markdown, etc.) ALWAYS use the write_file tool. "
-            f"RECOMMENDATION FOR EXECUTION AND TERMINATION:\n"
-            f"- Information Gathering Rule: Using ask_question to request preferred columns, formats, seed filters, or specific focus metrics from the user is an EXPECTED and RECOMMENDED behavior. It does not reduce your autonomy; it ensures execution matches user intent.\n"
-            f"- If requirements, parameters, target columns, formats, or file choices are underspecified or ambiguous, use the ask_question tool to ask the user before executing destructive or arbitrary changes.\n"
-            f"- If MEMGPT CONTEXT/INSTRUCTIONS contains an explicit command or script to execute, use run_command as the first native tool call.\n"
-            f"- If MEMGPT CONTEXT/INSTRUCTIONS already identifies the target file, line range, or edit, do not call get_project_overview first.\n"
-            f"- For large .tex, .log, or source files, never call read_file just to find a section or marker; use search_code to locate the marker, then read_content_pos for the returned line range.\n"
-            f"- Complete required actions through native tool calls, then return a concise normal-text report.\n"
-            f"- Do not claim that a modification succeeded until the relevant tool has succeeded.\n"
-            f"CRITICAL THINKING RULE: Keep your internal reasoning extremely brief and concise. DO NOT enter infinite brainstorming loops (e.g. repeatedly asking yourself 'Should I do X? Yes/No. Wait!'). Formulate a quick plan and IMMEDIATELY execute a tool or return.\n"
-            f"ACHIEVEMENTS MEMORY INSTRUCTION:\n"
-            f"You have access to the 'update_achievements_memory' tool. Use it FREQUENTLY to record your progress and milestones.\n"
-            f"Examples of achievements you MUST record:\n"
-            f"1. Discovered the location of an important file or snippet.\n"
-            f"2. Concluded a heartbeat/iteration (write a summary of what you did in that phase).\n"
-            f"3. Successfully read and understood a file's contents, or successfully wrote to a file.\n"
-            f"4. Discovered the root cause of an error or bug.\n"
-            f"You can output MULTIPLE tool calls in the same response to update achievements alongside your main action.\n"
-            f"{native_tool_instruction}"
+            worker_profile_spec["worker_intro"](skill_name)
+            + worker_profile_spec["worker_tools_block"]()
+            + "# Metadata: "
+            + f"{meta['body']}\n\n"
+            + f"You are executing the '{skill_name}' skill. "
+            + f"Work inside the project directory: {project_path}\n"
+            + f"The skill directory is: {skill_dir}\n"
+            + f"{scripts_hint}"
+            + f"{request_hint}"
+            + f"IMPORTANT: To save any file content (HTML, JSON, code, Markdown, etc.) ALWAYS use the write_file tool. "
+            + worker_profile_spec["worker_recommendations"]()
+            + worker_profile_spec["achievements_instructions"]()
+            + f"{native_tool_instruction}"
         )
 
         # Workers receive action tools only and return their final report as normal text.
@@ -825,11 +812,17 @@ def seed_chat_orchestrator_history(memgpt: MemGPTAgentBlock, project) -> None:
         memgpt.internal_history.append({"role": role, "content": content})
 
 
-def _chat_orchestrator_body(project_path: str) -> str:
-    """Return the chat-orchestrator SKILL.md body, or a minimal fallback."""
+def _chat_orchestrator_body(project_path: str, profile: str = "full") -> str:
+    """Return the chat-orchestrator SKILL.md body for *profile*, or a minimal fallback.
+
+    *profile* selects an optional `SKILL.<profile>.md` variant next to the
+    canonical `SKILL.md` (see `opalatex/prompt_profiles.py`). The fallback text
+    below also doubles as the light profile's safety net when no
+    `SKILL.light.md` is bundled yet.
+    """
     skill_dir = find_skill_dir(CHAT_ORCHESTRATOR_SKILL, project_path)
     if skill_dir:
-        meta = parse_skill_md(skill_dir)
+        meta = parse_skill_md(skill_dir, profile=profile)
         if meta and meta["body"]:
             return meta["body"]
     return (
@@ -881,9 +874,18 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     # sub-agent's write_file/run_command would act outside the project.
     set_project_context(project, store)
 
+    # Resolved early because the prompt profile (full/light) depends on the
+    # orchestrator's model and, in turn, decides which skill-body variant and
+    # mode-instructions rendering to use below.
+    model = get_agent_model("memgpt", get_agent_model("chat_agent", project_model))
+    from .config import model_prompt_profile
+    from .prompt_profiles import get_profile
+    orchestrator_profile = model_prompt_profile(model)
+    profile_spec = get_profile(orchestrator_profile)
+
     skills = active_skills(project_path)
     metadata = level1_metadata(skills)
-    body = _chat_orchestrator_body(project_path)
+    body = _chat_orchestrator_body(project_path, orchestrator_profile)
 
     project_name = getattr(project, "project_name", "") or getattr(project, "name", "(unknown)")
     project_desc = getattr(project, "description", "") or ""
@@ -901,28 +903,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         else:
             core_memory = ""
 
-    mode_instructions = ""
-    if project_mode == "plan":
-        mode_instructions = (
-            "\n🚨 **SYSTEM ALERT: You are currently in 'plan' mode.**\n"
-            "INSTRUCTIONS: Your goal is to gather context and propose a plan. "
-            "You MUST NOT execute modifying tools (like editing files or running terminal commands). "
-            "You MUST NOT call run_skill in plan mode because workers can modify files. "
-            "Once you have enough context, you MUST use the `create_plan` tool to present your plan for user approval.\n"
-        )
-    elif project_mode == "edit":
-        mode_instructions = (
-            "\n🚨 **SYSTEM ALERT: You are currently in 'edit' mode.**\n"
-            "INSTRUCTIONS: You should focus on editing files and answering questions. "
-            "If an action requires terminal execution or long-running tasks, ask the user for permission first.\n"
-        )
-    elif project_mode == "auto":
-        mode_instructions = (
-            "\n🚨 **SYSTEM ALERT: You are currently in 'auto' mode.**\n"
-            "INSTRUCTIONS: Potentially dangerous tools (file edits, terminal execution) are pre-authorized without safety confirmation dialogs. "
-            "However, this DOES NOT mean you should guess user preferences or avoid interaction. "
-            "Use `ask_question` whenever collecting user choices, column selections, target formats, or ambiguous preferences will produce a better result.\n"
-        )
+    mode_instructions = profile_spec["mode_instructions"](project_mode)
 
     project_block = (
         f"## Current Project\n"
@@ -969,7 +950,6 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         f"{tutorial_block}"
     )
 
-    model = get_agent_model("memgpt", get_agent_model("chat_agent", project_model))
     _llm_kwargs = get_agent_llm_kwargs("memgpt")
     
     model_params = getattr(project, "model_params", {}) or {}

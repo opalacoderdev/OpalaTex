@@ -129,6 +129,90 @@ def test_config_model_requires_single_system_message_reads_catalog_flag(tmp_path
     assert config_mod.model_requires_single_system_message("ollama_chat/unregistered:latest") is False
 
 
+def test_load_models_defaults_prompt_profile_to_full(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/test-model",
+            "connection_id": connection_id,
+            "name": "test-model",
+        }
+    ])
+
+    loaded = models_store.load_models()
+
+    assert loaded[0]["prompt_profile"] == "full"
+
+
+def test_prompt_profile_round_trips_through_save_and_load(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/light-model",
+            "connection_id": connection_id,
+            "name": "light-model",
+            "prompt_profile": "light",
+        }
+    ])
+
+    loaded = models_store.load_models()
+
+    assert loaded[0]["prompt_profile"] == "light"
+
+
+def test_prompt_profile_rejects_unknown_value(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/weird-model",
+            "connection_id": connection_id,
+            "name": "weird-model",
+            "prompt_profile": "ultra-mega-light",
+        }
+    ])
+
+    loaded = models_store.load_models()
+
+    assert loaded[0]["prompt_profile"] == "full"
+
+
+def test_config_model_prompt_profile_reads_catalog_flag(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/light-model",
+            "connection_id": connection_id,
+            "name": "light-model",
+            "prompt_profile": "light",
+        },
+        {
+            "id": "ollama/full-model",
+            "connection_id": connection_id,
+            "name": "full-model",
+        },
+    ])
+
+    assert config_mod.model_prompt_profile("ollama/light-model") == "light"
+    assert config_mod.model_prompt_profile("ollama/full-model") == "full"
+    assert config_mod.model_prompt_profile("ollama/unregistered-model") == "full"
+
+
 def test_load_models_filters_cloud_models_in_community_mode(tmp_path, monkeypatch):
     store_path = tmp_path / "models.json"
     monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)

@@ -726,6 +726,13 @@
     "saveConnectionBtn": "Save Connection",
     "modelNameLabel": "Model Name (e.g., gemma4:12b) *",
     "modelNamePlaceholder": "Model name as the provider exposes it",
+    "promptProfileLabel": "Prompt profile",
+    "promptProfile": {
+      "full": "Full",
+      "fullHint": "The complete system prompt, with all guardrails and examples. Recommended for large/capable models.",
+      "light": "Light",
+      "lightHint": "A condensed system prompt (core rules + tool/skill list only). Use for models where shorter prompts save tokens/latency without hurting reliability."
+    },
     "supportsThinkingLabel": "This model supports thinking/reasoning",
     "supportsThinkingHint": "Keep this off unless the model documentation explicitly says it supports thinking or reasoning parameters.",
     "requiresSingleSystemMessageLabel": "Requires a single system message",

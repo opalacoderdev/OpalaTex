@@ -539,6 +539,24 @@ def model_requires_single_system_message(model: str | None) -> bool:
         return False
 
 
+def model_prompt_profile(model: str | None) -> str:
+    """Return the prompt profile ("full" or "light") configured for *model*.
+
+    Same shape as `model_supports_thinking`/`model_requires_single_system_message`:
+    a per-model catalog capability (`opalatex/models_store.py`), not a hardcoded
+    model/provider rule. "full" is the default and matches the prompt behavior
+    this project has always shipped; "light" is opt-in per model, see
+    `opalatex/prompt_profiles.py`.
+    """
+    try:
+        from opalatex.models_store import get_model
+        store_model = get_model(str(model or ""))
+        profile = str(store_model.get("prompt_profile", "") if store_model else "").strip().lower()
+        return profile if profile in ("full", "light") else "full"
+    except Exception:
+        return "full"
+
+
 def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
     """Remove provider-incompatible kwargs before passing them to LiteLLM."""
     cleaned = dict(kwargs or {})

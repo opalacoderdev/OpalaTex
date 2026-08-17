@@ -53,6 +53,39 @@ def test_parse_skill_md_extracts_fields(tmp_path):
     assert "instructions" in meta["body"]
 
 
+def test_parse_skill_md_light_profile_uses_variant_body(tmp_path):
+    d = _write_skill(str(tmp_path / "skills"), "demo", """\
+        ---
+        name: demo
+        description: A demo skill.
+        ---
+    """, "Full instructions.")
+    with open(os.path.join(d, "SKILL.light.md"), "w", encoding="utf-8") as f:
+        f.write("Condensed instructions.")
+
+    full = parse_skill_md(d, profile="full")
+    light = parse_skill_md(d, profile="light")
+
+    assert full["body"] == "Full instructions."
+    assert light["body"] == "Condensed instructions."
+    # Frontmatter always comes from the canonical SKILL.md, regardless of profile.
+    assert light["name"] == full["name"] == "demo"
+    assert light["description"] == full["description"]
+
+
+def test_parse_skill_md_light_profile_falls_back_without_variant_file(tmp_path):
+    d = _write_skill(str(tmp_path / "skills"), "demo", """\
+        ---
+        name: demo
+        description: A demo skill.
+        ---
+    """, "Only body available.")
+
+    light = parse_skill_md(d, profile="light")
+
+    assert light["body"] == "Only body available."
+
+
 def test_parse_skill_md_name_defaults_to_dir(tmp_path):
     d = _write_skill(str(tmp_path / "skills"), "no-name", """\
         ---

@@ -726,6 +726,13 @@
     "saveConnectionBtn": "Salvar Conexão",
     "modelNameLabel": "Nome do Modelo (ex.: gemma4:12b) *",
     "modelNamePlaceholder": "Nome do modelo como o provedor expõe",
+    "promptProfileLabel": "Perfil de prompt",
+    "promptProfile": {
+      "full": "Completo",
+      "fullHint": "O system prompt completo, com todas as instruções de segurança e exemplos. Recomendado para modelos grandes/capazes.",
+      "light": "Enxuto",
+      "lightHint": "Um system prompt condensado (regras essenciais + lista de ferramentas/skills apenas). Use para modelos onde um prompt mais curto economiza tokens/latência sem prejudicar a confiabilidade."
+    },
     "supportsThinkingLabel": "Este modelo suporta thinking/reasoning",
     "supportsThinkingHint": "Mantenha desligado, exceto se a documentação do modelo disser explicitamente que ele suporta parâmetros de thinking ou reasoning.",
     "requiresSingleSystemMessageLabel": "Requer uma única mensagem de sistema",

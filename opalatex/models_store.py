@@ -37,6 +37,8 @@ def normalize_model_entry(model: Dict[str, Any]) -> Dict[str, Any]:
     entry["api_base"] = str(entry.get("api_base", "") or "")
     entry["supports_thinking"] = bool(entry.get("supports_thinking", False))
     entry["requires_single_system_message"] = bool(entry.get("requires_single_system_message", False))
+    _profile = str(entry.get("prompt_profile", "") or "full").strip().lower()
+    entry["prompt_profile"] = _profile if _profile in ("full", "light") else "full"
     entry["connection_id"] = str(entry.get("connection_id", "") or "")
     entry["connection_label"] = str(entry.get("connection_label", "") or "")
     return entry
@@ -168,6 +170,7 @@ def _connect() -> sqlite3.Connection:
             connection_id TEXT NOT NULL DEFAULT '',
             supports_thinking INTEGER NOT NULL DEFAULT 0,
             requires_single_system_message INTEGER NOT NULL DEFAULT 0,
+            prompt_profile TEXT NOT NULL DEFAULT 'full',
             extra_json TEXT NOT NULL DEFAULT '{{}}',
             sort_order INTEGER NOT NULL DEFAULT 0
         )
@@ -182,6 +185,10 @@ def _connect() -> sqlite3.Connection:
         pass
     try:
         conn.execute(f"ALTER TABLE {_MODELS_TABLE} ADD COLUMN requires_single_system_message INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute(f"ALTER TABLE {_MODELS_TABLE} ADD COLUMN prompt_profile TEXT NOT NULL DEFAULT 'full'")
     except sqlite3.OperationalError:
         pass
     _migrate_legacy_rows(conn)
@@ -207,6 +214,7 @@ def _row_to_model(row: sqlite3.Row) -> Dict[str, Any]:
         "api_base": api_base,
         "supports_thinking": bool(row["supports_thinking"]),
         "requires_single_system_message": bool(row["requires_single_system_message"]),
+        "prompt_profile": row["prompt_profile"] or "full",
         "connection_id": row["connection_id"] or "",
         "connection_label": row["conn_label"] if has_connection else "",
     })
@@ -215,7 +223,8 @@ def _row_to_model(row: sqlite3.Row) -> Dict[str, Any]:
 def _model_extra_json(model: Dict[str, Any]) -> str:
     known = {
         "id", "provider", "name", "api_key", "api_base", "supports_thinking",
-        "requires_single_system_message", "previous_id", "connection_id", "connection_label",
+        "requires_single_system_message", "prompt_profile", "previous_id",
+        "connection_id", "connection_label",
     }
     extra = {k: v for k, v in model.items() if k not in known}
     return json.dumps(extra, ensure_ascii=False)
@@ -243,6 +252,7 @@ def load_models() -> List[Dict[str, Any]]:
                 gm.name AS name,
                 gm.supports_thinking AS supports_thinking,
                 gm.requires_single_system_message AS requires_single_system_message,
+                gm.prompt_profile AS prompt_profile,
                 gm.extra_json AS extra_json,
                 gm.sort_order AS sort_order,
                 gm.connection_id AS connection_id,
@@ -294,8 +304,8 @@ def save_models(models: List[Dict[str, Any]]) -> None:
             conn.execute(
                 f"""
                 INSERT INTO {_MODELS_TABLE}
-                (id, provider, name, api_key, api_base, connection_id, supports_thinking, requires_single_system_message, extra_json, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, provider, name, api_key, api_base, connection_id, supports_thinking, requires_single_system_message, prompt_profile, extra_json, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     model["id"],
@@ -306,6 +316,7 @@ def save_models(models: List[Dict[str, Any]]) -> None:
                     model.get("connection_id", ""),
                     int(bool(model.get("supports_thinking", False))),
                     int(bool(model.get("requires_single_system_message", False))),
+                    model.get("prompt_profile", "full"),
                     _model_extra_json(model),
                     index,
                 ),
