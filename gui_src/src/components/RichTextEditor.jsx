@@ -67,15 +67,26 @@ export default function RichTextEditor({
   sourceTex,
   zoomLevel = 1.0,
   initialSourceLine,
+  initialScrollTop,
   onChange,
   onJumpToSource,
   onActiveSourceLineChange,
+  onScrollTopChange,
 }) {
   const { t } = useTranslation();
   const blocks = useMemo(() => parseLatexBlocks(source), [source]);
   const containerRef = useRef(null);
+  const contentRef = useRef(null);
   const activeLineRef = useRef(1);
-  const didInitialScrollRef = useRef(false);
+  // Scroll target captured at mount. This component is keyed per file by the
+  // editor panel, so mount == the user opening this file's Rich Text view and
+  // these values always belong to that file.
+  const initialScrollTopRef = useRef(initialScrollTop);
+  const initialSourceLineRef = useRef(initialSourceLine);
+  // True while we are still driving the scroll position toward the restore
+  // target. Scroll events caused by our own restore must not be persisted,
+  // otherwise the provisional (pre-settle) position overwrites the real one.
+  const isRestoringRef = useRef(false);
 
   // Precompute line-start offsets once per source change so sourceLineFromOffset
   // is O(log n) instead of O(n) — avoids O(n²) cost when called for every block.
@@ -141,41 +152,103 @@ export default function RichTextEditor({
 
   const scrollRafRef = useRef(null);
   const handleScroll = useCallback(() => {
+    // Persist the raw scroll offset on every event (not inside the rAF) so a
+    // tab switch immediately after a scroll still records the final position.
+    // Restoring to a pixel offset is exact; deriving it from a source line is
+    // not, because block heights change as lazy blocks and math settle.
+    const container = containerRef.current;
+    if (container && !isRestoringRef.current && onScrollTopChange) {
+      onScrollTopChange(container.scrollTop);
+    }
+
     if (scrollRafRef.current) return; // already scheduled
     scrollRafRef.current = window.requestAnimationFrame(() => {
       scrollRafRef.current = null;
-      const container = containerRef.current;
-      if (!container) return;
-      const items = Array.from(container.querySelectorAll('[data-source-line]'));
-      const current = items.find((item) => item.offsetTop + item.offsetHeight >= container.scrollTop + 24) || items[0];
+      const c = containerRef.current;
+      if (!c) return;
+      const items = Array.from(c.querySelectorAll('[data-source-line]'));
+      const current = items.find((item) => item.offsetTop + item.offsetHeight >= c.scrollTop + 24) || items[0];
       const line = Number(current?.getAttribute('data-source-line'));
       if (line) setActiveSourceLine(line);
     });
-  }, [setActiveSourceLine]);
+  }, [setActiveSourceLine, onScrollTopChange]);
 
+  // ── Restore the scroll position for this file ────────────────────────────
+  // Off-screen blocks render as 24px placeholders and math/graphics resolve
+  // asynchronously, so right after mount the document is far shorter than its
+  // final height. Scrolling to the target once would land in the wrong place
+  // and then drift as the content grows. Instead we re-apply the target every
+  // time the content resizes, and stop as soon as the user actually scrolls
+  // (or once the layout has settled).
   useEffect(() => {
-    const line = Number(initialSourceLine);
     const container = containerRef.current;
-    if (!line || !container || didInitialScrollRef.current) return;
+    if (!container) return;
 
-    const frame = window.requestAnimationFrame(() => {
-      const items = Array.from(container.querySelectorAll('[data-source-line]'));
-      if (!items.length) return;
+    const savedTop = Number(initialScrollTopRef.current) || 0;
+    const line = Number(initialSourceLineRef.current) || 0;
+    if (savedTop <= 0 && line <= 1) return;
 
-      let target = items[0];
-      for (const item of items) {
-        const itemLine = Number(item.getAttribute('data-source-line'));
-        if (!itemLine || itemLine > line) break;
-        target = item;
+    isRestoringRef.current = true;
+    let settleTimer = null;
+    let observer = null;
+
+    const applyTarget = () => {
+      const c = containerRef.current;
+      if (!c || !isRestoringRef.current) return;
+      const maxTop = Math.max(0, c.scrollHeight - c.clientHeight);
+      let top;
+
+      if (savedTop > 0) {
+        // Returning to a tab: restore the exact offset the user left it at.
+        top = Math.min(savedTop, maxTop);
+      } else {
+        // Entering Rich Text mode from Monaco: aim at the cursor's block.
+        const items = Array.from(c.querySelectorAll('[data-source-line]'));
+        if (!items.length) return;
+        let target = items[0];
+        for (const item of items) {
+          const itemLine = Number(item.getAttribute('data-source-line'));
+          if (!itemLine || itemLine > line) break;
+          target = item;
+        }
+        top = Math.min(Math.max(0, target.offsetTop - 24), maxTop);
+        setActiveSourceLine(Number(target.getAttribute('data-source-line')) || line);
       }
 
-      container.scrollTop = Math.max(0, target.offsetTop - 24);
-      didInitialScrollRef.current = true;
-      setActiveSourceLine(Number(target.getAttribute('data-source-line')) || line);
-    });
+      if (Math.abs(c.scrollTop - top) > 1) c.scrollTop = top;
+    };
 
-    return () => window.cancelAnimationFrame(frame);
-  }, [initialSourceLine, setActiveSourceLine]);
+    const stopRestoring = () => {
+      if (!isRestoringRef.current) return;
+      isRestoringRef.current = false;
+      if (observer) observer.disconnect();
+      if (settleTimer) clearTimeout(settleTimer);
+      container.removeEventListener('wheel', stopRestoring);
+      container.removeEventListener('touchstart', stopRestoring);
+      container.removeEventListener('keydown', stopRestoring);
+      container.removeEventListener('pointerdown', stopRestoring);
+    };
+
+    applyTarget();
+
+    if (typeof ResizeObserver !== 'undefined' && contentRef.current) {
+      observer = new ResizeObserver(() => applyTarget());
+      observer.observe(contentRef.current);
+    }
+    // Hard stop so we never fight the user on a document that keeps resizing.
+    // Any real scroll input below cancels the restore before this fires.
+    settleTimer = setTimeout(stopRestoring, 3000);
+    container.addEventListener('wheel', stopRestoring, { passive: true });
+    container.addEventListener('touchstart', stopRestoring, { passive: true });
+    container.addEventListener('keydown', stopRestoring);
+    // Covers dragging the scrollbar, which fires neither wheel nor touch.
+    container.addEventListener('pointerdown', stopRestoring);
+
+    return stopRestoring;
+    // Mount-only: the panel keys this component per file, so remounting is
+    // what carries a new restore target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div
@@ -198,6 +271,7 @@ export default function RichTextEditor({
         end). Keeping the scroll container transform-free avoids that.
       */}
       <div
+        ref={contentRef}
         style={{
           padding: '20px',
           boxSizing: 'border-box',

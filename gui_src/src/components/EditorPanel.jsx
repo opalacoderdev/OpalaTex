@@ -76,7 +76,12 @@ export default function EditorPanel({
   const pendingEditorLineRef = useRef(null);
   // Last known Rich Text active/initial line, per file — keyed by file path
   // so switching tabs never leaks one file's scroll position into another's.
+  // Used to place the Monaco cursor when leaving Rich Text mode.
   const richTextSourceLinesRef = useRef({});
+  // Last known Rich Text scroll offset, per file. Restoring a pixel offset is
+  // exact, whereas a source line is not — block heights depend on lazy
+  // mounting and async math rendering.
+  const richTextScrollTopsRef = useRef({});
   const documentActionsMenuRef = useRef(null);
   const docxEditorRef = useRef(null);
   const pptxEditorRef = useRef(null);
@@ -967,10 +972,14 @@ export default function EditorPanel({
           sourceTex={selectedFile}
           zoomLevel={markdownZoomLevel}
           initialSourceLine={richTextSourceLinesRef.current[selectedFile] || 1}
+          initialScrollTop={richTextScrollTopsRef.current[selectedFile] || 0}
           onChange={setFileContent}
           onJumpToSource={handleRichTextJumpToSource}
           onActiveSourceLineChange={(line) => {
             if (line) richTextSourceLinesRef.current[selectedFile] = line;
+          }}
+          onScrollTopChange={(top) => {
+            richTextScrollTopsRef.current[selectedFile] = top;
           }}
         />
       ) : isDiffMode ? (
@@ -1259,6 +1268,9 @@ export default function EditorPanel({
                   } else {
                     const currentLine = localEditorRef.current?.getPosition?.()?.lineNumber;
                     if (currentLine) richTextSourceLinesRef.current[selectedFile] = currentLine;
+                    // Entering from Monaco should land on the cursor's block,
+                    // not wherever this file was scrolled to previously.
+                    delete richTextScrollTopsRef.current[selectedFile];
                     if (selectedFile) {
                       setRichTextFiles(prev => (prev.has(selectedFile) ? prev : new Set(prev).add(selectedFile)));
                     }
