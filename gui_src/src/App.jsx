@@ -2448,17 +2448,6 @@ export default function App() {
 
   const handleAgentEvent = (eventObj) => {
     const { event, ...data } = eventObj;
-    if (event === 'thought' || event === 'stream_chunk') {
-      const now = performance.now();
-      const last = window.__streamTimingLast || now;
-      const gap = now - last;
-      window.__streamTimingLast = now;
-      window.__streamTimingN = (window.__streamTimingN || 0) + 1;
-      console.log(
-        `[STREAM-TIMING-FE] #${String(window.__streamTimingN).padStart(4, '0')} ${event} `
-        + `gap=${gap.toFixed(1)}ms len=${(data.content || '').length} preview=${JSON.stringify((data.content || '').slice(0, 40))}`
-      );
-    }
     rememberAgentEventForResume(eventObj);
     switch (event) {
       case 'server_ready': addLog('info', t('app.agentReady'), data.agent); break;

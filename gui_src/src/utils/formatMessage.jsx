@@ -278,6 +278,18 @@ function normalizeFinalMathDelimiters(content) {
 // Drop-in replacement for the old formatMessageContent(content) function.
 // Returns a React element that renders Markdown + LaTeX (KaTeX).
 export function formatMessageContent(content, activeProjectPath = null, zoomLevel = 1.0) {
+  return formatMessageContentImpl(content, activeProjectPath, zoomLevel);
+}
+
+// Memoized component wrapper around formatMessageContent. Markdown/KaTeX
+// parsing is expensive and must run only when a message is first rendered
+// (or its content actually changes) — not on every parent re-render, which
+// happens at token frequency while another turn is still streaming.
+export const FormattedMessage = React.memo(function FormattedMessage({ content, projectPath = null, zoomLevel = 1.0 }) {
+  return formatMessageContentImpl(content, projectPath, zoomLevel);
+});
+
+function formatMessageContentImpl(content, activeProjectPath = null, zoomLevel = 1.0) {
   if (!content) return null;
 
   // Convert <think>...</think> tags to markdown ```thought blocks for rendering

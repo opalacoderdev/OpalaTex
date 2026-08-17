@@ -2,7 +2,7 @@ import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react
 import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
-import { formatMessageContent } from '../utils/formatMessage';
+import { FormattedMessage } from '../utils/formatMessage';
 import { readClipboard } from '../utils/clipboard.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 import TextContextMenu from './TextContextMenu.jsx';
@@ -1655,7 +1655,7 @@ export default function ChatPanel({
                     </div>
                   </div>
                 ) : (
-                  formatMessageContent(displayContent, activeProject?.project_path)
+                  <FormattedMessage content={displayContent} projectPath={activeProject?.project_path} />
                 )}
                 {shouldShowTryAgain && isLastUserOrAssistantMessage && !isAgentRunning && lastUserMsgBeforeThis && (
                   <button
