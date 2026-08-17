@@ -606,7 +606,10 @@ export default function ChatPanel({
       const data = await res.json();
       setChats(prev => [...prev, data]);
       setActiveChatId(data.id);
-      
+      // A brand-new chat has no measured window yet: the previous chat's
+      // measurement must not leak into this one's indicator.
+      setChatContextUsage?.(null);
+
       const greeting = activeProject.project_name || activeProject.name;
       setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);
       setShowNewChatPrompt(false);
@@ -883,7 +886,7 @@ export default function ChatPanel({
   const measuredTokens = chatContextUsage?.promptTokens || 0;
   const isMeasuredContext = measuredTokens > 0;
   const numCtx = chatContextUsage?.contextWindow
-    || parseInt(activeProject?.model_params?.num_ctx || activeProject?.agent_params?.max_context_tokens || 8192, 10);
+    || parseInt(activeProject?.model_params?.num_ctx || activeProject?.agent_params?.max_context_tokens || activeProject?.effective_num_ctx || 8192, 10);
   const historyTokens = chatMessages.reduce((acc, msg) => {
     const contentLen = msg.content?.length || 0;
     const thoughtLen = msg._thoughtStream?.length || 0;

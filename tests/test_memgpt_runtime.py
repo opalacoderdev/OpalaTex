@@ -110,6 +110,28 @@ def test_chat_orchestrator_context_limit_defaults_to_project_num_ctx(tmp_path):
     assert m.max_context_tokens == 65536
 
 
+def test_chat_orchestrator_context_limit_uses_catalog_num_ctx_for_cloud_model(tmp_path, monkeypatch):
+    """Regression: a project with no explicit num_ctx override, pointing at a
+    cloud model whose catalog entry sets a large num_ctx, must NOT fall back to
+    the hardcoded 8192 default. This previously broke because the fallback
+    chain read _llm_kwargs.get("num_ctx", 8192) -- the *sanitized* LiteLLM
+    kwargs, which sanitize_litellm_kwargs_for_model strips num_ctx from for any
+    non-Ollama provider (cloud endpoints reject the param). max_context_tokens
+    is internal eviction bookkeeping, not a wire parameter, so it must be
+    resolved independently of that sanitization."""
+    project = ProjectData(
+        name="t", project_name="t",
+        project_path=str(tmp_path), model="openai/cloud-model",
+    )
+    monkeypatch.setattr(
+        "opalatex.models_store.get_model",
+        lambda model_id: {"num_ctx": 255000} if model_id == "openai/cloud-model" else None,
+    )
+    m = build_chat_orchestrator(project, None)
+
+    assert m.max_context_tokens == 255000
+
+
 def test_chat_orchestrator_system_prompt_embeds_skill_metadata(tmp_path):
     m = build_chat_orchestrator(_project(tmp_path), None)
     # Bundled skills must surface as Level-1 metadata for routing.

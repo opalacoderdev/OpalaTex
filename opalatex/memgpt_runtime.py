@@ -979,7 +979,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         from .tools import update_achievements_memory
         orchestrator_tools.append(wrap_tool(update_achievements_memory))
 
-    from .config import resolve_model_for_thinking
+    from .config import resolve_model_for_thinking, resolve_effective_num_ctx
     model = resolve_model_for_thinking(model, _llm_kwargs)
     
     # Strip /v1 from the end because Ollama native providers expect the root URL
@@ -999,7 +999,13 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         tools=orchestrator_tools,
         model_kwargs=_llm_kwargs,
         max_heartbeats=_agent_params.get("max_heartbeats", get_agent_max_heartbeats("memgpt", 20)),
-        max_context_tokens=_agent_params.get("max_context_tokens", model_params.get("num_ctx", _llm_kwargs.get("num_ctx", 8192))),
+        # Not _llm_kwargs.get("num_ctx", ...): that dict is the *sanitized*
+        # LiteLLM request, and sanitize_litellm_kwargs_for_model deliberately
+        # strips num_ctx for non-Ollama providers before it reaches here (cloud
+        # endpoints reject the param). resolve_effective_num_ctx computes the
+        # true effective window independent of what is actually sent over the
+        # wire, so a cloud model's catalog num_ctx is not silently lost.
+        max_context_tokens=_agent_params.get("max_context_tokens", resolve_effective_num_ctx("memgpt")),
         # Start evicting before the window is completely full: at 1.0 there is no
         # headroom left for the model's own answer once the request is assembled.
         eviction_threshold=_agent_params.get("eviction_threshold", 0.85),

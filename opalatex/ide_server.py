@@ -2923,6 +2923,8 @@ class AsyncHTTPServer:
                 from .memgpt_runtime import build_chat_orchestrator
                 agent_stdin.current_memgpt = build_chat_orchestrator(project, store)
 
+            from opalatex.config import resolve_display_num_ctx
+
             res_data = {
                 "name": project.name,
                 "project_name": project.project_name,
@@ -2933,6 +2935,7 @@ class AsyncHTTPServer:
                 "description": project.description,
                 "model_params": project.model_params,
                 "worker_model_params": project.worker_model_params,
+                "effective_num_ctx": resolve_display_num_ctx(project.model, project.model_params),
                 "api_key": getattr(project, "api_key", ""),
                 "api_base": getattr(project, "api_base", ""),
                 "worker_api_key": getattr(project, "worker_api_key", ""),

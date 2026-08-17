@@ -639,6 +639,35 @@ def resolve_effective_num_ctx(
     return default_num_ctx_for_model(resolved_model, resolved_api_base)
 
 
+def resolve_display_num_ctx(
+    model: str | None,
+    model_params: dict | None,
+    api_base: str | None = None,
+) -> int:
+    """Resolve num_ctx for UI display given a project's own stored fields.
+
+    Unlike `resolve_effective_num_ctx`, this does not depend on the global
+    `_PROJECT_SESSION` (so it works for any project row, not just the one
+    currently loaded — e.g. `ProjectStore.list_projects`). Precedence mirrors
+    the "has a session" branch of `resolve_effective_num_ctx` (explicit
+    override > catalog > heuristic): a listed project always has a real
+    session once it is actually opened and run, so the no-project per-agent
+    floor does not apply here either.
+    """
+    explicit = (model_params or {}).get("num_ctx")
+    if explicit not in (None, ""):
+        try:
+            return int(explicit)
+        except (TypeError, ValueError):
+            pass
+
+    catalog_num_ctx = model_num_ctx(model) if model else None
+    if catalog_num_ctx:
+        return catalog_num_ctx
+
+    return default_num_ctx_for_model(model, api_base)
+
+
 def model_prompt_profile(model: str | None) -> str:
     """Return the prompt profile ("full" or "light") configured for *model*.
 

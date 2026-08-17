@@ -53,7 +53,7 @@ export default function EditModelsModal({
 
   return (
     <div className="vscode-modal-overlay" onClick={onClose}>
-      <div className="vscode-modal" style={{ width: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+      <div className="vscode-modal" style={{ width: '1050px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div className="vscode-modal-header">
           <h2>{t('editModelsModal.title')}</h2>
           <button onClick={onClose} className="vscode-modal-close"><X size={16} /></button>
@@ -97,7 +97,7 @@ export default function EditModelsModal({
             </div>
           )}
 
-          <div style={{ overflowY: 'auto', flex: 1, border: '1px solid var(--vscode-widget-border)', borderRadius: '4px' }}>
+          <div style={{ overflow: 'auto', flex: 1, border: '1px solid var(--vscode-widget-border)', borderRadius: '4px' }}>
             {filteredModels.length === 0 ? (
               <div style={{ padding: '20px', textAlign: 'center', color: 'var(--vscode-descriptionForeground)' }}>
                 {t('editModelsModal.noModels')}
@@ -106,31 +106,31 @@ export default function EditModelsModal({
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--vscode-widget-border)', background: 'var(--vscode-editor-inactiveSelectionBackground)' }}>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('editModelsModal.provider')}</th>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('editModelsModal.modelName')}</th>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>ID</th>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('editModelsModal.thinking')}</th>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('modelForm.promptProfileLabel')}</th>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('modelForm.numCtxLabel')}</th>
-                    <th style={{ padding: '8px', textAlign: 'right' }}>{t('editModelsModal.actions')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left', whiteSpace: 'nowrap' }}>{t('editModelsModal.provider')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left', whiteSpace: 'nowrap' }}>{t('editModelsModal.modelName')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left', whiteSpace: 'nowrap' }}>ID</th>
+                    <th style={{ padding: '8px', textAlign: 'left', whiteSpace: 'nowrap' }}>{t('editModelsModal.thinking')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left', whiteSpace: 'nowrap' }}>{t('modelForm.promptProfileLabel')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left', whiteSpace: 'nowrap' }}>{t('modelForm.numCtxLabel')}</th>
+                    <th style={{ padding: '8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{t('editModelsModal.actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredModels.map((model) => (
                     <tr key={model.id} style={{ borderBottom: '1px solid var(--vscode-widget-border)' }} title={model.api_base ? `${t('editModelsModal.apiBaseUrl', 'API Base URL')}: ${model.api_base}` : undefined}>
-                      <td style={{ padding: '8px' }}>{model.connection_label || model.provider}</td>
+                      <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>{model.connection_label || model.provider}</td>
                       <td style={{ padding: '8px' }}>{model.name}</td>
                       <td style={{ padding: '8px', color: 'var(--vscode-descriptionForeground)' }}>{model.id}</td>
-                      <td style={{ padding: '8px', color: model.supports_thinking ? 'var(--vscode-textLink-foreground)' : 'var(--vscode-descriptionForeground)' }}>
+                      <td style={{ padding: '8px', whiteSpace: 'nowrap', color: model.supports_thinking ? 'var(--vscode-textLink-foreground)' : 'var(--vscode-descriptionForeground)' }}>
                         {model.supports_thinking ? t('common.yes', 'Yes') : t('common.no', 'No')}
                       </td>
-                      <td style={{ padding: '8px', color: model.prompt_profile === 'light' ? 'var(--vscode-textLink-foreground)' : 'var(--vscode-descriptionForeground)' }}>
+                      <td style={{ padding: '8px', whiteSpace: 'nowrap', color: model.prompt_profile === 'light' ? 'var(--vscode-textLink-foreground)' : 'var(--vscode-descriptionForeground)' }}>
                         {t(`modelForm.promptProfile.${model.prompt_profile === 'light' ? 'light' : 'full'}`)}
                       </td>
-                      <td style={{ padding: '8px', color: 'var(--vscode-descriptionForeground)' }}>
+                      <td style={{ padding: '8px', whiteSpace: 'nowrap', color: 'var(--vscode-descriptionForeground)' }}>
                         {model.num_ctx || t('modelForm.numCtxAuto')}
                       </td>
-                      <td style={{ padding: '8px', textAlign: 'right' }}>
+                      <td style={{ padding: '8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         <button 
                           className="vscode-icon-button"
                           title={t('common.edit')}

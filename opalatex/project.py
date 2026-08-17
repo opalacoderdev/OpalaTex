@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .config import DEFAULT_DB_PATH, DEFAULT_MODEL
+from .config import DEFAULT_DB_PATH, DEFAULT_MODEL, resolve_display_num_ctx
 from .api_keys import get_env_var_for_model
 
 
@@ -513,6 +513,12 @@ class ProjectStore:
                 d["model_params"].setdefault("stream", True)
                 d["worker_model_params"].setdefault("think", False)
                 d["worker_model_params"].setdefault("stream", True)
+
+                # Effective num_ctx for UI display (chat context indicator) before
+                # any turn has run to measure the real prompt_tokens window: an
+                # explicit override wins, else the model's catalog entry, else the
+                # local/cloud heuristic. See config.resolve_display_num_ctx.
+                d["effective_num_ctx"] = resolve_display_num_ctx(d.get("model"), d["model_params"])
                 
                 # Load api_key and api_base from local .env if it exists.
                 # Provider-specific names are preferred, with legacy OPENAI_* as fallback.

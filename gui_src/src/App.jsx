@@ -872,6 +872,9 @@ export default function App() {
     setActiveChatId(chatId);
     setActiveProject(prev => prev ? { ...prev, current_chat_id: chatId } : null);
     localStorage.setItem(`lastChat_${activeProject.name}`, chatId);
+    // A brand-new chat has no measured window yet: the previous chat's
+    // measurement must not leak into this one's indicator.
+    setChatContextUsage(null);
     const greeting = activeProject.project_name || activeProject.name;
     const baseMessages = [{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }];
     setChatMessages(baseMessages);
@@ -2910,6 +2913,9 @@ export default function App() {
       setActiveProject(prev => prev ? { ...prev, current_chat_id: newChatId } : null);
       if (activeProject) localStorage.setItem(`lastChat_${activeProject.name}`, newChatId);
       setChats(prev => [...prev, { id: newChatId, name: data.name || newChatName }]);
+      // The branched chat has its own (shorter) history: the source chat's
+      // measured window does not describe it.
+      setChatContextUsage(null);
       setChatMessages(branchHistory);
       await handleSendMessage(null, null, {
         overrideText: nextContent,
