@@ -61,7 +61,12 @@ export default function EditorPanel({
   const { showAlert } = useCustomDialog();
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
-  const [isRichTextMode, setIsRichTextMode] = useState(false);
+  // Rich Text mode is per-file (a Set of file paths currently in Rich Text
+  // mode), so switching tabs never turns it off for a tab the user didn't
+  // explicitly exit — only the toggle button (or an explicit action like
+  // SyncTeX jump-to-source) should leave Rich Text mode for a given file.
+  const [richTextFiles, setRichTextFiles] = useState(() => new Set());
+  const isRichTextMode = !!selectedFile && richTextFiles.has(selectedFile);
   const [isPdfPreviewCollapsed, setIsPdfPreviewCollapsed] = useState(true);
   const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
   const [showLatexHelp, setShowLatexHelp] = useState(false);
@@ -69,7 +74,9 @@ export default function EditorPanel({
   const [editorContextMenu, setEditorContextMenu] = useState(null);
   const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
   const pendingEditorLineRef = useRef(null);
-  const richTextSourceLineRef = useRef(1);
+  // Last known Rich Text active/initial line, per file — keyed by file path
+  // so switching tabs never leaks one file's scroll position into another's.
+  const richTextSourceLinesRef = useRef({});
   const documentActionsMenuRef = useRef(null);
   const docxEditorRef = useRef(null);
   const pptxEditorRef = useRef(null);
@@ -235,7 +242,9 @@ export default function EditorPanel({
   useEffect(() => {
     setIsDiffMode(false);
     setIsPreviewMode(false);
-    setIsRichTextMode(false);
+    // Rich Text mode is intentionally NOT reset here — it's per-file (see
+    // richTextFiles above), so a tab stays in Rich Text mode when you switch
+    // away and back to it.
     setShowSnippetsPanel(false);
     
     // Check if there is an existing PDF for this file
@@ -601,10 +610,15 @@ export default function EditorPanel({
     return true;
   }, []);
 
-  const exitRichTextMode = useCallback((line = richTextSourceLineRef.current) => {
+  const exitRichTextMode = useCallback((line = richTextSourceLinesRef.current[selectedFile]) => {
     if (line) pendingEditorLineRef.current = line;
-    setIsRichTextMode(false);
-  }, []);
+    setRichTextFiles(prev => {
+      if (!selectedFile || !prev.has(selectedFile)) return prev;
+      const next = new Set(prev);
+      next.delete(selectedFile);
+      return next;
+    });
+  }, [selectedFile]);
   
   const handleSyncTexNavigate = (line, file) => {
     // file is a project-relative path returned from the SyncTeX backend
@@ -947,15 +961,16 @@ export default function EditorPanel({
     <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
       {isRichTextMode ? (
         <RichTextEditor
+          key={selectedFile}
           source={fileContent}
           activeProjectPath={activeProject?.project_path}
           sourceTex={selectedFile}
           zoomLevel={markdownZoomLevel}
-          initialSourceLine={richTextSourceLineRef.current}
+          initialSourceLine={richTextSourceLinesRef.current[selectedFile] || 1}
           onChange={setFileContent}
           onJumpToSource={handleRichTextJumpToSource}
           onActiveSourceLineChange={(line) => {
-            if (line) richTextSourceLineRef.current = line;
+            if (line) richTextSourceLinesRef.current[selectedFile] = line;
           }}
         />
       ) : isDiffMode ? (
@@ -1243,8 +1258,10 @@ export default function EditorPanel({
                     exitRichTextMode();
                   } else {
                     const currentLine = localEditorRef.current?.getPosition?.()?.lineNumber;
-                    if (currentLine) richTextSourceLineRef.current = currentLine;
-                    setIsRichTextMode(true);
+                    if (currentLine) richTextSourceLinesRef.current[selectedFile] = currentLine;
+                    if (selectedFile) {
+                      setRichTextFiles(prev => (prev.has(selectedFile) ? prev : new Set(prev).add(selectedFile)));
+                    }
                   }
                   setIsPreviewMode(false);
                   setIsDiffMode(false);

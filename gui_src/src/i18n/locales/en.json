@@ -73,7 +73,9 @@
     "selectProjectToExplore": "Select a project to explore.",
     "importProject": "Import Project",
     "selectProjectPlaceholder": "Select project...",
-    "noProjects": "No projects found"
+    "noProjects": "No projects found",
+    "projectPathMissing": "Not found: {{path}}",
+    "projectPathMissingHint": "Project folder not found on this machine. Click to fix its path."
   },
   "gitSidebar": {
     "header": "SOURCE CONTROL",

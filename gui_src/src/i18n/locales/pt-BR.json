@@ -73,7 +73,9 @@
     "selectProjectToExplore": "Selecione um projeto para explorar.",
     "importProject": "Importar Projeto",
     "selectProjectPlaceholder": "Selecionar projeto...",
-    "noProjects": "Nenhum projeto encontrado"
+    "noProjects": "Nenhum projeto encontrado",
+    "projectPathMissing": "Não encontrado: {{path}}",
+    "projectPathMissingHint": "Pasta do projeto não encontrada nesta máquina. Clique para corrigir o caminho."
   },
   "gitSidebar": {
     "header": "SOURCE CONTROL",

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Settings, Trash2, RefreshCw, ExternalLink, FolderOpen, ChevronDown } from 'lucide-react';
+import { Plus, Settings, Trash2, RefreshCw, ExternalLink, FolderOpen, ChevronDown, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import FileNode from './FileNode';
 
@@ -135,13 +135,19 @@ export default function ExplorerSidebar({
                 ) : (
                   projects.map(p => {
                     const isActive = activeProject && activeProject.name === p.name;
+                    const isMissing = p.exists === false;
                     return (
                       <div
                         key={p.name}
-                        onClick={() => {
-                          handleSelectProject(p);
+                        onClick={(e) => {
+                          if (isMissing) {
+                            openEditModal(e, p);
+                          } else {
+                            handleSelectProject(p);
+                          }
                           setIsDropdownOpen(false);
                         }}
+                        title={isMissing ? t('explorerSidebar.projectPathMissingHint', 'Project folder not found on this machine. Click to fix its path.') : undefined}
                         style={{
                           padding: '6px 10px',
                           cursor: 'pointer',
@@ -159,11 +165,12 @@ export default function ExplorerSidebar({
                           if (!isActive) e.currentTarget.style.background = 'transparent';
                         }}
                       >
-                        <div style={{ fontSize: '12px', fontWeight: '500' }} className="truncate">
+                        <div style={{ fontSize: '12px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '5px' }} className="truncate">
+                          {isMissing && <AlertTriangle size={11} color="#e2c08d" style={{ flexShrink: 0 }} />}
                           {p.project_name || p.name}
                         </div>
-                        <div style={{ fontSize: '10px', color: isActive ? 'rgba(255,255,255,0.7)' : '#808080' }} className="truncate">
-                          {p.project_path}
+                        <div style={{ fontSize: '10px', color: isMissing ? '#e2c08d' : (isActive ? 'rgba(255,255,255,0.7)' : '#808080') }} className="truncate">
+                          {isMissing ? t('explorerSidebar.projectPathMissing', 'Not found: {{path}}', { path: p.project_path }) : p.project_path}
                         </div>
                       </div>
                     );

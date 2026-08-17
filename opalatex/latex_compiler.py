@@ -459,7 +459,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
     Compile only the current included/input file while preserving SyncTeX.
 
     This is an editing-time preview path. If the current file is the main file
-    or cannot be matched as an \include/\input target, it returns a clear
+    or cannot be matched as an \\include/\\input target, it returns a clear
     failure so callers can fall back to full compilation.
     """
     synctex_enabled = (not draft) if synctex is None else bool(synctex)

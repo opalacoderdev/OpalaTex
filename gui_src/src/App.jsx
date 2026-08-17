@@ -2282,7 +2282,9 @@ export default function App() {
         const updated = await res.json();
         addLog('info', t('app.projectUpdated', { name: updated.project_name }));
         setEditingProject(null);
-        await fetchProjects();
+        // Auto-selects the project once its path is fixed, so repairing a
+        // project whose folder had moved (e.g. after switching OS) takes effect immediately.
+        await fetchProjects(updated.name);
         if (activeProject?.name === updated.name) setActiveProject(prev => ({ ...prev, ...updated }));
       } else { const err = await res.json(); setEditProjError(err.error || t('app.projectUpdateError')); addLog('error', t('app.projectUpdateFailed', { error: err.error })); }
     } catch (err) { setEditProjError(err.message || t('app.projectUpdateError')); addLog('error', t('app.projectUpdateFailed', { error: err.message })); }
