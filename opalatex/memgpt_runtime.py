@@ -369,10 +369,10 @@ def build_run_skill_tool(
                 "Only after the user approves the plan may you execute it."
             )
             
-        print(f"\n{'-'*25} [DIAGNOSTIC: RUN_SKILL START] {'-'*25}")
-        print(f"[DIAGNOSTIC] Delegating to skill: '{skill_name}'")
-        print(f"[DIAGNOSTIC] Context passed:\n{context}")
-        print(f"{'-'*75}\n")
+        #print(f"\n{'-'*25} [DIAGNOSTIC: RUN_SKILL START] {'-'*25}")
+        #print(f"[DIAGNOSTIC] Delegating to skill: '{skill_name}'")
+        #print(f"[DIAGNOSTIC] Context passed:\n{context}")
+        #print(f"{'-'*75}\n")
 
         skill_dir = find_skill_dir(skill_name, project_path)
         if skill_dir is None:
@@ -684,10 +684,10 @@ def build_run_skill_tool(
             out = await sub_agent.run(AgentInput(prompt=prompt))
             out_text = out.response if hasattr(out, "response") else str(out)
             tool_calls = getattr(out, "tool_calls_made", "?")
-            print(f"\n{'-'*25} [DIAGNOSTIC: WORKER FINISHED] {'-'*25}")
-            print(f"[DIAGNOSTIC] Worker '{skill_name}' tool calls made: {tool_calls}")
-            print(f"[DIAGNOSTIC] Worker output preview ({len(out_text)} chars):\n{out_text[:300]}...")
-            print(f"{'-'*75}\n")
+            #print(f"\n{'-'*25} [DIAGNOSTIC: WORKER FINISHED] {'-'*25}")
+            #print(f"[DIAGNOSTIC] Worker '{skill_name}' tool calls made: {tool_calls}")
+            #print(f"[DIAGNOSTIC] Worker output preview ({len(out_text)} chars):\n{out_text[:300]}...")
+            #print(f"{'-'*75}\n")
         except Exception as e:
             out_text = f"[CRITICAL WORKER CRASH] A exceção não tratada interrompeu o worker: {str(e)}"
             tool_calls = "?"
