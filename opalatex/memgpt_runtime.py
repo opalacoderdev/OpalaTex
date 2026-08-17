@@ -23,6 +23,7 @@ from __future__ import annotations
 from datetime import datetime
 from opalatex.tools import read_file
 from opalatex.tools import get_project_overview
+import asyncio
 import json
 import os
 import re
@@ -672,7 +673,8 @@ def build_run_skill_tool(
             if get_git_strategy().lower() != "none":
                 from opalatex.vcs import begin_agent_turn_checkpoint
                 worker_checkpoint_project_path = project_path
-                worker_checkpoint_id = begin_agent_turn_checkpoint(
+                worker_checkpoint_id = await asyncio.to_thread(
+                    begin_agent_turn_checkpoint,
                     worker_checkpoint_project_path,
                     f"worker:{skill_name}",
                 )
@@ -698,7 +700,8 @@ def build_run_skill_tool(
             if worker_checkpoint_id and worker_checkpoint_project_path:
                 try:
                     from opalatex.vcs import finalize_agent_turn_checkpoint
-                    finalize_agent_turn_checkpoint(
+                    await asyncio.to_thread(
+                        finalize_agent_turn_checkpoint,
                         worker_checkpoint_project_path,
                         worker_checkpoint_id,
                         f"worker:{skill_name}",

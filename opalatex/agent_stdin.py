@@ -1565,7 +1565,7 @@ async def handle_run(data: dict):
             if get_git_strategy().lower() != "none":
                 from opalatex.vcs import begin_agent_turn_checkpoint
                 turn_checkpoint_project_path = current_project.project_path
-                turn_checkpoint_id = begin_agent_turn_checkpoint(turn_checkpoint_project_path)
+                turn_checkpoint_id = await asyncio.to_thread(begin_agent_turn_checkpoint, turn_checkpoint_project_path)
         except Exception:
             turn_checkpoint_id = None
 
@@ -1872,7 +1872,15 @@ async def handle_run(data: dict):
         if turn_checkpoint_id and turn_checkpoint_project_path:
             try:
                 from opalatex.vcs import finalize_agent_turn_checkpoint
-                finalize_agent_turn_checkpoint(turn_checkpoint_project_path, turn_checkpoint_id)
+                await asyncio.to_thread(finalize_agent_turn_checkpoint, turn_checkpoint_project_path, turn_checkpoint_id)
+            except Exception:
+                pass
+        # The activity connection is kept open for the whole turn because it is
+        # written once per streamed token; outside a turn there is nothing to
+        # gain from holding the database file open, so release it here.
+        if current_store is not None:
+            try:
+                current_store.close_activity_connection()
             except Exception:
                 pass
         T._async_confirm_hook = orig_async_confirm_hook
