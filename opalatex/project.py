@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .config import DEFAULT_DB_PATH, DEFAULT_MODEL, apply_default_num_ctx
+from .config import DEFAULT_DB_PATH, DEFAULT_MODEL
 from .api_keys import get_env_var_for_model
 
 
@@ -540,25 +540,14 @@ class ProjectStore:
         _skills = skills if skills is not None else ["opalatex"]
         if "opalatex" not in _skills:
             _skills = ["opalatex"] + _skills
-        _model_params = apply_default_num_ctx(model_params, model, api_base)
-        effective_worker_model = worker_model or model
+        # num_ctx is intentionally NOT defaulted into model_params here: a project
+        # created without an explicit override resolves its context window at
+        # runtime from the model's catalog entry, then the local/cloud heuristic
+        # (see config.resolve_effective_num_ctx). An explicit num_ctx passed in
+        # model_params/worker_model_params is preserved as-is and always wins.
+        _model_params = dict(model_params or {})
         _model_params.setdefault("stream", True)
-
-        effective_worker_api_base = worker_api_base or api_base
-        if worker_model_params is not None:
-            _worker_model_params = apply_default_num_ctx(
-                worker_model_params,
-                effective_worker_model,
-                effective_worker_api_base,
-            )
-        elif worker_model:
-            _worker_model_params = apply_default_num_ctx(
-                {},
-                effective_worker_model,
-                effective_worker_api_base,
-            )
-        else:
-            _worker_model_params = {}
+        _worker_model_params = dict(worker_model_params or {})
 
         # Ensure the project path is absolute and exists
         abs_proj_path = os.path.abspath(project_path) if project_path else os.getcwd()

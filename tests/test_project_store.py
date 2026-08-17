@@ -107,7 +107,12 @@ def test_stale_cloud_project_model_loads_as_default_in_community(store, tmp_path
     assert listed["worker_model"] == DEFAULT_MODEL
 
 
-def test_create_local_model_defaults_num_ctx_to_8192(store, tmp_path):
+def test_create_does_not_bake_num_ctx_into_model_params(store, tmp_path):
+    """num_ctx is no longer defaulted at project-creation time: a project created
+    without an explicit override resolves its context window at runtime from the
+    model's catalog entry, then the local/cloud heuristic
+    (config.resolve_effective_num_ctx). Baking a fixed value here would shadow a
+    catalog entry registered or edited after the project was created."""
     project_dir = tmp_path / "local_ctx"
     p = store.create(
         **_base_args(
@@ -117,56 +122,15 @@ def test_create_local_model_defaults_num_ctx_to_8192(store, tmp_path):
         )
     )
 
-    assert p.model_params["num_ctx"] == 8192
+    assert "num_ctx" not in p.model_params
     assert p.worker_model_params == {}
     assert "max_tokens" not in p.model_params
     assert "max_context_tokens" not in p.model_params
-
-
-def test_create_cloud_model_defaults_num_ctx_to_65536(store, tmp_path):
-    project_dir = tmp_path / "cloud_ctx"
-    p = store.create(
-        **_base_args(
-            name="cloud_ctx",
-            model="gemini/gemini-3.5-flash-lite",
-            project_path=str(project_dir),
-        )
-    )
-
-    assert p.model_params["num_ctx"] == 65536
-    assert p.worker_model_params == {}
-    assert "max_tokens" not in p.model_params
-    assert "max_context_tokens" not in p.model_params
-
-
-def test_create_remote_ollama_model_uses_cloud_context_default(store, tmp_path):
-    project_dir = tmp_path / "remote_ollama_ctx"
-    p = store.create(
-        **_base_args(
-            name="remote_ollama_ctx",
-            model="ollama/gemma4:31b-cloud",
-            project_path=str(project_dir),
-            api_base="https://ollama.com",
-        )
-    )
-
-    assert p.model_params["num_ctx"] == 65536
-
-
-def test_create_ollama_cloud_tag_uses_cloud_context_default(store, tmp_path):
-    project_dir = tmp_path / "remote_ollama_tag_ctx"
-    p = store.create(
-        **_base_args(
-            name="remote_ollama_tag_ctx",
-            model="ollama/qwen3.5:cloud",
-            project_path=str(project_dir),
-        )
-    )
-
-    assert p.model_params["num_ctx"] == 65536
 
 
 def test_create_preserves_explicit_num_ctx(store, tmp_path):
+    """An explicit num_ctx passed by the caller (the project's Advanced override)
+    is preserved as-is and always takes priority over the catalog/heuristic."""
     project_dir = tmp_path / "explicit_ctx"
     p = store.create(
         **_base_args(
@@ -181,7 +145,7 @@ def test_create_preserves_explicit_num_ctx(store, tmp_path):
     assert p.worker_model_params == {}
 
 
-def test_create_explicit_worker_model_gets_own_context_default(store, tmp_path):
+def test_create_explicit_worker_model_does_not_bake_num_ctx(store, tmp_path):
     project_dir = tmp_path / "worker_ctx"
     p = store.create(
         **_base_args(
@@ -192,8 +156,8 @@ def test_create_explicit_worker_model_gets_own_context_default(store, tmp_path):
         )
     )
 
-    assert p.model_params["num_ctx"] == 8192
-    assert p.worker_model_params["num_ctx"] == 65536
+    assert "num_ctx" not in p.model_params
+    assert "num_ctx" not in p.worker_model_params
 
 
 # ---------------------------------------------------------------------------

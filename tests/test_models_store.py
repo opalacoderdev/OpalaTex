@@ -213,6 +213,70 @@ def test_config_model_prompt_profile_reads_catalog_flag(tmp_path, monkeypatch):
     assert config_mod.model_prompt_profile("ollama/unregistered-model") == "full"
 
 
+def test_load_models_defaults_num_ctx_to_none(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/test-model",
+            "connection_id": connection_id,
+            "name": "test-model",
+        }
+    ])
+
+    loaded = models_store.load_models()
+
+    assert loaded[0]["num_ctx"] is None
+
+
+def test_num_ctx_round_trips_through_save_and_load(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/big-context-model",
+            "connection_id": connection_id,
+            "name": "big-context-model",
+            "num_ctx": 32768,
+        }
+    ])
+
+    loaded = models_store.load_models()
+
+    assert loaded[0]["num_ctx"] == 32768
+
+
+def test_config_model_num_ctx_reads_catalog_flag(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/big-context-model",
+            "connection_id": connection_id,
+            "name": "big-context-model",
+            "num_ctx": 32768,
+        },
+        {
+            "id": "ollama/plain-model",
+            "connection_id": connection_id,
+            "name": "plain-model",
+        },
+    ])
+
+    assert config_mod.model_num_ctx("ollama/big-context-model") == 32768
+    assert config_mod.model_num_ctx("ollama/plain-model") is None
+    assert config_mod.model_num_ctx("ollama/unregistered-model") is None
+
+
 def test_load_models_filters_cloud_models_in_community_mode(tmp_path, monkeypatch):
     store_path = tmp_path / "models.json"
     monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)

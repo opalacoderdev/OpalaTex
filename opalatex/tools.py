@@ -207,9 +207,9 @@ def set_project_context(session, store=None) -> None:
         # so it doesn't fail with a BadRequestError (request exceeds available context window).
         try:
             import litellm
+            from .config import resolve_effective_num_ctx
             model_name = getattr(session, "model", None)
-            model_params = getattr(session, "model_params", None) or {}
-            num_ctx = model_params.get("num_ctx")
+            num_ctx = resolve_effective_num_ctx("memgpt", model_name, getattr(session, "api_base", None))
             if model_name and num_ctx:
                 # Direct registration for model in litellm's dynamic model database
                 if model_name not in litellm.model_prices_and_context_window:
@@ -1556,11 +1556,16 @@ async def create_plan(plan_content: str) -> str:
 
 
 def context_window_tokens() -> int:
-    """Return the active context window, which is what num_ctx actually caps."""
-    model_params = getattr(_PROJECT_SESSION, "model_params", None) or {}
+    """Return the active context window, which is what num_ctx actually caps.
+
+    Resolved via config.resolve_effective_num_ctx: an explicit project
+    override wins, otherwise the model's catalog entry, otherwise the
+    local/cloud heuristic default.
+    """
+    from .config import resolve_effective_num_ctx
     try:
-        return int(model_params.get("num_ctx") or 8192)
-    except (TypeError, ValueError):
+        return resolve_effective_num_ctx("memgpt")
+    except Exception:
         return 8192
 
 

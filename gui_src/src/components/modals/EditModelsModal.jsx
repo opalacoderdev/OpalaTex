@@ -111,6 +111,7 @@ export default function EditModelsModal({
                     <th style={{ padding: '8px', textAlign: 'left' }}>ID</th>
                     <th style={{ padding: '8px', textAlign: 'left' }}>{t('editModelsModal.thinking')}</th>
                     <th style={{ padding: '8px', textAlign: 'left' }}>{t('modelForm.promptProfileLabel')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('modelForm.numCtxLabel')}</th>
                     <th style={{ padding: '8px', textAlign: 'right' }}>{t('editModelsModal.actions')}</th>
                   </tr>
                 </thead>
@@ -125,6 +126,9 @@ export default function EditModelsModal({
                       </td>
                       <td style={{ padding: '8px', color: model.prompt_profile === 'light' ? 'var(--vscode-textLink-foreground)' : 'var(--vscode-descriptionForeground)' }}>
                         {t(`modelForm.promptProfile.${model.prompt_profile === 'light' ? 'light' : 'full'}`)}
+                      </td>
+                      <td style={{ padding: '8px', color: 'var(--vscode-descriptionForeground)' }}>
+                        {model.num_ctx || t('modelForm.numCtxAuto')}
                       </td>
                       <td style={{ padding: '8px', textAlign: 'right' }}>
                         <button 

@@ -509,6 +509,17 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     merged.setdefault("think", False)
     if not store_supports_thinking:
         merged.pop("think", None)
+
+    # num_ctx resolution: an explicit project override always wins; otherwise
+    # fall back to the model's catalog entry, then the local/cloud heuristic.
+    # Centralized in resolve_effective_num_ctx so tool-budget and attachment
+    # code (opalatex/tools.py, opalatex/agent_stdin.py) agree with this value.
+    # Uses resolved_model (the catalog id, which may carry a `#<connection_id>`
+    # disambiguation suffix) rather than runtime_model, since the catalog is
+    # keyed by that id — resolve_effective_num_ctx only needs the provider
+    # prefix for the local/cloud heuristic, so the suffix is harmless there.
+    merged["num_ctx"] = resolve_effective_num_ctx(agent_name, resolved_model, merged.get("api_base"))
+
     return sanitize_litellm_kwargs_for_model(runtime_model, merged)
 
 
@@ -537,6 +548,95 @@ def model_requires_single_system_message(model: str | None) -> bool:
         return bool(store_model and store_model.get("requires_single_system_message", False))
     except Exception:
         return False
+
+
+def model_num_ctx(model: str | None) -> int | None:
+    """Return the context window configured on *model*'s catalog entry, or None.
+
+    Same shape as `model_supports_thinking`/`model_requires_single_system_message`:
+    a per-model catalog capability (`opalatex/models_store.py`), not a project
+    setting. Unset (None) means the catalog does not pin a window for this
+    model and callers should fall back to `default_num_ctx_for_model`.
+    """
+    try:
+        from opalatex.models_store import get_model
+        store_model = get_model(str(model or ""))
+        value = store_model.get("num_ctx") if store_model else None
+        return int(value) if value not in (None, "") else None
+    except Exception:
+        return None
+
+
+def resolve_effective_num_ctx(
+    agent_name: str = "memgpt",
+    model: str | None = None,
+    api_base: str | None = None,
+) -> int:
+    """Resolve the context window that should be requested for *agent_name*.
+
+    Priority (highest first):
+      1. An explicit ``num_ctx`` in the project's ``model_params`` (or
+         ``worker_model_params`` for the ``worker`` role) — set via the
+         project's Advanced override, so it must always win.
+      2. The ``num_ctx`` configured on the model's global catalog entry.
+      3. A per-agent ``num_ctx`` override in ``agents.yaml`` (``agents.<name>``,
+         e.g. the orchestrator/memgpt role default of 16384 in
+         `_CORE_AGENT_DEFAULTS``) — but *only* when there is no live project
+         session to resolve a model/catalog entry from at all (bare CLI/agent
+         construction without a project). `_CORE_AGENT_DEFAULTS` sets a
+         `num_ctx` for every built-in role, so if this ranked above the
+         catalog it would permanently shadow every model's own catalog entry
+         for real projects — exactly the outcome this migration exists to
+         avoid. It exists as a floor for the no-project bootstrap case only.
+      4. The local/cloud heuristic default (`default_num_ctx_for_model`).
+
+    This is the single place that implements that precedence so tool-budget
+    code (`opalatex/tools.py`), attachment truncation (`opalatex/agent_stdin.py`)
+    and the LiteLLM request kwargs (`get_agent_llm_kwargs`) cannot drift apart.
+    """
+    project_num_ctx = None
+    resolved_model = model
+    resolved_api_base = api_base
+    has_session = False
+    try:
+        from .tools import _PROJECT_SESSION
+        if _PROJECT_SESSION:
+            has_session = True
+            is_worker = agent_name == "worker"
+            worker_params = getattr(_PROJECT_SESSION, "worker_model_params", None)
+            params = worker_params if (is_worker and worker_params) else getattr(_PROJECT_SESSION, "model_params", None)
+            if params:
+                project_num_ctx = params.get("num_ctx")
+            if resolved_model is None:
+                resolved_model = (
+                    getattr(_PROJECT_SESSION, "worker_model", None) if is_worker else None
+                ) or getattr(_PROJECT_SESSION, "model", None)
+            if resolved_api_base is None:
+                resolved_api_base = (
+                    getattr(_PROJECT_SESSION, "worker_api_base", None) if is_worker else None
+                ) or getattr(_PROJECT_SESSION, "api_base", None)
+    except Exception:
+        pass
+
+    if project_num_ctx not in (None, ""):
+        try:
+            return int(project_num_ctx)
+        except (TypeError, ValueError):
+            pass
+
+    catalog_num_ctx = model_num_ctx(resolved_model) if resolved_model else None
+    if catalog_num_ctx:
+        return catalog_num_ctx
+
+    if not has_session:
+        agent_override_num_ctx = _get_agent_overrides().get(agent_name, {}).get("num_ctx")
+        if agent_override_num_ctx not in (None, ""):
+            try:
+                return int(agent_override_num_ctx)
+            except (TypeError, ValueError):
+                pass
+
+    return default_num_ctx_for_model(resolved_model, resolved_api_base)
 
 
 def model_prompt_profile(model: str | None) -> str:

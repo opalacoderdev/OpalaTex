@@ -1677,7 +1677,8 @@ async def handle_run(data: dict):
 
             pdf_truncate_enabled = _mp.get("pdf_truncate", True)
             pdf_truncate_pct = int(_mp.get("pdf_truncate_pct", 50))
-            num_ctx = int(_mp.get("num_ctx", DEFAULT_CONTEXT_WINDOW))
+            from opalatex.config import resolve_effective_num_ctx
+            num_ctx = resolve_effective_num_ctx("memgpt", _model_name)
 
             # Budget the attachment against what the provider charged for the
             # previous request of this chat. project_history holds neither the

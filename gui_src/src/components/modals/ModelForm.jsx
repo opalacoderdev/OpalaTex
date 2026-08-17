@@ -36,6 +36,7 @@ export default function ModelForm({
   const [supportsThinking, setSupportsThinking] = useState(false);
   const [requiresSingleSystemMessage, setRequiresSingleSystemMessage] = useState(false);
   const [promptProfile, setPromptProfile] = useState('full');
+  const [numCtx, setNumCtx] = useState('');
   const [error, setError] = useState('');
   const [showNewConnection, setShowNewConnection] = useState(connections.length === 0);
 
@@ -46,11 +47,13 @@ export default function ModelForm({
       setSupportsThinking(!!editingModel.supports_thinking);
       setRequiresSingleSystemMessage(!!editingModel.requires_single_system_message);
       setPromptProfile(editingModel.prompt_profile || 'full');
+      setNumCtx(editingModel.num_ctx ? String(editingModel.num_ctx) : '');
       setShowNewConnection(false);
     } else {
       setSupportsThinking(false);
       setRequiresSingleSystemMessage(false);
       setPromptProfile('full');
+      setNumCtx('');
       setShowNewConnection(connections.length === 0);
     }
   }, [editingModel]);
@@ -67,6 +70,7 @@ export default function ModelForm({
     setSupportsThinking(false);
     setRequiresSingleSystemMessage(false);
     setPromptProfile('full');
+    setNumCtx('');
     setError('');
     setShowNewConnection(connections.length === 0);
   };
@@ -117,6 +121,12 @@ export default function ModelForm({
       return;
     }
 
+    const trimmedNumCtx = numCtx.trim();
+    if (trimmedNumCtx && (!/^\d+$/.test(trimmedNumCtx) || Number(trimmedNumCtx) < 1)) {
+      setError(t('modelForm.numCtxError'));
+      return;
+    }
+
     const provider = selectedConnection?.provider || '';
     const baseId = `${provider}/${trimmedName}`;
     const id = existingModels.some(model => model.id !== editingModel?.id && model.id === baseId)
@@ -131,6 +141,7 @@ export default function ModelForm({
       supports_thinking: supportsThinking,
       requires_single_system_message: requiresSingleSystemMessage,
       prompt_profile: promptProfile,
+      num_ctx: trimmedNumCtx ? Number(trimmedNumCtx) : null,
     }, { reset });
   };
 
@@ -204,6 +215,22 @@ export default function ModelForm({
           </div>
           <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
             {t(`modelForm.promptProfile.${promptProfile}Hint`)}
+          </span>
+        </div>
+
+        <div className="vscode-form-group">
+          <label>{t('modelForm.numCtxLabel')}</label>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            className="vscode-settings-input"
+            value={numCtx}
+            onChange={e => setNumCtx(e.target.value)}
+            placeholder={t('modelForm.numCtxPlaceholder')}
+          />
+          <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+            {t('modelForm.numCtxHint')}
           </span>
         </div>
 
