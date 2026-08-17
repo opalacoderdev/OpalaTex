@@ -68,7 +68,9 @@ export default function EditorPanel({
   const [editorContextMenu, setEditorContextMenu] = useState(null);
   const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
   const pendingEditorLineRef = useRef(null);
-  const richTextSourceLineRef = useRef(1);
+  // Last known Rich Text active/initial line, per file — keyed by file path
+  // so switching tabs never leaks one file's scroll position into another's.
+  const richTextSourceLinesRef = useRef({});
   const documentActionsMenuRef = useRef(null);
   const docxEditorRef = useRef(null);
   const pptxEditorRef = useRef(null);
@@ -599,10 +601,10 @@ export default function EditorPanel({
     return true;
   }, []);
 
-  const exitRichTextMode = useCallback((line = richTextSourceLineRef.current) => {
+  const exitRichTextMode = useCallback((line = richTextSourceLinesRef.current[selectedFile]) => {
     if (line) pendingEditorLineRef.current = line;
     setIsRichTextMode(false);
-  }, []);
+  }, [selectedFile]);
   
   const handleSyncTexNavigate = (line, file) => {
     // file is a project-relative path returned from the SyncTeX backend
@@ -945,15 +947,16 @@ export default function EditorPanel({
     <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
       {isRichTextMode ? (
         <RichTextEditor
+          key={selectedFile}
           source={fileContent}
           activeProjectPath={activeProject?.project_path}
           sourceTex={selectedFile}
           zoomLevel={markdownZoomLevel}
-          initialSourceLine={richTextSourceLineRef.current}
+          initialSourceLine={richTextSourceLinesRef.current[selectedFile] || 1}
           onChange={setFileContent}
           onJumpToSource={handleRichTextJumpToSource}
           onActiveSourceLineChange={(line) => {
-            if (line) richTextSourceLineRef.current = line;
+            if (line) richTextSourceLinesRef.current[selectedFile] = line;
           }}
         />
       ) : isPreviewMode ? (
@@ -1245,7 +1248,7 @@ export default function EditorPanel({
                     exitRichTextMode();
                   } else {
                     const currentLine = localEditorRef.current?.getPosition?.()?.lineNumber;
-                    if (currentLine) richTextSourceLineRef.current = currentLine;
+                    if (currentLine) richTextSourceLinesRef.current[selectedFile] = currentLine;
                     setIsRichTextMode(true);
                   }
                   setIsPreviewMode(false);
