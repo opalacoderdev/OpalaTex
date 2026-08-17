@@ -7,7 +7,7 @@ import { getLanguage } from '../utils/language';
 import { safeSetLocalStorage } from '../utils/storage';
 import InlinePromptOverlay from './InlinePromptOverlay';
 import EditorContextMenuOverlay from './EditorContextMenuOverlay';
-import { formatMessageContent } from '../utils/formatMessage';
+import { FormattedMessage } from '../utils/formatMessage';
 import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 import Split from 'react-split';
 import PdfPreview from './PdfPreview';
@@ -958,10 +958,6 @@ export default function EditorPanel({
             if (line) richTextSourceLineRef.current = line;
           }}
         />
-      ) : isPreviewMode ? (
-        <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
-          {formatMessageContent(fileContent, activeProject?.project_path, markdownZoomLevel)}
-        </div>
       ) : isDiffMode ? (
         <DiffEditor
           height="100%"
@@ -1465,7 +1461,7 @@ export default function EditorPanel({
               />
             ) : isPreviewMode ? (
               <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
-                {formatMessageContent(fileContent, activeProject?.project_path, markdownZoomLevel)}
+                <FormattedMessage content={fileContent} projectPath={activeProject?.project_path} zoomLevel={markdownZoomLevel} />
               </div>
             ) : isDiffMode ? (
               <DiffEditor
