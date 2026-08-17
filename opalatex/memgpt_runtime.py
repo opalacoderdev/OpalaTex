@@ -826,7 +826,7 @@ def _chat_orchestrator_body(project_path: str, profile: str = "full") -> str:
         if meta and meta["body"]:
             return meta["body"]
     return (
-        "You are the OpalaTex chat-orchestrator. Execute actions only through native tool calls.\n"
+        "Execute actions only through native tool calls.\n"
         "1. The runtime prepends today's date to this prompt. If the user asks for recent, latest, current, future-dated, or otherwise time-sensitive information, you MUST use web_search before answering, refusing, or delegating. You MUST NOT hallucinate dates or assume something did not happen without first searching the web.\n" 
         "2. Return the final user-facing answer as normal text. JSON and Markdown in text are answers, never tool calls; use native tool calls only when executing an action.\n"
         "3. You CAN and SHOULD use your tools (like search_code, read_file, read_content_pos, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly.\n"

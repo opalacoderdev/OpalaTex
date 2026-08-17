@@ -59,8 +59,7 @@ def _full_mode_instructions(mode: str) -> str:
 
 def _full_worker_intro(skill_name: str) -> str:
     return (
-        "#ROLE: "
-        "You are a problem-solving agent. You must use your available tools and skills "
+        "Use your available tools and skills "
         "to fulfill the user's request provided in your context. "
         "\n--- WORKER RESPONSE CONTRACT ---\n"
         "Use native provider tool calls only when an action is required. If the task requires reading, editing, or executing something, make the appropriate native tool call before reporting completion.\n"
@@ -134,7 +133,7 @@ def _light_mode_instructions(mode: str) -> str:
 
 def _light_worker_intro(skill_name: str) -> str:
     return (
-        f"You are a worker executing the '{skill_name}' skill. Use native tool calls for actions, "
+        f"Executing the '{skill_name}' skill. Use native tool calls for actions, "
         "never as JSON/Markdown text. Finish with a concise normal-text report.\n\n"
     )
 
