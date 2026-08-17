@@ -893,11 +893,9 @@ export default function ChatPanel({
   const estimatedTokens = historyTokens + liveStreamTokens;
   const usedTokens = isMeasuredContext ? measuredTokens : estimatedTokens;
   const availableTokens = Math.max(0, numCtx - usedTokens);
-  // The bar drains like a battery (remaining), but the number states how much is
-  // CONSUMED — that is what "token consumption" means to the reader, and a bare
-  // remaining-percentage is trivially misread as its opposite.
+  // The bar drains like a battery, and the number states the remaining charge
+  // (available tokens) too — a battery reads its own level, not how much was used.
   const remainingPercentage = Math.min(100, Math.max(0, (availableTokens / numCtx) * 100));
-  const consumedPercentage = Math.min(100, Math.max(0, 100 - remainingPercentage));
   const isTokenExploded = availableTokens === 0;
   // Cheia (verde), perto do limite (amarela), explodiu (vermelha)
   const batteryColor = isTokenExploded ? 'var(--battery-exploded)' : remainingPercentage <= 20 ? 'var(--battery-low)' : 'var(--battery-good)';
@@ -958,9 +956,9 @@ export default function ChatPanel({
               }} />
             </div>
             <span>
-              {Math.round(consumedPercentage)}%
+              {Math.round(remainingPercentage)}%
               <span style={{ opacity: 0.75, marginLeft: '4px' }}>
-                {formatTokens(usedTokens)}/{formatTokens(numCtx)}
+                {formatTokens(availableTokens)}/{formatTokens(numCtx)}
               </span>
             </span>
           </div>
