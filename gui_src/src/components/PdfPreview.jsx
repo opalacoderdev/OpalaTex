@@ -1058,7 +1058,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
       </div>
       
       <div 
-        className="pdf-preview-scroll w-full h-full overflow-y-auto flex flex-col items-center"
+        className="pdf-preview-scroll w-full h-full overflow-y-auto overflow-x-auto flex flex-col items-start"
         ref={containerRef}
         onScroll={handleScroll}
         onPointerDownCapture={handlePdfPointerDownCapture}
@@ -1066,6 +1066,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
       >
         {pdfUrl && (
           <Document
+            className="pdf-doc-stack"
             file={pdfUrl}
             options={PDF_DOCUMENT_OPTIONS}
             onLoadSuccess={onDocumentLoadSuccess}

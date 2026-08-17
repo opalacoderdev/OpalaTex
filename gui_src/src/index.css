@@ -1506,6 +1506,23 @@ input:focus, select:focus, textarea:focus {
   padding-bottom: 32px;
 }
 
+/* The pages must NOT be centered by the scrolling container itself.
+   With `align-items: center`, a page wider than the viewport (zoom in)
+   overflows equally on both sides, and the scrollable overflow region only
+   ever extends toward the end edge — so the left part of the page is clipped
+   and unreachable (scrollLeft can never go negative).
+   Instead the container aligns the stack to the start, and this stack is
+   `min-width: 100%` (centers the pages while they still fit) plus
+   `width: max-content` (grows to the widest page when zoomed, so the whole
+   page lives inside the scrollable area). */
+.pdf-doc-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 100%;
+  width: max-content;
+}
+
 .pdf-page-divider {
   width: min(92%, 900px);
   display: flex;
