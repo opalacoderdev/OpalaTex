@@ -1031,7 +1031,11 @@ export default function App() {
   // fileContent intentionally excluded: the guard in refreshSelectedFileFromDiskIfUnmodified
   // now reads fileContentRef.current (always current) instead of a closure-captured value,
   // so there is no need to recreate this effect on every keystroke.
-  }, [activeProject, useShadowGit, currentGitRootPath, selectedFile]);
+  // showHiddenWorkspaceFiles is included so the polling closure's fetchFiles() default
+  // parameter always matches the current toggle (otherwise a stale closure would
+  // periodically overwrite the file list with the toggle value from when the effect
+  // was last created, making hidden files flicker on/off).
+  }, [activeProject, useShadowGit, currentGitRootPath, selectedFile, showHiddenWorkspaceFiles]);
 
   useEffect(() => {
     if (activeSidebarTab === 'git' && activeProject) fetchGitStatus();
