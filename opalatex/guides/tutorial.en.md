@@ -187,8 +187,10 @@ into a long conversation:
 - **`latex-assistant`** — explains compiler errors and generates LaTeX fragments and
   mathematics. Short, well-bounded prompts, which is exactly what small models handle
   well.
-- **`view-editor`** — tells the assistant which document is open, what is selected, and
-  where the cursor is. Cheap and it prevents a lot of "which file do you mean?".
+
+Seeing what you have open takes no skill at all: the assistant already reads your open
+tabs, the focused file, and the selected text through the native `get_editor_state` tool.
+Say "this file" or "the selected text" and it will know what you mean.
 
 Rules of thumb for small models:
 

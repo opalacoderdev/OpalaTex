@@ -49,6 +49,7 @@ from .tools import (
     read_content_pos,
     replace_content_range,
     write_content_pos,
+    get_editor_state,
     set_project_context,
 )
 from .config import (
@@ -899,7 +900,7 @@ def _chat_orchestrator_body(project_path: str, profile: str = "full") -> str:
         "Execute actions only through native tool calls.\n"
         "1. The runtime prepends today's date to this prompt. If the user asks for recent, latest, current, future-dated, or otherwise time-sensitive information, you MUST use web_search before answering, refusing, or delegating. You MUST NOT hallucinate dates or assume something did not happen without first searching the web.\n" 
         "2. Return the final user-facing answer as normal text. JSON and Markdown in text are answers, never tool calls; use native tool calls only when executing an action.\n"
-        "3. You CAN and SHOULD use your tools (like search_code, read_file, read_content_pos, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly.\n"
+        "3. You CAN and SHOULD use your tools (like search_code, read_file, read_content_pos, get_editor_state, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly.\n"
         "4. If the user asks for something that you don't know, you can use web_search to find relevant information. If the user asks for something in the project, you can use get_project_overview to explore the project structure and read_file to read files.\n"
         "5. Whenever the user asks a question involving dates, time, recent events, latest events, sports, news, public figures, APIs, or potentially anachronistic information, you must search the web for updated information.\n"
         "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', 'edit_file', or 'run_cmd'. If you need to list, search, read, or make a precise line edit directly, use get_project_overview, search_code, read_file, read_content_pos, replace_content_range, or write_content_pos.\n"
@@ -1054,6 +1055,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         wrap_tool(read_core_memory), 
         wrap_tool(read_file), 
         wrap_tool(read_content_pos),
+        wrap_tool(get_editor_state),
         wrap_tool(write_content_pos),
         wrap_tool(replace_content_range),
         wrap_tool(search_code),

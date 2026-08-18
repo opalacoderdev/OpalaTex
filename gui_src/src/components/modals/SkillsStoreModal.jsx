@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { X, Store, Package, Download, Check, Plus } from 'lucide-react';
+import { X, Store, Package, Download, Check, Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Skill icon with a graceful fallback to a generic package icon.
@@ -31,6 +31,8 @@ export default function SkillsStoreModal({ onClose, projectPath }) {
   const [skills, setSkills] = useState([]);
   const [installingId, setInstallingId] = useState(null);
   const [togglingName, setTogglingName] = useState(null);
+  const [refreshingName, setRefreshingName] = useState(null);
+  const [refreshError, setRefreshError] = useState(null);
 
   const fetchAssets = useCallback(() => {
     fetch('/api/assets?type=skill')
@@ -51,6 +53,9 @@ export default function SkillsStoreModal({ onClose, projectPath }) {
   useEffect(() => { fetchSkills(); }, [fetchSkills]);
 
   const activeNames = new Set(skills.filter(s => s.active).map(s => s.name));
+  // The catalog's "Installed" state is about the local copy on disk, not about
+  // whether the skill is currently activated for the project.
+  const installedNames = new Set(skills.filter(s => s.installedLocally).map(s => s.name));
 
   const handleInstall = async (asset) => {
     if (!projectPath || installingId) return;
@@ -66,6 +71,32 @@ export default function SkillsStoreModal({ onClose, projectPath }) {
       // best-effort — the catalog stays browsable even if the install failed
     } finally {
       setInstallingId(null);
+    }
+  };
+
+  // Refresh a project-local copy from the catalog, or drop it so the bundled
+  // skill it shadows takes over again. Kept as two explicit endpoints: one
+  // reinstalls, the other deletes, and the button says which one it is.
+  const handleRefreshLocal = async (skill, endpoint) => {
+    if (!projectPath || refreshingName) return;
+    setRefreshingName(skill.name);
+    setRefreshError(null);
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath, name: skill.name }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (res.ok) {
+        fetchSkills();
+      } else {
+        setRefreshError(payload.error || t('skillsStore.refreshFailed', 'Could not refresh the local copy.'));
+      }
+    } catch (err) {
+      setRefreshError(err.message);
+    } finally {
+      setRefreshingName(null);
     }
   };
 
@@ -131,6 +162,12 @@ export default function SkillsStoreModal({ onClose, projectPath }) {
             </div>
           )}
 
+          {refreshError && (
+            <div style={{ fontSize: '12px', color: 'var(--vscode-error-fg, #f14c4c)', marginBottom: '12px' }}>
+              {refreshError}
+            </div>
+          )}
+
           {activeTab === 'catalog' && (
             assets.length === 0 ? (
               <div style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)' }}>
@@ -139,7 +176,7 @@ export default function SkillsStoreModal({ onClose, projectPath }) {
             ) : (
               <div className="skills-grid">
                 {assets.map(asset => {
-                  const installed = activeNames.has(asset.name);
+                  const installed = installedNames.has(asset.name);
                   return (
                     <div key={asset.id} className="skill-card">
                       <SkillIcon src={asset.hasIcon ? `/api/assets/icon?id=${encodeURIComponent(asset.id)}` : null} alt={asset.name} />
@@ -180,6 +217,11 @@ export default function SkillsStoreModal({ onClose, projectPath }) {
                     <div className="skill-card-body">
                       <div className="skill-card-title">{skill.name}</div>
                       <div className="skill-card-desc">{skill.description}</div>
+                      {skill.shadowsBundled && (
+                        <div className="skill-card-note">
+                          {t('skillsStore.shadowsBundled', 'A copy in this project is running instead of the bundled skill, so it does not receive updates.')}
+                        </div>
+                      )}
                     </div>
                     <button
                       className="vscode-button skill-card-action"
@@ -194,6 +236,38 @@ export default function SkillsStoreModal({ onClose, projectPath }) {
                         <><Plus size={13} /> {t('skillsStore.activate', 'Activate')}</>
                       )}
                     </button>
+                    {skill.updatable && (
+                      <button
+                        className="vscode-button skill-card-action"
+                        disabled={!skill.outdated || refreshingName === skill.name}
+                        onClick={() => handleRefreshLocal(skill, '/api/skills/update')}
+                        title={skill.outdated
+                          ? t('skillsStore.updateLocalHint', 'Replace the local copy with the catalog version.')
+                          : t('skillsStore.upToDateHint', 'The local copy matches the catalog version.')}
+                      >
+                        {refreshingName === skill.name ? (
+                          t('skillsStore.updating', 'Updating…')
+                        ) : skill.outdated ? (
+                          <><RefreshCw size={13} /> {t('skillsStore.updateLocal', 'Update local copy')}</>
+                        ) : (
+                          <><Check size={13} /> {t('skillsStore.upToDate', 'Up to date')}</>
+                        )}
+                      </button>
+                    )}
+                    {!skill.updatable && skill.shadowsBundled && (
+                      <button
+                        className="vscode-button skill-card-action"
+                        disabled={refreshingName === skill.name}
+                        onClick={() => handleRefreshLocal(skill, '/api/skills/restore-bundled')}
+                        title={t('skillsStore.restoreBundledHint', 'Delete the local copy and go back to the version that ships with OpalaTex.')}
+                      >
+                        {refreshingName === skill.name ? (
+                          t('skillsStore.restoring', 'Restoring…')
+                        ) : (
+                          <><RotateCcw size={13} /> {t('skillsStore.restoreBundled', 'Restore bundled')}</>
+                        )}
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

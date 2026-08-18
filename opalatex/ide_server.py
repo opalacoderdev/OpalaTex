@@ -3935,19 +3935,96 @@ class AsyncHTTPServer:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
         elif path == '/api/skills' and method == 'GET':
-            from opalatex.skills import discover_skills, active_skills, resolve_skill_icon_path, MANDATORY_SKILLS
+            from opalatex.skills import (
+                discover_skills, active_skills, resolve_skill_icon_path, MANDATORY_SKILLS,
+                local_skill_dir, shadowed_skill_dirs,
+            )
+            from opalatex.assetstore import list_assets, asset_matches_install
             project_path = query.get('projectPath', [''])[0]
             try:
                 discovered = discover_skills(project_path)
                 active_names = {s['name'] for s in active_skills(project_path)}
-                result = [{
-                    "name": s["name"],
-                    "description": s["description"],
-                    "active": s["name"] in active_names,
-                    "mandatory": s["name"] in MANDATORY_SKILLS,
-                    "hasIcon": resolve_skill_icon_path(s) is not None,
-                } for s in discovered]
+                assets_by_name = {a.get('name'): a for a in list_assets('skill') if a.get('name')}
+                result = []
+                for s in discovered:
+                    name = s["name"]
+                    # A project-local copy shadows every other search dir, so it is
+                    # the one running and the only one an update can refresh.
+                    installed_locally = bool(project_path) and local_skill_dir(name, project_path) is not None
+                    asset = assets_by_name.get(name) if installed_locally else None
+                    result.append({
+                        "name": name,
+                        "description": s["description"],
+                        "active": name in active_names,
+                        "mandatory": name in MANDATORY_SKILLS,
+                        "hasIcon": resolve_skill_icon_path(s) is not None,
+                        "installedLocally": installed_locally,
+                        "updatable": asset is not None,
+                        "outdated": asset is not None and not asset_matches_install(asset, project_path),
+                        "shadowsBundled": installed_locally and bool(shadowed_skill_dirs(name, project_path)),
+                    })
                 self.send_response(writer, 200, json.dumps({"skills": result}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/skills/update' and method == 'POST':
+            # Refresh a project-local copy from the catalog asset it came from.
+            from opalatex.skills import local_skill_dir
+            from opalatex.assetstore import list_assets, install_asset
+            project_path = data.get('projectPath') or data.get('project_path')
+            skill_name = data.get('name')
+            if not project_path or not skill_name:
+                self.send_response(writer, 400, b'{"error":"projectPath and name are required"}', "application/json")
+                return
+            if local_skill_dir(skill_name, project_path) is None:
+                self.send_response(writer, 404, json.dumps({
+                    "error": f"skill '{skill_name}' has no project-local copy to update."
+                }).encode('utf-8'), "application/json")
+                return
+            asset = next((a for a in list_assets('skill') if a.get('name') == skill_name), None)
+            if asset is None:
+                # No catalog source: refusing is honest, and restore-bundled is the
+                # action that actually applies to this skill.
+                self.send_response(writer, 404, json.dumps({
+                    "error": f"skill '{skill_name}' is not in the catalog, so there is nothing to update it from."
+                }).encode('utf-8'), "application/json")
+                return
+            try:
+                message = install_asset(asset, project_path, replace=True)
+                self.send_response(writer, 200, json.dumps({"success": True, "message": message}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/skills/restore-bundled' and method == 'POST':
+            # Drop a project-local copy so the bundled skill it shadows runs again.
+            import shutil
+            from opalatex.skills import local_skill_dir, shadowed_skill_dirs
+            project_path = data.get('projectPath') or data.get('project_path')
+            skill_name = data.get('name')
+            if not project_path or not skill_name:
+                self.send_response(writer, 400, b'{"error":"projectPath and name are required"}', "application/json")
+                return
+            local_dir = local_skill_dir(skill_name, project_path)
+            if local_dir is None:
+                self.send_response(writer, 404, json.dumps({
+                    "error": f"skill '{skill_name}' has no project-local copy."
+                }).encode('utf-8'), "application/json")
+                return
+            shadowed = shadowed_skill_dirs(skill_name, project_path)
+            if not shadowed:
+                self.send_response(writer, 409, json.dumps({
+                    "error": (
+                        f"skill '{skill_name}' exists only as this local copy; removing it "
+                        "would delete the skill instead of restoring a bundled version."
+                    )
+                }).encode('utf-8'), "application/json")
+                return
+            try:
+                shutil.rmtree(local_dir)
+                self.send_response(writer, 200, json.dumps({
+                    "success": True,
+                    "message": f"local copy of '{skill_name}' removed; now running from {shadowed[0]}",
+                }).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 

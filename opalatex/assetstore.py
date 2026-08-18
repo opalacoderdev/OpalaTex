@@ -13,6 +13,7 @@ skill -> <project>/.opalatex/skills/<name>/
 """
 
 import os
+import shutil
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -96,8 +97,69 @@ def resolve_asset_icon_path(meta: dict) -> Optional[Path]:
     return icon_path
 
 
-def install_asset(meta: dict, project_path: str) -> str:
-    """Extract a skill asset into project_path and return a summary."""
+def installed_skill_dir(meta: dict, project_path: str) -> Optional[Path]:
+    """Return the project-local install directory of a skill asset, or None.
+
+    A skill installed into `<project>/.opalatex/skills/<name>/` shadows the
+    bundled copy of the same name (see `skills.skill_search_dirs`), so it is the
+    one that actually runs and the one an update has to replace.
+    """
+    if meta.get("type", "") != "skill":
+        return None
+    zip_path: Optional[Path] = meta.get("_zip")
+    name = meta.get("name") or (zip_path.stem if zip_path else "")
+    if not name:
+        return None
+    dest_root = (Path(os.path.abspath(project_path)) / ".opalatex" / "skills").resolve()
+    candidate = (dest_root / name).resolve()
+    # A crafted asset name must not point the caller at a directory outside the
+    # project's skills folder -- the update path deletes what this returns.
+    if not candidate.is_relative_to(dest_root) or candidate == dest_root:
+        return None
+    return candidate if candidate.is_dir() else None
+
+
+def asset_matches_install(meta: dict, project_path: str) -> bool:
+    """True when the project-local copy is identical to the catalog asset.
+
+    False means the local copy has drifted -- an older catalog version, or files
+    edited/added/removed in the project -- so the Skills Store can offer to
+    refresh it. Missing local copy or missing zip is not a match.
+    """
+    local = installed_skill_dir(meta, project_path)
+    zip_path: Optional[Path] = meta.get("_zip")
+    if local is None or zip_path is None or not zip_path.exists():
+        return False
+
+    root = local.parent
+    expected: set[Path] = set()
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            target = (root / info.filename).resolve()
+            if not target.is_relative_to(local):
+                continue
+            expected.add(target)
+            if not target.is_file() or target.stat().st_size != info.file_size:
+                return False
+            with zf.open(info) as packed, open(target, "rb") as installed:
+                if packed.read() != installed.read():
+                    return False
+
+    # Files the local copy has and the asset does not count as drift too: an
+    # update deletes them, so reporting "up to date" here would be a lie.
+    present = {p.resolve() for p in local.rglob("*") if p.is_file()}
+    return present == expected
+
+
+def install_asset(meta: dict, project_path: str, replace: bool = False) -> str:
+    """Extract a skill asset into project_path and return a summary.
+
+    With *replace*, the existing project-local copy is deleted first, so files
+    dropped from the asset since the last install do not survive the update.
+    Plain extraction only overwrites the entries the zip still carries.
+    """
     zip_path: Path = meta["_zip"]
     if not zip_path.exists():
         raise FileNotFoundError(f"Zip not found: {zip_path}")
@@ -108,10 +170,17 @@ def install_asset(meta: dict, project_path: str) -> str:
     if asset_type == "skill":
         dest = project / ".opalatex" / "skills"
         dest.mkdir(parents=True, exist_ok=True)
+        replaced = False
+        if replace:
+            existing = installed_skill_dir(meta, project_path)
+            if existing is not None:
+                shutil.rmtree(existing)
+                replaced = True
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(dest)
         skill_name = meta.get("name", zip_path.stem)
-        return f"skill '{skill_name}' installed at {dest / skill_name}"
+        verb = "updated" if replaced else "installed"
+        return f"skill '{skill_name}' {verb} at {dest / skill_name}"
 
     raise ValueError(f"Unknown asset type '{asset_type}'")
 

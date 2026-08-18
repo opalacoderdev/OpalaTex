@@ -40,6 +40,16 @@
     "activate": "Ativar",
     "deactivate": "Desativar",
     "mandatory": "Obrigatória",
+    "updateLocal": "Atualizar cópia local",
+    "updateLocalHint": "Substitui a cópia local pela versão do catálogo.",
+    "updating": "Atualizando…",
+    "upToDate": "Atualizada",
+    "upToDateHint": "A cópia local está igual à versão do catálogo.",
+    "restoreBundled": "Restaurar embutida",
+    "restoreBundledHint": "Remove a cópia local e volta a usar a versão que acompanha o OpalaTex.",
+    "restoring": "Restaurando…",
+    "shadowsBundled": "Uma cópia dentro deste projeto está rodando no lugar da skill embutida, então ela não recebe atualizações.",
+    "refreshFailed": "Não foi possível atualizar a cópia local.",
     "close": "Fechar"
   },
   "statusBar": {

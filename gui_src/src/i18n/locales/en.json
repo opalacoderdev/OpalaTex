@@ -40,6 +40,16 @@
     "activate": "Activate",
     "deactivate": "Deactivate",
     "mandatory": "Mandatory",
+    "updateLocal": "Update local copy",
+    "updateLocalHint": "Replace the local copy with the catalog version.",
+    "updating": "Updating…",
+    "upToDate": "Up to date",
+    "upToDateHint": "The local copy matches the catalog version.",
+    "restoreBundled": "Restore bundled",
+    "restoreBundledHint": "Delete the local copy and go back to the version that ships with OpalaTex.",
+    "restoring": "Restoring…",
+    "shadowsBundled": "A copy in this project is running instead of the bundled skill, so it does not receive updates.",
+    "refreshFailed": "Could not refresh the local copy.",
     "close": "Close"
   },
   "statusBar": {

@@ -2805,6 +2805,7 @@ export default function App() {
           model_params: activeProject.model_params,
           worker_model_params: activeProject.worker_model_params,
           current_file: selectedFile || '',
+          open_files: openFiles,
           editor_content: fileContent || '', selected_text: selectedText || '',
           lang: i18n.language || 'en',
           chat_id: targetChatId,
@@ -3107,6 +3108,7 @@ export default function App() {
           prompt: fullPrompt,
           inline_response_contract: mode === 'createIllustration' ? undefined : 'replacement_only',
           current_file: selectedFile || '',
+          open_files: openFiles,
           editor_content: currentEditorContent,
           selected_text: selectedText || '',
           lang: i18n.language || 'en',
@@ -3498,7 +3500,7 @@ export default function App() {
     try {
       const res = await fetch('/api/opalatex/run', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'run', agent: 'chat_orchestrator', prompt: userText, project_name: activeProject.name, project_path: activeProject.project_path, model: activeProject.model, current_file: selectedFile || '', editor_content: fileContent || '', selected_text: selectedText || '', lang: i18n.language || 'en', chat_id: activeChatId, model_params: ephemeralParams }),
+        body: JSON.stringify({ command: 'run', agent: 'chat_orchestrator', prompt: userText, project_name: activeProject.name, project_path: activeProject.project_path, model: activeProject.model, current_file: selectedFile || '', open_files: openFiles, editor_content: fileContent || '', selected_text: selectedText || '', lang: i18n.language || 'en', chat_id: activeChatId, model_params: ephemeralParams }),
       });
       if (!res.body) { addLog('error', t('app.streamUnsupportedBackend')); setIsAgentRunning(false); return; }
       const reader = res.body.getReader();

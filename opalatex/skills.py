@@ -11,7 +11,7 @@ import os
 # ===========================================================================
 
 # The chat-orchestrator skill is always loaded regardless of skills.yaml.
-MANDATORY_SKILLS = ("chat-orchestrator", "view-editor", "command-line")
+MANDATORY_SKILLS = ("chat-orchestrator", "command-line")
 
 # Directory name of the skill manifest file inside each skill directory.
 SKILL_MANIFEST = "SKILL.md"
@@ -270,6 +270,36 @@ def active_skills(project_path: str = "") -> list[dict]:
 def level1_metadata(skills: list[dict]) -> str:
     """Render Level-1 metadata (name + description) for the MemGPT system prompt."""
     return "\n".join(f"- {s['name']}: {s['description']}".rstrip() for s in skills)
+
+
+def local_skill_dir(skill_name: str, project_path: str) -> str | None:
+    """Return `<project>/.opalatex/skills/<skill_name>` when that copy exists.
+
+    This is the copy the Skills Store installs, and the one that shadows every
+    other search dir (see `skill_search_dirs`).
+    """
+    if not project_path or not skill_name:
+        return None
+    candidate = os.path.abspath(os.path.join(project_path, ".opalatex", "skills", skill_name))
+    if os.path.isfile(os.path.join(candidate, SKILL_MANIFEST)):
+        return candidate
+    return None
+
+
+def shadowed_skill_dirs(skill_name: str, project_path: str = "") -> list[str]:
+    """Return the skill dirs named *skill_name* that lose to the active one.
+
+    Discovery keeps the first hit across the search dirs, so a project-local copy
+    silently freezes the bundled skill of the same name at whatever it was when
+    it was installed. A non-empty list here is what makes that shadowing visible
+    to the user instead of leaving them with a copy that never gets updates.
+    """
+    hits: list[str] = []
+    for base in skill_search_dirs(project_path):
+        skill_dir = os.path.join(base, skill_name)
+        if os.path.isfile(os.path.join(skill_dir, SKILL_MANIFEST)):
+            hits.append(os.path.abspath(skill_dir))
+    return hits[1:]
 
 
 def find_skill_dir(skill_name: str, project_path: str = "") -> str | None:

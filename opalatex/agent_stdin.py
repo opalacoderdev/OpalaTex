@@ -789,6 +789,7 @@ from opalatex.tools import (
     set_project_context,
     web_search,
     analyze_image,
+    get_editor_state,
 )
 
 # Global map of available tools by name
@@ -807,7 +808,49 @@ ALL_TOOLS_MAP = {
     "read_content_pos": read_content_pos,
     "web_search": web_search,
     "analyze_image": analyze_image,
+    "get_editor_state": get_editor_state,
 }
+
+def stage_editor_state(project_path: str, data: dict) -> dict:
+    """Persist what the IDE reported about its editor, for get_editor_state.
+
+    The front-end sends the editor snapshot with every run; staging it to
+    `<project>/.opalatex/_editor_state.json` is what lets a safe tool answer
+    "what is the user looking at?" without the agent touching the GUI.
+
+    Returns the staged dict (also on write failure, so callers see what was
+    intended).
+    """
+    from opalatex.tools import editor_state_path
+
+    state_file = editor_state_path(project_path)
+    editor_state = {
+        "current_file": data.get("current_file", ""),
+        "editor_content": data.get("editor_content", ""),
+        "selected_text": data.get("selected_text", ""),
+    }
+    # Not every caller tracks the tab list: the inline editor posts only the file
+    # it is editing. An absent "open_files" means "this caller does not know",
+    # not "no tabs are open", so the previously staged list is carried forward
+    # instead of being replaced by an empty one that get_editor_state would then
+    # report as fact.
+    open_files = data.get("open_files")
+    if open_files is None:
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                open_files = (json.load(f) or {}).get("open_files") or []
+        except (OSError, ValueError):
+            open_files = []
+    editor_state["open_files"] = [str(p) for p in open_files if str(p).strip()]
+
+    try:
+        os.makedirs(os.path.dirname(state_file), exist_ok=True)
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(editor_state, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Warning: Failed to save editor state: {e}", file=sys.stderr)
+    return editor_state
+
 
 # State for persistent session
 current_project = None
@@ -1278,19 +1321,7 @@ async def handle_run(data: dict):
             )
 
     if current_project and current_project.project_path:
-        state_dir = os.path.join(current_project.project_path, ".opalatex")
-        os.makedirs(state_dir, exist_ok=True)
-        state_file = os.path.join(state_dir, "_editor_state.json")
-        editor_state = {
-            "current_file": data.get("current_file", ""),
-            "editor_content": data.get("editor_content", ""),
-            "selected_text": data.get("selected_text", "")
-        }
-        try:
-            with open(state_file, "w", encoding="utf-8") as f:
-                json.dump(editor_state, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"Warning: Failed to save editor state: {e}", file=sys.stderr)
+        stage_editor_state(current_project.project_path, data)
     
 
     # Build agent

@@ -1364,7 +1364,122 @@ def get_available_tools():
         run_interactive_command,
         analyze_image,
         ask_question,
+        get_editor_state,
     ]
+
+
+# ─── Editor State ─────────────────────────────────────────────────────────────
+# The GUI stages what it has open — tabs, focused file, live buffer, selection —
+# into <project>/.opalatex/_editor_state.json at the start of every agent turn
+# (agent_stdin.handle_run). Reading it back is a pure lookup of data the
+# front-end already sent, so the tool is safe: it answers in plan mode without a
+# permission prompt, which is exactly when knowing what the user is looking at
+# matters most.
+
+EDITOR_STATE_FILENAME = "_editor_state.json"
+
+
+def editor_state_path(project_path: str) -> str:
+    """Absolute path of the staged editor state file for *project_path*."""
+    return os.path.join(project_path, ".opalatex", EDITOR_STATE_FILENAME)
+
+
+def _load_editor_state(project_path: str) -> dict:
+    """Return the staged editor state, or {} when nothing has been staged yet."""
+    path = editor_state_path(project_path)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, ValueError) as e:
+        raise ValueError(f"Error reading the staged editor state: {e}")
+    return state if isinstance(state, dict) else {}
+
+
+@opalatex_tool(
+    name="get_editor_state",
+    is_safe=True,
+    description=(
+        "Report what the user currently has open in the IDE editor: the list of open tabs, "
+        "which tab is focused, and the text the user has selected. Call this whenever the user "
+        "points at the editor instead of naming a path — 'this file', 'the open document', "
+        "'the selected text', 'fix this here' — so you act on what they are looking at instead "
+        "of guessing. Pass include_content=True to also get the focused tab's live buffer, which "
+        "reflects edits the user has not saved to disk yet; when the saved file is what you need, "
+        "read it with read_file instead."
+    ),
+)
+def get_editor_state(include_content: bool = False) -> str:
+    AGENT_PROGRESS.update("get_editor_state", f"include_content={include_content}")
+
+    project_path = get_project_path()
+    state = _load_editor_state(project_path)
+    if not state:
+        return (
+            "No editor state has been staged for this project yet. The IDE writes it at the "
+            "start of each agent turn, so this normally means the request did not come from "
+            "the IDE editor. Ask the user which file they mean, or locate it with "
+            "get_project_overview / search_code."
+        )
+
+    current_file = str(state.get("current_file", "") or "").replace("\\", "/")
+    open_files = [str(p).replace("\\", "/") for p in state.get("open_files") or [] if str(p).strip()]
+    selected_text = str(state.get("selected_text", "") or "")
+    editor_content = str(state.get("editor_content", "") or "")
+
+    lines = ["## Editor State"]
+
+    if open_files:
+        listed = "\n".join(
+            f"  {i}. `{p}`" + ("  <- focused" if p == current_file else "")
+            for i, p in enumerate(open_files, 1)
+        )
+        lines.append(f"- **Open tabs ({len(open_files)})**:\n{listed}")
+    else:
+        # Absent (not empty) when the turn came from a surface that does not track
+        # tabs, e.g. the inline editor. Say so rather than reporting "no tabs open".
+        lines.append("- **Open tabs**: not reported by this turn's caller")
+
+    if current_file:
+        lines.append(f"- **Focused file**: `{current_file}`")
+        if open_files and current_file not in open_files:
+            lines.append(
+                "  (the focused file is not among the reported tabs — the user may have "
+                "changed tabs after this turn started)"
+            )
+    else:
+        lines.append("- **Focused file**: (no file open in the editor)")
+
+    if selected_text:
+        lines.append(
+            f"\n### Selected text ({len(selected_text.splitlines())} lines, "
+            f"{len(selected_text):,} chars)\n```\n"
+            + _truncate_to_context_budget(selected_text, reserve_pct=25)
+            + "\n```"
+        )
+    else:
+        lines.append("- **Selection**: (nothing selected)")
+
+    if include_content:
+        if editor_content:
+            lines.append(
+                f"\n### Live buffer of `{current_file or 'the focused tab'}` "
+                f"({len(editor_content.splitlines()):,} lines, {len(editor_content):,} chars)\n"
+                "This is the editor buffer, which may contain unsaved edits that differ from "
+                "the file on disk.\n```\n"
+                + _truncate_to_context_budget(editor_content)
+                + "\n```"
+            )
+        else:
+            lines.append("\n- **Live buffer**: (empty)")
+    elif editor_content:
+        lines.append(
+            f"- **Live buffer**: {len(editor_content):,} chars available "
+            "— call get_editor_state(include_content=True) to read it."
+        )
+
+    return "\n".join(lines)
 
 
 # ─── Achievements Memory ─────────────────────────────────────────────────────

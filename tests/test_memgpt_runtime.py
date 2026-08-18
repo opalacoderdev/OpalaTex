@@ -136,7 +136,7 @@ def test_chat_orchestrator_system_prompt_embeds_skill_metadata(tmp_path):
     m = build_chat_orchestrator(_project(tmp_path), None)
     # Bundled skills must surface as Level-1 metadata for routing.
     assert "Available skills" in m.system_prompt
-    assert "view-editor" in m.system_prompt
+    assert "command-line" in m.system_prompt
 
 
 def test_current_date_instruction_is_prepended_to_system_prompt(tmp_path):

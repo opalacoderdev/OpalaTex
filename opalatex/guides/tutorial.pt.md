@@ -197,9 +197,10 @@ grande em um **script**, e não em uma conversa longa:
 - **`latex-assistant`** — explica erros do compilador e gera fragmentos de LaTeX e
   matemática. São prompts curtos e bem delimitados, exatamente o que modelos pequenos
   fazem bem.
-- **`view-editor`** — informa ao assistente qual documento está aberto, o que está
-  selecionado e onde está o cursor. É barata e evita muito "de qual arquivo você está
-  falando?".
+
+Saber o que está aberto no editor não exige skill alguma: o assistente já enxerga as abas
+abertas, o arquivo em foco e o texto selecionado por meio da ferramenta nativa
+`get_editor_state`. Pode dizer "este arquivo" ou "o trecho selecionado" à vontade.
 
 Regras práticas para modelos pequenos:
 
