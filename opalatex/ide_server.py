@@ -735,6 +735,7 @@ class AsyncHTTPServer:
         self.temp_terminals = {}
         self.active_agent_task = None
         self.active_agent_event_queue = None
+        self.active_prompt_evolution_task = None
 
     def _emit_agent_cancelled_once(self, agent_task, event_queue):
         """Notify the stream immediately, without waiting for task cleanup."""
@@ -4156,6 +4157,8 @@ class AsyncHTTPServer:
                 iterations = max(1, int(iterations))
             except (ValueError, TypeError):
                 iterations = default_iters
+            task = asyncio.current_task()
+            self.active_prompt_evolution_task = task
             try:
                 selected_model = str(data.get("model") or "").strip()
                 evolved = await _execute_prompt_evolution(
@@ -4165,8 +4168,25 @@ class AsyncHTTPServer:
                     max_tokens=max(1, min(65536, int(cfg.get("prompt_evolution_max_tokens", 4096)))),
                 )
                 self.send_response(writer, 200, json.dumps({"success": True, "prompt": evolved}).encode('utf-8'), "application/json")
+            except asyncio.CancelledError:
+                try:
+                    self.send_response(writer, 499, b'{"error":"Prompt evolution cancelled"}', "application/json")
+                except Exception:
+                    pass
+                raise
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            finally:
+                if self.active_prompt_evolution_task is task:
+                    self.active_prompt_evolution_task = None
+
+        elif path in ('/api/chat/cancel-evolve-prompt', '/api/chat/evolve-prompt/cancel') and method == 'POST':
+            if self.active_prompt_evolution_task and not self.active_prompt_evolution_task.done():
+                self.active_prompt_evolution_task.cancel()
+                self.send_response(writer, 200, b'{"success":true,"message":"Prompt evolution cancelled"}', "application/json")
+            else:
+                self.send_response(writer, 200, b'{"success":false,"message":"No active prompt evolution running"}', "application/json")
+            return
 
         else:
             self.send_response(writer, 404, b'{"error":"Not Found"}', "application/json")

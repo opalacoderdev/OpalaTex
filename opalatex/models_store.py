@@ -513,6 +513,54 @@ def resolve_runtime_model_id(model_id: str | None) -> str:
     return str(model_id or "")
 
 
+def _ollama_runtime_variants(runtime_model: str) -> List[str]:
+    """Return the catalog identifiers a runtime Ollama model id may come from.
+
+    ``config.resolve_model_for_thinking`` rewrites ``ollama/<name>`` to
+    ``ollama_chat/<name>`` when thinking is requested, so a runtime id served
+    by the native chat endpoint can originate from an ``ollama/`` catalog
+    entry. The rewrite is one-way, hence only that direction is considered.
+    """
+    if runtime_model.startswith("ollama_chat/"):
+        return [runtime_model, "ollama/" + runtime_model[len("ollama_chat/"):]]
+    return [runtime_model]
+
+
+def get_model_by_runtime_id(model_id: str) -> Dict[str, Any] | None:
+    """Get the catalog entry behind a model identifier, runtime form included.
+
+    ``get_model`` only matches a stored entry ID. Runtime identifiers handed to
+    LiteLLM are not always that string: entries configured against multiple
+    connections carry a ``#<connection_id>`` suffix that
+    ``resolve_runtime_model_id`` strips, and thinking-enabled Ollama models are
+    rewritten from ``ollama/`` to ``ollama_chat/``. Capability lookups keyed on
+    the runtime identifier (thinking, single-system-message, num_ctx, prompt
+    profile) must still find the entry the user actually configured, otherwise
+    every per-model capability silently reads as unset for those models.
+
+    Resolution order: exact entry ID, then the entry whose ``provider/name``
+    equals the runtime id, then the same match for the pre-rewrite ``ollama/``
+    form. When several entries share a ``provider/name`` (the same model under
+    different connections), the first in catalog order wins.
+    """
+    raw = str(model_id or "")
+    if not raw:
+        return None
+
+    direct = get_model(raw)
+    if direct:
+        return direct
+
+    models = load_models()
+    for candidate in _ollama_runtime_variants(raw):
+        for model in models:
+            provider = str(model.get("provider") or "")
+            name = str(model.get("name") or "")
+            if provider and name and f"{provider}/{name}" == candidate:
+                return model
+    return None
+
+
 def _has_duplicate_configuration(
     models: List[Dict[str, Any]],
     model_data: Dict[str, Any],

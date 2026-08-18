@@ -489,3 +489,87 @@ def test_migration_backfills_connection_id_and_preserves_model_ids(tmp_path, mon
     # or change any id.
     models_store.load_models()
     assert len(models_store.load_connections()) == 2
+
+
+def test_get_model_by_runtime_id_resolves_thinking_remapped_ollama_model(tmp_path, monkeypatch):
+    """A thinking-enabled ollama/ entry keeps its capabilities as ollama_chat/.
+
+    `config.resolve_model_for_thinking` rewrites the provider prefix before the
+    agent is built, so every capability lookup downstream sees the runtime id.
+    """
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/qwen3.8:latest",
+            "connection_id": connection_id,
+            "name": "qwen3.8:latest",
+            "supports_thinking": True,
+            "requires_single_system_message": True,
+            "num_ctx": 255000,
+            "prompt_profile": "light",
+        },
+    ])
+
+    resolved = models_store.get_model_by_runtime_id("ollama_chat/qwen3.8:latest")
+    assert resolved is not None
+    assert resolved["id"] == "ollama/qwen3.8:latest"
+
+    assert config_mod.model_requires_single_system_message("ollama_chat/qwen3.8:latest") is True
+    assert config_mod.model_supports_thinking("ollama_chat/qwen3.8:latest") is True
+    assert config_mod.model_num_ctx("ollama_chat/qwen3.8:latest") == 255000
+    assert config_mod.model_prompt_profile("ollama_chat/qwen3.8:latest") == "light"
+
+    assert models_store.get_model_by_runtime_id("ollama_chat/unregistered:latest") is None
+
+
+def test_get_model_by_runtime_id_prefers_exact_entry_over_ollama_chat_fallback(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/qwen3.8:latest",
+            "connection_id": connection_id,
+            "name": "qwen3.8:latest",
+            "requires_single_system_message": True,
+        },
+        {
+            "id": "ollama_chat/qwen3.8:latest",
+            "connection_id": connection_id,
+            "name": "qwen3.8:latest",
+            "requires_single_system_message": False,
+        },
+    ])
+
+    resolved = models_store.get_model_by_runtime_id("ollama_chat/qwen3.8:latest")
+    assert resolved is not None
+    assert resolved["id"] == "ollama_chat/qwen3.8:latest"
+    assert config_mod.model_requires_single_system_message("ollama_chat/qwen3.8:latest") is False
+
+
+def test_get_model_by_runtime_id_resolves_connection_suffixed_entry(tmp_path, monkeypatch):
+    """Entries disambiguated with `#<connection_id>` are found by runtime id."""
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/qwen3.8:latest#ollama-conn",
+            "connection_id": connection_id,
+            "name": "qwen3.8:latest",
+            "requires_single_system_message": True,
+        },
+    ])
+
+    resolved = models_store.get_model_by_runtime_id("ollama/qwen3.8:latest")
+    assert resolved is not None
+    assert resolved["id"] == "ollama/qwen3.8:latest#ollama-conn"
+    assert config_mod.model_requires_single_system_message("ollama/qwen3.8:latest") is True

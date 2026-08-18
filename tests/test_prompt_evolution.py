@@ -181,3 +181,65 @@ async def test_execute_prompt_evolution_invokes_agent(monkeypatch):
         "agent_name": "orchestrator",
         "model_override": selected_model,
     }
+
+
+@pytest.mark.asyncio
+async def test_cancel_evolve_prompt_endpoint(tmp_path, monkeypatch):
+    import asyncio
+    settings_file = tmp_path / "ui_settings.json"
+    monkeypatch.setattr("opalatex.ui_settings._SETTINGS_PATH", settings_file)
+
+    server = AsyncHTTPServer()
+    writer = AsyncMock()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+
+    # 1. When no task is running, returns success: false
+    await server.route_api("POST", "/api/chat/cancel-evolve-prompt", {}, {}, b"", writer)
+    assert responses[-1] == (200, {"success": False, "message": "No active prompt evolution running"}, "application/json")
+
+    # 2. When a task is running, cancel-evolve-prompt cancels it
+    hanging_event = asyncio.Event()
+    cancelled_observed = False
+
+    async def mock_slow_execute(prompt, iterations=1, model=None, max_tokens=4096):
+        nonlocal cancelled_observed
+        try:
+            await hanging_event.wait()
+            return f"Evolved: {prompt}"
+        except asyncio.CancelledError:
+            cancelled_observed = True
+            raise
+
+    monkeypatch.setattr("opalatex.ide_server._execute_prompt_evolution", mock_slow_execute)
+
+    # Launch evolve-prompt in background task
+    evolve_task = asyncio.create_task(
+        server.route_api(
+            "POST",
+            "/api/chat/evolve-prompt",
+            {},
+            {},
+            json.dumps({"prompt": "Long running prompt"}).encode("utf-8"),
+            writer,
+        )
+    )
+
+    # Yield to let evolve-prompt start and register task
+    await asyncio.sleep(0.01)
+    assert server.active_prompt_evolution_task is not None
+
+    # Cancel via endpoint
+    await server.route_api("POST", "/api/chat/cancel-evolve-prompt", {}, {}, b"", writer)
+    assert responses[-1] == (200, {"success": True, "message": "Prompt evolution cancelled"}, "application/json")
+
+    # Wait for evolve_task to finish cancelling
+    with pytest.raises(asyncio.CancelledError):
+        await evolve_task
+
+    assert cancelled_observed is True
+    assert server.active_prompt_evolution_task is None

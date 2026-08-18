@@ -998,6 +998,8 @@ def search_code(
         "Ask the user a clarifying question with optional selectable choices. "
         "Provide 'question' and optionally a list of 2-5 distinct 'options' representing common choices. "
         "The user will be presented with clickable choices in the UI plus an automatic 'Other' write-in field. "
+        "Do NOT include your own 'Other', 'Others (please specify)', or 'None of the above' choice in 'options' — "
+        "that catch-all is added automatically by the UI, so adding one yourself creates a duplicate. "
         "Use this proactively whenever collecting user choices, column selections, target formats, seed filters, or clarifying ambiguous preferences."
     )
 )

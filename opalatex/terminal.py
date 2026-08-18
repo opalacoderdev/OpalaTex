@@ -9,9 +9,14 @@ from rich.rule import Rule
 from rich import print as rprint
 from contextlib import contextmanager
 import os
+import re
 import sys
 
 from .i18n import _
+
+# Matches a model-provided "other"/"none of the above" style choice (en/pt/es)
+# so it can be filtered out before the UI appends its own free-text "Other" option.
+_OTHER_OPTION_PATTERN = re.compile(r"^(outr[oa]s?|other|otro)\b", re.IGNORECASE)
 
 try:
     import readline
@@ -182,7 +187,11 @@ async def aask(prompt: str, options: list[str] | None = None, is_multi_select: b
     import asyncio
     loop = asyncio.get_event_loop()
     if options and not is_multi_select:
-        return await loop.run_in_executor(None, choose, prompt, list(options) + ["Other / Custom input..."])
+        # The UI always appends its own "Other" write-in choice, so drop any
+        # equivalent catch-all the model may have added on its own to avoid
+        # showing two "other" entries.
+        filtered = [o for o in options if not _OTHER_OPTION_PATTERN.match(str(o).strip())]
+        return await loop.run_in_executor(None, choose, prompt, filtered + ["Other / Custom input..."])
     return await loop.run_in_executor(None, ask, prompt)
 
 # Optional async hook for interactive embedded terminal

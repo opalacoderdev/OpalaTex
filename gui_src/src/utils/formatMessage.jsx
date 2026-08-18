@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
@@ -11,7 +11,88 @@ import GraphicPreview from '../components/GraphicPreview';
 // ── Custom component map ────────────────────────────────────────────────────
 // Maps HTML element names produced by react-markdown to custom React
 // components, so that the IDE theme and existing CSS classes are preserved.
-// Zoom is applied via CSS transform on the container for better performance.
+// Zoom uses the CSS `zoom` property — the same mechanism ChatPanel applies to
+// the chat history — rather than `transform: scale()`. A transform would take
+// the content out of the normal layout flow of its scroll container, which
+// leaves scaled content unreachable and breaks `position: sticky` for the
+// table scrollbar below.
+
+// Wide tables are common in agent answers, and their rows are usually tall
+// enough that the table is far longer than the chat viewport. A plain
+// `overflow-x: auto` wrapper places its horizontal scrollbar at the *bottom of
+// the table*, which in that case sits well below the visible area — the table
+// simply looks clipped, with no reachable way to pan it.
+//
+// So the wrapper keeps owning the scrolling, but its own scrollbar is hidden
+// and driven by a proxy scrollbar pinned with `position: sticky` to the bottom
+// edge of the chat viewport. The control stays visible and draggable the whole
+// time any part of the table is on screen, and parks at the table's bottom
+// edge once the end of the table scrolls into view.
+function ChatTable({ children }) {
+  const scrollRef = useRef(null);
+  const barRef = useRef(null);
+  const [contentWidth, setContentWidth] = useState(0);
+  const [needsBar, setNeedsBar] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+
+    const measure = () => {
+      setContentWidth(el.scrollWidth);
+      // Sub-pixel layout rounding can leave a fraction of overflow on tables
+      // that actually fit; require a whole pixel before showing the bar.
+      setNeedsBar(el.scrollWidth - el.clientWidth >= 1);
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    const table = el.firstElementChild;
+    if (table) observer.observe(table);
+    return () => observer.disconnect();
+  }, [children]);
+
+  // Mirror either element's scroll offset onto the other. Assigning an
+  // unchanged scrollLeft fires no scroll event, so the two handlers settle
+  // after one hop instead of feeding back into each other.
+  const syncBarToContent = useCallback(() => {
+    if (barRef.current && scrollRef.current) {
+      barRef.current.scrollLeft = scrollRef.current.scrollLeft;
+    }
+  }, []);
+
+  const syncContentToBar = useCallback(() => {
+    if (barRef.current && scrollRef.current) {
+      scrollRef.current.scrollLeft = barRef.current.scrollLeft;
+    }
+  }, []);
+
+  return (
+    <div className="chat-table-block">
+      <div
+        ref={scrollRef}
+        className={`chat-table-scroll${needsBar ? ' chat-table-scroll-hidden-bar' : ''}`}
+        onScroll={needsBar ? syncBarToContent : undefined}
+      >
+        <table className="chat-table">
+          {children}
+        </table>
+      </div>
+      {needsBar && (
+        <div
+          ref={barRef}
+          className="chat-table-hbar"
+          onScroll={syncContentToBar}
+          aria-hidden="true"
+        >
+          <div style={{ width: `${contentWidth}px`, height: '1px' }} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 const BASE_COMPONENTS = {
   // Headings
@@ -152,19 +233,7 @@ const BASE_COMPONENTS = {
   ),
 
   // Tables
-  table: ({ children }) => (
-    <div style={{ overflowX: 'auto', margin: '10px 0' }}>
-      <table style={{
-        borderCollapse: 'collapse',
-        width: '100%',
-        fontSize: '12px',
-        lineHeight: '1.5',
-        border: '1px solid var(--border-color, #3c3c3c)',
-      }}>
-        {children}
-      </table>
-    </div>
-  ),
+  table: ({ children }) => <ChatTable>{children}</ChatTable>,
   thead: ({ children }) => (
     <thead style={{ background: 'var(--titlebar-bg, #252526)' }}>
       {children}
@@ -321,12 +390,7 @@ function formatMessageContentImpl(content, activeProjectPath = null, zoomLevel =
   };
 
   return (
-    <div style={{ 
-      transform: `scale(${zoomLevel})`, 
-      transformOrigin: 'top left', 
-      width: `${100 / zoomLevel}%`,
-      minHeight: `${100 / zoomLevel}%`
-    }}>
+    <div style={zoomLevel === 1 ? undefined : { zoom: zoomLevel }}>
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={REHYPE_PLUGINS}

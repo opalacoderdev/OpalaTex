@@ -692,3 +692,58 @@ def test_normalize_ollama_tool_call_parse_error_keeps_diagnostic_detail():
 
     assert "tool-call JSON was invalid" in str(normalized)
     assert "Original LiteLLM error" in str(normalized)
+
+
+def test_wrap_agent_litellm_compat_merges_system_messages_for_thinking_remapped_model(tmp_path, monkeypatch):
+    """Regression: the catalog flag must survive the ollama/ -> ollama_chat/ remap.
+
+    An Ollama-served qwen3.8 rejects a request with more than one system
+    message; the agent runs under the remapped `ollama_chat/` id while the
+    catalog entry is stored as `ollama/`.
+    """
+    from opalatex import models_store
+    from opalatex.config import resolve_model_for_thinking
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", tmp_path / "models.json")
+    models_store.add_or_update_connection({
+        "id": "ollama-conn",
+        "label": "Ollama",
+        "provider": "ollama",
+        "api_key": "",
+        "api_base": "http://localhost:11434",
+    })
+    models_store.save_models([
+        {
+            "id": "ollama/qwen3.8:latest",
+            "connection_id": "ollama-conn",
+            "name": "qwen3.8:latest",
+            "supports_thinking": True,
+            "requires_single_system_message": True,
+        },
+    ])
+
+    runtime_model = resolve_model_for_thinking("ollama/qwen3.8:latest", {"think": True})
+    assert runtime_model == "ollama_chat/qwen3.8:latest"
+
+    calls = {}
+    messages = [
+        {"role": "system", "content": "base prompt"},
+        {"role": "system", "content": "recursive summary"},
+        {"role": "user", "content": "hi"},
+    ]
+
+    class FakeAgent:
+        model = runtime_model
+
+        async def _acompletion(self, messages, **kwargs):
+            calls["messages"] = messages
+            return "ok"
+
+    agent = wrap_agent_litellm_compat(FakeAgent())
+
+    import asyncio
+
+    assert asyncio.run(agent._acompletion(messages)) == "ok"
+    assert [m["role"] for m in calls["messages"]] == ["system", "user"]
+    assert calls["messages"][0]["content"] == "base prompt\n\nrecursive summary"

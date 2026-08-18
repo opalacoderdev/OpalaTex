@@ -985,7 +985,8 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
+  // Chat auto-scroll lives in ChatPanel, which owns the scroll container and
+  // only follows new content while the user is parked at the bottom.
 
   // Global keyboard shortcuts (Ctrl+S, Ctrl+J, Ctrl+/- zoom)
   useEffect(() => {

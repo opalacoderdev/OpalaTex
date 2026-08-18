@@ -1,6 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
+// Matches a model-provided "other"/"none of the above" style choice (en/pt/es)
+// so it can be filtered out before we append our own free-text "Other" option below.
+const OTHER_OPTION_PATTERN = /^(outr[oa]s?|other|otro)\b/i;
+
 // Modal displayed when the backend emits an input_request (type: ask).
 export default function AskModal({ askRequest, onConfirm }) {
   const { t } = useTranslation();
@@ -8,8 +12,15 @@ export default function AskModal({ askRequest, onConfirm }) {
   const [selectedOption, setSelectedOption] = useState(null); // index, 'other', or null
   const inputRef = useRef(null);
 
-  const options = Array.isArray(askRequest?.options) && askRequest.options.length > 0 
-    ? askRequest.options 
+  const rawOptions = Array.isArray(askRequest?.options) && askRequest.options.length > 0
+    ? askRequest.options
+    : null;
+
+  // The UI always appends its own "Other" write-in choice below, so drop any
+  // equivalent catch-all the model may have added on its own to avoid showing
+  // two "other" entries.
+  const options = rawOptions
+    ? rawOptions.filter((opt) => !OTHER_OPTION_PATTERN.test(String(opt).trim()))
     : null;
 
   useEffect(() => {

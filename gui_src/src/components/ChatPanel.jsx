@@ -57,6 +57,9 @@ const numericMessageId = (message) => {
 };
 
 // Right-side chat panel for interacting with the OpalaTex agent.
+// Distance from the bottom (in px) still treated as "at the bottom".
+const BOTTOM_PIN_THRESHOLD_PX = 48;
+
 export default function ChatPanel({
   isTutorialChat = false,
   tutorialTopics = [],
@@ -108,6 +111,8 @@ export default function ChatPanel({
   const [showChatActionsMenu, setShowChatActionsMenu] = useState(false);
   const [isEvolvingPrompt, setIsEvolvingPrompt] = useState(false);
   const [evolutionProgress, setEvolutionProgress] = useState(null);
+  const evolveAbortControllerRef = useRef(null);
+  const originalPromptRef = useRef('');
   const { menu, onContextMenu, handleCopy, handleSelectAll, close: closeMenu } = useTextContextMenu();
 
   useLayoutEffect(() => {
@@ -117,11 +122,52 @@ export default function ChatPanel({
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
   }, [chatInput]);
 
+  // Auto-scroll follows the bottom of the history only while the user is
+  // parked there. Scrolling up (to read something while the agent streams)
+  // unpins it; coming back to the bottom pins it again.
+  const isPinnedToBottomRef = useRef(true);
+  const programmaticScrollUntilRef = useRef(0);
+
+  const isHistoryNearBottom = useCallback(() => {
+    const el = historyRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_PIN_THRESHOLD_PX;
+  }, []);
+
+  const handleHistoryScroll = useCallback(() => {
+    // Ignore the scroll events our own smooth scrolling emits, otherwise the
+    // intermediate positions would look like the user scrolled up.
+    if (Date.now() < programmaticScrollUntilRef.current) return;
+    isPinnedToBottomRef.current = isHistoryNearBottom();
+  }, [isHistoryNearBottom]);
+
+  const scrollHistoryToBottom = useCallback((behavior = 'auto') => {
+    const el = historyRef.current;
+    if (!el) return;
+    if (behavior === 'smooth') programmaticScrollUntilRef.current = Date.now() + 700;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }, []);
+
   useEffect(() => {
-    if (isAgentRunning && (chatThoughtStream || chatResponseStream) && chatEndRef?.current) {
-      chatEndRef.current.scrollIntoView();
+    if (isAgentRunning && (chatThoughtStream || chatResponseStream) && isPinnedToBottomRef.current) {
+      scrollHistoryToBottom();
     }
-  }, [chatThoughtStream, chatResponseStream, isAgentRunning, chatEndRef]);
+  }, [chatThoughtStream, chatResponseStream, isAgentRunning, scrollHistoryToBottom]);
+
+  useEffect(() => {
+    // A message the user just sent always brings the view back to the bottom.
+    if (chatMessages[chatMessages.length - 1]?.role === 'user') {
+      isPinnedToBottomRef.current = true;
+    }
+    if (!isPinnedToBottomRef.current) return;
+    scrollHistoryToBottom('smooth');
+  }, [chatMessages, scrollHistoryToBottom]);
+
+  useEffect(() => {
+    // Opening another chat starts at its bottom.
+    isPinnedToBottomRef.current = true;
+    scrollHistoryToBottom();
+  }, [activeChatId, scrollHistoryToBottom]);
 
   useEffect(() => {
     if (!showChatActionsMenu) return;
@@ -231,9 +277,30 @@ export default function ChatPanel({
     }
     return raw;
   }, [t]);
+  const handleCancelEvolvePrompt = useCallback(async () => {
+    if (evolveAbortControllerRef.current) {
+      try {
+        evolveAbortControllerRef.current.abort();
+      } catch (_) {}
+      evolveAbortControllerRef.current = null;
+    }
+    try {
+      fetch('/api/chat/cancel-evolve-prompt', { method: 'POST' }).catch(() => {});
+    } catch (_) {}
+    if (originalPromptRef.current) {
+      setChatInput(originalPromptRef.current);
+    }
+    setIsEvolvingPrompt(false);
+    setEvolutionProgress(null);
+  }, []);
+
   const handleEvolvePrompt = async () => {
     const rawPrompt = chatInput.trim();
     if (!rawPrompt || isAgentRunning || isEvolvingPrompt || !activeProject) return;
+
+    originalPromptRef.current = rawPrompt;
+    const controller = new AbortController();
+    evolveAbortControllerRef.current = controller;
 
     setIsEvolvingPrompt(true);
     setEvolutionProgress({ active: true, iteration: 1, total: 1, complete: false });
@@ -242,6 +309,7 @@ export default function ChatPanel({
       const res = await fetch('/api/chat/evolve-prompt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        signal: controller.signal,
         body: JSON.stringify({
           prompt: rawPrompt,
           model: activeProject.model,
@@ -269,6 +337,7 @@ export default function ChatPanel({
         let isFirstChunkInIter = true;
 
         while (true) {
+          if (controller.signal.aborted) break;
           const { done, value } = await reader.read();
           if (done) break;
 
@@ -322,14 +391,26 @@ export default function ChatPanel({
         }
       }
 
-      setEvolutionProgress(prev => ({ ...(prev || {}), active: false, complete: true }));
-      setTimeout(() => setEvolutionProgress(null), 2200);
+      if (!controller.signal.aborted) {
+        setEvolutionProgress(prev => ({ ...(prev || {}), active: false, complete: true }));
+        setTimeout(() => setEvolutionProgress(null), 2200);
+      }
 
     } catch (err) {
-      showAlert(t('chatPanel.evolveError', { message: getPromptEvolutionErrorMessage(err) }));
-      setEvolutionProgress(null);
+      if (err.name === 'AbortError' || controller.signal.aborted) {
+        if (originalPromptRef.current) {
+          setChatInput(originalPromptRef.current);
+        }
+        setEvolutionProgress(null);
+      } else {
+        showAlert(t('chatPanel.evolveError', { message: getPromptEvolutionErrorMessage(err) }));
+        setEvolutionProgress(null);
+      }
     } finally {
       setIsEvolvingPrompt(false);
+      if (evolveAbortControllerRef.current === controller) {
+        evolveAbortControllerRef.current = null;
+      }
     }
   };
 
@@ -1407,7 +1488,7 @@ export default function ChatPanel({
       )}
 
       {/* Message history */}
-      <div className="vscode-chat-history" ref={historyRef} onContextMenu={onContextMenu} style={{ zoom: chatZoom, ['--chat-font-scale']: chatZoom }}>
+      <div className="vscode-chat-history" ref={historyRef} onScroll={handleHistoryScroll} onContextMenu={onContextMenu} style={{ zoom: chatZoom, ['--chat-font-scale']: chatZoom }}>
         {chatMessages.map((msg, i) => {
           if (isHiddenChatSystemMessage(msg)) {
             return null;
@@ -1860,8 +1941,31 @@ export default function ChatPanel({
               </span>
             </div>
             {!evolutionProgress.complete && (
-              <div style={{ fontSize: '10px', opacity: 0.85, background: 'rgba(0,0,0,0.25)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(78, 201, 176, 0.3)' }}>
-                {Math.round((((evolutionProgress.iteration || 1) - 1) / (evolutionProgress.total || 1)) * 100)}%
+              <div className="flex items-center" style={{ gap: '8px' }}>
+                <div style={{ fontSize: '10px', opacity: 0.85, background: 'rgba(0,0,0,0.25)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(78, 201, 176, 0.3)' }}>
+                  {Math.round((((evolutionProgress.iteration || 1) - 1) / (evolutionProgress.total || 1)) * 100)}%
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCancelEvolvePrompt}
+                  title={t('chatPanel.cancelEvolution', 'Cancel prompt evolution')}
+                  className="vscode-button"
+                  style={{
+                    background: 'rgba(244, 135, 113, 0.15)',
+                    border: '1px solid rgba(244, 135, 113, 0.4)',
+                    color: '#f48771',
+                    borderRadius: '4px',
+                    padding: '2px 6px',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <X size={12} />
+                  <span>{t('chatPanel.cancel', 'Cancel')}</span>
+                </button>
               </div>
             )}
           </div>
@@ -1942,24 +2046,29 @@ export default function ChatPanel({
           {/* Evolve Prompt Button */}
           <button
             type="button"
-            onClick={handleEvolvePrompt}
-            disabled={!activeProject || !chatInput.trim() || isAgentRunning || isEvolvingPrompt}
-            title={isEvolvingPrompt ? t('chatPanel.evolving', 'Evolving...') : t('chatPanel.evolvePrompt', 'Evolve prompt')}
+            onClick={isEvolvingPrompt ? handleCancelEvolvePrompt : handleEvolvePrompt}
+            disabled={!activeProject || (!isEvolvingPrompt && !chatInput.trim()) || isAgentRunning}
+            title={
+              isEvolvingPrompt
+                ? t('chatPanel.cancelEvolution', 'Cancel prompt evolution')
+                : t('chatPanel.evolvePrompt', 'Evolve prompt')
+            }
             className="vscode-button"
             style={{
               padding: '6px',
-              backgroundColor: 'transparent',
-              border: 'none',
-              color: isEvolvingPrompt ? '#4ec9b0' : 'var(--vscode-text-fg, #cccccc)',
-              cursor: (!activeProject || !chatInput.trim() || isAgentRunning || isEvolvingPrompt) ? 'not-allowed' : 'pointer',
-              opacity: (!activeProject || !chatInput.trim() || isAgentRunning || isEvolvingPrompt) ? 0.4 : 1,
+              backgroundColor: isEvolvingPrompt ? 'rgba(244, 135, 113, 0.15)' : 'transparent',
+              border: isEvolvingPrompt ? '1px solid rgba(244, 135, 113, 0.4)' : 'none',
+              color: isEvolvingPrompt ? '#f48771' : 'var(--vscode-text-fg, #cccccc)',
+              cursor: (!activeProject || (!isEvolvingPrompt && !chatInput.trim()) || isAgentRunning) ? 'not-allowed' : 'pointer',
+              opacity: (!activeProject || (!isEvolvingPrompt && !chatInput.trim()) || isAgentRunning) ? 0.4 : 1,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              borderRadius: isEvolvingPrompt ? '4px' : undefined,
             }}
           >
             {isEvolvingPrompt ? (
-              <RefreshCw size={14} className="spin" />
+              <X size={14} style={{ color: '#f48771' }} />
             ) : (
               <Sparkles size={14} style={{ color: (!activeProject || !chatInput.trim() || isAgentRunning) ? 'inherit' : '#4ec9b0' }} />
             )}

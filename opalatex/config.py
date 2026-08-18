@@ -526,8 +526,8 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
 def model_supports_thinking(model: str | None) -> bool:
     """Return True only when the model store explicitly enables thinking."""
     try:
-        from opalatex.models_store import get_model
-        store_model = get_model(str(model or ""))
+        from opalatex.models_store import get_model_by_runtime_id
+        store_model = get_model_by_runtime_id(str(model or ""))
         return bool(store_model and store_model.get("supports_thinking", False))
     except Exception:
         return False
@@ -543,8 +543,8 @@ def model_requires_single_system_message(model: str | None) -> bool:
     system messages fine.
     """
     try:
-        from opalatex.models_store import get_model
-        store_model = get_model(str(model or ""))
+        from opalatex.models_store import get_model_by_runtime_id
+        store_model = get_model_by_runtime_id(str(model or ""))
         return bool(store_model and store_model.get("requires_single_system_message", False))
     except Exception:
         return False
@@ -559,8 +559,8 @@ def model_num_ctx(model: str | None) -> int | None:
     model and callers should fall back to `default_num_ctx_for_model`.
     """
     try:
-        from opalatex.models_store import get_model
-        store_model = get_model(str(model or ""))
+        from opalatex.models_store import get_model_by_runtime_id
+        store_model = get_model_by_runtime_id(str(model or ""))
         value = store_model.get("num_ctx") if store_model else None
         return int(value) if value not in (None, "") else None
     except Exception:
@@ -678,8 +678,8 @@ def model_prompt_profile(model: str | None) -> str:
     `opalatex/prompt_profiles.py`.
     """
     try:
-        from opalatex.models_store import get_model
-        store_model = get_model(str(model or ""))
+        from opalatex.models_store import get_model_by_runtime_id
+        store_model = get_model_by_runtime_id(str(model or ""))
         profile = str(store_model.get("prompt_profile", "") if store_model else "").strip().lower()
         return profile if profile in ("full", "light") else "full"
     except Exception:
