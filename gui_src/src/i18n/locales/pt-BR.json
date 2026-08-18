@@ -545,6 +545,8 @@
     "loopDetectionLimit": "Limite de Detecção de Loop",
     "loopDetection": "Detecção de Loop",
     "enableLoopDetection": "Habilitar Detecção de Loop",
+    "emptyResponseThinking": "Usar o Raciocínio Quando a Resposta Vier Vazia",
+    "enableEmptyResponseThinking": "Usar o raciocínio quando a resposta vier vazia",
     "contextWindow": "Sobrescrever Janela de Contexto (num_ctx)",
     "seed": "Seed",
     "topP": "Top P",

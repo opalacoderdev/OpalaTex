@@ -73,8 +73,24 @@ def test_guide_covers_the_topics_the_tutorial_promises(lang):
     ids = {t["id"] for t in load_topics(lang)}
     assert {
         "providers", "models", "settings", "projects",
+        "project-settings", "asset-store", "tools-features",
         "local-models", "local-skills", "cloud-for-big-data",
     } <= ids
+
+
+@pytest.mark.parametrize("lang", ["en", "pt"])
+def test_asset_store_topic_covers_skills_and_templates(lang):
+    answer = get_topic("asset-store", lang)["answer"]
+    assert "Skills" in answer or "skills" in answer
+    assert "template" in answer.lower()
+
+
+@pytest.mark.parametrize("lang", ["en", "pt"])
+def test_project_settings_covers_empty_response_fallback(lang):
+    settings_ans = get_topic("project-settings", lang)["answer"]
+    assert "empty_response_reasoning_fallback" in settings_ans
+    general_settings_ans = get_topic("settings", lang)["answer"]
+    assert "empty_response_reasoning_fallback" in general_settings_ans
 
 
 @pytest.mark.parametrize("lang", ["en", "pt"])

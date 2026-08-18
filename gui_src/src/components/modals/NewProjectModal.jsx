@@ -204,6 +204,12 @@ export default function NewProjectModal({
                            onChange={e => handleParamChange(setNewProjModelParams, 'loop_detection', e.target.checked)} />
                          <span style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enableLoopDetection')}</span>
                      </label>
+                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                        <input type="checkbox"
+                           checked={!!newProjModelParams?.empty_response_reasoning_fallback}
+                           onChange={e => handleParamChange(setNewProjModelParams, 'empty_response_reasoning_fallback', e.target.checked)} />
+                         <span style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enableEmptyResponseThinking')}</span>
+                     </label>
                   </div>
                 </div>
               </details>

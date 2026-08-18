@@ -30,7 +30,10 @@ import re
 from typing import Any
 
 from agenticblocks.blocks.llm.agent import AgentInput, LLMAgentBlock
-from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
+from agenticblocks.blocks.llm.memgpt_agent import (
+    MemGPTAgentBlock,
+    is_empty_response_placeholder,
+)
 # pyrefly: ignore [missing-import]
 from agenticblocks.core.function_block import as_tool
 
@@ -880,6 +883,11 @@ def seed_chat_orchestrator_history(memgpt: MemGPTAgentBlock, project) -> None:
         content = msg.get("content", "")
         if role == "assistant" and str(content).lstrip().startswith("Agent Error:"):
             continue
+        # Chats written before the empty-response fix can hold the runtime's own
+        # marker as an assistant message. Replaying it teaches the model to answer
+        # with it, which is how it got persisted in the first place.
+        if role == "assistant" and is_empty_response_placeholder(content):
+            continue
         memgpt.internal_history.append({"role": role, "content": content})
 
 
@@ -1109,6 +1117,15 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         loop_detection=_agent_params.get("loop_detection", model_params.get("loop_detection", True)),
         loop_detection_limit=_agent_params.get(
             "loop_detection_limit", model_params.get("loop_detection_limit", 3)
+        ),
+        # Opt-in: when the model writes its whole answer in the reasoning channel and
+        # leaves the visible one empty, publish the reasoning instead of spending a
+        # heartbeat asking for it again (PROJECT_DESIGN 2.7).
+        empty_response_reasoning_fallback=bool(
+            _agent_params.get(
+                "empty_response_reasoning_fallback",
+                model_params.get("empty_response_reasoning_fallback", False),
+            )
         ),
     )
     from .litellm_compat import wrap_agent_litellm_compat

@@ -78,6 +78,34 @@ def test_orchestrator_honours_project_loop_detection_settings(tmp_path):
     assert m.loop_detection_limit == 7
 
 
+def test_orchestrator_keeps_the_reasoning_fallback_off_by_default(tmp_path):
+    # Publishing the reasoning channel as the user-facing answer is opt-in.
+    m = build_chat_orchestrator(_project(tmp_path), None)
+    assert m.empty_response_reasoning_fallback is False
+
+
+def test_orchestrator_honours_the_project_reasoning_fallback_setting(tmp_path):
+    project = ProjectData(
+        name="t", project_name="t",
+        project_path=str(tmp_path), model="ollama/proj-model",
+        model_params={"empty_response_reasoning_fallback": True},
+    )
+    m = build_chat_orchestrator(project, None)
+    assert m.empty_response_reasoning_fallback is True
+
+
+def test_reasoning_fallback_setting_never_reaches_litellm(tmp_path):
+    # It is an agent constructor param; providers reject unknown request fields.
+    from opalatex.config import _AGENT_PARAM_KEYS, sanitize_litellm_kwargs_for_model
+
+    assert "empty_response_reasoning_fallback" in _AGENT_PARAM_KEYS
+    cleaned = sanitize_litellm_kwargs_for_model(
+        "ollama/x", {"empty_response_reasoning_fallback": True, "temperature": 0.2}
+    )
+    assert "empty_response_reasoning_fallback" not in cleaned
+    assert cleaned["temperature"] == 0.2
+
+
 def test_chat_orchestrator_exposes_surgical_edit_tools(tmp_path):
     m = build_chat_orchestrator(_project(tmp_path), None)
     names = {getattr(t, "name", None) for t in m.tools}

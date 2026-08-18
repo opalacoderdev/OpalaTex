@@ -21,6 +21,21 @@ from agenticblocks.runtime.state import TokenUsage, _current_ctx
 
 DEFAULT_RECURSIVE_SUMMARY = "No history has been evicted yet."
 
+# Marker an older version of this loop wrote into the history in place of an
+# assistant turn that produced no visible text. It is no longer written (the empty
+# turn is dropped instead), because a model reads its own last turn as an example
+# and echoes the marker back as if it were the answer. The string is kept here so
+# it can still be recognised when it arrives from a persisted state or a chat log
+# saved before that change.
+EMPTY_RESPONSE_PLACEHOLDER = "(removed: empty response)"
+
+
+def is_empty_response_placeholder(text: Any) -> bool:
+    """Return whether assistant text is this runtime's own empty-response marker."""
+    if not isinstance(text, str):
+        return False
+    return text.strip().lower() == EMPTY_RESPONSE_PLACEHOLDER
+
 
 def _is_ollama_tool_call_json_escape_error(exc: Exception) -> bool:
     """Return whether Ollama rejected a model-generated tool argument string."""
@@ -74,6 +89,12 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     signature more than ``loop_detection_limit`` times in a single run."""
     loop_detection_limit: int = 3
     """Number of identical tool calls allowed before ``loop_detection`` blocks them."""
+    empty_response_reasoning_fallback: bool = False
+    """When True, a turn that produced only reasoning and no visible text ends the
+    run with that reasoning as the final response, instead of spending a heartbeat
+    asking the model to repeat itself in the visible channel. Off by default: the
+    reasoning channel is a draft space, so publishing it as the user-facing answer
+    is a semantic decision the caller has to opt into."""
     use_shared_router: bool = True
     model_kargs: Dict[str, Any] = Field(default_factory=dict)
     """LiteLLM/Model keyword arguments (HTTP clients, timeouts, temperature, etc.)."""
@@ -358,8 +379,23 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         }
 
     def load_state(self, state: Dict[str, Any]) -> None:
-        """Restore the agent's internal state from a serialized dictionary."""
-        self.internal_history = state.get("internal_history", [])
+        """Restore the agent's internal state from a serialized dictionary.
+
+        Assistant turns holding only ``EMPTY_RESPONSE_PLACEHOLDER`` are dropped:
+        a state saved by an older version can still carry them, and they exist for
+        the model to imitate while carrying nothing it needs to remember.
+        """
+        history = state.get("internal_history", [])
+        self.internal_history = [
+            msg
+            for msg in history
+            if not (
+                isinstance(msg, dict)
+                and msg.get("role") == "assistant"
+                and not msg.get("tool_calls")
+                and is_empty_response_placeholder(msg.get("content"))
+            )
+        ]
         self.recursive_summary = state.get("recursive_summary", DEFAULT_RECURSIVE_SUMMARY)
 
     async def run(self, input: AgentInput) -> AgentOutput:
@@ -507,17 +543,42 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             messages.append(assistant_msg_raw)
 
             if not message.tool_calls:
-                if content.strip():
+                visible_text = content.strip()
+                if is_empty_response_placeholder(visible_text):
+                    # The model echoed this runtime's own marker back at it, which it
+                    # can only have read from the history. Publishing framework
+                    # scaffolding as the final answer is worse than having no answer,
+                    # so this counts as the empty response it describes.
+                    visible_text = ""
+                if visible_text:
                     direct_final_response = content
                     termination_reason = "model returned a final text response (no tool calls)"
                     break
+
+                # Nothing visible was said: drop the turn instead of describing it in
+                # the assistant's own voice. Any stand-in text here is read back by
+                # the model as its last utterance and imitated on the next call.
+                self.internal_history.pop()
+                messages.pop()
+
+                fallback_text = (reasoning or "").strip()
+                if is_empty_response_placeholder(fallback_text):
+                    fallback_text = ""
+                if self.empty_response_reasoning_fallback and fallback_text:
+                    direct_final_response = fallback_text
+                    self.internal_history.append(
+                        {"role": "assistant", "content": direct_final_response}
+                    )
+                    termination_reason = (
+                        "model wrote its answer in the reasoning channel only; "
+                        "promoted by empty_response_reasoning_fallback"
+                    )
+                    break
+
                 if heartbeats_left <= 0 or self.max_heartbeats <= 0:
                     termination_reason = "model returned an empty response with no heartbeats remaining"
                     break
 
-                empty_response = {"role": "assistant", "content": "(removed: empty response)"}
-                self.internal_history[-1] = empty_response
-                messages[-1] = empty_response
                 self.internal_history.append({
                     "role": "system",
                     "content": (

@@ -151,6 +151,7 @@ _NON_LITELLM_FIELDS = {
     # MemGPTAgentBlock params
     "max_heartbeats", "max_context_tokens", "eviction_threshold",
     "memory_pressure_threshold", "response_mode",
+    "empty_response_reasoning_fallback",
     # LLMAgentBlock params
     "max_iterations", "max_tool_calls", "on_max_iterations",
     # Shared

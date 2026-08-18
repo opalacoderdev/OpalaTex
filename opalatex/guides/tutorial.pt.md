@@ -16,36 +16,40 @@ O OpalaTex tem três partes trabalhando juntas:
 
 1. **O editor** — editor de código-fonte com pré-visualização do PDF lado a lado,
    SyncTeX para pular entre o PDF e a linha `.tex` que o gerou, além de um modo rich
-   text e um explorador de arquivos.
+   text, pré-visualização de Markdown, visualizadores de documentos dedicados (.docx,
+   .pptx, HTML) e um explorador de arquivos.
 2. **O assistente de IA** — um orquestrador de chat que lê e edita seus arquivos, roda
-   comandos, pesquisa na web e delega trabalho especializado para *skills*.
+   comandos, pesquisa na web, gera documentos de escritório (.docx, .pptx), faz
+   perguntas interativas para tirar dúvidas e delega trabalho especializado para skills
+   e templates da **Asset Store**.
 3. **Compilação local** — o Tectonic compila o documento sem exigir uma instalação de
    LaTeX no sistema.
 
 O fluxo normal de trabalho é:
 
 - criar ou importar um projeto (um projeto é uma pasta);
-- cadastrar uma conexão de provedor e um modelo, e depois selecionar o modelo na barra
-  do chat;
-- pedir o que você precisa ao assistente no chat;
+- cadastrar uma conexão de provedor e um modelo nas Configurações, e depois selecionar o
+  modelo na barra do chat;
+- pedir o que você precisa ao assistente no chat, ou instalar skills/templates pela
+  **Asset Store**;
 - compilar e conferir o PDF;
 - revisar as alterações do assistente no modo **Review** antes de mantê-las.
 
 O assistente roda em um de três **modos**, selecionáveis na barra do chat:
 
 - **auto** — autonomia total; executa ferramentas sem pedir permissão a cada passo;
-- **plan** — não pode modificar nada; reúne contexto e propõe um plano que você aprova
-  antes;
+- **plan** — não pode modificar nada; reúne contexto e propõe um plano estruturado que
+  você aprova antes;
 - **edit** — edita arquivos diretamente, mas pergunta antes de rodar comandos no
   terminal.
 
-## projects :: Como crio e organizo um projeto?
+## projects :: Como crio e configuro um projeto?
 
-Um projeto é uma pasta mais os metadados que o OpalaTex guarda sobre ela (modelos
-selecionados, modo, chats, memória, checkpoints).
+Um projeto é uma pasta no seu disco mais os metadados que o OpalaTex guarda sobre ela
+(modelos selecionados, modo, chats, memória, checkpoints do Git sombra).
 
 - **Novo projeto** — o diálogo "Novo Projeto" pede um nome, uma pasta-mãe e,
-  opcionalmente, um modelo. Só é permitido um projeto por pasta.
+  opcionalmente, um modelo inicial. Só é permitido um projeto por pasta.
 - **Importar projeto** — aponte o OpalaTex para uma pasta existente que já contenha os
   seus fontes `.tex`.
 
@@ -57,10 +61,75 @@ Duas coisas costumam surpreender quem está começando, e as duas são intencion
 - **Não escolher modelo é um estado válido.** Você pode limpar a seleção nas
   Configurações do Projeto e voltar ao estado não configurado.
 
-As configurações por projeto (diálogo de Configurações do Projeto) cobrem o modelo
-orquestrador, o modelo worker, os parâmetros de execução de cada papel, o modo e as
-skills ativas. Credenciais globais nunca ficam no diálogo do projeto — elas pertencem ao
-catálogo de modelos.
+Os projetos guardam referências aos modelos por seu ID de catálogo (`<provedor>/<nome>`).
+Credenciais globais (chaves de API e URLs base) pertencem ao catálogo global de modelos,
+então atualizar uma chave nas Configurações atualiza todos os projetos automaticamente.
+
+## project-settings :: O que significa cada configuração e parâmetro de projeto?
+
+As opções de projeto são editadas no diálogo de Configurações do Projeto (ícone de
+engrenagem na barra lateral) e estão organizadas em três abas:
+
+### 1. Aba Geral (`geral`)
+
+- **ID Interno e Nome de Exibição** — o `ID Interno` é a chave persistente no banco de
+  dados; o `Nome de Exibição` é o título amigável mostrado na interface.
+- **Caminho do Projeto e Arquivo Principal** — a pasta absoluta no disco e o arquivo
+  `.tex` raiz utilizado como ponto de partida da compilação (ex.: `main.tex`).
+- **Compilar LaTeX ao Salvar** — escolha entre `Desativado`, `Parcial` (compilação rápida
+  do capítulo/arquivo em foco) ou `Completo` (recompila o documento inteiro a cada
+  salvamento).
+- **Raiz do Git do Usuário** — caminho opcional para a raiz de um repositório Git externo,
+  caso o controle de versão fique fora da pasta do projeto.
+- **Modo** — `auto`, `plan` ou `edit`.
+- **Descrição** — resumo opcional do projeto fornecido ao assistente como contexto inicial.
+- **Compartilhar Memória Principal** — quando ativado, todos os chats do projeto
+  compartilham a mesma memória central persistente. Quando desativado, cada chat mantém
+  uma memória independente.
+- **Forçar Visão (Force Vision)** — força o envio de imagens/visão tanto para o modelo
+  orquestrador quanto para o worker, mesmo se a detecção automática do provedor for
+  conservadora.
+- **Carregar Skills Contextuais** — botão que varre o diretório do projeto em busca de
+  skills customizadas em `.opalatex/skills` e as registra no projeto.
+
+### 2. Abas Orquestrador e Worker
+
+O projeto configura modelos e parâmetros de execução separados para o **Orquestrador**
+(o agente de conversação e planejamento) e o **Worker** (sub-agentes efêmeros criados por
+`run_skill`). Ambas as abas oferecem:
+
+- **Seleção de Modelo e Monitor de Hardware** — escolha entre os modelos cadastrados.
+  Indicadores em tempo real de VRAM da GPU e RAM do sistema sinalizam a adequação do
+  modelo (verde = roda com folga, amarelo = pode ser lento, vermelho = risco de estouro
+  de VRAM).
+- **Parâmetros de Amostragem e LiteLLM**:
+  - `temperature` (0,0 a 2,0) — controla criatividade versus determinismo.
+  - `max_tokens` — limite máximo de tokens na resposta.
+  - `num_ctx` — tamanho da janela de contexto em tokens. **Essencial para modelos locais!**
+  - `seed` — semente numérica para respostas reproduzíveis.
+  - `top_p`, `top_k`, `min_p`, `frequency_penalty`, `presence_penalty`, `repetition_penalty`.
+  - `reasoning_effort` — (`none`, `low`, `medium`, `high`, `xhigh`) para modelos de
+    raciocínio com ajuste de esforço (ex.: o1, o3, Gemini, Claude).
+  - `thinking` — ativa tokens de raciocínio/pensamento (para o Ollama, o OpalaTex mapeia
+    automaticamente para `ollama_chat/` para raciocínio em fluxo contínuo).
+  - `stream` — ativa streaming em tempo real das respostas.
+- **Parâmetros de Execução do Agente**:
+  - `max_heartbeats` — limite de iterações consecutivas de ferramentas por turno.
+  - `max_context_tokens` — teto de orçamento de contexto antes da sumarização.
+  - `eviction_threshold` — fração da janela (padrão `0,85`) na qual os turnos antigos
+    passam a ser resumidos no resumo corrente.
+  - `memory_pressure_threshold` — limiar para compactação agressiva de memória.
+  - `loop_detection` e `loop_detection_limit` (padrão `3`) — detecta chamadas de
+    ferramenta idênticas com os mesmos argumentos e as bloqueia antes da execução para
+    interromper laços infinitos.
+  - **`empty_response_reasoning_fallback`** (*Usar Raciocínio Quando a Resposta Estiver Vazia*) —
+    quando ativado, caso um modelo de raciocínio concentre toda a resposta no canal de
+    pensamento (thinking) e deixe o canal visível em branco, o OpalaTex publica o
+    conteúdo do raciocínio como a resposta final em vez de falhar ou gastar turnos extras
+    pedindo a resposta de novo.
+  - `response_mode` — `last` (apenas a resposta final) ou `all`.
+  - `debug` — ativa logs detalhados de execução.
+  - Limites específicos do Worker: `max_iterations` e `max_tool_calls`.
 
 ## providers :: Como cadastro um provedor e um modelo?
 
@@ -108,8 +177,7 @@ Um projeto usa **dois papéis de modelo**:
   Workers fazem tarefas estreitas, cheias de ferramentas, e terminam rápido; um modelo
   menor e mais rápido serve bem e normalmente é até preferível.
 
-Ao cadastrar um modelo você pode declarar duas capacidades. As duas vêm **desligadas**
-por padrão, e você só deve ativá-las quando a documentação do modelo confirmar:
+Ao cadastrar um modelo no catálogo você pode declarar capacidades:
 
 - **`supports_thinking`** — o modelo aceita um parâmetro de raciocínio (thinking). O
   OpalaTex só envia `think` quando isso está ativado. O raciocínio vem ligado por padrão
@@ -123,11 +191,16 @@ por padrão, e você só deve ativá-las quando a documentação do modelo confi
   `system`, com o erro `system message must be at the beginning`. Ative essa opção para
   um modelo assim e o OpalaTex passa a unir todas as mensagens de sistema em uma única
   mensagem inicial — só para ele.
+- **`prompt_profile`** (`full` ou `light`) — `full` envia o prompt completo com todas as
+  salvaguardas; `light` envia um prompt condensado para economizar tokens e tempo em
+  modelos avançados.
+- **`num_ctx`** — sobreposição opcional da janela de contexto no nível do catálogo para
+  este modelo.
 
 ## settings :: Quais configurações eu devo usar?
 
 **Janela de contexto (`num_ctx`)** — esta é a configuração mais importante para modelos
-locais. O número que você define é o limite real, independentemente do que o modelo
+locals. O número que você define é o limite real, independentemente do que o modelo
 anuncia: um "modelo de 128K" roda com o `num_ctx` que o seu projeto definir. Dimensione
 conforme a sua VRAM (veja o tópico sobre modelos locais). O indicador de contexto do chat
 mede contra esse valor, mostra quanto da janela foi consumido e reporta os tokens que o
@@ -150,11 +223,42 @@ repetitivo.
 retirados do contexto de trabalho quando a janela chega a 85% de ocupação, em vez de
 esperar o estouro.
 
-**Thinking** — deixe desligado a menos que a documentação do modelo confirme o suporte.
-Veja o tópico "models".
+**Thinking e Fallback de Raciocínio** — deixe o thinking desligado a menos que a
+documentação do modelo confirme o suporte. Se você usa modelos de raciocínio locais (como
+DeepSeek-R1 ou variantes Qwen Thinking) e notar que a resposta às vezes fica em branco,
+ative `empty_response_reasoning_fallback` nas Configurações do Projeto.
 
 **Skills** — ative só o que você precisa. Cada skill ativa acrescenta a sua descrição ao
 prompt de sistema, o que custa contexto em todos os turnos.
+
+## asset-store :: Como funcionam a Asset Store, as skills e os templates?
+
+A **Asset Store** (ícone de Loja na barra de atividades) é a central para estender o
+OpalaTex com novas capacidades e modelos de documentos LaTeX.
+
+### 1. Skills (aba `Skills`)
+
+Skills são pacotes de instruções em markdown (com scripts opcionais) que ensinam tarefas
+especializadas à IA.
+
+- **Sub-aba Catálogo** — navegue e instale skills do repositório no seu projeto
+  (`<projeto>/.opalatex/skills/<nome>/`).
+- **Sub-aba Ativas no projeto** — ative ou desative skills para o projeto atual.
+- **Cópias locais e atualizações** — quando uma skill local é instalada, ela substitui a
+  versão embutida de mesmo nome. Se o catálogo for atualizado, a Asset Store detecta a
+  diferença e exibe o botão **"Atualizar cópia local"**. Para voltar à versão que vem de
+  fábrica com o OpalaTex, basta clicar em **"Restaurar embutida"**.
+
+### 2. Templates LaTeX (aba `Templates LaTeX`)
+
+Templates fornecem estruturas completas de documentos prontos para uso (artigos, teses,
+livros, apresentações Beamer, currículos).
+
+- **Instalação em um clique** — os templates são descompactados diretamente na raiz do
+  seu projeto.
+- **Detecção de conflitos e segurança** — se algum arquivo do template já existir no seu
+  projeto, o OpalaTex detecta o conflito, avisa você, lista os arquivos concorrentes e
+  pede confirmação explícita antes de sobrescrever.
 
 ## local-models :: Dicas para modelos locais (Ollama)
 
@@ -175,10 +279,12 @@ Rodar localmente é gratuito e privado, e funciona bem quando você respeita os 
 - **Mantenha o thinking desligado nos workers.** Um modelo local de raciocínio, diante de
   uma entrada complexa, pode ficar em laço por muito tempo dentro de uma chamada de
   ferramenta.
+- **Ative `empty_response_reasoning_fallback`** se o seu modelo local de raciocínio
+  escrever a resposta no canal de pensamento em vez do canal de resposta visível.
 - **Mantenha poucas skills ativas.** Cada uma custa contexto em todos os turnos.
 - **Seja realista.** Modelos locais pequenos são ótimos para edições curtas, formatação e
   para aprender a interface. Eles sofrem com documentos longos, grandes volumes de dados
-  e refatorações de vários passos — que é justamente o assunto do próximo tópico.
+  e refatorações de vários passos — que é o assunto do tópico sobre modelos em nuvem.
 
 ## local-skills :: Quais skills combinam com modelos locais pequenos?
 
@@ -210,6 +316,31 @@ Regras práticas para modelos pequenos:
   ferramenta muito longo é truncado pelo limite de saída;
 - se a mesma skill falhar duas vezes seguidas, pare e mude de abordagem; o OpalaTex
   detecta isso e orienta o assistente a parar de redelegar.
+
+## tools-features :: Quais ferramentas e recursos estão disponíveis (documentos, busca web, perguntas)?
+
+Além da edição de código LaTeX, o OpalaTex inclui recursos e ferramentas nativas
+avançadas:
+
+- **Exportadores Nativos de Documentos (`create_docx_file`, `create_pptx_file`)** — o
+  assistente pode gerar arquivos formatados do Microsoft Word (`.docx`) e apresentações do
+  PowerPoint (`.pptx`) com cabeçalhos estruturados, tabelas, tópicos e imagens embutidas.
+- **Pesquisa na Web ao Vivo** — o assistente pode pesquisar na web em tempo real para
+  consultar documentação de pacotes no CTAN, soluções para erros de compilação, citações
+  BibTeX e sintaxes de bibliotecas.
+- **Perguntas Interativas ao Usuário (`ask_question`)** — quando o assistente precisa de
+  esclarecimentos, escolhas de formato ou confirmação de opções, ele abre uma janela
+  interativa (`AskModal`) na interface, permitindo que você responda sem quebrar o fluxo.
+- **Confirmações de Segurança** — ações potencialmente destrutivas ou execuções de planos
+  exigem confirmação explícita antes de prosseguir.
+- **Edição Cirúrgica de Texto** — `search_code`, `read_content_pos`,
+  `replace_content_range` e `write_content_pos` permitem localizar e editar linhas exatas
+  sem precisar ler nem reescrever arquivos imensos.
+- **Anexos e Entrada Multimodal** — arraste e solte imagens, PDFs, textos ou arquivos de
+  dados no chat. O OpalaTex extrai o texto dos documentos ou repassa as imagens a modelos
+  com capacidade de visão.
+- **Painel de Atividades e Pensamentos** — blocos expansíveis "AI Thoughts" nas
+  mensagens permitem inspecionar o raciocínio da IA sem poluir o texto final.
 
 ## cloud-for-big-data :: Quando devo usar modelos em nuvem?
 

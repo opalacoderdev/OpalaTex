@@ -325,7 +325,7 @@ def test_ollama_models_keep_local_only_litellm_kwargs_except_unsupported_think()
     assert kwargs["min_p"] == 0.1
     assert kwargs["repetition_penalty"] == 1.1
     assert "think" not in kwargs
-    assert "drop_params" not in kwargs
+    assert kwargs.get("drop_params") is True
     assert "unknown_param" not in kwargs
 
 def test_project_ollama_api_base_is_used_when_model_store_has_no_entry():

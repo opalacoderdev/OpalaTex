@@ -506,6 +506,16 @@ export default function EditProjectModal({
                         </div>
 
 
+                        <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.emptyResponseThinking')}</label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                            <input type="checkbox"
+                              checked={!!editingProject.model_params?.empty_response_reasoning_fallback}
+                              onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, empty_response_reasoning_fallback: e.target.checked } }))} />
+                            <span style={{ fontSize: '12px', color: '#cccccc' }}>{t('editProjectModal.enabled')}</span>
+                          </label>
+                        </div>
+
                         <div className="flex flex-col" style={{ gap: '4px' }}>
                           <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.responseMode')}</label>
                           <select

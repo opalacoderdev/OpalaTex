@@ -85,7 +85,13 @@ def test_sanitize_tool_call_messages_preserves_pair_after_assistant_turn():
 
 
 def test_sanitize_tool_call_messages_preserves_pair_after_system_alert():
-    """The empty-response correction inserts a system alert before the next turn."""
+    """A system alert before an assistant turn must not break the tool pairing.
+
+    The assistant placeholder below is a legacy shape: the empty-response
+    correction now drops the silent turn and inserts only the alert. It still has
+    to survive sanitization, because a chat or agent state saved before that
+    change can replay it.
+    """
     from opalatex.litellm_compat import sanitize_tool_call_messages
 
     messages = [

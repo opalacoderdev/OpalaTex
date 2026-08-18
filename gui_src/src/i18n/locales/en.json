@@ -545,6 +545,8 @@
     "loopDetectionLimit": "Loop Detection Limit",
     "loopDetection": "Loop Detection",
     "enableLoopDetection": "Enable Loop Detection",
+    "emptyResponseThinking": "Use Thinking When the Response Is Empty",
+    "enableEmptyResponseThinking": "Use thinking when the response is empty",
     "contextWindow": "Context Window Override (num_ctx)",
     "seed": "Seed",
     "topP": "Top P",
