@@ -15,7 +15,7 @@
     "opalatexCodes": "OpalaTex Chat",
     "settings": "Settings",
     "hardware": "Hardware",
-    "skillsStore": "Skills Store",
+    "assetStore": "Asset Store",
     "tutorial": "Tutorial"
   },
   "tutorial": {
@@ -27,8 +27,10 @@
     "openFailed": "Failed to open the tutorial",
     "answerFailed": "Failed to load the tutorial answer"
   },
-  "skillsStore": {
-    "title": "Skills Store",
+  "assetStore": {
+    "title": "Asset Store",
+    "tabSkills": "Skills",
+    "tabTemplates": "LaTeX templates",
     "tabCatalog": "Catalog",
     "tabActive": "Active in project",
     "noProjectHint": "Open a project to install or activate skills.",
@@ -50,7 +52,16 @@
     "restoring": "Restoring…",
     "shadowsBundled": "A copy in this project is running instead of the bundled skill, so it does not receive updates.",
     "refreshFailed": "Could not refresh the local copy.",
-    "close": "Close"
+    "close": "Close",
+    "emptyTemplates": "No templates available in the catalog.",
+    "noProjectHintTemplates": "Open a project to install templates.",
+    "version": "Version {{version}}",
+    "installTemplateHint": "Unpack this template at the project root.",
+    "reinstall": "Reinstall",
+    "overwriteWarning": "These files already exist and will be replaced: {{files}}",
+    "confirmOverwrite": "Replace files",
+    "installFailed": "Could not install the template.",
+    "cancel": "Cancel"
   },
   "statusBar": {
     "workspace": "Workspace: {{name}}",

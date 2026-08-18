@@ -90,6 +90,7 @@ pyinstaller --name "OpalaTex" \
             --add-data="bin:bin" \
             --add-data="config.yaml:." \
             --add-data="skills:skills" \
+            --add-data="templates:templates" \
             --add-data="version_info.txt:." \
             --collect-all "litellm" \
             --collect-all "tiktoken" \

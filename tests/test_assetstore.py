@@ -1,4 +1,4 @@
-"""Tests for AssetStore icon resolution (Skills Store icon support)."""
+"""Tests for AssetStore icon resolution (Asset Store icon support)."""
 
 from pathlib import Path
 

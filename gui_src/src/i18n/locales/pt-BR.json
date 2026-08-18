@@ -15,7 +15,7 @@
     "opalatexCodes": "OpalaTex Chat",
     "settings": "Configurações",
     "hardware": "Hardware",
-    "skillsStore": "Loja de Skills",
+    "assetStore": "Loja de Assets",
     "tutorial": "Tutorial"
   },
   "tutorial": {
@@ -27,8 +27,10 @@
     "openFailed": "Não foi possível abrir o tutorial",
     "answerFailed": "Não foi possível carregar a resposta do tutorial"
   },
-  "skillsStore": {
-    "title": "Loja de Skills",
+  "assetStore": {
+    "title": "Loja de Assets",
+    "tabSkills": "Skills",
+    "tabTemplates": "Templates LaTeX",
     "tabCatalog": "Catálogo",
     "tabActive": "Ativas no projeto",
     "noProjectHint": "Abra um projeto para instalar ou ativar skills.",
@@ -50,7 +52,16 @@
     "restoring": "Restaurando…",
     "shadowsBundled": "Uma cópia dentro deste projeto está rodando no lugar da skill embutida, então ela não recebe atualizações.",
     "refreshFailed": "Não foi possível atualizar a cópia local.",
-    "close": "Fechar"
+    "close": "Fechar",
+    "emptyTemplates": "Nenhum template disponível no catálogo.",
+    "noProjectHintTemplates": "Abra um projeto para instalar templates.",
+    "version": "Versão {{version}}",
+    "installTemplateHint": "Descompacta este template na raiz do projeto.",
+    "reinstall": "Reinstalar",
+    "overwriteWarning": "Estes arquivos já existem e serão substituídos: {{files}}",
+    "confirmOverwrite": "Substituir arquivos",
+    "installFailed": "Não foi possível instalar o template.",
+    "cancel": "Cancelar"
   },
   "statusBar": {
     "workspace": "Workspace: {{name}}",

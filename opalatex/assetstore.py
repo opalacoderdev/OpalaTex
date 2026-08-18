@@ -1,4 +1,4 @@
-"""AssetStore: local repository of reusable skill assets.
+"""AssetStore: local repository of reusable assets (skills and LaTeX templates).
 
 Structure
 ---------
@@ -7,9 +7,15 @@ opalatex/assetstore/
         <ID>.zip        - full skill directory tree
         <ID>.metadata   - YAML: id, type, name, desc
 
+templates/                  (repo root; `<package>/assetstore/templates` also works)
+    <ID>.zip            - packaged template directory (.tex files, figures, ...)
+    <ID>.yaml           - YAML sidecar with the same stem: name, description,
+                          version, and an optional `active` flag
+
 Installation targets (relative to project root)
 ---------
-skill -> <project>/.opalatex/skills/<name>/
+skill    -> <project>/.opalatex/skills/<name>/
+template -> <project>/            (the zip is unpacked at the project root)
 """
 
 import os
@@ -20,13 +26,47 @@ from typing import Optional
 
 import yaml
 
-_STORE_ROOT = Path(__file__).parent / "assetstore"
+_PACKAGE_DIR = Path(__file__).parent
+_STORE_ROOT = _PACKAGE_DIR / "assetstore"
+_REPO_ROOT = _PACKAGE_DIR.parent
 
-VALID_TYPES = {"skill"}
+VALID_TYPES = {"skill", "template"}
+
+# Metadata sidecar suffixes accepted for each asset type. Skills keep the
+# historical `.metadata` name; templates use a `.yaml` with the same stem as the
+# zip, which is how template authors package them.
+_META_SUFFIXES = {
+    "skill": (".metadata",),
+    "template": (".yaml", ".yml"),
+}
+
+# Fields read from a template sidecar. Authors write these files by hand, so key
+# lookup is case-insensitive and `desc` is accepted as a shorthand for
+# `description`, matching the field name skill metadata already uses.
+_TEMPLATE_FIELD_ALIASES = {
+    "name": ("name",),
+    "desc": ("description", "desc"),
+    "version": ("version",),
+    "active": ("active",),
+    "icon": ("icon",),
+}
+
+
+def _store_dirs(asset_type: str) -> list[Path]:
+    """Return the directories that may hold assets of *asset_type*.
+
+    Templates are searched both under the package's assetstore and at the repo
+    root `templates/` directory, which is where template packages live in the
+    source tree and where PyInstaller drops them in a frozen build.
+    """
+    if asset_type == "template":
+        return [_STORE_ROOT / "templates", _REPO_ROOT / "templates"]
+    return [_STORE_ROOT / (asset_type + "s")]
 
 
 def _store_dir(asset_type: str) -> Path:
-    return _STORE_ROOT / (asset_type + "s")
+    """Return the writable store directory for *asset_type* (registration target)."""
+    return _store_dirs(asset_type)[0]
 
 
 def _parse_metadata(path: Path) -> dict:
@@ -34,20 +74,64 @@ def _parse_metadata(path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _pick(raw: dict, aliases: tuple[str, ...]) -> Optional[object]:
+    """Return the first alias present in *raw*, matched case-insensitively."""
+    lowered = {str(k).strip().lower(): v for k, v in raw.items()}
+    for alias in aliases:
+        if alias in lowered:
+            return lowered[alias]
+    return None
+
+
+def _normalize_template_meta(raw: dict, asset_id: str) -> dict:
+    """Map a template sidecar onto the same shape skill metadata already uses.
+
+    The sidecar may either nest its fields under a `template:` key or list them
+    at the top level; both forms are read the same way.
+    """
+    body = raw.get("template") if isinstance(raw.get("template"), dict) else raw
+    meta: dict = {"id": asset_id, "type": "template"}
+    for field, aliases in _TEMPLATE_FIELD_ALIASES.items():
+        value = _pick(body, aliases)
+        if value is not None:
+            meta[field] = value
+    meta["name"] = str(meta.get("name") or asset_id)
+    meta["desc"] = str(meta.get("desc") or "")
+    meta["version"] = str(meta.get("version") or "")
+    return meta
+
+
 def _iter_assets(asset_type: str) -> list[dict]:
     """Return metadata dictionaries for all assets of the given type."""
-    d = _store_dir(asset_type)
-    if not d.exists():
-        return []
-    results = []
-    for meta_file in sorted(d.glob("*.metadata")):
-        try:
-            meta = _parse_metadata(meta_file)
-            meta["_zip"] = meta_file.with_suffix(".zip")
-            meta["_meta"] = meta_file
-            results.append(meta)
-        except Exception:
+    results: list[dict] = []
+    seen_ids: set[str] = set()
+    for d in _store_dirs(asset_type):
+        if not d.exists():
             continue
+        for suffix in _META_SUFFIXES.get(asset_type, (".metadata",)):
+            for meta_file in sorted(d.glob(f"*{suffix}")):
+                asset_id = meta_file.stem
+                if asset_id in seen_ids:
+                    continue
+                zip_path = meta_file.with_suffix(".zip")
+                try:
+                    raw = _parse_metadata(meta_file)
+                except Exception:
+                    continue
+                if asset_type == "template":
+                    if not zip_path.exists():
+                        # A sidecar with no package is not installable; skipping
+                        # it keeps the store honest about what it can deliver.
+                        continue
+                    meta = _normalize_template_meta(raw, asset_id)
+                    if meta.pop("active", True) is False:
+                        continue
+                else:
+                    meta = raw
+                meta["_zip"] = zip_path
+                meta["_meta"] = meta_file
+                seen_ids.add(asset_id)
+                results.append(meta)
     return results
 
 
@@ -62,7 +146,7 @@ def _match(meta: dict, desc: str) -> bool:
 
 def list_assets(asset_type: Optional[str] = None) -> list[dict]:
     """Return all assets, optionally filtered by type."""
-    types = [asset_type] if asset_type else list(VALID_TYPES)
+    types = [asset_type] if asset_type else sorted(VALID_TYPES)
     result = []
     for t in types:
         if t in VALID_TYPES:
@@ -123,7 +207,7 @@ def asset_matches_install(meta: dict, project_path: str) -> bool:
     """True when the project-local copy is identical to the catalog asset.
 
     False means the local copy has drifted -- an older catalog version, or files
-    edited/added/removed in the project -- so the Skills Store can offer to
+    edited/added/removed in the project -- so the Asset Store can offer to
     refresh it. Missing local copy or missing zip is not a match.
     """
     local = installed_skill_dir(meta, project_path)
@@ -153,12 +237,101 @@ def asset_matches_install(meta: dict, project_path: str) -> bool:
     return present == expected
 
 
-def install_asset(meta: dict, project_path: str, replace: bool = False) -> str:
-    """Extract a skill asset into project_path and return a summary.
+def _is_archive_junk(name: str) -> bool:
+    """True for archiver bookkeeping entries that are not template content.
 
-    With *replace*, the existing project-local copy is deleted first, so files
-    dropped from the asset since the last install do not survive the update.
-    Plain extraction only overwrites the entries the zip still carries.
+    Zips produced on macOS carry an `__MACOSX/` tree of `._name` resource forks;
+    unpacking those into a user's project root would litter it with files the
+    template author never authored.
+    """
+    parts = Path(name).parts
+    if any(p == "__MACOSX" for p in parts):
+        return True
+    base = parts[-1] if parts else name
+    return base.startswith("._") or base == ".DS_Store"
+
+
+def template_entries(meta: dict) -> list[str]:
+    """Return the file paths a template installs, relative to the project root."""
+    zip_path: Optional[Path] = meta.get("_zip")
+    if zip_path is None or not zip_path.exists():
+        return []
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        return [
+            info.filename for info in zf.infolist()
+            if not info.is_dir() and not _is_archive_junk(info.filename)
+        ]
+
+
+def template_conflicts(meta: dict, project_path: str) -> list[str]:
+    """Return the template's entries that already exist in the project.
+
+    Installing overwrites them, so the caller can warn before doing so.
+    """
+    project = Path(os.path.abspath(project_path))
+    return [name for name in template_entries(meta) if (project / name).exists()]
+
+
+def template_is_installed(meta: dict, project_path: str) -> bool:
+    """True when every file the template carries is already in the project."""
+    entries = template_entries(meta)
+    if not entries:
+        return False
+    return len(template_conflicts(meta, project_path)) == len(entries)
+
+
+def _extract_template(meta: dict, project_path: str, overwrite: bool) -> str:
+    zip_path: Path = meta["_zip"]
+    project = Path(os.path.abspath(project_path)).resolve()
+    project.mkdir(parents=True, exist_ok=True)
+
+    if not overwrite:
+        conflicts = template_conflicts(meta, project_path)
+        if conflicts:
+            shown = ", ".join(sorted(conflicts)[:5])
+            more = "" if len(conflicts) <= 5 else f" (+{len(conflicts) - 5} more)"
+            raise FileExistsError(
+                f"template '{meta.get('name', meta.get('id', '?'))}' would overwrite "
+                f"existing files: {shown}{more}"
+            )
+
+    written = 0
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for info in zf.infolist():
+            if info.is_dir() or _is_archive_junk(info.filename):
+                continue
+            target = (project / info.filename).resolve()
+            # Zip-slip guard: an entry with `..` or an absolute path must not be
+            # able to write outside the project the user asked to install into.
+            if not target.is_relative_to(project):
+                raise ValueError(
+                    f"template entry '{info.filename}' escapes the project directory"
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info) as src, open(target, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            written += 1
+
+    name = meta.get("name", zip_path.stem)
+    return f"template '{name}' installed into {project} ({written} files)"
+
+
+def install_asset(
+    meta: dict,
+    project_path: str,
+    replace: bool = False,
+    overwrite: bool = False,
+) -> str:
+    """Extract an asset into project_path and return a summary.
+
+    Skills land in `<project>/.opalatex/skills/<name>/`; with *replace*, the
+    existing project-local copy is deleted first, so files dropped from the asset
+    since the last install do not survive the update. Plain extraction only
+    overwrites the entries the zip still carries.
+
+    Templates are unpacked at the project root. Because that can clobber the
+    user's own files, an install that would overwrite anything raises
+    FileExistsError unless *overwrite* is set.
     """
     zip_path: Path = meta["_zip"]
     if not zip_path.exists():
@@ -182,11 +355,14 @@ def install_asset(meta: dict, project_path: str, replace: bool = False) -> str:
         verb = "updated" if replaced else "installed"
         return f"skill '{skill_name}' {verb} at {dest / skill_name}"
 
+    if asset_type == "template":
+        return _extract_template(meta, project_path, overwrite=overwrite or replace)
+
     raise ValueError(f"Unknown asset type '{asset_type}'")
 
 
 def register_asset(asset_type: str, source_path: str, metadata: dict) -> Path:
-    """Package a local skill directory as an asset and register it in the store."""
+    """Package a local directory as an asset and register it in the store."""
     if asset_type not in VALID_TYPES:
         raise ValueError(f"type must be one of {VALID_TYPES}")
 
@@ -198,7 +374,7 @@ def register_asset(asset_type: str, source_path: str, metadata: dict) -> Path:
     store_dir.mkdir(parents=True, exist_ok=True)
 
     zip_path = store_dir / f"{asset_id}.zip"
-    meta_path = store_dir / f"{asset_id}.metadata"
+    meta_path = store_dir / f"{asset_id}{_META_SUFFIXES[asset_type][0]}"
 
     source = Path(source_path)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:

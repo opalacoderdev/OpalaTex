@@ -1,4 +1,4 @@
-"""Tests for refreshing project-local skill copies (Skills Store update button).
+"""Tests for refreshing project-local skill copies (Asset Store update button).
 
 A skill installed into `<project>/.opalatex/skills/<name>/` shadows the bundled
 copy of the same name, so it silently stops receiving updates. These cover the

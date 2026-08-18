@@ -275,7 +275,7 @@ def level1_metadata(skills: list[dict]) -> str:
 def local_skill_dir(skill_name: str, project_path: str) -> str | None:
     """Return `<project>/.opalatex/skills/<skill_name>` when that copy exists.
 
-    This is the copy the Skills Store installs, and the one that shadows every
+    This is the copy the Asset Store installs, and the one that shadows every
     other search dir (see `skill_search_dirs`).
     """
     if not project_path or not skill_name:

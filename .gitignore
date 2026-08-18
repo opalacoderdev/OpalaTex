@@ -31,6 +31,10 @@ __pycache__/
 
 # --- Archive and Release Artifacts ---
 *.zip
+# ...except the Asset Store catalog: skill and template packages are shipped
+# content, not build output, so they have to stay in the repository.
+!opalatex/assetstore/**/*.zip
+!templates/*.zip
 *.tar.gz
 *.7z
 *.rar

@@ -3871,22 +3871,36 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
-        # 7h3. Skills Store Endpoints
+        # 7h3. Asset Store Endpoints
         elif path == '/api/assets' and method == 'GET':
-            from opalatex.assetstore import list_assets, resolve_asset_icon_path, VALID_TYPES
+            from opalatex.assetstore import (
+                list_assets, resolve_asset_icon_path, template_conflicts,
+                template_is_installed, VALID_TYPES,
+            )
             asset_type = query.get('type', [None])[0]
+            project_path = query.get('projectPath', [''])[0]
             if asset_type and asset_type not in VALID_TYPES:
                 self.send_response(writer, 400, b'{"error":"invalid type"}', "application/json")
                 return
             try:
                 assets = list_assets(asset_type)
-                result = [{
-                    "id": a.get("id", ""),
-                    "type": a.get("type", ""),
-                    "name": a.get("name", a.get("id", "")),
-                    "desc": a.get("desc", ""),
-                    "hasIcon": resolve_asset_icon_path(a) is not None,
-                } for a in assets]
+                result = []
+                for a in assets:
+                    entry = {
+                        "id": a.get("id", ""),
+                        "type": a.get("type", ""),
+                        "name": a.get("name", a.get("id", "")),
+                        "desc": a.get("desc", ""),
+                        "version": a.get("version", ""),
+                        "hasIcon": resolve_asset_icon_path(a) is not None,
+                    }
+                    if a.get("type") == "template" and project_path:
+                        # Templates unpack at the project root, so the store has
+                        # to say up front which files an install would overwrite.
+                        conflicts = template_conflicts(a, project_path)
+                        entry["installed"] = template_is_installed(a, project_path)
+                        entry["conflicts"] = sorted(conflicts)
+                    result.append(entry)
                 self.send_response(writer, 200, json.dumps({"assets": result}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
@@ -3897,7 +3911,7 @@ class AsyncHTTPServer:
             if not asset_id:
                 self.send_response(writer, 400, b'{"error":"id is required"}', "application/json")
                 return
-            match = next((a for a in list_assets('skill') if a.get('id') == asset_id), None)
+            match = next((a for a in list_assets() if a.get('id') == asset_id), None)
             icon_path = resolve_asset_icon_path(match) if match else None
             if not icon_path:
                 self.send_response(writer, 404, b'{"error":"icon not found"}', "application/json")
@@ -3912,18 +3926,36 @@ class AsyncHTTPServer:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
         elif path == '/api/assets/install' and method == 'POST':
-            from opalatex.assetstore import list_assets, install_asset
+            from opalatex.assetstore import list_assets, install_asset, template_conflicts
             from opalatex.skills import read_skills_yaml, write_skills_yaml, MANDATORY_SKILLS
             asset_id = data.get('id')
+            asset_type = data.get('type')
             project_path = data.get('projectPath') or data.get('project_path')
+            overwrite = bool(data.get('overwrite'))
             if not asset_id or not project_path:
                 self.send_response(writer, 400, b'{"error":"id and projectPath are required"}', "application/json")
                 return
-            match = next((a for a in list_assets('skill') if a.get('id') == asset_id), None)
+            match = next((
+                a for a in list_assets(asset_type)
+                if a.get('id') == asset_id and (not asset_type or a.get('type') == asset_type)
+            ), None)
             if not match:
                 self.send_response(writer, 404, b'{"error":"asset not found"}', "application/json")
                 return
             try:
+                if match.get('type') == 'template':
+                    conflicts = template_conflicts(match, project_path)
+                    if conflicts and not overwrite:
+                        # Refuse rather than clobber: the caller has to ask for
+                        # the overwrite once it knows what it would replace.
+                        self.send_response(writer, 409, json.dumps({
+                            "error": "template files already exist in the project",
+                            "conflicts": sorted(conflicts),
+                        }).encode('utf-8'), "application/json")
+                        return
+                    summary = install_asset(match, project_path, overwrite=overwrite)
+                    self.send_response(writer, 200, json.dumps({"success": True, "message": summary}).encode('utf-8'), "application/json")
+                    return
                 summary = install_asset(match, project_path)
                 skill_name = match.get('name', asset_id)
                 declared = read_skills_yaml(project_path) or []

@@ -11,7 +11,7 @@ export default function ActivityBar({
   gitChangesCount,
   onOpenSettings,
   onOpenHardware,
-  onOpenSkillsStore,
+  onOpenAssetStore,
   onOpenTutorial,
   layoutMode,
   setLayoutMode,
@@ -130,9 +130,9 @@ export default function ActivityBar({
         </button>
 
         <button
-          onClick={onOpenSkillsStore}
+          onClick={onOpenAssetStore}
           className="vscode-activitybar-btn"
-          title={t('activityBar.skillsStore', 'Skills Store')}
+          title={t('activityBar.assetStore', 'Asset Store')}
         >
           <Store size={20} />
         </button>
