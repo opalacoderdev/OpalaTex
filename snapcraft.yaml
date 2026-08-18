@@ -152,6 +152,7 @@ parts:
       python3 -m venv --copies "$CRAFT_PART_INSTALL"
       "$CRAFT_PART_INSTALL/bin/python" -m pip install --upgrade pip setuptools wheel
       "$CRAFT_PART_INSTALL/bin/python" -m pip install .
+      "$CRAFT_PART_INSTALL/bin/python" -c "from opalatex.assetstore import list_assets; assets = list_assets('template'); assert len(assets) > 0, 'No templates found in assetstore'"
 
       mkdir -p "$CRAFT_PART_INSTALL/bin"
       curl -L "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz" -o tectonic.tar.gz

@@ -990,10 +990,13 @@ export default function App() {
 
   // Global keyboard shortcuts (Ctrl+S, Ctrl+J, Ctrl+/- zoom)
   useEffect(() => {
+    // Match the physical key alongside the character. `e.key` is resolved by the
+    // platform's keyboard/compose layer, which is not always available in a
+    // packaged runtime; `e.code` names the physical key and stays correct there.
     const handleKeyDown = (e) => {
       const isCtrl = e.ctrlKey || e.metaKey;
-      if (isCtrl && e.key === 's') { e.preventDefault(); saveFileRef.current?.(); }
-      else if (isCtrl && e.key === 'j') {
+      if (isCtrl && (e.key === 's' || e.code === 'KeyS')) { e.preventDefault(); saveFileRef.current?.(); }
+      else if (isCtrl && (e.key === 'j' || e.code === 'KeyJ')) {
         e.preventDefault();
         if (isBottomMaximized) {
           setIsBottomMaximized(false);
@@ -3018,11 +3021,18 @@ export default function App() {
       } else if (isCtrl && (ev.key === '-' || ev.code === 'Minus' || ev.code === 'NumpadSubtract')) {
         ev.preventDefault(); ev.stopPropagation();
         setEditorFontSize(prev => { const v = Math.max(10, prev - 1); safeSetLocalStorage('editorFontSize', v); return v; });
-      } else if (isCtrl && ev.key === 's') {
-        ev.preventDefault(); ev.stopPropagation();
-        if (saveFileRef.current) saveFileRef.current();
       }
     });
+
+    // Ctrl+S is registered as a Monaco command rather than matched on
+    // browserEvent.key: the keybinding service resolves the physical key, so the
+    // shortcut survives runtimes where the character cannot be resolved. This is
+    // how every other editor shortcut (Ctrl+J, Ctrl+F, Ctrl+L) is already bound.
+    if (monaco) {
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+        saveFileRef.current?.();
+      });
+    }
   };
 
   // ── Inline submit — called by InlinePromptOverlay ─────────────────────────

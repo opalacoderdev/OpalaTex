@@ -154,6 +154,46 @@ def test_bundled_example_template_is_visible_in_the_repo_store():
     assert "template-sibgrapi-2024" in ids
 
 
+def test_package_store_templates_are_discovered_when_repo_root_absent(tmp_path, monkeypatch):
+    """When running from a package where repo root templates/ is missing, templates under _STORE_ROOT/templates load."""
+    import opalatex.assetstore as store
+
+    pkg_templates_dir = tmp_path / "opalatex" / "assetstore" / "templates"
+    pkg_templates_dir.mkdir(parents=True)
+    monkeypatch.setattr(store, "_STORE_ROOT", tmp_path / "opalatex" / "assetstore")
+    monkeypatch.setattr(store, "_REPO_ROOT", tmp_path / "site-packages")
+
+    (pkg_templates_dir / "packaged-template.yaml").write_text(SIDECAR, encoding="utf-8")
+    _write_zip(pkg_templates_dir / "packaged-template.zip", {
+        "packaged-template/main.tex": "\\documentclass{article}\n",
+    })
+
+    assets = list_assets("template")
+    assert any(a["id"] == "packaged-template" for a in assets)
+
+
+def test_pyproject_force_includes_templates():
+    """pyproject.toml must force-include the templates directory into the wheel."""
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib  # type: ignore
+
+    pyproject_path = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+    force_include = (
+        data.get("tool", {})
+        .get("hatch", {})
+        .get("build", {})
+        .get("targets", {})
+        .get("wheel", {})
+        .get("force-include", {})
+    )
+    assert "templates" in force_include
+    assert force_include["templates"] == "opalatex/assetstore/templates"
+
+
 # ---------------------------------------------------------------------------
 # Asset Store endpoints
 # ---------------------------------------------------------------------------

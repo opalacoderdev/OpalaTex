@@ -59,3 +59,4 @@ packages = ["opalatex", "agenticblocks"]
 [tool.hatch.build.targets.wheel.force-include]
 "config.yaml" = "opalatex/config.yaml"
 "skills" = "opalatex/skills"
+"templates" = "opalatex/assetstore/templates"
