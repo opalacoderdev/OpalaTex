@@ -533,7 +533,7 @@ def resolve_runtime_model_id(model_id: str | None) -> str:
 def _ollama_runtime_variants(runtime_model: str) -> List[str]:
     """Return the catalog identifiers a runtime Ollama model id may come from.
 
-    ``config.resolve_model_for_thinking`` rewrites ``ollama/<name>`` to
+    ``config.resolve_model_route`` rewrites ``ollama/<name>`` to
     ``ollama_chat/<name>`` when thinking is requested, so a runtime id served
     by the native chat endpoint can originate from an ``ollama/`` catalog
     entry. The rewrite is one-way, hence only that direction is considered.

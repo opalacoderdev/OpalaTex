@@ -494,7 +494,7 @@ def test_migration_backfills_connection_id_and_preserves_model_ids(tmp_path, mon
 def test_get_model_by_runtime_id_resolves_thinking_remapped_ollama_model(tmp_path, monkeypatch):
     """A thinking-enabled ollama/ entry keeps its capabilities as ollama_chat/.
 
-    `config.resolve_model_for_thinking` rewrites the provider prefix before the
+    `config.resolve_model_route` rewrites the provider prefix before the
     agent is built, so every capability lookup downstream sees the runtime id.
     """
     store_path = tmp_path / "models.json"

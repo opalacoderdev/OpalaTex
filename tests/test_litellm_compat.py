@@ -708,7 +708,7 @@ def test_wrap_agent_litellm_compat_merges_system_messages_for_thinking_remapped_
     catalog entry is stored as `ollama/`.
     """
     from opalatex import models_store
-    from opalatex.config import resolve_model_for_thinking
+    from opalatex.config import resolve_model_route
     from opalatex.litellm_compat import wrap_agent_litellm_compat
 
     monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", tmp_path / "models.json")
@@ -729,7 +729,7 @@ def test_wrap_agent_litellm_compat_merges_system_messages_for_thinking_remapped_
         },
     ])
 
-    runtime_model = resolve_model_for_thinking("ollama/qwen3.8:latest", {"think": True})
+    runtime_model = resolve_model_route("ollama/qwen3.8:latest", {"think": True})
     assert runtime_model == "ollama_chat/qwen3.8:latest"
 
     calls = {}

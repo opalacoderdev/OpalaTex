@@ -481,8 +481,8 @@ def build_run_skill_tool(
                         body_for_profile = profiled_parent["body"] + "\n\n" + body_for_profile
                 meta["body"] = body_for_profile
 
-        from .config import resolve_model_for_thinking
-        model = resolve_model_for_thinking(model, worker_kwargs)
+        from .config import resolve_model_route
+        model = resolve_model_route(model, worker_kwargs)
         
         # Strip /v1 from the end because Ollama native providers expect the root URL
         if worker_kwargs.get("api_base"):
@@ -492,17 +492,9 @@ def build_run_skill_tool(
                 elif worker_kwargs["api_base"].endswith("/v1/"):
                     worker_kwargs["api_base"] = worker_kwargs["api_base"][:-4]
 
-        is_local_ollama = (
-            model.startswith("ollama")
-            or model.startswith("ollama_chat")
-            or "local" in model
+        native_tool_instruction = (
+            _NATIVE_TOOL_CALL_REMINDER if _needs_native_tool_call_reminder(model) else ""
         )
-        native_tool_instruction = ""
-        if is_local_ollama:
-            native_tool_instruction = (
-                "\nUse the provider-native tool-calling protocol for actions. Never write a "
-                "tool call, its arguments, or an action request as JSON or Markdown text."
-            )
 
         system = (
             worker_profile_spec["worker_intro"](skill_name)
@@ -891,6 +883,30 @@ def seed_chat_orchestrator_history(memgpt: MemGPTAgentBlock, project) -> None:
         memgpt.internal_history.append({"role": role, "content": content})
 
 
+_NATIVE_TOOL_CALL_REMINDER = (
+    "\nUse the provider-native tool-calling protocol for actions. Never write a "
+    "tool call, its arguments, or an action request as JSON or Markdown text."
+)
+
+
+def _needs_native_tool_call_reminder(model: str) -> bool:
+    """True for models served through Ollama, which need the protocol spelled out.
+
+    Ollama-served models are the ones observed printing a tool call as text
+    instead of issuing it, and LiteLLM's OpenAI-compatible `ollama/` route (the
+    one a model without thinking enabled lands on) is where it happens most.
+    Both the orchestrator and skill workers use this: the reminder used to exist
+    for workers only, which left the agent that talks to the user -- and whose
+    serialized output goes straight to the screen -- as the only one without it.
+    """
+    model = str(model or "")
+    return (
+        model.startswith("ollama")
+        or model.startswith("ollama_chat")
+        or "local" in model
+    )
+
+
 def _orchestrator_body_variant(skill_dir: str, profile: str, policy: str) -> str:
     """Pick which `SKILL.<variant>.md` body the orchestrator should load.
 
@@ -1080,12 +1096,21 @@ def chat_orchestrator_system_prompt(project, store=None) -> str:
             "and answering questions still work normally.\n"
         )
 
+    # The orchestrator's own model decides this, not the worker's: an Ollama-served
+    # orchestrator that prints a tool call as text sends that JSON straight to the
+    # user, since nothing downstream can turn it back into an action.
+    native_tool_block = (
+        _NATIVE_TOOL_CALL_REMINDER + "\n"
+        if _needs_native_tool_call_reminder(model) else ""
+    )
+
     system_prompt = (
         f"{_current_date_instruction()}\n\n"
         f"{body}\n\n"
         f"{project_block}\n"
         f"## Available skills (call run_skill with the skill name)\n{metadata}\n"
         f"{blocked_block}"
+        f"{native_tool_block}"
         f"{tutorial_block}"
     )
     return system_prompt
@@ -1171,9 +1196,10 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         from .tools import update_achievements_memory
         orchestrator_tools.append(wrap_tool(update_achievements_memory))
 
-    from .config import resolve_model_for_thinking, resolve_effective_num_ctx
-    model = resolve_model_for_thinking(model, _llm_kwargs)
-    
+    from .config import resolve_model_route, resolve_effective_num_ctx
+    model = resolve_model_route(model, _llm_kwargs)
+
+
     # Strip /v1 from the end because Ollama native providers expect the root URL
     if _llm_kwargs.get("api_base"):
         if model.startswith("ollama/") or model.startswith("ollama_chat/"):

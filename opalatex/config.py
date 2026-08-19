@@ -210,6 +210,105 @@ _LITELLM_TRANSPORT_FIELDS = {
     "parallel_tool_calls",
 }
 
+# The allow-list for values a project may store in model_params/worker_model_params.
+# A key absent here is dropped on save, so every user-facing project setting must
+# appear -- `empty_response_reasoning_fallback` was missing and its checkbox in the
+# project modals therefore never persisted. Lives here rather than in ide_server so
+# the agent subprocess can sanitize its own writes without importing the web server.
+_MODEL_PARAMS_SCHEMA = {
+    "temperature": {"type": float, "min": 0.0, "max": 2.0},
+    "max_tokens": {"type": int, "min": 1},
+    "num_ctx": {"type": int, "min": 1},
+    "seed": {"type": int, "min": 0},
+    "top_p": {"type": float, "min": 0.0, "max": 1.0},
+    "frequency_penalty": {"type": float, "min": -2.0, "max": 2.0},
+    "presence_penalty": {"type": float, "min": -2.0, "max": 2.0},
+    "top_k": {"type": int, "min": 1},
+    "min_p": {"type": float, "min": 0.0, "max": 1.0},
+    "repetition_penalty": {"type": float, "min": 0.0},
+    "think": {"type": bool},
+    "stream": {"type": bool},
+    "reasoning_effort": {"type": str, "choices": ["none", "low", "medium", "high", "xhigh"]},
+    # Vision / attachment settings
+    "force_vision": {"type": bool},
+    "pdf_truncate": {"type": bool},
+    "pdf_truncate_pct": {"type": int, "min": 1, "max": 100},
+    # Agent / MemGPT settings
+    "max_heartbeats": {"type": int, "min": 1},
+    "max_context_tokens": {"type": int, "min": 1},
+    "eviction_threshold": {"type": float, "min": 0.0, "max": 1.0},
+    "memory_pressure_threshold": {"type": float, "min": 0.0, "max": 1.0},
+    "max_iterations": {"type": int, "min": 1},
+    "max_tool_calls": {"type": int, "min": 1},
+    "loop_detection": {"type": bool},
+    "loop_detection_limit": {"type": int, "min": 1},
+    "response_mode": {"type": str, "choices": ["last", "all"]},
+    "debug": {"type": bool},
+    "empty_response_reasoning_fallback": {"type": bool},
+}
+
+def sanitize_model_params(params: dict) -> dict:
+    """Sanitize and validate model_params to prevent invalid inputs breaking Ollama/LiteLLM."""
+    if not isinstance(params, dict):
+        return {}
+    
+    sanitized = {}
+    for k, v in params.items():
+        if k not in _MODEL_PARAMS_SCHEMA:
+            continue
+            
+        if v is None or v == "":
+            continue
+            
+        spec = _MODEL_PARAMS_SCHEMA[k]
+        t = spec["type"]
+        
+        # Parse string representation
+        if isinstance(v, str):
+            v_str = v.strip()
+            if t is bool:
+                v = v_str.lower() in ("true", "1", "yes", "on", "checked")
+            elif t is float:
+                v_str = v_str.replace(",", ".")
+                try:
+                    v = float(v_str)
+                except ValueError:
+                    continue
+            elif t is int:
+                try:
+                    v = int(v_str)
+                except ValueError:
+                    continue
+            elif t is str:
+                v = v_str
+        
+        # Coerce types
+        try:
+            if t is float:
+                v = float(v)
+            elif t is int:
+                v = int(v)
+            elif t is bool:
+                v = bool(v)
+            elif t is str:
+                v = str(v)
+                if "choices" in spec and v not in spec["choices"]:
+                    continue
+        except (ValueError, TypeError):
+            continue
+            
+        # Clamp bounds
+        if t in (float, int):
+            if "min" in spec and v < spec["min"]:
+                v = spec["min"]
+            if "max" in spec and v > spec["max"]:
+                v = spec["max"]
+                
+        sanitized[k] = v
+        
+    return sanitized
+
+
 # Agent constructor params that can be overridden per-project via model_params.
 _AGENT_PARAM_KEYS = _NON_LITELLM_FIELDS - {"model", "strategy"}
 
@@ -822,17 +921,30 @@ def _strip_gemini3_sampling_params(cleaned: dict) -> None:
         cleaned.pop(field, None)
 
 
-def resolve_model_for_thinking(model: str, llm_kwargs: dict) -> str:
-    """Remap ollama/ → ollama_chat/ when think=True is requested.
+def resolve_model_route(model: str, llm_kwargs: dict) -> str:
+    """Resolve the runtime model id and route Ollama models to the native endpoint.
 
-    The ollama_chat/ provider uses Ollama's native /api/chat endpoint which
-    returns reasoning as a dedicated 'thinking' field per streaming chunk.
-    LiteLLM maps this to delta.reasoning_content, enabling real-time thinking
-    display via on_thinking per chunk.
+    Two independent jobs, and keeping them independent is the point:
 
-    The ollama/ provider uses the OpenAI-compatible endpoint where reasoning
-    appears as <think> tags inside delta.content — not in reasoning_content —
-    so per-chunk on_thinking never fires.
+    - **Thinking capability**: `think`/`reasoning_effort` are dropped when the
+      model's catalog entry does not declare thinking support, so a model never
+      receives a parameter it cannot handle.
+    - **Transport**: `ollama/` is remapped to `ollama_chat/` *unconditionally*.
+      `ollama_chat/` is Ollama's native `/api/chat` endpoint: it returns
+      reasoning as a dedicated `thinking` field per streaming chunk (LiteLLM maps
+      it to `delta.reasoning_content`, which is what drives per-chunk
+      `on_thinking`), and it carries tool calls in the native `tool_calls` field.
+      `ollama/` is the OpenAI-compatible endpoint, where reasoning only appears
+      as `<think>` tags inside `delta.content` and tool calling is markedly less
+      reliable.
+
+    This routing used to be conditional on thinking actually being requested,
+    which quietly coupled a *reasoning preference* to a *transport choice*:
+    unchecking "thinking" for a project dropped its orchestrator onto the weaker
+    endpoint, where a perfectly capable model (observed with
+    `ollama/glm-5.2:cloud`) would print `{"name": …, "arguments": …}` as text
+    instead of issuing a tool call, so nothing executed. Turning reasoning off
+    must never cost the agent its ability to call tools.
     """
     selected_model = model
     from opalatex.models_store import resolve_runtime_model_id
@@ -841,7 +953,7 @@ def resolve_model_for_thinking(model: str, llm_kwargs: dict) -> str:
     if not model_supports_thinking(selected_model):
         llm_kwargs.pop("think", None)
         llm_kwargs.pop("reasoning_effort", None)
-    if model.startswith("ollama/") and (llm_kwargs.get("think") or llm_kwargs.get("reasoning_effort")):
+    if model.startswith("ollama/"):
         return "ollama_chat/" + model[len("ollama/"):]
     return model
 

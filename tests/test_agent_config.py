@@ -132,23 +132,64 @@ def test_normalize_ollama_api_base_for_litellm_strips_v1_suffix():
     ) == "http://example.test/v1"
 
 
-def test_resolve_model_for_thinking_requires_model_capability():
-    from opalatex.config import resolve_model_for_thinking
+def test_resolve_model_route_requires_model_capability():
+    """Thinking kwargs are dropped for a model that does not declare support."""
+    from opalatex.config import resolve_model_route
     from unittest.mock import patch
 
     kwargs = {"think": True}
     with patch("opalatex.models_store.get_model", return_value={"supports_thinking": False}):
-        model = resolve_model_for_thinking("ollama/mistral-large-3:675b-cloud", kwargs)
+        model = resolve_model_route("ollama/mistral-large-3:675b-cloud", kwargs)
 
-    assert model == "ollama/mistral-large-3:675b-cloud"
     assert "think" not in kwargs
 
     supported_kwargs = {"think": True}
     with patch("opalatex.models_store.get_model", return_value={"supports_thinking": True}):
-        supported_model = resolve_model_for_thinking("ollama/gemma4:12b", supported_kwargs)
+        supported_model = resolve_model_route("ollama/gemma4:12b", supported_kwargs)
 
     assert supported_model == "ollama_chat/gemma4:12b"
     assert supported_kwargs["think"] is True
+
+
+def test_ollama_reaches_the_native_route_even_with_thinking_off():
+    """Turning reasoning off must not cost the agent its tool calling.
+
+    Routing used to be conditional on thinking being requested, which coupled a
+    reasoning preference to a transport choice: unchecking thinking dropped the
+    orchestrator onto Ollama's OpenAI-compatible endpoint, where a capable model
+    (observed with `ollama/glm-5.2:cloud`) printed `{"name": ..., "arguments": ...}`
+    as text instead of issuing a tool call, so nothing ran.
+    """
+    from opalatex.config import resolve_model_route
+    from unittest.mock import patch
+
+    for kwargs in ({}, {"think": False}, {"think": False, "reasoning_effort": None}):
+        with patch("opalatex.models_store.get_model", return_value={"supports_thinking": True}):
+            assert resolve_model_route("ollama/glm-5.2:cloud", dict(kwargs)) == (
+                "ollama_chat/glm-5.2:cloud"
+            ), f"thinking-off kwargs {kwargs} must still use the native route"
+
+
+def test_a_model_without_thinking_support_still_uses_the_native_route():
+    """The transport is not a reward for declaring thinking support."""
+    from opalatex.config import resolve_model_route
+    from unittest.mock import patch
+
+    kwargs = {"think": True}
+    with patch("opalatex.models_store.get_model", return_value={"supports_thinking": False}):
+        model = resolve_model_route("ollama/plain:latest", kwargs)
+
+    assert model == "ollama_chat/plain:latest"
+    assert "think" not in kwargs, "the unsupported parameter is still dropped"
+
+
+def test_non_ollama_providers_are_never_rewritten():
+    from opalatex.config import resolve_model_route
+    from unittest.mock import patch
+
+    with patch("opalatex.models_store.get_model", return_value={"supports_thinking": True}):
+        assert resolve_model_route("gemini/gemini-3.7-flash", {}) == "gemini/gemini-3.7-flash"
+        assert resolve_model_route("ollama_chat/gemma4:26b", {}) == "ollama_chat/gemma4:26b"
 
 
 def test_internal_attachment_flags_are_not_sent_to_litellm():

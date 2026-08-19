@@ -486,7 +486,7 @@ def test_run_skill_worker_disables_shared_router(tmp_path, monkeypatch):
     result = asyncio.run(raw("command-line", "inspect the project"))
 
     assert "done" in result
-    assert captured["model"] == "ollama/gemma4:26b"
+    assert captured["model"] == "ollama_chat/gemma4:26b"
     assert captured["use_shared_router"] is False
     assert "search_code" in {getattr(tool, "name", None) for tool in captured["tools"]}
 

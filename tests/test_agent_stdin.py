@@ -481,7 +481,9 @@ async def test_handle_run_inline_normalizes_remote_ollama_api_base(monkeypatch):
         },
     })
 
-    assert captured["model"] == "ollama/gpt-oss:20b"
+    # Ollama models always run on the native chat route now, independently of
+    # thinking (see test_agent_config.py); this test is about the api_base below.
+    assert captured["model"] == "ollama_chat/gpt-oss:20b"
     assert captured["model_kwargs"]["api_base"] == "http://100.85.255.111:11434"
     assert events == [("agent_response", {"response": "ok"})]
     assert captured["tools"] == []
@@ -1303,3 +1305,36 @@ def test_inline_scope_rejects_full_document_for_selected_replacement():
 
     with pytest.raises(RuntimeError, match="surrounding document context"):
         _validate_inline_replacement_scope(replacement, source, "selected paragraph")
+
+
+def test_handle_create_project_reports_a_taken_folder_without_crashing(tmp_path, monkeypatch):
+    """The duplicate-folder branch used to raise NameError instead of reporting.
+
+    `handle_create_project` called the i18n `_` without importing it, so the one
+    path that tells the user a folder is already taken died with NameError and
+    the real message never reached them.
+    """
+    import asyncio
+
+    import opalatex.agent_stdin as stdin_mod
+
+    events = []
+    monkeypatch.setattr(stdin_mod, "print_event", lambda ev, data: events.append((ev, data)))
+
+    db = tmp_path / "store.sqlite3"
+    project_dir = tmp_path / "shared_folder"
+    project_dir.mkdir()
+
+    payload = {
+        "db": str(db),
+        "project_name": "first",
+        "project_path": str(project_dir),
+    }
+    asyncio.run(stdin_mod.handle_create_project(dict(payload)))
+
+    events.clear()
+    asyncio.run(stdin_mod.handle_create_project({**payload, "project_name": "second"}))
+
+    errors = [d for ev, d in events if ev == "error"]
+    assert errors, f"expected an error event, got {events}"
+    assert "first" in errors[0]["message"]

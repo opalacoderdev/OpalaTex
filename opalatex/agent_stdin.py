@@ -60,6 +60,10 @@ event_hook = None
 _LAST_WORKER_MESSAGES: list[str] = []
 _LAST_INTERMEDIATE_AGENT_RESPONSE = ""
 EMPTY_RESPONSE_MAX_CORRECTION_ATTEMPTS = 2
+# Bounded like the empty-response breaker above: a model that cannot issue native
+# tool calls on the current route will not learn to mid-turn, so retrying past this
+# only burns tokens before the same failure.
+SERIALIZED_TOOL_CALL_MAX_CORRECTION_ATTEMPTS = 2
 _ACTIVE_THOUGHT_CHUNKS: list[str] | None = None
 _ACTIVE_THOUGHT_CHARS = 0
 _ACTIVE_THOUGHT_SUPPRESSED = False
@@ -621,6 +625,99 @@ def _empty_response_failure_message() -> str:
     return _("empty_response_unresolved_error")
 
 
+_FENCED_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
+
+
+def _has_unfenced_tool_call_payload(response: str) -> bool:
+    """True when tool-call JSON appears outside every fenced code block.
+
+    A model that *shows* JSON to the user fences it; a model that failed to issue
+    a native tool call prints it raw. Scanning only the unfenced text is what
+    keeps a legitimate "give me a JSON example" answer deliverable, because the
+    payload detector matches any object carrying `name` plus `arguments` and that
+    shape occurs in real data too.
+    """
+    from opalatex.memgpt_runtime import _strip_serialized_tool_calls
+
+    unfenced = _FENCED_BLOCK_RE.sub(" ", str(response or ""))
+    _, had_payload = _strip_serialized_tool_calls(unfenced)
+    return had_payload
+
+
+def _serialized_tool_call_retry_prompt() -> str:
+    """Build the corrective prompt for a tool call written as text."""
+    from opalatex.i18n import _
+
+    return _("serialized_tool_call_nudge")
+
+
+def _serialized_tool_call_failure_message() -> str:
+    """Return the localized hard failure for an unrecoverable serialized call."""
+    from opalatex.i18n import _
+
+    return _("serialized_tool_call_unresolved_error")
+
+
+def _report_rejected_serialized_response(response: str, limit: int = 400) -> None:
+    """Send the rejected text to the Problems panel, not to the chat.
+
+    Without this the response is discarded with no trace, leaving no way to tell
+    a model that really printed a tool call from a false positive in the
+    detector. The chat still gets the clean error; the raw payload belongs in
+    diagnostics, where it cannot be mistaken for an answer.
+    """
+    from opalatex.i18n import _
+
+    excerpt = str(response or "").strip()[:limit]
+    print_event("problem", {
+        "tool": "serialized tool call",
+        "severity": "error",
+        "message": _("serialized_tool_call_rejected_payload", n=limit, excerpt=excerpt),
+    })
+
+
+async def _correct_serialized_tool_calls(agent, response, thought_chunks, meta_overrides):
+    """Return *response*, or a corrected one when it is a tool call written as text.
+
+    A tool call printed as text executes nothing, and unlike a worker report
+    (sanitized in `memgpt_runtime`) the orchestrator's own output goes straight to
+    the user -- so the turn ends looking answered while nothing happened. Push it
+    back with a diagnostic and let the model issue the call properly.
+
+    The payload is never parsed into a real call: doing so would invent an action
+    the model never actually issued, exactly the silent substitution CLAUDE.md
+    rule 1.1 forbids. When the bounded breaker is spent, this raises instead of
+    handing the user raw JSON that implies work nobody did.
+    """
+    from opalatex.i18n import _
+
+    attempts = 0
+    while (
+        response
+        and _has_unfenced_tool_call_payload(response)
+        and attempts < SERIALIZED_TOOL_CALL_MAX_CORRECTION_ATTEMPTS
+    ):
+        attempts += 1
+        print_event("info", {"message": _("serialized_tool_call_retry_info")})
+        nudge = _serialized_tool_call_retry_prompt()
+        # System role, not user: this is runtime feedback, not something the user
+        # typed (PROJECT_DESIGN 2.6). Agents with no conversation history reject a
+        # non-user role, so they keep the default.
+        retry_input = (
+            AgentInput(prompt=nudge, role="system")
+            if hasattr(agent, "internal_history")
+            else AgentInput(prompt=nudge)
+        )
+        with apply_meta_params(agent, meta_overrides):
+            resp_obj = await agent.run(retry_input)
+        response = _sanitize_model_response(resp_obj.response or "", thought_chunks)
+
+    if response and _has_unfenced_tool_call_payload(response):
+        _report_rejected_serialized_response(response)
+        raise RuntimeError(_serialized_tool_call_failure_message())
+    return response
+
+
 # Panel diagnostics kept across reloads. "error" is included so a failed turn still
 # shows its error bubble after the chat is reopened: it is UI-visible state that must
 # not enter project_history, because the model must not read its own failures back as
@@ -767,7 +864,7 @@ def _recent_history_attachments(history: list, *, limit: int = 3) -> list[dict]:
                     return list(reversed(attachments))
     return list(reversed(attachments))
 
-from opalatex.config import DEFAULT_MODEL, DEFAULT_DB_PATH
+from opalatex.config import DEFAULT_MODEL, DEFAULT_DB_PATH, sanitize_model_params
 from opalatex.project import ProjectStore, ProjectData
 from opalatex.memgpt_runtime import build_chat_orchestrator
 from agenticblocks.blocks.llm.agent import AgentInput, LLMAgentBlock
@@ -961,10 +1058,13 @@ async def handle_load_project(data: dict):
         current_project.worker_api_key = data.get("worker_api_key") or ""
     if "worker_api_base" in data:
         current_project.worker_api_base = data.get("worker_api_base") or ""
+    # Sanitized here too, not only on the ide_server settings route: these IPC
+    # writes are the second door into the same stored dict, and an unguarded one
+    # is how dead keys accumulated there in the first place.
     if isinstance(data.get("model_params"), dict):
-        current_project.model_params = data["model_params"]
+        current_project.model_params = sanitize_model_params(data["model_params"])
     if isinstance(data.get("worker_model_params"), dict):
-        current_project.worker_model_params = data["worker_model_params"]
+        current_project.worker_model_params = sanitize_model_params(data["worker_model_params"])
     
     # Initialize workspace context
     set_project_context(current_project, current_store)
@@ -1411,7 +1511,7 @@ async def handle_run(data: dict):
             agent_kwargs["max_tool_calls"] = int(model_params["max_tool_calls"])
 
         from opalatex.config import (
-            resolve_model_for_thinking,
+            resolve_model_route,
             get_agent_model,
             get_agent_llm_kwargs,
             normalize_ollama_api_base_for_litellm,
@@ -1426,7 +1526,7 @@ async def handle_run(data: dict):
         _global_kwargs = get_agent_llm_kwargs(_agent_name)
         _global_kwargs.update(model_kwargs)
         _global_kwargs = _apply_model_thinking_capability(_model, _global_kwargs)
-        _model = resolve_model_for_thinking(_model, _global_kwargs)
+        _model = resolve_model_route(_model, _global_kwargs)
         model_kwargs = sanitize_litellm_kwargs_for_model(_model, _global_kwargs)
         if model_kwargs.get("api_base"):
             model_kwargs["api_base"] = normalize_ollama_api_base_for_litellm(
@@ -1883,9 +1983,14 @@ async def handle_run(data: dict):
                         data.get("selected_text", ""),
                     )
 
+            if agent_type in ("orchestrator", "chat_orchestrator"):
+                response = await _correct_serialized_tool_calls(
+                    agent, response, thought_chunks, _meta_overrides
+                )
+
             if not response:
                 raise RuntimeError(_empty_response_failure_message())
-            
+
             persisted_response = _response_with_thought(response, thought_chunks)
             assistant_message_id = None
 
@@ -1969,9 +2074,11 @@ async def handle_list_projects(data: dict):
     print_event("projects_list", {"projects": projects})
 
 async def handle_create_project(data: dict):
+    from opalatex.i18n import _
+
     db_path = data.get("db") or DEFAULT_DB_PATH
     store = ProjectStore(db_path=db_path)
-    
+
     project_name = data.get("project_name")
     if not project_name:
         print_event("error", {"message": "project_name is required"})
@@ -2063,9 +2170,9 @@ async def handle_update_project(data: dict):
     if "worker_api_base" in data:
         project.worker_api_base = data["worker_api_base"]
     if "model_params" in data:
-        project.model_params = data["model_params"]
+        project.model_params = sanitize_model_params(data["model_params"])
     if "worker_model_params" in data:
-        project.worker_model_params = data["worker_model_params"]
+        project.worker_model_params = sanitize_model_params(data["worker_model_params"])
         
     store.save(project)
     print_event("project_updated", {

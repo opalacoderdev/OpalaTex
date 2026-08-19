@@ -1250,18 +1250,30 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* Last-resort scroll: modals that designate an inner scrolling body (a
+     `.vscode-modal-content` or a `<form>`) never overflow here, because that
+     body shrinks and scrolls first. Modals that lay their content out
+     directly (alerts, prompts, small dialogs) would otherwise have anything
+     past `max-height` clipped with no way to reach it, so the dialog itself
+     scrolls instead. Horizontal overflow stays clipped. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* A form wrapping the body must behave as the modal's flex column itself,
    otherwise its intrinsic min-height keeps it from shrinking and the header
-   or footer gets clipped by the modal's overflow: hidden. */
+   or footer gets clipped by the modal's overflow.
+   It scrolls on the Y axis so a form that holds the fields directly (with no
+   inner `.vscode-modal-content`) stays reachable once it outgrows the modal.
+   When it does wrap a `.vscode-modal-content`, that child scrolls first and
+   this stays inert. */
 .vscode-modal > form {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .vscode-modal-header {
   display: flex;

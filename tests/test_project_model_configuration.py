@@ -141,3 +141,76 @@ async def test_handle_run_accepts_project_with_configured_model(monkeypatch):
 
     assert ran, "the agent should run when the project has a configured model"
     assert not [data for event, data in events if event == "error"]
+
+
+# ── model_params allow-list ──────────────────────────────────────────────────
+
+def test_every_project_setting_the_ui_offers_survives_sanitizing():
+    """A setting absent from the schema is dropped on save, silently.
+
+    `empty_response_reasoning_fallback` is a checkbox in both project modals and
+    was missing from the allow-list, so ticking it never persisted. This guards
+    the whole set against the same drift.
+    """
+    from opalatex.config import sanitize_model_params
+
+    ui_settings = {
+        "temperature": 0.7, "max_tokens": 2048, "num_ctx": 8192, "seed": 1,
+        "top_p": 0.9, "frequency_penalty": 0.1, "presence_penalty": 0.1,
+        "top_k": 40, "min_p": 0.05, "repetition_penalty": 1.1,
+        "think": True, "stream": True, "reasoning_effort": "low",
+        "force_vision": True, "max_heartbeats": 20, "max_context_tokens": 16384,
+        "eviction_threshold": 0.85, "memory_pressure_threshold": 0.9,
+        "max_iterations": 5, "max_tool_calls": 40, "loop_detection": True,
+        "loop_detection_limit": 3, "response_mode": "last", "debug": False,
+        "empty_response_reasoning_fallback": True,
+    }
+
+    survived = sanitize_model_params(ui_settings)
+    dropped = set(ui_settings) - set(survived)
+    assert not dropped, f"settings silently dropped on save: {sorted(dropped)}"
+
+
+def test_unknown_keys_are_still_rejected():
+    """The allow-list must keep doing its job; dead keys stay out."""
+    from opalatex.config import sanitize_model_params
+
+    result = sanitize_model_params({"think": True, "tool_role_workaround": "assistant"})
+
+    assert result == {"think": True}
+
+
+def test_ipc_project_update_sanitizes_stored_params(tmp_path, monkeypatch):
+    """The IPC write path is the second door into the same stored dict.
+
+    It used to store whatever it was handed, which is how dead keys accumulated
+    in projects that the settings route would have filtered.
+    """
+    import asyncio
+
+    import opalatex.agent_stdin as stdin_mod
+    from opalatex.project import ProjectStore
+
+    monkeypatch.setattr(stdin_mod, "print_event", lambda *a, **k: None)
+
+    db = tmp_path / "store.sqlite3"
+    store = ProjectStore(db_path=str(db))
+    asyncio.run(stdin_mod.handle_create_project({
+        "db": str(db), "project_name": "p", "project_path": str(tmp_path / "p"),
+    }))
+
+    name = store.find_by_path(str(tmp_path / "p"))
+    asyncio.run(stdin_mod.handle_update_project({
+        "db": str(db),
+        "project_name": name,
+        "model_params": {
+            "think": True,
+            "empty_response_reasoning_fallback": True,
+            "tool_role_workaround": "assistant",
+        },
+    }))
+
+    saved = store.load(name).model_params
+    assert saved.get("think") is True
+    assert saved.get("empty_response_reasoning_fallback") is True
+    assert "tool_role_workaround" not in saved
