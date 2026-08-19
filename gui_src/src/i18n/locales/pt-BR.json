@@ -61,7 +61,11 @@
     "overwriteWarning": "Estes arquivos já existem e serão substituídos: {{files}}",
     "confirmOverwrite": "Substituir arquivos",
     "installFailed": "Não foi possível instalar o template.",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "installedSkillMessage": "Skill \"{{name}}\" instalada neste projeto.",
+    "installSkillFailed": "Não foi possível instalar a skill.",
+    "installedTemplateMessage": "Template \"{{name}}\" descompactado na raiz do projeto.",
+    "installedTemplateFilesMessage": "Template \"{{name}}\" descompactado na raiz do projeto ({{count}} arquivos)."
   },
   "statusBar": {
     "workspace": "Workspace: {{name}}",
@@ -761,6 +765,13 @@
       "fullHint": "O system prompt completo, com todas as instruções de segurança e exemplos. Recomendado para modelos grandes/capazes.",
       "light": "Enxuto",
       "lightHint": "Um system prompt condensado (regras essenciais + lista de ferramentas/skills apenas). Use para modelos onde um prompt mais curto economiza tokens/latência sem prejudicar a confiabilidade."
+    },
+    "orchestratorPolicyLabel": "Escrita do orquestrador",
+    "orchestratorPolicy": {
+      "direct": "Direta",
+      "directHint": "O orquestrador edita e cria arquivos ele mesmo com write_file, write_content_pos e replace_content_range. Menos idas e vindas; o conteudo do arquivo passa pelo contexto do orquestrador.",
+      "delegate": "Delegada",
+      "delegateHint": "O orquestrador apenas le, e toda alteracao de arquivo vai para um worker de skill via run_skill. Mantem escritas grandes fora do contexto do orquestrador. Exige pelo menos uma skill ativa para ser utilizavel."
     },
     "supportsThinkingLabel": "Este modelo suporta thinking/reasoning",
     "supportsThinkingHint": "Mantenha desligado, exceto se a documentação do modelo disser explicitamente que ele suporta parâmetros de thinking ou reasoning.",

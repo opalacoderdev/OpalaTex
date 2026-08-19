@@ -573,3 +573,136 @@ def test_get_model_by_runtime_id_resolves_connection_suffixed_entry(tmp_path, mo
     assert resolved is not None
     assert resolved["id"] == "ollama/qwen3.8:latest#ollama-conn"
     assert config_mod.model_requires_single_system_message("ollama/qwen3.8:latest") is True
+
+
+def test_orchestrator_policy_defaults_to_direct(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/test-model",
+            "connection_id": connection_id,
+            "name": "test-model",
+        }
+    ])
+
+    assert models_store.load_models()[0]["orchestrator_policy"] == "direct"
+
+
+def test_orchestrator_policy_round_trips_through_save_and_load(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/delegating-model",
+            "connection_id": connection_id,
+            "name": "delegating-model",
+            "orchestrator_policy": "delegate",
+        }
+    ])
+
+    assert models_store.load_models()[0]["orchestrator_policy"] == "delegate"
+
+
+def test_orchestrator_policy_rejects_unknown_value(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/weird-model",
+            "connection_id": connection_id,
+            "name": "weird-model",
+            "orchestrator_policy": "sometimes",
+        }
+    ])
+
+    assert models_store.load_models()[0]["orchestrator_policy"] == "direct"
+
+
+def test_orchestrator_policy_is_independent_of_prompt_profile(tmp_path, monkeypatch):
+    """The two axes must be storable in any combination.
+
+    "light prompt + delegate writes" is the natural setting for a small local
+    model, and folding the policy into prompt_profile would make it
+    unexpressible -- which is why it is a separate column.
+    """
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/small-local",
+            "connection_id": connection_id,
+            "name": "small-local",
+            "prompt_profile": "light",
+            "orchestrator_policy": "delegate",
+        }
+    ])
+
+    saved = models_store.load_models()[0]
+    assert saved["prompt_profile"] == "light"
+    assert saved["orchestrator_policy"] == "delegate"
+
+
+def test_orchestrator_policy_column_is_added_to_an_existing_database(tmp_path, monkeypatch):
+    """An installed catalog predating the column must migrate, not break."""
+    import sqlite3
+
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+    models_store.save_models([
+        {
+            "id": "ollama/legacy-model",
+            "connection_id": connection_id,
+            "name": "legacy-model",
+        }
+    ])
+
+    db_path = store_path.with_suffix(".sqlite3")
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(f"ALTER TABLE {models_store._MODELS_TABLE} DROP COLUMN orchestrator_policy")
+        columns = {row[1] for row in conn.execute(f"PRAGMA table_info({models_store._MODELS_TABLE})")}
+    assert "orchestrator_policy" not in columns
+
+    loaded = models_store.load_models()
+
+    assert [m["id"] for m in loaded] == ["ollama/legacy-model"]
+    assert loaded[0]["orchestrator_policy"] == "direct"
+
+
+def test_config_model_orchestrator_policy_reads_catalog_field(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+
+    models_store.save_models([
+        {
+            "id": "ollama/delegating-model",
+            "connection_id": connection_id,
+            "name": "delegating-model",
+            "orchestrator_policy": "delegate",
+        },
+        {
+            "id": "ollama/direct-model",
+            "connection_id": connection_id,
+            "name": "direct-model",
+        },
+    ])
+
+    assert config_mod.model_orchestrator_policy("ollama/delegating-model") == "delegate"
+    assert config_mod.model_orchestrator_policy("ollama/direct-model") == "direct"
+    assert config_mod.model_orchestrator_policy("ollama/unregistered-model") == "direct"

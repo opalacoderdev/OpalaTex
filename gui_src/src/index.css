@@ -1245,15 +1245,27 @@ input:focus, select:focus, textarea:focus {
   background-color: var(--vscode-sidebar-bg);
   border: 1px solid var(--vscode-border);
   width: 100%;
-  max-w: 400px;
+  max-width: 95vw;
   max-height: 85vh;
   box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
+
+/* A form wrapping the body must behave as the modal's flex column itself,
+   otherwise its intrinsic min-height keeps it from shrinking and the header
+   or footer gets clipped by the modal's overflow: hidden. */
+.vscode-modal > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
 .vscode-modal-header {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -1273,8 +1285,27 @@ input:focus, select:focus, textarea:focus {
   color: var(--vscode-text-fg);
 }
 
+/* Reserves room for the longest variant of a swappable hint so switching the
+   option it describes does not resize the modal under the pointer. */
+.vscode-form-hint {
+  display: block;
+  line-height: 1.4;
+  min-height: 3.6em;
+}
+
+/* Only the body scrolls, so the header and footer stay pinned when the
+   content grows past max-height (nested .vscode-modal-content blocks, such as
+   the inline connection form, are intentionally excluded). */
+.vscode-modal > .vscode-modal-content,
+.vscode-modal > form > .vscode-modal-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .vscode-modal-footer {
   display: flex;
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 16px;

@@ -61,7 +61,11 @@
     "overwriteWarning": "These files already exist and will be replaced: {{files}}",
     "confirmOverwrite": "Replace files",
     "installFailed": "Could not install the template.",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "installedSkillMessage": "Skill \"{{name}}\" installed in this project.",
+    "installSkillFailed": "Could not install the skill.",
+    "installedTemplateMessage": "Template \"{{name}}\" unpacked at the project root.",
+    "installedTemplateFilesMessage": "Template \"{{name}}\" unpacked at the project root ({{count}} files)."
   },
   "statusBar": {
     "workspace": "Workspace: {{name}}",
@@ -761,6 +765,13 @@
       "fullHint": "The complete system prompt, with all guardrails and examples. Recommended for large/capable models.",
       "light": "Light",
       "lightHint": "A condensed system prompt (core rules + tool/skill list only). Use for models where shorter prompts save tokens/latency without hurting reliability."
+    },
+    "orchestratorPolicyLabel": "Orchestrator writes",
+    "orchestratorPolicy": {
+      "direct": "Direct",
+      "directHint": "The orchestrator edits and creates files itself with write_file, write_content_pos and replace_content_range. Fewer round-trips; the file content passes through the orchestrator's context.",
+      "delegate": "Delegate",
+      "delegateHint": "The orchestrator only reads, and every file change goes to a skill worker via run_skill. Keeps large write payloads out of the orchestrator's context. Requires at least one active skill to be usable."
     },
     "supportsThinkingLabel": "This model supports thinking/reasoning",
     "supportsThinkingHint": "Keep this off unless the model documentation explicitly says it supports thinking or reasoning parameters.",

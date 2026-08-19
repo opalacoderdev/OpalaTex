@@ -3926,7 +3926,9 @@ class AsyncHTTPServer:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
         elif path == '/api/assets/install' and method == 'POST':
-            from opalatex.assetstore import list_assets, install_asset, template_conflicts
+            from opalatex.assetstore import (
+                list_assets, install_asset, template_conflicts, template_entries,
+            )
             from opalatex.skills import read_skills_yaml, write_skills_yaml, MANDATORY_SKILLS
             asset_id = data.get('id')
             asset_type = data.get('type')
@@ -3954,7 +3956,14 @@ class AsyncHTTPServer:
                         }).encode('utf-8'), "application/json")
                         return
                     summary = install_asset(match, project_path, overwrite=overwrite)
-                    self.send_response(writer, 200, json.dumps({"success": True, "message": summary}).encode('utf-8'), "application/json")
+                    # The file count is what the UI shows as the install
+                    # confirmation, so it has to be the entries actually written
+                    # (archive junk excluded), not the raw zip entry count.
+                    self.send_response(writer, 200, json.dumps({
+                        "success": True,
+                        "message": summary,
+                        "files": len(template_entries(match)),
+                    }).encode('utf-8'), "application/json")
                     return
                 summary = install_asset(match, project_path)
                 skill_name = match.get('name', asset_id)

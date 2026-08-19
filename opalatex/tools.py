@@ -1116,9 +1116,10 @@ def get_project_overview(max_depth:int = 5) -> str:
     name="write_content_pos",
     is_safe=False,
     description=(
-        "Insert content into a file starting at a specific line number (1-indexed). "
+        "Insert content into an EXISTING file starting at a specific line number (1-indexed). "
         "The new content will be inserted just before the specified line. "
-        "Use replace_content_range when you need to replace or remove existing lines."
+        "The file must already exist: use write_file to create a new file, and "
+        "replace_content_range when you need to replace or remove existing lines."
     )
 )
 def write_content_pos(path: str, content: str, pos: int) -> str:
@@ -1133,7 +1134,11 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
         if os.path.isdir(resolved):
             raise ValueError(f"Error: '{_preview(resolved)}' is a directory. Cannot write to a directory.")
         if not os.path.exists(resolved):
-            raise ValueError(f"Error: file not found: {_preview(resolved)}.")
+            raise ValueError(
+                f"Error: file not found: {_preview(resolved)}. write_content_pos only "
+                "inserts into a file that already exists. To create a new file, call "
+                "write_file with the full content instead."
+            )
     except OSError as e:
         raise ValueError(f"Error: invalid path argument ({e.strerror}).")
 
@@ -1141,7 +1146,7 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
         content = _decode_escape_sequences(content)
         with open(resolved, "r", encoding="utf-8", newline="") as f:
             lines = f.readlines()
-        
+
         idx = max(0, min(pos - 1, len(lines)))
         
         if content and not content.endswith('\n'):
@@ -1186,7 +1191,11 @@ def replace_content_range(path: str, start_pos: int, end_pos: int, content: str)
         if os.path.isdir(resolved):
             raise ValueError(f"Error: '{_preview(resolved)}' is a directory. Cannot write to a directory.")
         if not os.path.exists(resolved):
-            raise ValueError(f"Error: file not found: {_preview(resolved)}.")
+            raise ValueError(
+                f"Error: file not found: {_preview(resolved)}. replace_content_range only "
+                "edits a file that already exists. To create a new file, call write_file "
+                "with the full content instead."
+            )
     except OSError as e:
         raise ValueError(f"Error: invalid path argument ({e.strerror}).")
 

@@ -1549,6 +1549,13 @@ export default function App() {
     return request;
   };
 
+  // Anything that writes into the project from outside the editor (an Asset
+  // Store install, for one) has to re-read the workspace right away: otherwise
+  // the new files only show up on the next polling tick, seconds later.
+  const refreshWorkspaceFiles = async () => {
+    await Promise.all([fetchFiles(), fetchGitStatus()]);
+  };
+
   const handleSelectProject = (proj) => {
     if (proj.exists === false) {
       addLog('error', t('app.projectDirMissing', { path: proj.project_path }));
@@ -4026,7 +4033,11 @@ export default function App() {
       )}
 
       {isAssetStoreOpen && (
-        <AssetStoreModal onClose={() => setIsAssetStoreOpen(false)} projectPath={activeProject?.project_path} />
+        <AssetStoreModal
+          onClose={() => setIsAssetStoreOpen(false)}
+          projectPath={activeProject?.project_path}
+          onWorkspaceChanged={refreshWorkspaceFiles}
+        />
       )}
 
       {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}

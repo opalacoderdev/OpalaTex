@@ -36,6 +36,7 @@ export default function ModelForm({
   const [supportsThinking, setSupportsThinking] = useState(false);
   const [requiresSingleSystemMessage, setRequiresSingleSystemMessage] = useState(false);
   const [promptProfile, setPromptProfile] = useState('full');
+  const [orchestratorPolicy, setOrchestratorPolicy] = useState('direct');
   const [numCtx, setNumCtx] = useState('');
   const [error, setError] = useState('');
   const [showNewConnection, setShowNewConnection] = useState(connections.length === 0);
@@ -47,12 +48,14 @@ export default function ModelForm({
       setSupportsThinking(!!editingModel.supports_thinking);
       setRequiresSingleSystemMessage(!!editingModel.requires_single_system_message);
       setPromptProfile(editingModel.prompt_profile || 'full');
+      setOrchestratorPolicy(editingModel.orchestrator_policy || 'direct');
       setNumCtx(editingModel.num_ctx ? String(editingModel.num_ctx) : '');
       setShowNewConnection(false);
     } else {
       setSupportsThinking(false);
       setRequiresSingleSystemMessage(false);
       setPromptProfile('full');
+      setOrchestratorPolicy('direct');
       setNumCtx('');
       setShowNewConnection(connections.length === 0);
     }
@@ -141,6 +144,7 @@ export default function ModelForm({
       supports_thinking: supportsThinking,
       requires_single_system_message: requiresSingleSystemMessage,
       prompt_profile: promptProfile,
+      orchestrator_policy: orchestratorPolicy,
       num_ctx: trimmedNumCtx ? Number(trimmedNumCtx) : null,
     }, { reset });
   };
@@ -213,8 +217,36 @@ export default function ModelForm({
               </button>
             ))}
           </div>
-          <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+          <span
+            className="vscode-form-hint"
+            style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}
+          >
             {t(`modelForm.promptProfile.${promptProfile}Hint`)}
+          </span>
+        </div>
+
+        <div className="vscode-form-group">
+          <label>{t('modelForm.orchestratorPolicyLabel')}</label>
+          <div role="radiogroup" aria-label={t('modelForm.orchestratorPolicyLabel')} style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+            {['direct', 'delegate'].map(policy => (
+              <button
+                key={policy}
+                type="button"
+                role="radio"
+                aria-checked={orchestratorPolicy === policy}
+                onClick={() => setOrchestratorPolicy(policy)}
+                className={orchestratorPolicy === policy ? 'vscode-button' : 'vscode-button-secondary'}
+                style={{ flex: 1, fontWeight: orchestratorPolicy === policy ? 600 : 400 }}
+              >
+                {t(`modelForm.orchestratorPolicy.${policy}`)}
+              </button>
+            ))}
+          </div>
+          <span
+            className="vscode-form-hint"
+            style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}
+          >
+            {t(`modelForm.orchestratorPolicy.${orchestratorPolicy}Hint`)}
           </span>
         </div>
 

@@ -891,27 +891,72 @@ def seed_chat_orchestrator_history(memgpt: MemGPTAgentBlock, project) -> None:
         memgpt.internal_history.append({"role": role, "content": content})
 
 
-def _chat_orchestrator_body(project_path: str, profile: str = "full") -> str:
-    """Return the chat-orchestrator SKILL.md body for *profile*, or a minimal fallback.
+def _orchestrator_body_variant(skill_dir: str, profile: str, policy: str) -> str:
+    """Pick which `SKILL.<variant>.md` body the orchestrator should load.
 
-    *profile* selects an optional `SKILL.<profile>.md` variant next to the
-    canonical `SKILL.md` (see `opalatex/prompt_profiles.py`). The fallback text
-    below also doubles as the light profile's safety net when no
-    `SKILL.light.md` is bundled yet.
+    Two independent axes select the body: the prompt *profile* (full/light) and
+    the tool *policy* (direct/delegate). Candidates are tried most-specific
+    first and must exist on disk, so shipping only some of the combinations is
+    fine -- a missing `SKILL.light-delegate.md` falls back to
+    `SKILL.delegate.md`, whose delegation rules matter more than the
+    condensation. "full" is the canonical `SKILL.md` body and has no variant
+    file of its own.
+    """
+    candidates = []
+    if policy == "delegate":
+        candidates.append(f"{profile}-delegate")
+        candidates.append("delegate")
+    candidates.append(profile)
+    for name in candidates:
+        if name == "full":
+            return "full"
+        if os.path.isfile(os.path.join(skill_dir, f"SKILL.{name}.md")):
+            return name
+    return "full"
+
+
+def _chat_orchestrator_body(project_path: str, profile: str = "full", policy: str = "direct") -> str:
+    """Return the chat-orchestrator SKILL.md body for *profile*/*policy*, or a fallback.
+
+    *profile* and *policy* together select an optional `SKILL.<variant>.md` file
+    next to the canonical `SKILL.md` (see `_orchestrator_body_variant` and
+    `opalatex/prompt_profiles.py`). The fallback text below also doubles as the
+    light profile's safety net when no `SKILL.light.md` is bundled yet.
+
+    The delegate body is a replacement, not an appendix: the full body actively
+    instructs the orchestrator to make small edits itself, so a delegate policy
+    that merely appended an override would leave two contradictory rules in the
+    same prompt.
     """
     skill_dir = find_skill_dir(CHAT_ORCHESTRATOR_SKILL, project_path)
     if skill_dir:
-        meta = parse_skill_md(skill_dir, profile=profile)
+        variant = _orchestrator_body_variant(skill_dir, profile, policy)
+        meta = parse_skill_md(skill_dir, profile=variant)
         if meta and meta["body"]:
             return meta["body"]
+    if policy == "delegate":
+        tools_rule = (
+            "3. You have NO file-writing tools: write_file, write_content_pos and replace_content_range exist only inside skill workers. "
+            "Use your read tools (search_code, read_file, read_content_pos, get_editor_state, get_project_overview, web_search, search_conversation_history) to locate the exact path and line range, then delegate every create/edit/rename/delete with run_skill. Never claim you edited a file yourself.\n"
+        )
+    else:
+        tools_rule = (
+            "3. You CAN and SHOULD use your tools (like search_code, read_file, read_content_pos, get_editor_state, write_file, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly. "
+            "write_file is the only tool that creates a new file; write_content_pos and replace_content_range require the file to already exist.\n"
+        )
     return (
         "Execute actions only through native tool calls.\n"
-        "1. The runtime prepends today's date to this prompt. If the user asks for recent, latest, current, future-dated, or otherwise time-sensitive information, you MUST use web_search before answering, refusing, or delegating. You MUST NOT hallucinate dates or assume something did not happen without first searching the web.\n" 
+        "1. The runtime prepends today's date to this prompt. If the user asks for recent, latest, current, future-dated, or otherwise time-sensitive information, you MUST use web_search before answering, refusing, or delegating. You MUST NOT hallucinate dates or assume something did not happen without first searching the web.\n"
         "2. Return the final user-facing answer as normal text. JSON and Markdown in text are answers, never tool calls; use native tool calls only when executing an action.\n"
-        "3. You CAN and SHOULD use your tools (like search_code, read_file, read_content_pos, get_editor_state, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly.\n"
+        + tools_rule +
         "4. If the user asks for something that you don't know, you can use web_search to find relevant information. If the user asks for something in the project, you can use get_project_overview to explore the project structure and read_file to read files.\n"
         "5. Whenever the user asks a question involving dates, time, recent events, latest events, sports, news, public figures, APIs, or potentially anachronistic information, you must search the web for updated information.\n"
-        "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', 'edit_file', or 'run_cmd'. If you need to list, search, read, or make a precise line edit directly, use get_project_overview, search_code, read_file, read_content_pos, replace_content_range, or write_content_pos.\n"
+        "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', 'edit_file', or 'run_cmd'. "
+        + (
+            "To list, search or read directly, use get_project_overview, search_code, read_file or read_content_pos; every edit goes to a worker.\n"
+            if policy == "delegate" else
+            "If you need to list, search, read, or make a precise line edit directly, use get_project_overview, search_code, read_file, read_content_pos, write_file, replace_content_range, or write_content_pos.\n"
+        ) +
         "7. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If the worker changed files, verify the changed location with read_file/read_content_pos before reporting success. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan unless a worker loop breaker tells you to stop. If the task IS complete, return a non-empty final result for the user.\n"
         "8. Every invocation of run_skill spawns a completely stateless, ephemeral sub-agent. The worker starts fresh with no memory of prior runs. You MUST NOT try to converse/coordinate with the worker across multiple turns or promise to provide details in a 'next step'. Provide all instructions and details in a single run_skill call.\n"
         "9. If you need to edit or write a large file (more than ~100-200 lines), do NOT instruct the worker to use write_file with the entire content, as LLM output limits will truncate the tool call. Instead, instruct it to use search_code to locate markers, replace_content_range for specific line ranges, write_content_pos only for insertion before a specific line, or a small Python search-and-replace script executed with run_command for bulk transformations.\n"
@@ -947,14 +992,26 @@ def chat_orchestrator_system_prompt(project, store=None) -> str:
     # orchestrator's model and, in turn, decides which skill-body variant and
     # mode-instructions rendering to use below.
     model = get_agent_model("memgpt", get_agent_model("chat_agent", project_model))
-    from .config import model_prompt_profile
+    from .config import model_prompt_profile, model_orchestrator_policy
     from .prompt_profiles import get_profile
     orchestrator_profile = model_prompt_profile(model)
+    orchestrator_policy = model_orchestrator_policy(model)
     profile_spec = get_profile(orchestrator_profile)
 
     skills = active_skills(project_path)
     metadata = level1_metadata(skills)
-    body = _chat_orchestrator_body(project_path, orchestrator_profile)
+    body = _chat_orchestrator_body(project_path, orchestrator_profile, orchestrator_policy)
+
+    # A delegate orchestrator has no writing tools of its own, so without a skill
+    # to send the work to it cannot change anything. The orchestrator's own entry
+    # does not count -- it is not a delegation target -- while `command-line` is
+    # mandatory and normally fills this role, so an empty result here means skill
+    # discovery itself came up short (an unbundled install, say). Say so in the
+    # prompt instead of quietly downgrading the configured policy to "direct":
+    # the user picked delegate, and a silent substitution would hide the real
+    # blocker behind writes that mysteriously start working again.
+    delegate_targets = [s for s in skills if s.get("name") != CHAT_ORCHESTRATOR_SKILL]
+    delegate_without_target = orchestrator_policy == "delegate" and not delegate_targets
 
     project_name = getattr(project, "project_name", "") or getattr(project, "name", "(unknown)")
     project_desc = getattr(project, "description", "") or ""
@@ -1011,11 +1068,24 @@ def chat_orchestrator_system_prompt(project, store=None) -> str:
         except Exception:
             tutorial_block = ""
 
+    blocked_block = ""
+    if delegate_without_target:
+        blocked_block = (
+            "\n## Writing is currently impossible\n"
+            "You are configured to delegate every file change, but this project has no "
+            "active skill to delegate to, so nothing can be written or edited right now. "
+            "Do not attempt a write tool — you have none. If the user asks for a file "
+            "change, say plainly that no skill is active and ask them to enable one with "
+            "`/addskill <name>` (`/skills` lists what is available). Reading, searching "
+            "and answering questions still work normally.\n"
+        )
+
     system_prompt = (
         f"{_current_date_instruction()}\n\n"
         f"{body}\n\n"
         f"{project_block}\n"
         f"## Available skills (call run_skill with the skill name)\n{metadata}\n"
+        f"{blocked_block}"
         f"{tutorial_block}"
     )
     return system_prompt
@@ -1058,24 +1128,45 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     from .agent_stdin import wrap_tool
     from .tools import create_plan, ask_question
 
+    # Read/answer tools the orchestrator keeps under every policy. The memory
+    # tools write, but only to core memory -- never to the user's files -- so
+    # they are not part of what "delegate" withholds.
     orchestrator_tools = [
         wrap_tool(ask_question),
-        wrap_tool(read_core_memory), 
-        wrap_tool(read_file), 
+        wrap_tool(read_core_memory),
+        wrap_tool(read_file),
         wrap_tool(read_content_pos),
         wrap_tool(get_editor_state),
-        wrap_tool(write_content_pos),
-        wrap_tool(replace_content_range),
         wrap_tool(search_code),
-        wrap_tool(get_project_overview), 
-        wrap_tool(append_core_memory), 
-        wrap_tool(search_conversation_history), 
+        wrap_tool(get_project_overview),
+        wrap_tool(append_core_memory),
+        wrap_tool(search_conversation_history),
         wrap_tool(web_search),
         wrap_tool(analyze_image),
-        wrap_tool(create_docx_file),
-        wrap_tool(create_pptx_file),
         wrap_tool(create_plan),
     ]
+
+    # Enforced by composing the tool list per role, not by the mode gate in
+    # `opalatex_tool`: that gate reads the shared project mode and wraps the very
+    # same function objects the worker calls, so blocking writes there would
+    # disarm the worker too and leave the delegate policy with no way to write at
+    # all. Withholding the tools here scopes the restriction to this agent.
+    #
+    # write_file is what the orchestrator was missing under "direct": with only
+    # write_content_pos and replace_content_range -- both of which require an
+    # existing file -- a model asked to create one had no valid call to make and
+    # reached for write_content_pos, which fails with "file not found".
+    from .config import model_orchestrator_policy
+    orchestrator_policy = model_orchestrator_policy(model)
+    if orchestrator_policy != "delegate":
+        from .tools import write_file
+        orchestrator_tools.extend([
+            wrap_tool(write_file),
+            wrap_tool(write_content_pos),
+            wrap_tool(replace_content_range),
+            wrap_tool(create_docx_file),
+            wrap_tool(create_pptx_file),
+        ])
     if enable_achievements:
         from .tools import update_achievements_memory
         orchestrator_tools.append(wrap_tool(update_achievements_memory))

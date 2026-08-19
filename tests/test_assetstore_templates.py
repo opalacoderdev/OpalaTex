@@ -245,6 +245,24 @@ async def test_assets_endpoint_reports_template_install_state(tmp_path, template
 
 
 @pytest.mark.asyncio
+async def test_install_endpoint_reports_what_it_wrote(tmp_path, template):
+    """The UI turns this into the install confirmation, so it must name the
+    template and count only the files that really landed in the project."""
+    server, responses = _api_harness()
+    project = Path(_project(tmp_path))
+
+    await _post(server, "/api/assets/install",
+                {"id": "demo-template", "type": "template", "projectPath": str(project)})
+
+    status, payload = responses[-1]
+    assert status == 200
+    assert payload["success"] is True
+    assert "Demo Template" in payload["message"]
+    # main.tex and figs/plot.png — the archive junk in the zip is not counted.
+    assert payload["files"] == 2
+
+
+@pytest.mark.asyncio
 async def test_install_endpoint_asks_before_replacing_project_files(tmp_path, template):
     server, responses = _api_harness()
     project = Path(_project(tmp_path))

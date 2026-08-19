@@ -85,20 +85,20 @@ export default function AskModal({ askRequest, onConfirm }) {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
           <span style={{ fontSize: '22px' }}>🔔</span>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--vscode-descriptionForeground, #a0a0c0)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--vscode-descriptionForeground)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
             {t('askModal.title', 'Input Required')}
           </span>
         </div>
 
         {/* Prompt text */}
-        <p style={{ fontSize: '14px', color: 'var(--vscode-text-fg, #e0e0f0)', lineHeight: 1.6, marginBottom: options ? '16px' : '20px', margin: 0 }}>
+        <p style={{ fontSize: '14px', color: 'var(--vscode-text-fg)', lineHeight: 1.6, marginBottom: options ? '16px' : '20px', margin: 0 }}>
           {askRequest.prompt}
         </p>
 
         {/* Options list if provided */}
         {options && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--vscode-descriptionForeground, #a0a0c0)' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--vscode-descriptionForeground)' }}>
               {t('askModal.optionsTitle', 'Select an option:')}
             </div>
             {options.map((opt, idx) => {
@@ -118,12 +118,12 @@ export default function AskModal({ askRequest, onConfirm }) {
                     fontSize: '13px',
                     lineHeight: 1.4,
                     border: isSelected 
-                      ? '1px solid var(--vscode-focusBorder, #007acc)' 
-                      : '1px solid var(--vscode-border, #3c3c4c)',
+                      ? '1px solid var(--vscode-active-border, #007acc)' 
+                      : '1px solid var(--vscode-border)',
                     background: isSelected 
-                      ? 'var(--vscode-list-activeSelectionBackground, rgba(0, 122, 204, 0.2))' 
-                      : 'var(--vscode-sideBar-background, rgba(255, 255, 255, 0.03))',
-                    color: isSelected ? 'var(--vscode-text-fg, #ffffff)' : 'var(--vscode-text-fg, #d0d0e0)',
+                      ? 'var(--vscode-list-activeSelectionBg, #094771)' 
+                      : 'var(--vscode-input-bg, #2d2d2d)',
+                    color: isSelected ? 'var(--vscode-list-activeSelectionFg, #ffffff)' : 'var(--vscode-text-fg)',
                     transition: 'all 0.15s ease',
                   }}
                 >
@@ -136,7 +136,7 @@ export default function AskModal({ askRequest, onConfirm }) {
                     borderRadius: '4px',
                     fontSize: '11px',
                     fontWeight: 700,
-                    background: isSelected ? 'var(--vscode-button-background, #007acc)' : 'var(--vscode-border, #4c4c5c)',
+                    background: isSelected ? 'var(--vscode-button-bg, #0e639c)' : 'var(--vscode-descriptionForeground)',
                     color: '#fff',
                     flexShrink: 0,
                   }}>
@@ -159,12 +159,12 @@ export default function AskModal({ askRequest, onConfirm }) {
                 cursor: 'pointer',
                 fontSize: '13px',
                 border: selectedOption === 'other' 
-                  ? '1px solid var(--vscode-focusBorder, #007acc)' 
-                  : '1px solid var(--vscode-border, #3c3c4c)',
+                  ? '1px solid var(--vscode-active-border, #007acc)' 
+                  : '1px solid var(--vscode-border)',
                 background: selectedOption === 'other' 
-                  ? 'var(--vscode-list-activeSelectionBackground, rgba(0, 122, 204, 0.2))' 
-                  : 'var(--vscode-sideBar-background, rgba(255, 255, 255, 0.03))',
-                color: selectedOption === 'other' ? 'var(--vscode-text-fg, #ffffff)' : 'var(--vscode-text-fg, #a0a0b0)',
+                  ? 'var(--vscode-list-activeSelectionBg, #094771)' 
+                  : 'var(--vscode-input-bg, #2d2d2d)',
+                color: selectedOption === 'other' ? 'var(--vscode-list-activeSelectionFg, #ffffff)' : 'var(--vscode-text-fg)',
                 transition: 'all 0.15s ease',
               }}
             >
@@ -177,7 +177,7 @@ export default function AskModal({ askRequest, onConfirm }) {
                 borderRadius: '4px',
                 fontSize: '12px',
                 fontWeight: 700,
-                background: selectedOption === 'other' ? 'var(--vscode-button-background, #007acc)' : 'var(--vscode-border, #4c4c5c)',
+                background: selectedOption === 'other' ? 'var(--vscode-button-bg, #0e639c)' : 'var(--vscode-descriptionForeground)',
                 color: '#fff',
                 flexShrink: 0,
               }}>
@@ -213,9 +213,9 @@ export default function AskModal({ askRequest, onConfirm }) {
                 fontSize: '13px',
                 outline: 'none',
                 resize: 'vertical',
-                background: 'var(--vscode-input-background, #1e1e2e)',
-                color: 'var(--vscode-input-foreground, #ffffff)',
-                border: '1px solid var(--vscode-input-border, #3c3c4c)',
+                background: 'var(--vscode-input-bg, #2d2d2d)',
+                color: 'var(--vscode-input-fg, var(--vscode-text-fg))',
+                border: '1px solid var(--vscode-input-border, var(--vscode-border))',
               }}
             />
           )}
@@ -227,8 +227,8 @@ export default function AskModal({ askRequest, onConfirm }) {
               onClick={() => onConfirm('')}
               className="vscode-button"
               style={{
-                background: 'transparent', border: '1px solid var(--vscode-border, #4c4c6c)',
-                color: 'var(--vscode-text-fg, #a0a0c0)', cursor: 'pointer',
+                background: 'transparent', border: '1px solid var(--vscode-border)',
+                color: 'var(--vscode-text-fg)', cursor: 'pointer',
                 fontSize: '13px', fontWeight: 600, padding: '8px 20px', borderRadius: '8px',
                 transition: 'all 0.15s',
               }}
@@ -240,7 +240,7 @@ export default function AskModal({ askRequest, onConfirm }) {
               className="vscode-button"
               style={{
                 padding: '8px 24px', borderRadius: '8px', border: 'none',
-                background: 'var(--vscode-button-background, #007acc)',
+                background: 'var(--vscode-button-bg, #0e639c)',
                 color: '#fff', cursor: 'pointer',
                 fontSize: '13px', fontWeight: 700,
                 boxShadow: '0 4px 16px rgba(0,122,204,0.25)',

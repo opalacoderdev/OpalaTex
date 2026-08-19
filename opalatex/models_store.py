@@ -39,6 +39,14 @@ def normalize_model_entry(model: Dict[str, Any]) -> Dict[str, Any]:
     entry["requires_single_system_message"] = bool(entry.get("requires_single_system_message", False))
     _profile = str(entry.get("prompt_profile", "") or "full").strip().lower()
     entry["prompt_profile"] = _profile if _profile in ("full", "light") else "full"
+    # Orthogonal to prompt_profile on purpose: the profile says how verbose this
+    # model's prompt should be, the policy says whether it may touch files when it
+    # runs as the chat orchestrator. Keeping them in separate fields is what makes
+    # "light prompt + delegate writes" -- the natural setting for a small local
+    # model -- expressible at all. Only consulted for the orchestrator role; a
+    # worker has no run_skill and therefore nothing to delegate to.
+    _policy = str(entry.get("orchestrator_policy", "") or "direct").strip().lower()
+    entry["orchestrator_policy"] = _policy if _policy in ("direct", "delegate") else "direct"
     _num_ctx = entry.get("num_ctx")
     try:
         entry["num_ctx"] = int(_num_ctx) if _num_ctx not in (None, "") else None
@@ -176,6 +184,7 @@ def _connect() -> sqlite3.Connection:
             supports_thinking INTEGER NOT NULL DEFAULT 0,
             requires_single_system_message INTEGER NOT NULL DEFAULT 0,
             prompt_profile TEXT NOT NULL DEFAULT 'full',
+            orchestrator_policy TEXT NOT NULL DEFAULT 'direct',
             num_ctx INTEGER,
             extra_json TEXT NOT NULL DEFAULT '{{}}',
             sort_order INTEGER NOT NULL DEFAULT 0
@@ -195,6 +204,10 @@ def _connect() -> sqlite3.Connection:
         pass
     try:
         conn.execute(f"ALTER TABLE {_MODELS_TABLE} ADD COLUMN prompt_profile TEXT NOT NULL DEFAULT 'full'")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute(f"ALTER TABLE {_MODELS_TABLE} ADD COLUMN orchestrator_policy TEXT NOT NULL DEFAULT 'direct'")
     except sqlite3.OperationalError:
         pass
     try:
@@ -225,6 +238,7 @@ def _row_to_model(row: sqlite3.Row) -> Dict[str, Any]:
         "supports_thinking": bool(row["supports_thinking"]),
         "requires_single_system_message": bool(row["requires_single_system_message"]),
         "prompt_profile": row["prompt_profile"] or "full",
+        "orchestrator_policy": row["orchestrator_policy"] or "direct",
         "num_ctx": row["num_ctx"],
         "connection_id": row["connection_id"] or "",
         "connection_label": row["conn_label"] if has_connection else "",
@@ -234,7 +248,8 @@ def _row_to_model(row: sqlite3.Row) -> Dict[str, Any]:
 def _model_extra_json(model: Dict[str, Any]) -> str:
     known = {
         "id", "provider", "name", "api_key", "api_base", "supports_thinking",
-        "requires_single_system_message", "prompt_profile", "num_ctx", "previous_id",
+        "requires_single_system_message", "prompt_profile", "orchestrator_policy",
+        "num_ctx", "previous_id",
         "connection_id", "connection_label",
     }
     extra = {k: v for k, v in model.items() if k not in known}
@@ -264,6 +279,7 @@ def load_models() -> List[Dict[str, Any]]:
                 gm.supports_thinking AS supports_thinking,
                 gm.requires_single_system_message AS requires_single_system_message,
                 gm.prompt_profile AS prompt_profile,
+                gm.orchestrator_policy AS orchestrator_policy,
                 gm.num_ctx AS num_ctx,
                 gm.extra_json AS extra_json,
                 gm.sort_order AS sort_order,
@@ -316,8 +332,8 @@ def save_models(models: List[Dict[str, Any]]) -> None:
             conn.execute(
                 f"""
                 INSERT INTO {_MODELS_TABLE}
-                (id, provider, name, api_key, api_base, connection_id, supports_thinking, requires_single_system_message, prompt_profile, num_ctx, extra_json, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, provider, name, api_key, api_base, connection_id, supports_thinking, requires_single_system_message, prompt_profile, orchestrator_policy, num_ctx, extra_json, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     model["id"],
@@ -329,6 +345,7 @@ def save_models(models: List[Dict[str, Any]]) -> None:
                     int(bool(model.get("supports_thinking", False))),
                     int(bool(model.get("requires_single_system_message", False))),
                     model.get("prompt_profile", "full"),
+                    model.get("orchestrator_policy", "direct"),
                     model.get("num_ctx"),
                     _model_extra_json(model),
                     index,

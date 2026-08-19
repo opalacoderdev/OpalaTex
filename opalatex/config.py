@@ -687,6 +687,29 @@ def model_prompt_profile(model: str | None) -> str:
         return "full"
 
 
+def model_orchestrator_policy(model: str | None) -> str:
+    """Return the orchestrator tool policy ("direct" or "delegate") for *model*.
+
+    Deliberately a separate field from `model_prompt_profile`, not a third value
+    of it. The profile controls prompt verbosity (a capability question); the
+    policy controls whether the chat orchestrator gets file-writing tools at all
+    (an authority question). They are orthogonal -- "light prompt, delegate
+    writes" is the natural configuration for a small local model -- so folding
+    them into one field would make that combination unexpressible.
+
+    Only meaningful for the orchestrator role: a skill worker has no `run_skill`
+    tool and nothing to delegate to, so `build_run_skill_tool` never consults
+    this. "direct" is the default and matches the behavior shipped so far.
+    """
+    try:
+        from opalatex.models_store import get_model_by_runtime_id
+        store_model = get_model_by_runtime_id(str(model or ""))
+        policy = str(store_model.get("orchestrator_policy", "") if store_model else "").strip().lower()
+        return policy if policy in ("direct", "delegate") else "direct"
+    except Exception:
+        return "direct"
+
+
 def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
     """Remove provider-incompatible kwargs before passing them to LiteLLM."""
     cleaned = dict(kwargs or {})

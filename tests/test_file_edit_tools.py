@@ -301,3 +301,39 @@ def test_labeled_agent_turn_without_changes_removes_start_and_end(tmp_path):
     assert "Agent turn start checkpoint: worker:command-line" not in log
     assert "Agent turn end checkpoint: worker:command-line" not in log
 
+
+
+def test_write_content_pos_on_missing_file_points_at_write_file(tmp_path):
+    """A create-a-file attempt must name the tool that can actually do it.
+
+    The bare "file not found" this used to raise reads like a wrong path, so
+    orchestrators retried the same call (or the same path with flipped
+    separators) instead of switching to write_file.
+    """
+    from opalatex.tools import set_project_context, write_content_pos
+
+    set_project_context(SimpleNamespace(project_path=str(tmp_path)))
+    raw = getattr(write_content_pos, "_func", None) or write_content_pos
+
+    with pytest.raises(ValueError, match="write_file"):
+        asyncio.run(raw("brand_new.tex", "\\documentclass{article}", 1))
+
+    assert not (tmp_path / "brand_new.tex").exists()
+
+
+def test_replace_content_range_on_missing_file_points_at_write_file(tmp_path):
+    from opalatex.tools import replace_content_range, set_project_context
+
+    set_project_context(SimpleNamespace(project_path=str(tmp_path)))
+    raw = getattr(replace_content_range, "_func", None) or replace_content_range
+
+    with pytest.raises(ValueError, match="write_file"):
+        asyncio.run(raw("brand_new.tex", 1, 2, "content"))
+
+
+def test_write_content_pos_description_states_the_file_must_exist():
+    from opalatex.tools import write_content_pos
+
+    description = (write_content_pos.description or "").lower()
+    assert "must already exist" in description
+    assert "write_file" in description

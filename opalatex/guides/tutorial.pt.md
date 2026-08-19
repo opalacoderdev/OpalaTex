@@ -191,11 +191,62 @@ Ao cadastrar um modelo no catálogo você pode declarar capacidades:
   `system`, com o erro `system message must be at the beginning`. Ative essa opção para
   um modelo assim e o OpalaTex passa a unir todas as mensagens de sistema em uma única
   mensagem inicial — só para ele.
-- **`prompt_profile`** (`full` ou `light`) — `full` envia o prompt completo com todas as
-  salvaguardas; `light` envia um prompt condensado para economizar tokens e tempo em
-  modelos avançados.
+- **`prompt_profile`** (`full` ou `light`) — quanto texto de prompt o modelo recebe.
+  `full` envia o prompt completo com todas as salvaguardas e exemplos; `light` envia uma
+  versão condensada (mesmas regras, menos prosa) que economiza tokens e latência.
+- **Escrita do orquestrador** (`direta` ou `delegada`) — se este modelo, **quando for o
+  orquestrador**, pode mexer em arquivos. Em `direta` ele cria e edita por conta própria
+  com `write_file`, `write_content_pos` e `replace_content_range`. Em `delegada` ele
+  apenas lê: toda criação, edição, renomeação ou remoção precisa passar por um worker via
+  `run_skill`. Como worker, o modelo escreve normalmente — a opção não tem efeito nesse
+  papel, porque um worker não tem para quem delegar.
 - **`num_ctx`** — sobreposição opcional da janela de contexto no nível do catálogo para
   este modelo.
+
+Perfil de prompt e escrita do orquestrador são **duas opções independentes**: a primeira
+diz quanto texto o modelo lê, a segunda diz o que ele pode fazer. Qualquer uma das quatro
+combinações é válida.
+
+### Qual combinação usar
+
+O padrão de um modelo novo é `full` + `direta`, que é o comportamento de sempre. Ajuste
+conforme os dois modelos do projeto:
+
+| Seu cenário | Perfil de prompt | Escrita do orquestrador |
+| --- | --- | --- |
+| Modelo pequeno local em tudo (orquestrador e worker) | `light` | `direta` |
+| Modelo grande no orquestrador, pequeno no worker | `full` | `delegada` |
+| Modelo grande nos dois papéis (nuvem) | `full` | `direta` |
+| Modelo pequeno no orquestrador, grande no worker | `light` | `delegada` |
+
+Por que cada linha:
+
+- **Pequeno em tudo → prompt curto, escrita direta.** Um modelo pequeno segue melhor um
+  prompt curto, e delegar aqui só troca um modelo pequeno por outro: você paga uma ida e
+  volta a mais, mais um sub-agente que começa sem memória nenhuma, sem ganhar capacidade.
+  Para uma edição de uma linha, o caminho direto erra menos.
+- **Grande + pequeno → prompt completo, escrita delegada.** É a combinação em que a
+  delegação compensa de verdade. O modelo grande é bom justamente no que sobra para ele:
+  ler, localizar o trecho exato e escrever uma instrução precisa. E o conteúdo do arquivo
+  — que costuma ser a maior parte de um turno — passa a ocupar o contexto do worker, e
+  não o do orquestrador, que é o contexto caro e o que você quer preservar ao longo da
+  conversa.
+- **Grande em tudo → prompt completo, escrita direta.** Contexto sobra e a qualidade não
+  é o gargalo; menos idas e voltas significa resposta mais rápida.
+- **Pequeno no orquestrador, grande no worker → prompt curto, escrita delegada.** Aqui a
+  delegação existe para tirar a edição das mãos do modelo mais fraco e entregá-la ao mais
+  forte.
+
+Dois avisos sobre `delegada`:
+
+- Ela precisa de **pelo menos uma skill ativa** para funcionar. A `command-line` já vem
+  ativa e cobre esse papel; se nenhuma skill estiver disponível, o assistente vai avisar
+  que não consegue escrever, em vez de tentar e falhar.
+- Ela custa uma chamada de modelo a mais por alteração. Se o seu incômodo for lentidão em
+  edições pequenas, é a primeira opção a rever.
+
+A opção fica em **Editar Modelos**, no formulário do modelo, logo abaixo do perfil de
+prompt, e aparece como coluna na lista de modelos.
 
 ## settings :: Quais configurações eu devo usar?
 
@@ -276,6 +327,11 @@ Rodar localmente é gratuito e privado, e funciona bem quando você respeita os 
   forma de conhecer a interface, não de fazer trabalho de verdade.
 - **Use um modelo worker menor que o orquestrador.** Workers são executores de
   ferramentas; não precisam da qualidade de raciocínio que você quer no chat.
+- **Com modelos pequenos nos dois papéis, use perfil `light` e escrita `direta`.** O
+  prompt curto é mais fácil de seguir, e delegar entre dois modelos pequenos acrescenta
+  uma ida e volta sem acrescentar capacidade. Se o orquestrador for um modelo grande e o
+  worker pequeno, a recomendação se inverte: `full` + `delegada`. Veja a tabela no tópico
+  sobre modelos.
 - **Mantenha o thinking desligado nos workers.** Um modelo local de raciocínio, diante de
   uma entrada complexa, pode ficar em laço por muito tempo dentro de uma chamada de
   ferramenta.
@@ -335,7 +391,8 @@ avançadas:
   exigem confirmação explícita antes de prosseguir.
 - **Edição Cirúrgica de Texto** — `search_code`, `read_content_pos`,
   `replace_content_range` e `write_content_pos` permitem localizar e editar linhas exatas
-  sem precisar ler nem reescrever arquivos imensos.
+  sem precisar ler nem reescrever arquivos imensos. Essas duas últimas só editam arquivo
+  já existente; arquivo novo é sempre criado com `write_file`.
 - **Anexos e Entrada Multimodal** — arraste e solte imagens, PDFs, textos ou arquivos de
   dados no chat. O OpalaTex extrai o texto dos documentos ou repassa as imagens a modelos
   com capacidade de visão.

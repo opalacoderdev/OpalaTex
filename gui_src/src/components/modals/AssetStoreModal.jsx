@@ -42,7 +42,7 @@ function TabButton({ active, onClick, children }) {
 // "Asset Store" window: one tab per asset type. Skills browse the installable
 // AssetStore catalog and manage which runtime skills (SKILL.md) are active for
 // the current project; templates are LaTeX packages unpacked at the project root.
-export default function AssetStoreModal({ onClose, projectPath }) {
+export default function AssetStoreModal({ onClose, projectPath, onWorkspaceChanged }) {
   const { t } = useTranslation();
   const [assetType, setAssetType] = useState('skill');
   const [skillsTab, setSkillsTab] = useState('catalog');
@@ -53,12 +53,15 @@ export default function AssetStoreModal({ onClose, projectPath }) {
   const [togglingName, setTogglingName] = useState(null);
   const [refreshingName, setRefreshingName] = useState(null);
   const [refreshError, setRefreshError] = useState(null);
+  // What the last install actually wrote. The install itself takes milliseconds,
+  // so without a message that outlives it the user only sees the button flicker.
+  const [installMessage, setInstallMessage] = useState(null);
   // Set when an install would overwrite files already in the project: the user
   // sees what would be replaced before the overwrite is sent.
   const [pendingOverwrite, setPendingOverwrite] = useState(null);
 
   const fetchAssets = useCallback(() => {
-    fetch('/api/assets?type=skill')
+    return fetch('/api/assets?type=skill')
       .then(r => r.ok ? r.json() : { assets: [] })
       .then(data => setAssets(Array.isArray(data.assets) ? data.assets : []))
       .catch(() => setAssets([]));
@@ -66,15 +69,15 @@ export default function AssetStoreModal({ onClose, projectPath }) {
 
   const fetchTemplates = useCallback(() => {
     const q = projectPath ? `&projectPath=${encodeURIComponent(projectPath)}` : '';
-    fetch(`/api/assets?type=template${q}`)
+    return fetch(`/api/assets?type=template${q}`)
       .then(r => r.ok ? r.json() : { assets: [] })
       .then(data => setTemplates(Array.isArray(data.assets) ? data.assets : []))
       .catch(() => setTemplates([]));
   }, [projectPath]);
 
   const fetchSkills = useCallback(() => {
-    if (!projectPath) { setSkills([]); return; }
-    fetch(`/api/skills?projectPath=${encodeURIComponent(projectPath)}`)
+    if (!projectPath) { setSkills([]); return Promise.resolve(); }
+    return fetch(`/api/skills?projectPath=${encodeURIComponent(projectPath)}`)
       .then(r => r.ok ? r.json() : { skills: [] })
       .then(data => setSkills(Array.isArray(data.skills) ? data.skills : []))
       .catch(() => setSkills([]));
@@ -84,6 +87,9 @@ export default function AssetStoreModal({ onClose, projectPath }) {
   useEffect(() => { fetchTemplates(); }, [fetchTemplates]);
   useEffect(() => { fetchSkills(); }, [fetchSkills]);
 
+  // A message about templates makes no sense while looking at skills.
+  useEffect(() => { setInstallMessage(null); setRefreshError(null); }, [assetType]);
+
   // The catalog's "Installed" state is about the local copy on disk, not about
   // whether the skill is currently activated for the project.
   const installedNames = new Set(skills.filter(s => s.installedLocally).map(s => s.name));
@@ -91,15 +97,26 @@ export default function AssetStoreModal({ onClose, projectPath }) {
   const handleInstall = async (asset) => {
     if (!projectPath || installingId) return;
     setInstallingId(asset.id);
+    setRefreshError(null);
+    setInstallMessage(null);
     try {
       const res = await fetch('/api/assets/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: asset.id, type: asset.type || 'skill', projectPath }),
       });
-      if (res.ok) fetchSkills();
-    } catch {
-      // best-effort — the catalog stays browsable even if the install failed
+      const payload = await res.json().catch(() => ({}));
+      if (res.ok) {
+        // Stay busy until the project view has caught up: the button coming back
+        // is what tells the user the files are actually there.
+        await fetchSkills();
+        await onWorkspaceChanged?.();
+        setInstallMessage(t('assetStore.installedSkillMessage', 'Skill "{{name}}" installed in this project.', { name: asset.name }));
+      } else {
+        setRefreshError(payload.error || t('assetStore.installSkillFailed', 'Could not install the skill.'));
+      }
+    } catch (err) {
+      setRefreshError(err.message);
     } finally {
       setInstallingId(null);
     }
@@ -112,6 +129,7 @@ export default function AssetStoreModal({ onClose, projectPath }) {
     if (!projectPath || installingId) return;
     setInstallingId(template.id);
     setRefreshError(null);
+    setInstallMessage(null);
     try {
       const res = await fetch('/api/assets/install', {
         method: 'POST',
@@ -121,7 +139,12 @@ export default function AssetStoreModal({ onClose, projectPath }) {
       const payload = await res.json().catch(() => ({}));
       if (res.ok) {
         setPendingOverwrite(null);
-        fetchTemplates();
+        await fetchTemplates();
+        await onWorkspaceChanged?.();
+        const written = typeof payload.files === 'number' ? payload.files : null;
+        setInstallMessage(written === null
+          ? t('assetStore.installedTemplateMessage', 'Template "{{name}}" unpacked at the project root.', { name: template.name })
+          : t('assetStore.installedTemplateFilesMessage', 'Template "{{name}}" unpacked at the project root ({{count}} files).', { name: template.name, count: written }));
       } else if (res.status === 409) {
         setPendingOverwrite({ id: template.id, conflicts: payload.conflicts || [] });
       } else {
@@ -149,7 +172,8 @@ export default function AssetStoreModal({ onClose, projectPath }) {
       });
       const payload = await res.json().catch(() => ({}));
       if (res.ok) {
-        fetchSkills();
+        await fetchSkills();
+        await onWorkspaceChanged?.();
       } else {
         setRefreshError(payload.error || t('assetStore.refreshFailed', 'Could not refresh the local copy.'));
       }
@@ -225,6 +249,12 @@ export default function AssetStoreModal({ onClose, projectPath }) {
           {refreshError && (
             <div style={{ fontSize: '12px', color: 'var(--vscode-error-fg, #f14c4c)', marginBottom: '12px' }}>
               {refreshError}
+            </div>
+          )}
+
+          {installMessage && (
+            <div style={{ fontSize: '12px', color: '#4ec9b0', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Check size={13} /> {installMessage}
             </div>
           )}
 

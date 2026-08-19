@@ -184,10 +184,59 @@ When you register a model in the catalog you can declare capabilities:
   error `system message must be at the beginning`. Enable this flag for such a model
   and OpalaTex merges all system messages into one leading message for it — and only
   for it.
-- **`prompt_profile`** (`full` or `light`) — `full` delivers complete guardrails and
-  instructions; `light` delivers a condensed system prompt to save tokens and latency on
-  capable models.
+- **`prompt_profile`** (`full` or `light`) — how much prompt text the model receives.
+  `full` delivers the complete guardrails, instructions and examples; `light` delivers a
+  condensed version (same rules, less prose) that saves tokens and latency.
+- **Orchestrator writes** (`direct` or `delegate`) — whether this model, **when it is the
+  orchestrator**, may touch files. On `direct` it creates and edits them itself with
+  `write_file`, `write_content_pos` and `replace_content_range`. On `delegate` it only
+  reads: every create, edit, rename or delete has to go through a worker via `run_skill`.
+  As a worker the model writes normally — the setting has no effect in that role, because
+  a worker has nobody to delegate to.
 - **`num_ctx`** — optional catalog-level context window override for this model.
+
+Prompt profile and orchestrator writes are **two independent settings**: the first says
+how much text the model reads, the second says what it is allowed to do. All four
+combinations are valid.
+
+### Which combination to use
+
+A new model defaults to `full` + `direct`, which is the behavior OpalaTex has always
+shipped. Tune it according to the project's two models:
+
+| Your setup | Prompt profile | Orchestrator writes |
+| --- | --- | --- |
+| Small local model everywhere (orchestrator and worker) | `light` | `direct` |
+| Large model as orchestrator, small one as worker | `full` | `delegate` |
+| Large model in both roles (cloud) | `full` | `direct` |
+| Small model as orchestrator, large one as worker | `light` | `delegate` |
+
+Why each row:
+
+- **Small everywhere → short prompt, direct writes.** A small model follows a short
+  prompt better, and delegating here only swaps one small model for another: you pay an
+  extra round-trip plus a sub-agent that starts with no memory at all, and gain no
+  capability. For a one-line edit, the direct path makes fewer mistakes.
+- **Large + small → full prompt, delegated writes.** This is where delegation actually
+  pays off. The large model is good at exactly what is left for it: reading, locating the
+  precise range, and writing an unambiguous instruction. And the file content — usually
+  the bulk of a turn — ends up in the worker's context instead of the orchestrator's,
+  which is the expensive one and the one you want to preserve across the conversation.
+- **Large everywhere → full prompt, direct writes.** Context is plentiful and quality is
+  not the bottleneck; fewer round-trips means faster answers.
+- **Small orchestrator, large worker → short prompt, delegated writes.** Here delegation
+  exists to take editing away from the weaker model and hand it to the stronger one.
+
+Two caveats about `delegate`:
+
+- It needs **at least one active skill** to work. `command-line` is active out of the box
+  and fills that role; if no skill is available, the assistant tells you it cannot write
+  instead of trying and failing.
+- It costs one extra model call per change. If small edits feel slow, this is the first
+  setting to reconsider.
+
+You'll find it in **Edit Models**, in the model form right below the prompt profile, and
+as a column in the models list.
 
 ## settings :: Which settings should I use?
 
@@ -263,6 +312,11 @@ Running locally is free and private, and it works well when you respect the limi
   points: ~8 GB VRAM → a 7B model at 8K–16K context; ~12–16 GB → a 7B–14B model at
   16K–32K; less than 6 GB → a 3B model, and treat it as a way to try the interface
   rather than to do real work.
+- **With small models in both roles, use the `light` profile and `direct` writes.** The
+  short prompt is easier to follow, and delegating between two small models adds a
+  round-trip without adding capability. If the orchestrator is a large model and the
+  worker a small one, the recommendation flips to `full` + `delegate`. See the table in
+  the models topic.
 - **Use a smaller worker model than the orchestrator.** Workers are tool executors;
   they do not need the reasoning quality you want in the chat.
 - **Keep thinking off for workers.** A local reasoning model given a complex input can
@@ -321,7 +375,8 @@ Beyond basic LaTeX file editing, OpalaTex includes powerful built-in tools and c
   clean confirmation modal before proceeding.
 - **Surgical Text Editing** — `search_code`, `read_content_pos`, `replace_content_range`,
   and `write_content_pos` allow the AI to locate and modify precise line spans without
-  reading or rewriting huge files.
+  reading or rewriting huge files. The last two only edit a file that already exists; a
+  new file is always created with `write_file`.
 - **Attachments & Multimodal Input** — drag and drop images, PDFs, text, or data files
   into the chat. OpalaTex automatically extracts text from documents or forwards images to
   vision-capable models.

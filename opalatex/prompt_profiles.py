@@ -20,6 +20,12 @@ Frontmatter (name/description/model/extends) always comes from the canonical
 
 Adding a third profile is registering one more entry in ``PROMPT_PROFILES``
 below; no call site elsewhere in the codebase needs to change.
+
+A profile says how *verbose* a prompt is, never what an agent is *allowed to
+do*. Whether the chat-orchestrator may write files at all is a separate,
+orthogonal per-model field (``orchestrator_policy``, see
+``opalatex/config.py: model_orchestrator_policy``), so that "light prompt,
+delegate writes" stays expressible. Do not fold authority into this registry.
 """
 from __future__ import annotations
 
