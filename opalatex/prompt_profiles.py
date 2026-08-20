@@ -79,7 +79,7 @@ def _full_worker_tools_block() -> str:
         "Your specific tools are:\n"
         "  - get_project_overview: Returns the project's folder and file structure. Use it only when the target file is unknown.\n"
         "  - search_code: Searches project files using Python and returns matching paths with line numbers. Use it to locate sections, labels, definitions, or markers before line-based reads/edits.\n"
-        "  - read_file: Reads the complete contents of a file. Use it only for small files or when full-file context is truly needed.\n"
+        "  - read_file: Reads the complete contents of a file, including the text of PDF/DOCX/PPTX/XLSX documents. Use it only for small files or when full-file context is truly needed.\n"
         "  - read_content_pos: Reads a specific snippet of a file by providing start and end line numbers. Use it for targeted reading of large files.\n"
         "  - get_editor_state: Reports the user's open editor tabs, focused file, and current text selection. Use it when the task refers to the open file or the selection instead of a named path.\n"
         "  - write_file: Writes or completely overwrites a file. Use it to create new files or replace existing ones entirely. NEVER use run_command with echo/cat to write files.\n"
@@ -147,7 +147,7 @@ def _light_worker_intro(skill_name: str) -> str:
 
 def _light_worker_tools_block() -> str:
     return (
-        "Tools: get_project_overview, search_code, read_file, read_content_pos, get_editor_state, write_file, "
+        "Tools: get_project_overview, search_code, read_file (also extracts text from PDF/DOCX/PPTX/XLSX), read_content_pos, get_editor_state, write_file, "
         "write_content_pos, replace_content_range, create_docx_file, create_pptx_file, run_command, "
         "search_conversation_history, ask_question.\n"
     )

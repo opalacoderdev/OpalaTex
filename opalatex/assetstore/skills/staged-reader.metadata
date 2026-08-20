@@ -1,0 +1,6 @@
+desc: Reads a large text file one bounded line window per delegation, extracting only
+  what was asked from each window and reporting the next start line, so the orchestrator
+  can cover the whole file without ever loading it into context.
+id: staged-reader
+name: staged-reader
+type: skill

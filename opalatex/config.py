@@ -497,6 +497,32 @@ def get_agent_model(agent_name: str, default: str | None = None) -> str:
     return model
 
 
+def resolve_agent_model(agent_name: str) -> str:
+    """Return the model *agent_name* actually runs on.
+
+    Session first (a project's `worker_model` for the worker role, otherwise its
+    main model), then the agents.yaml override/default. This is the resolution
+    `get_agent_llm_kwargs` performs internally to pick provider credentials, and
+    every ephemeral agent needs the same answer for the model itself.
+
+    Callers must reach for this instead of `get_agent_model(name, "")`: an empty
+    string is not None, so it beats the whole default chain in `get_agent_model`
+    and resolves to a model of `""` — which reaches litellm as
+    "LLM Provider NOT provided", a long way from the actual mistake.
+    """
+    session_model = None
+    try:
+        from .tools import _PROJECT_SESSION
+        if _PROJECT_SESSION:
+            if agent_name == "worker" and getattr(_PROJECT_SESSION, "worker_model", ""):
+                session_model = _PROJECT_SESSION.worker_model
+            elif getattr(_PROJECT_SESSION, "model", ""):
+                session_model = _PROJECT_SESSION.model
+    except Exception:
+        pass
+    return get_agent_model(agent_name, default=session_model)
+
+
 def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> dict:
     """Return merged litellm kwargs for *agent_name*.
 
@@ -532,23 +558,24 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     except Exception:
         pass
 
-    session_model = None
     explicit_project_worker = False
     try:
         from .tools import _PROJECT_SESSION
-        if _PROJECT_SESSION:
-            if agent_name == "worker" and hasattr(_PROJECT_SESSION, "worker_model") and _PROJECT_SESSION.worker_model:
-                session_model = _PROJECT_SESSION.worker_model
-                explicit_project_worker = True
-            elif hasattr(_PROJECT_SESSION, "model") and _PROJECT_SESSION.model:
-                session_model = _PROJECT_SESSION.model
+        if (
+            _PROJECT_SESSION
+            and agent_name == "worker"
+            and getattr(_PROJECT_SESSION, "worker_model", "")
+        ):
+            explicit_project_worker = True
     except Exception:
         pass
 
+    # One resolution, shared with every ephemeral agent (see resolve_agent_model):
+    # credentials picked here must belong to the model that will actually run.
     resolved_model = (
         str(model_override).strip()
         if model_override and str(model_override).strip()
-        else get_agent_model(agent_name, default=session_model)
+        else resolve_agent_model(agent_name)
     )
     from opalatex.models_store import resolve_runtime_model_id
 

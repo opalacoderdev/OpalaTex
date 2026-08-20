@@ -437,7 +437,97 @@ def opalatex_tool(name: str, description: str, is_safe: bool = False):
     return decorator
 
 # ─── Tools ───────────────────────────────────────────────────────────────────
-@opalatex_tool(name="read_file", is_safe=True, description="Read the contents of a file in the project workspace. Relative paths are resolved from the project directory.")
+_BINARY_EXTS: set[str] = {
+    ".xlsx", ".xls", ".ods", ".numbers",
+    ".pdf", ".docx", ".pptx", ".odt", ".odp", ".doc", ".ppt", ".rtf",
+    ".zip", ".rar", ".7z", ".gz", ".bz2", ".xz", ".tar", ".snap", ".whl", ".jar",
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".psd",
+    ".mp3", ".mp4", ".wav", ".ogg", ".avi", ".mov", ".mkv", ".flac",
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".pyc", ".pyd", ".class",
+    ".ttf", ".otf", ".woff", ".woff2", ".eot",
+    ".db", ".sqlite", ".sqlite3", ".mdb",
+}
+
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".psd"}
+
+# Binary formats whose text OpalaTex can extract by path (attachments.py). These
+# never reach the binary refusal below: read_file extracts them and then treats
+# the result like any other text, staged read included.
+_DOC_EXTS = {".pdf", ".docx", ".pptx", ".xlsx"}
+
+# Spreadsheet formats with no reader at all -- .xlsx is handled above.
+_SHEET_EXTS = {".xls", ".ods", ".numbers"}
+
+
+def _binary_read_error(resolved: str) -> str | None:
+    """Return a diagnostic when *resolved* is not text, else None.
+
+    `_read_text_file` falls back to latin-1, which decodes *any* byte sequence
+    without raising — so without this check a .xlsx or .pdf read by path returns
+    mojibake that looks like content and lands in the context window. Failing
+    with a route the caller can actually take is the contract (PROJECT_DESIGN
+    2.6, no silent substitution).
+    """
+    ext = os.path.splitext(resolved)[1].lower()
+
+    binary = ext in _BINARY_EXTS
+    if not binary:
+        try:
+            with open(resolved, "rb") as f:
+                head = f.read(8192)
+        except OSError:
+            return None
+        # UTF-16/32 text is full of NUL bytes and _read_text_file handles it via
+        # the BOM, so a BOM rules out the NUL sniff.
+        if not head.startswith((b"\xff\xfe", b"\xfe\xff")) and b"\x00" in head:
+            binary = True
+
+    if not binary:
+        return None
+
+    preview = _preview(resolved)
+
+    if ext in _IMAGE_EXTS:
+        route = f"Use analyze_image('{preview}', prompt) to inspect it."
+    else:
+        if ext in _SHEET_EXTS:
+            what = f"OpalaTex reads .xlsx but has no reader for {ext}."
+            conversion = "an .xlsx or .csv export"
+        else:
+            what = "This is not a text file."
+            conversion = "a conversion to text"
+
+        # Naming a route the caller cannot take is a dead end that pushes models
+        # into improvising (PROJECT_DESIGN 2.6). Only a worker has run_command;
+        # the orchestrator has no terminal tool at all and has to delegate, which
+        # plan mode blocks outright -- leaving asking the user as its only move.
+        if _IN_SKILL_WORKER:
+            how = (
+                f"You have run_command: convert it yourself with {conversion} into a text file "
+                "inside the project, then read that file."
+            )
+        else:
+            how = (
+                f"You have no terminal tool, so you cannot convert it yourself. Delegate {conversion} "
+                "to the 'command-line' skill with run_skill and then read the converted file. If you "
+                "are in plan mode, run_skill is blocked: ask the user to attach the file to the chat "
+                "or to provide the converted text instead of planning around content you cannot read."
+            )
+        route = f"{what} {how} Do not retry read_file on this path."
+
+    return f"Error: '{preview}' is a binary file ({ext or 'no extension'}), not text. {route}"
+
+
+@opalatex_tool(
+    name="read_file",
+    is_safe=True,
+    description=(
+        "Read the contents of a file in the project workspace. Relative paths are resolved "
+        "from the project directory. PDF, DOCX, PPTX and XLSX files are supported: their text "
+        "is extracted automatically, so read them with this tool instead of asking the user to "
+        "convert them by hand."
+    ),
+)
 def read_file(path: str) -> str:
     attachment = _RECENT_FILE_ATTACHMENTS.get(path) or _RECENT_FILE_ATTACHMENTS.get(os.path.basename(path))
     if attachment:
@@ -466,7 +556,7 @@ def read_file(path: str) -> str:
         raise ValueError(f"Error resolving path: {e}")
 
     AGENT_PROGRESS.update("read_file", f"path={_preview(resolved)}")
-    
+
     try:
         if os.path.isdir(resolved):
             raise ValueError(f"Error: '{_preview(resolved)}' is a directory, not a file. Use run_command with 'ls' or get_project_overview() to view contents.")
@@ -475,6 +565,70 @@ def read_file(path: str) -> str:
     except OSError as e:
         # Catch cases like [Errno 36] File name too long if path contains code
         raise ValueError(f"Error: invalid path argument ({e.strerror}). 'read_file' expects a file path, not file contents.")
+
+    # A PDF/DOCX/PPTX/XLSX in the workspace is not text, but it does have text
+    # inside it. Extract it here so the rest of read_file (the context budget
+    # check) treats it exactly like any other document, instead of refusing a
+    # file whose content OpalaTex can actually produce.
+    extracted = None
+    if os.path.splitext(resolved)[1].lower() in _DOC_EXTS:
+        from .attachments import extract_document_text_from_path
+
+        AGENT_PROGRESS.update("read_file", f"extracting {_preview(resolved)}")
+        try:
+            extracted = extract_document_text_from_path(resolved)
+        except ImportError as e:
+            raise ValueError(
+                f"Error: '{_preview(resolved)}' needs a document extractor that is not "
+                f"installed ({e}). Ask the user to install it, or to provide a text export."
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Error extracting text from '{_preview(resolved)}': {e}. The file may be "
+                "corrupt, password-protected, or empty. Do not retry read_file on this path."
+            )
+        if not extracted.strip():
+            raise ValueError(
+                f"Error: '{_preview(resolved)}' was read but contains no extractable text "
+                "(a scanned/image-only PDF, or an empty document). Do not retry read_file on "
+                "this path; use analyze_image on the page images, or ask the user for a text version."
+            )
+
+    if extracted is None:
+        binary_error = _binary_read_error(resolved)
+        if binary_error:
+            raise ValueError(binary_error)
+    else:
+        budget_chars = free_context_chars()
+        if budget_chars > 0 and len(extracted) > budget_chars:
+            # read_content_pos cannot page this: it would read the raw bytes of a
+            # binary container. The reachable route is to land the extracted text
+            # in the project as a text file and work on that.
+            if _IN_SKILL_WORKER:
+                how = (
+                    "Use run_command to extract it to a .txt/.md file in the project "
+                    "(pymupdf4llm for PDF, openpyxl for XLSX, python-docx/python-pptx are "
+                    "installed), then search_code + read_content_pos that file."
+                )
+            else:
+                how = (
+                    "Delegate to the 'command-line' skill with run_skill: have it extract the "
+                    "document to a .txt/.md file in the project, then use search_code + "
+                    "read_content_pos on that file. In plan mode run_skill is blocked, so ask "
+                    "the user for the part they need instead."
+                )
+            raise ValueError(
+                f"Error: the text extracted from '{_preview(resolved)}' is {len(extracted):,} "
+                f"characters and does not fit the remaining context budget "
+                f"(~{budget_chars:,} characters). Do not retry read_file on this path, and do "
+                f"not call read_content_pos on it — it is a binary container. {how}"
+            )
+        header = (
+            f"[Text extracted from '{os.path.basename(resolved)}' "
+            f"({os.path.splitext(resolved)[1].lower().lstrip('.')}). Layout and formatting are "
+            "not preserved.]\n"
+        )
+        return header + extracted
 
     # A whole-file read is the fastest way to destroy a context window: the
     # result is appended to history, MemGPT cannot evict the current user turn

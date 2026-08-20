@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _truncate(text: str, max_chars: int | None) -> str:
@@ -32,6 +33,8 @@ def _guess_mime(filename: str, mime: str) -> str:
         return DOCX_MIME
     if ext == ".pptx":
         return PPTX_MIME
+    if ext == ".xlsx":
+        return XLSX_MIME
     return normalized or "application/octet-stream"
 
 
@@ -127,6 +130,55 @@ def extract_pptx_text(data_b64: str, max_chars: int | None = None) -> str:
     return _truncate("\n\n".join(slides), max_chars)
 
 
+def _cell_text(value) -> str:
+    """Render one spreadsheet cell as text.
+
+    Dates get an explicit ISO rendering: openpyxl hands back datetime objects,
+    whose str() is "2026-08-26 00:00:00", and a whole column of midnight
+    timestamps is noise in a document whose point is usually the dates.
+    """
+    import datetime as _dt
+
+    if value is None:
+        return ""
+    if isinstance(value, _dt.datetime):
+        if (value.hour, value.minute, value.second, value.microsecond) == (0, 0, 0, 0):
+            return value.date().isoformat()
+        return value.isoformat(sep=" ")
+    if isinstance(value, _dt.date):
+        return value.isoformat()
+    return str(value)
+
+
+def extract_xlsx_text(data_b64: str, max_chars: int | None = None) -> str:
+    """Decode a base64-encoded XLSX and render every sheet as tab-separated rows.
+
+    Read-only mode streams the rows instead of building the whole workbook in
+    memory, and `data_only` returns the cached result of a formula rather than
+    the formula source, which is what a reader actually wants to see.
+    """
+    import openpyxl  # type: ignore
+
+    raw = base64.b64decode(data_b64)
+    workbook = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    try:
+        blocks: list[str] = []
+        for sheet in workbook.worksheets:
+            rows: list[str] = []
+            for row in sheet.iter_rows(values_only=True):
+                cells = [_cell_text(v) for v in row]
+                while cells and not cells[-1]:
+                    cells.pop()
+                rows.append("\t".join(cells))
+            while rows and not rows[-1]:
+                rows.pop()
+            body = "\n".join(rows)
+            blocks.append(f"# Sheet: {sheet.title}\n{body}" if body else f"# Sheet: {sheet.title}\n(empty)")
+    finally:
+        workbook.close()
+    return _truncate("\n\n".join(blocks), max_chars)
+
+
 def extract_document_text(
     data_b64: str,
     mime: str,
@@ -141,7 +193,31 @@ def extract_document_text(
         return extract_docx_text(data_b64, max_chars=max_chars)
     if normalized_mime == PPTX_MIME:
         return extract_pptx_text(data_b64, max_chars=max_chars)
+    if normalized_mime == XLSX_MIME:
+        return extract_xlsx_text(data_b64, max_chars=max_chars)
     raise ValueError(f"Unsupported document type: {mime or filename or 'unknown'}")
+
+
+EXTRACTABLE_DOC_EXTS = {".pdf", ".docx", ".pptx", ".xlsx"}
+
+
+def extract_document_text_from_path(path: str, max_chars: int | None = None) -> str:
+    """Extract a document's text from a file on disk.
+
+    The extractors were written for chat uploads and take base64, so this is the
+    bridge for a file that merely sits in the workspace: same tested extraction
+    code, reached by path instead of by upload. Without it, `read_file` on a
+    workspace PDF had no route at all -- extraction existed but only for files
+    that arrived through the attachment pipeline.
+    """
+    with open(path, "rb") as f:
+        raw = f.read()
+    return extract_document_text(
+        base64.b64encode(raw).decode(),
+        "",
+        os.path.basename(path),
+        max_chars=max_chars,
+    )
 
 
 def compress_image(data_b64: str, mime: str, max_side: int = 1024) -> str:

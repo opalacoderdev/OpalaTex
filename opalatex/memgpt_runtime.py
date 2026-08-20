@@ -379,12 +379,31 @@ def build_run_skill_tool(
         #print(f"[DIAGNOSTIC] Context passed:\n{context}")
         #print(f"{'-'*75}\n")
 
+        # Delegating to yourself is not delegation: it would spawn a sub-agent
+        # carrying this same orchestrator body, with a worker toolset and no
+        # run_skill of its own. It is never what the caller meant.
+        if skill_name == CHAT_ORCHESTRATOR_SKILL:
+            targets = [
+                s["name"] for s in active_skills(project_path)
+                if s["name"] != CHAT_ORCHESTRATOR_SKILL
+            ]
+            return (
+                f"[ERROR] '{CHAT_ORCHESTRATOR_SKILL}' is you, not a delegation target. "
+                f"Do the work with your own tools, or delegate to one of: {targets}."
+            )
+
         skill_dir = find_skill_dir(skill_name, project_path)
         if skill_dir is None:
-            active = [s["name"] for s in active_skills(project_path)]
+            active = [
+                s["name"] for s in active_skills(project_path)
+                if s["name"] != CHAT_ORCHESTRATOR_SKILL
+            ]
             return (
                 f"[ERROR] Skill '{skill_name}' was not found / is not active. "
-                f"You MUST NOT invent skill names. The only active skills you can delegate to are: {active}. "
+                f"You MUST NOT invent skill names. Your own tools (read_file, search_code, "
+                f"get_project_overview, create_plan, web_search, ...) are tools you call "
+                f"directly — they are never skill names. The only active skills you can "
+                f"delegate to are: {active}. "
                 "If you need to list, search, read, or write files directly, use your own direct tools "
                 "(e.g. get_project_overview, search_code, read_file) "
                 "or delegate to the 'command-line' skill."
@@ -1015,7 +1034,6 @@ def chat_orchestrator_system_prompt(project, store=None) -> str:
     profile_spec = get_profile(orchestrator_profile)
 
     skills = active_skills(project_path)
-    metadata = level1_metadata(skills)
     body = _chat_orchestrator_body(project_path, orchestrator_profile, orchestrator_policy)
 
     # A delegate orchestrator has no writing tools of its own, so without a skill
@@ -1028,6 +1046,17 @@ def chat_orchestrator_system_prompt(project, store=None) -> str:
     # blocker behind writes that mysteriously start working again.
     delegate_targets = [s for s in skills if s.get("name") != CHAT_ORCHESTRATOR_SKILL]
     delegate_without_target = orchestrator_policy == "delegate" and not delegate_targets
+
+    # The catalog lists what run_skill will actually accept, which is the same set:
+    # the orchestrator cannot delegate to itself. Listing its own entry offered a
+    # target that does nothing, and its SKILL.md carries no frontmatter, so the
+    # entry rendered as a bare "- chat-orchestrator:" with an empty description --
+    # a blank in a list of what is available, which models fill in by guessing
+    # (one enumerated its own tools as skills). An empty catalog says so in words
+    # rather than trailing off after the heading.
+    metadata = level1_metadata(delegate_targets) or (
+        "(none — no skill is available to delegate to; do the work with your own tools)"
+    )
 
     project_name = getattr(project, "project_name", "") or getattr(project, "name", "(unknown)")
     project_desc = getattr(project, "description", "") or ""
