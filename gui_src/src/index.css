@@ -1209,6 +1209,32 @@ input:focus, select:focus, textarea:focus {
   position: relative;
 }
 
+/* Clickable status bar entry (word/character counter). */
+.vscode-statusbar-item {
+  align-items: center;
+  background: none;
+  border: none;
+  border-radius: 2px;
+  color: var(--vscode-statusbar-fg);
+  cursor: pointer;
+  display: flex;
+  font-size: 11px;
+  font-family: inherit;
+  gap: 5px;
+  line-height: 1;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.vscode-statusbar-item:hover {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.vscode-statusbar-item:focus-visible {
+  outline: 1px solid var(--vscode-statusbar-fg);
+  outline-offset: -1px;
+}
+
 .vscode-statusbar-cloud-ad {
   color: var(--vscode-statusbar-fg);
   font-weight: 700;

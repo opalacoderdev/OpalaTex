@@ -88,6 +88,7 @@ def _full_worker_tools_block() -> str:
         "  - create_docx_file: Creates a Word .docx file from Markdown-like text. Use it instead of writing raw binary DOCX content.\n"
         "  - create_pptx_file: Creates a PowerPoint .pptx file from a JSON slide outline. Use it instead of writing raw binary PPTX content.\n"
         "  - run_command: Executes terminal commands (e.g., running tests, build scripts, or exploring the OS). Use it to interact with the environment and validate code.\n"
+        "  - run_python_script: Runs a Python script with the interpreter this environment actually uses, instead of guessing between python and python3. Use it for a skill's own processor script.\n"
         "  - search_conversation_history: Searches past interactions. Use it to recall previous decisions, context, or code snippets from the chat history.\n"
         "  - ask_question: Asks the user a clarifying question or requests preferences/inputs during execution and waits for their response. Use it whenever you need user clarification or choices before proceeding.\n"
     )
@@ -148,7 +149,7 @@ def _light_worker_intro(skill_name: str) -> str:
 def _light_worker_tools_block() -> str:
     return (
         "Tools: get_project_overview, search_code, read_file (also extracts text from PDF/DOCX/PPTX/XLSX), read_content_pos, get_editor_state, write_file, "
-        "write_content_pos, replace_content_range, create_docx_file, create_pptx_file, run_command, "
+        "write_content_pos, replace_content_range, create_docx_file, create_pptx_file, run_command, run_python_script, "
         "search_conversation_history, ask_question.\n"
     )
 

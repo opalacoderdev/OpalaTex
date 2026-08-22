@@ -5,8 +5,9 @@ raising, so a .xlsx or .pdf read by path used to return decoded binary that look
 like content. Extraction for PDF/DOCX/PPTX already existed but was reachable only
 through the chat-attachment pipeline: the identical file sitting in the workspace
 had no route at all. What genuinely cannot be read still fails fast, and the
-diagnostic names a route that exists *for the caller asking* -- a worker has
-run_command, the orchestrator does not.
+diagnostic names a route that exists *for the caller asking* -- a worker always
+has run_command, and so does an orchestrator under the "direct" policy; only a
+"delegate" orchestrator has to route the conversion through a worker.
 """
 import asyncio
 import datetime
@@ -144,6 +145,21 @@ def test_oversized_extracted_text_never_points_at_read_content_pos(tmp_path, mon
     message = str(excinfo.value)
     assert "does not fit the remaining context budget" in message
     assert "do not call read_content_pos on it" in message
+    # The route is landing the extracted text in the project as a text file;
+    # who runs the extraction depends on the caller's own toolset.
+    assert "Use run_command to extract it" in message
+
+
+def test_oversized_extracted_text_routes_a_delegate_orchestrator_to_a_worker(tmp_path, monkeypatch):
+    target = _make_xlsx(tmp_path / "big.xlsx",
+                        rows=[[f"row {i}", "x" * 60] for i in range(4000)])
+    _prepare(monkeypatch, target, num_ctx=8000, used=7000)
+    monkeypatch.setattr(tools, "_ORCHESTRATOR_HAS_TERMINAL", False)
+
+    with pytest.raises(ValueError) as excinfo:
+        _read_file(str(target))
+    message = str(excinfo.value)
+    assert "do not call read_content_pos on it" in message
     assert "command-line" in message
 
 
@@ -190,7 +206,20 @@ def test_a_legacy_spreadsheet_without_a_reader_still_fails_fast(tmp_path, monkey
     message = str(excinfo.value)
     assert "binary file" in message
     assert "no reader for .xls" in message
-    # The orchestrator has no terminal tool, so "convert it yourself" is a dead end.
+    # Default policy is "direct", so this orchestrator can convert it itself.
+    assert "You have run_command" in message
+
+
+def test_a_delegate_orchestrator_is_sent_to_the_command_line_skill(tmp_path, monkeypatch):
+    """Without the execution tools, "convert it yourself" would be a dead end."""
+    target = tmp_path / "old.xls"
+    target.write_bytes(b"\xd0\xcf\x11\xe0\x00\x00legacy OLE2 payload")
+    _prepare(monkeypatch, target)
+    monkeypatch.setattr(tools, "_ORCHESTRATOR_HAS_TERMINAL", False)
+
+    with pytest.raises(ValueError) as excinfo:
+        _read_file(str(target))
+    message = str(excinfo.value)
     assert "you cannot convert it yourself" in message
     assert "command-line" in message
     assert "plan mode" in message

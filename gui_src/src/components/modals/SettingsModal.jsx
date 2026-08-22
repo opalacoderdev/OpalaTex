@@ -5,7 +5,7 @@ import { useCustomDialog } from './CustomDialogProvider';
 import i18n from '../../i18n/index.js';
 import { safeSetLocalStorage } from '../../utils/storage';
 
-// IDE global settings modal (theme, font size, tab size, word wrap, optional deps).
+// IDE global settings modal (theme, font size, tab size, word wrap, minimap, optional deps).
 export default function SettingsModal({
   onClose,
   settingsTab,
@@ -18,6 +18,8 @@ export default function SettingsModal({
   setEditorTabSize,
   editorWordWrap,
   setEditorWordWrap,
+  editorMinimap,
+  setEditorMinimap,
   isInstallingDeps,
   installDepsStatus,
   installDepsLog,
@@ -221,6 +223,16 @@ export default function SettingsModal({
                   <option value="on">{t('settingsModal.wordWrapOn')}</option>
                   <option value="off">{t('settingsModal.wordWrapOff')}</option>
                 </select>
+              </div>
+
+              {/* Minimap */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.minimap')}</label>
+                <select value={editorMinimap} onChange={(e) => { setEditorMinimap(e.target.value); safeSetLocalStorage('editorMinimap', e.target.value); }} className="vscode-settings-input" style={{ width: '100%' }}>
+                  <option value="on">{t('settingsModal.minimapOn')}</option>
+                  <option value="off">{t('settingsModal.minimapOff')}</option>
+                </select>
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('settingsModal.minimapHint')}</span>
               </div>
 
               {/* Prompt Evolution Iterations */}

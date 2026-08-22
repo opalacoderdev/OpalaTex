@@ -1,9 +1,15 @@
-import { Suspense, lazy, useRef, useEffect, useState, useCallback } from 'react';
+import { Suspense, lazy, useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, Trash2, FileText, HelpCircle, MoreHorizontal, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { getLanguage } from '../utils/language';
+import {
+  COUNT_MODE_AUTO,
+  countTextStats,
+  nextCountMode,
+  resolveCountMode,
+} from '../utils/textStats';
 import { safeSetLocalStorage } from '../utils/storage';
 import InlinePromptOverlay from './InlinePromptOverlay';
 import EditorContextMenuOverlay from './EditorContextMenuOverlay';
@@ -31,6 +37,7 @@ export default function EditorPanel({
   setEditorFontSize,
   editorTabSize,
   editorWordWrap,
+  editorMinimap = 'on',
   handleFileSelect,
   handleCloseTab,
   saveFile,
@@ -56,6 +63,7 @@ export default function EditorPanel({
   onLatexCompileSuccess,
   onFixLatexProblem,
   isAgentRunning,
+  onTextStatsChange,
 }) {
   const { t } = useTranslation();
   const { showAlert } = useCustomDialog();
@@ -571,6 +579,86 @@ export default function EditorPanel({
     }
   }, []);
 
+  // ── Word / character counting ───────────────────────────────────────────
+  // Counting is mode-aware (LaTeX, Markdown, plain text) so markup is not
+  // mistaken for prose. The mode follows the file extension unless the user
+  // overrides it from the status bar; overrides are kept per file.
+  const [countModeOverrides, setCountModeOverrides] = useState({});
+  const [editorSelectionText, setEditorSelectionText] = useState('');
+  const selectionStatsTimerRef = useRef(null);
+
+  const countModeOverride = (selectedFile && countModeOverrides[selectedFile]) || COUNT_MODE_AUTO;
+  const resolvedCountMode = resolveCountMode(selectedFile, countModeOverride);
+
+  const cycleCountMode = useCallback(() => {
+    const file = selectedFileRef.current;
+    if (!file) return;
+    setCountModeOverrides(prev => ({
+      ...prev,
+      [file]: nextCountMode(prev[file] || COUNT_MODE_AUTO),
+    }));
+  }, []);
+
+  // Selection counting is debounced: dragging a selection fires the Monaco
+  // event on every mouse move, and each recount re-parses the selected text.
+  const scheduleSelectionStats = useCallback((editor) => {
+    if (selectionStatsTimerRef.current) clearTimeout(selectionStatsTimerRef.current);
+    selectionStatsTimerRef.current = setTimeout(() => {
+      selectionStatsTimerRef.current = null;
+      const model = editor?.getModel?.();
+      const selection = editor?.getSelection?.();
+      if (!model || !selection || selection.isEmpty?.()) {
+        setEditorSelectionText('');
+        return;
+      }
+      setEditorSelectionText(model.getValueInRange(selection));
+    }, 120);
+  }, []);
+
+  useEffect(() => {
+    setEditorSelectionText('');
+  }, [selectedFile, isRichTextMode, isPreviewMode]);
+
+  useEffect(() => () => {
+    if (selectionStatsTimerRef.current) {
+      clearTimeout(selectionStatsTimerRef.current);
+      selectionStatsTimerRef.current = null;
+    }
+  }, []);
+
+  // Binary editors (PDF, DOCX, PPTX) render their own content — fileContent
+  // is not the text the user sees, so no count is reported for them.
+  const supportsTextStats = !!selectedFile && !isPdfFile && !isDocxFile && !isPptxFile;
+
+  const documentTextStats = useMemo(
+    () => (supportsTextStats ? countTextStats(fileContent ?? '', resolvedCountMode) : null),
+    [supportsTextStats, fileContent, resolvedCountMode],
+  );
+
+  const selectionTextStats = useMemo(
+    () => (supportsTextStats && editorSelectionText
+      ? countTextStats(editorSelectionText, resolvedCountMode)
+      : null),
+    [supportsTextStats, editorSelectionText, resolvedCountMode],
+  );
+
+  const onTextStatsChangeRef = useRef(onTextStatsChange);
+  onTextStatsChangeRef.current = onTextStatsChange;
+
+  useEffect(() => {
+    onTextStatsChangeRef.current?.(documentTextStats
+      ? {
+        ...documentTextStats,
+        modeOverride: countModeOverride,
+        selection: selectionTextStats,
+        onCycleMode: cycleCountMode,
+      }
+      : null);
+  }, [documentTextStats, selectionTextStats, countModeOverride, cycleCountMode]);
+
+  // Clear the status bar when the editor panel goes away.
+  useEffect(() => () => onTextStatsChangeRef.current?.(null), []);
+
   const syncEditorValue = useCallback((editor, nextValue) => {
     const model = editor?.getModel?.();
     if (!model) return;
@@ -777,6 +865,10 @@ export default function EditorPanel({
       flushPendingEditorContent();
     });
 
+    actualEditor.onDidChangeCursorSelection?.(() => {
+      scheduleSelectionStats(actualEditor);
+    });
+
     // ── Forward Search (Ctrl+Click or Alt+Click on editor) ───────────────────────────────
     actualEditor.onMouseUp(async (e) => {
       // Check if Ctrl, Meta (Cmd on Mac), or Alt is pressed
@@ -962,6 +1054,8 @@ export default function EditorPanel({
     );
   }
 
+  const minimapEnabled = editorMinimap !== 'off';
+
   const renderTexEditorSurface = () => (
     <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
       {isRichTextMode ? (
@@ -997,7 +1091,7 @@ export default function EditorPanel({
           onMount={handleMount}
           options={{
             contextmenu: false,
-            minimap: { enabled: true },
+            minimap: { enabled: minimapEnabled },
             fontSize: editorFontSize,
             lineNumbers: 'on',
             tabSize: editorTabSize,
@@ -1021,7 +1115,7 @@ export default function EditorPanel({
           onMount={handleMount}
           options={{
             contextmenu: false,
-            minimap: { enabled: true },
+            minimap: { enabled: minimapEnabled },
             fontSize: editorFontSize,
             lineNumbers: 'on',
             tabSize: editorTabSize,
@@ -1507,6 +1601,7 @@ export default function EditorPanel({
                 onMount={handleMount}
                 options={{
                   contextmenu: false,
+                  minimap: { enabled: minimapEnabled },
                   fontSize: editorFontSize,
                   lineNumbers: 'on',
                   tabSize: editorTabSize,
@@ -1530,6 +1625,7 @@ export default function EditorPanel({
                 onMount={handleMount}
                 options={{
                   contextmenu: false,
+                  minimap: { enabled: minimapEnabled },
                   fontSize: editorFontSize,
                   lineNumbers: 'on',
                   tabSize: editorTabSize,

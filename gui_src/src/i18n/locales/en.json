@@ -71,7 +71,23 @@
     "workspace": "Workspace: {{name}}",
     "noWorkspace": "No Workspace",
     "agentRunning": "OpalaTex Active...",
-    "networkError": "Network error while contacting API: {{message}}"
+    "networkError": "Network error while contacting API: {{message}}",
+    "count": "{{words}} words, {{characters}} chars",
+    "countSelection": "Selected: {{words}} words, {{characters}} chars",
+    "countMode": {
+      "latex": "LaTeX",
+      "markdown": "Markdown",
+      "text": "Plain text"
+    },
+    "countModeAutoSuffix": " (auto)",
+    "countTooltipMode": "Counting mode: {{mode}}",
+    "countTooltipWords": "Words: {{value}}",
+    "countTooltipChars": "Characters (with spaces): {{value}}",
+    "countTooltipCharsNoSpaces": "Characters (without spaces): {{value}}",
+    "countTooltipLines": "Lines: {{value}}",
+    "countTooltipRaw": "File characters (markup included): {{value}}",
+    "countTooltipSelection": "Selection: {{words}} words, {{characters}} characters",
+    "countTooltipHint": "Click to switch counting mode (auto / LaTeX / Markdown / plain text)."
   },
   "topBar": {
     "actionsGroup": "Actions",
@@ -631,6 +647,8 @@
     "editorFontSize": "Editor Font Size",
     "tabSize": "Tab Size (Spaces)",
     "wordWrap": "Word Wrap",
+    "minimap": "Minimap",
+    "minimapHint": "Shows the code overview strip on the right side of the editor.",
     "latexCompilation": "LaTeX Compilation",
     "draftSynctexEnabled": "Generate SyncTeX in draft compile",
     "draftSynctexHint": "Draft compile skips SyncTeX by default for speed. Enable this if you need source/PDF navigation after draft builds.",
@@ -666,6 +684,8 @@
     "eightSpaces": "8 Spaces",
     "wordWrapOn": "On",
     "wordWrapOff": "Off",
+    "minimapOn": "On",
+    "minimapOff": "Off",
     "version": "Version",
     "author": "Author",
     "license": "License",
@@ -766,12 +786,12 @@
       "light": "Light",
       "lightHint": "A condensed system prompt (core rules + tool/skill list only). Use for models where shorter prompts save tokens/latency without hurting reliability."
     },
-    "orchestratorPolicyLabel": "Orchestrator writes",
+    "orchestratorPolicyLabel": "Orchestrator actions",
     "orchestratorPolicy": {
       "direct": "Direct",
-      "directHint": "The orchestrator edits and creates files itself with write_file, write_content_pos and replace_content_range. Fewer round-trips; the file content passes through the orchestrator's context.",
+      "directHint": "The orchestrator acts on the project itself: it creates and edits files (write_file, write_content_pos, replace_content_range) and runs commands (run_command, run_python_script) with the same tools a skill worker has. Fewer round-trips; the file content passes through the orchestrator's context. Plan mode still blocks these tools and edit mode still asks you to confirm.",
       "delegate": "Delegate",
-      "delegateHint": "The orchestrator only reads, and every file change goes to a skill worker via run_skill. Keeps large write payloads out of the orchestrator's context. Requires at least one active skill to be usable."
+      "delegateHint": "The orchestrator only reads, and every file change or command goes to a skill worker via run_skill. Keeps large write payloads out of the orchestrator's context. Requires at least one active skill to be usable."
     },
     "supportsThinkingLabel": "This model supports thinking/reasoning",
     "supportsThinkingHint": "Keep this off unless the model documentation explicitly says it supports thinking or reasoning parameters.",

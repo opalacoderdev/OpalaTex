@@ -71,7 +71,23 @@
     "workspace": "Workspace: {{name}}",
     "noWorkspace": "Nenhum Workspace",
     "agentRunning": "OpalaTex Ativo...",
-    "networkError": "Erro de rede ao contactar a API: {{message}}"
+    "networkError": "Erro de rede ao contactar a API: {{message}}",
+    "count": "{{words}} palavras, {{characters}} caracteres",
+    "countSelection": "Selecionado: {{words}} palavras, {{characters}} caracteres",
+    "countMode": {
+      "latex": "LaTeX",
+      "markdown": "Markdown",
+      "text": "Texto puro"
+    },
+    "countModeAutoSuffix": " (automático)",
+    "countTooltipMode": "Modo de contagem: {{mode}}",
+    "countTooltipWords": "Palavras: {{value}}",
+    "countTooltipChars": "Caracteres (com espaços): {{value}}",
+    "countTooltipCharsNoSpaces": "Caracteres (sem espaços): {{value}}",
+    "countTooltipLines": "Linhas: {{value}}",
+    "countTooltipRaw": "Caracteres do arquivo (incluindo marcação): {{value}}",
+    "countTooltipSelection": "Seleção: {{words}} palavras, {{characters}} caracteres",
+    "countTooltipHint": "Clique para alternar o modo de contagem (automático / LaTeX / Markdown / texto puro)."
   },
   "topBar": {
     "actionsGroup": "Ações",
@@ -631,6 +647,8 @@
     "editorFontSize": "Tamanho da Fonte do Editor",
     "tabSize": "Tamanho do Tab (Espaços)",
     "wordWrap": "Quebra Automática de Linha (Word Wrap)",
+    "minimap": "Minimapa",
+    "minimapHint": "Mostra a faixa de visão geral do código no lado direito do editor.",
     "latexCompilation": "Compilação LaTeX",
     "draftSynctexEnabled": "Gerar SyncTeX na compilação rascunho",
     "draftSynctexHint": "A compilação rascunho ignora SyncTeX por padrão para ganhar velocidade. Ative isto se precisar de navegação entre fonte e PDF após compilações rascunho.",
@@ -666,6 +684,8 @@
     "eightSpaces": "8 Espaços",
     "wordWrapOn": "Ativado (On)",
     "wordWrapOff": "Desativado (Off)",
+    "minimapOn": "Ativado (On)",
+    "minimapOff": "Desativado (Off)",
     "version": "Versão",
     "author": "Autor",
     "license": "Licença",
@@ -766,12 +786,12 @@
       "light": "Enxuto",
       "lightHint": "Um system prompt condensado (regras essenciais + lista de ferramentas/skills apenas). Use para modelos onde um prompt mais curto economiza tokens/latência sem prejudicar a confiabilidade."
     },
-    "orchestratorPolicyLabel": "Escrita do orquestrador",
+    "orchestratorPolicyLabel": "Ações do orquestrador",
     "orchestratorPolicy": {
       "direct": "Direta",
-      "directHint": "O orquestrador edita e cria arquivos ele mesmo com write_file, write_content_pos e replace_content_range. Menos idas e vindas; o conteudo do arquivo passa pelo contexto do orquestrador.",
+      "directHint": "O orquestrador age no projeto por conta própria: cria e edita arquivos (write_file, write_content_pos, replace_content_range) e executa comandos (run_command, run_python_script) com as mesmas ferramentas de um worker de skill. Menos idas e vindas; o conteúdo do arquivo passa pelo contexto do orquestrador. O modo plan continua bloqueando essas ferramentas e o modo edit continua pedindo sua confirmação.",
       "delegate": "Delegada",
-      "delegateHint": "O orquestrador apenas le, e toda alteracao de arquivo vai para um worker de skill via run_skill. Mantem escritas grandes fora do contexto do orquestrador. Exige pelo menos uma skill ativa para ser utilizavel."
+      "delegateHint": "O orquestrador apenas lê, e toda alteração de arquivo ou execução de comando vai para um worker de skill via run_skill. Mantém escritas grandes fora do contexto do orquestrador. Exige pelo menos uma skill ativa para ser utilizável."
     },
     "supportsThinkingLabel": "Este modelo suporta thinking/reasoning",
     "supportsThinkingHint": "Mantenha desligado, exceto se a documentação do modelo disser explicitamente que ele suporta parâmetros de thinking ou reasoning.",

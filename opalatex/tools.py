@@ -102,10 +102,35 @@ _PROJECT_STORE = None
 # that advice is a dead end for it.
 _IN_SKILL_WORKER: bool = False
 
+# Whether the chat orchestrator currently holds the command-execution tools.
+# Set from its model's policy when it is built: "direct" grants the workspace
+# action tools (writes *and* execution), "delegate" withholds all of them. Kept
+# next to _IN_SKILL_WORKER because both exist for the same reason -- recovery
+# advice must name a route the caller can actually take (PROJECT_DESIGN 2.6) --
+# but they answer different questions: one is "can I delegate?", the other is
+# "can I run a command myself?".
+_ORCHESTRATOR_HAS_TERMINAL: bool = True
+
 
 def set_worker_context(active: bool) -> None:
     global _IN_SKILL_WORKER
     _IN_SKILL_WORKER = active
+
+
+def set_orchestrator_terminal_access(active: bool) -> None:
+    """Record whether the built orchestrator got the command-execution tools."""
+    global _ORCHESTRATOR_HAS_TERMINAL
+    _ORCHESTRATOR_HAS_TERMINAL = bool(active)
+
+
+def caller_has_terminal() -> bool:
+    """True when whoever is running right now can execute commands itself.
+
+    A skill worker always can; the orchestrator only under the "direct" policy.
+    Guidance branches on this instead of on the role, because after the direct
+    policy started granting run_command the role no longer implies the answer.
+    """
+    return True if _IN_SKILL_WORKER else _ORCHESTRATOR_HAS_TERMINAL
 
 def set_project_context(session, store=None) -> None:
     global _PROJECT_PATH, _PROJECT_SESSION, _PROJECT_STORE
@@ -498,10 +523,11 @@ def _binary_read_error(resolved: str) -> str | None:
             conversion = "a conversion to text"
 
         # Naming a route the caller cannot take is a dead end that pushes models
-        # into improvising (PROJECT_DESIGN 2.6). Only a worker has run_command;
-        # the orchestrator has no terminal tool at all and has to delegate, which
-        # plan mode blocks outright -- leaving asking the user as its only move.
-        if _IN_SKILL_WORKER:
+        # into improvising (PROJECT_DESIGN 2.6). A worker always has run_command
+        # and so does a "direct" orchestrator; only a "delegate" orchestrator has
+        # to route this through a worker, which plan mode blocks outright --
+        # leaving asking the user as its only move.
+        if caller_has_terminal():
             how = (
                 f"You have run_command: convert it yourself with {conversion} into a text file "
                 "inside the project, then read that file."
@@ -604,7 +630,7 @@ def read_file(path: str) -> str:
             # read_content_pos cannot page this: it would read the raw bytes of a
             # binary container. The reachable route is to land the extracted text
             # in the project as a text file and work on that.
-            if _IN_SKILL_WORKER:
+            if caller_has_terminal():
                 how = (
                     "Use run_command to extract it to a .txt/.md file in the project "
                     "(pymupdf4llm for PDF, openpyxl for XLSX, python-docx/python-pptx are "
@@ -1508,7 +1534,37 @@ def _rel(path: str, root: str) -> str:
     except ValueError:
         return path
 
+def get_workspace_action_tools():
+    """Tools that act on the workspace: file writes and command execution.
+
+    Single source for what a skill worker can do to the project and for what the
+    "direct" orchestrator policy grants (`memgpt_runtime.build_chat_orchestrator`),
+    so the two roles cannot drift apart -- the orchestrator used to get the write
+    tools listed by hand here and no terminal at all, which left a "direct" model
+    able to rewrite `main.tex` but unable to run `pdflatex` on it: half an
+    authority, forcing a delegation round-trip mid-task. "delegate" withholds
+    exactly this list.
+
+    Every execution tool here is declared `is_safe=False`, so the `opalatex_tool`
+    gate still blocks it in plan mode and asks the user in edit mode no matter
+    which role calls it.
+    """
+    return [
+        write_file,
+        write_content_pos,
+        replace_content_range,
+        create_docx_file,
+        create_pptx_file,
+        export_tex_to_docx,
+        run_command,
+        run_python_script,
+        run_background_command,
+        run_interactive_command,
+    ]
+
+
 def get_available_tools():
+    """Tools handed to a skill worker (`memgpt_runtime.build_run_skill_tool`)."""
     return [
         search_conversation_history,
         update_achievements_memory,
@@ -1516,18 +1572,10 @@ def get_available_tools():
         search_code,
         read_file,
         read_content_pos,
-        write_file,
-        export_tex_to_docx,
-        create_docx_file,
-        create_pptx_file,
-        write_content_pos,
-        replace_content_range,
-        run_command,
-        run_background_command,
-        run_interactive_command,
         analyze_image,
         ask_question,
         get_editor_state,
+        *get_workspace_action_tools(),
     ]
 
 

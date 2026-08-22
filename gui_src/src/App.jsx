@@ -261,6 +261,9 @@ export default function App() {
   };
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
+  // Word/character statistics reported by the editor panel (mode-aware:
+  // LaTeX, Markdown or plain text), rendered in the status bar.
+  const [editorTextStats, setEditorTextStats] = useState(null);
   const [selectedNodes, setSelectedNodes] = useState(new Set());
   const [renamingNodePath, setRenamingNodePath] = useState(null);
   const [fileContent, setFileContent] = useState('');
@@ -451,6 +454,7 @@ export default function App() {
   const [editorFontSize, setEditorFontSize] = useState(() => Number(safeGetLocalStorage('editorFontSize', 13)));
   const [editorTabSize, setEditorTabSize] = useState(() => Number(safeGetLocalStorage('editorTabSize', 4)));
   const [editorWordWrap, setEditorWordWrap] = useState(() => safeGetLocalStorage('editorWordWrap', 'on'));
+  const [editorMinimap, setEditorMinimap] = useState(() => safeGetLocalStorage('editorMinimap', 'on'));
   const [showHiddenWorkspaceFiles, setShowHiddenWorkspaceFiles] = useState(false);
 
   useEffect(() => {
@@ -3733,6 +3737,7 @@ export default function App() {
               setEditorFontSize={setEditorFontSize}
               editorTabSize={editorTabSize}
               editorWordWrap={editorWordWrap}
+              editorMinimap={editorMinimap}
               handleFileSelect={handleFileSelect}
               handleCloseTab={handleCloseTab}
               saveFile={saveFile}
@@ -3786,6 +3791,7 @@ export default function App() {
               onLatexCompileSuccess={handleLatexCompileSuccess}
               onFixLatexProblem={handleFixLatexProblem}
               isAgentRunning={isAgentRunning}
+              onTextStatsChange={setEditorTextStats}
             />
           )}
 
@@ -3952,6 +3958,7 @@ export default function App() {
       <StatusBar
         activeProject={activeProject}
         isAgentRunning={isAgentRunning}
+        textStats={editorTextStats}
       />
 
       {/* ── Overlays / Modals ── */}
@@ -4010,6 +4017,7 @@ export default function App() {
           editorFontSize={editorFontSize} setEditorFontSize={setEditorFontSize}
           editorTabSize={editorTabSize} setEditorTabSize={setEditorTabSize}
           editorWordWrap={editorWordWrap} setEditorWordWrap={setEditorWordWrap}
+          editorMinimap={editorMinimap} setEditorMinimap={setEditorMinimap}
           isInstallingDeps={isInstallingDeps}
           installDepsStatus={installDepsStatus}
           installDepsLog={installDepsLog}

@@ -1,7 +1,8 @@
 """Tests for the orchestrator tool policy (direct/delegate).
 
-The policy decides whether the chat orchestrator gets file-writing tools or has
-to route every change through `run_skill`. It is a per-model catalog field
+The policy decides whether the chat orchestrator gets the workspace action
+tools -- file writes *and* command execution, the same set a skill worker gets
+-- or has to route every change through `run_skill`. It is a per-model catalog field
 (`opalatex/models_store.py`) resolved by `config.model_orchestrator_policy`, and
 it is deliberately separate from `prompt_profile`: the profile controls prompt
 verbosity, the policy controls write authority, and "light prompt + delegate
@@ -30,6 +31,26 @@ WRITE_TOOLS = {
     "create_docx_file",
     "create_pptx_file",
 }
+
+# Command execution is part of the same authority as writing: an orchestrator
+# allowed to rewrite main.tex but not to run pdflatex on it holds half an
+# authority and has to delegate mid-task anyway.
+EXEC_TOOLS = {
+    "run_command",
+    "run_python_script",
+    "run_background_command",
+    "run_interactive_command",
+}
+
+
+@pytest.fixture(autouse=True)
+def _restore_terminal_flag():
+    """Keep the global terminal-access flag from leaking between tests."""
+    from opalatex import tools
+
+    original = tools._ORCHESTRATOR_HAS_TERMINAL
+    yield
+    tools.set_orchestrator_terminal_access(original)
 
 
 def _catalog(tmp_path, monkeypatch, model_id, **fields):
@@ -103,6 +124,103 @@ def test_delegate_policy_keeps_reading_and_delegation(tmp_path, monkeypatch):
     assert {"read_core_memory", "append_core_memory"} <= names
 
 
+def test_direct_policy_grants_command_execution(tmp_path, monkeypatch):
+    """Regression: a direct orchestrator could write files but not run anything.
+
+    Compiling, testing, renaming and deleting all needed a run_skill round-trip
+    to `command-line`, which is exactly the delegation loop the policy exists to
+    avoid for a model capable of doing the work itself.
+    """
+    project = _catalog(tmp_path, monkeypatch, "ollama/m", orchestrator_policy="direct")
+    assert EXEC_TOOLS <= _tool_names(project)
+
+
+def test_direct_policy_matches_the_worker_action_set(tmp_path, monkeypatch):
+    """Both roles compose from `tools.get_workspace_action_tools()`.
+
+    Asserted as a set identity rather than a list of names so a tool added to
+    the worker can never silently skip the direct orchestrator again.
+    """
+    from opalatex.tools import get_workspace_action_tools
+
+    project = _catalog(tmp_path, monkeypatch, "ollama/m", orchestrator_policy="direct")
+    action_names = {t.name for t in get_workspace_action_tools()}
+
+    assert action_names == WRITE_TOOLS | EXEC_TOOLS | {"export_tex_to_docx"}
+    assert action_names <= _tool_names(project)
+
+
+def test_delegate_policy_withholds_command_execution(tmp_path, monkeypatch):
+    project = _catalog(tmp_path, monkeypatch, "ollama/m", orchestrator_policy="delegate")
+    names = _tool_names(project)
+    assert not (EXEC_TOOLS & names), f"delegate orchestrator still holds {EXEC_TOOLS & names}"
+
+
+@pytest.mark.parametrize("tool_name,args", [
+    ("run_command", ("rm -rf build",)),
+    ("run_python_script", ("script.py",)),
+    ("run_background_command", ("npm run dev",)),
+    ("run_interactive_command", ("npm init",)),
+])
+def test_execution_tools_stay_unsafe_for_the_orchestrator(tmp_path, tool_name, args):
+    """Granting the tools must not weaken the mode gate.
+
+    The gate in `opalatex_tool` wraps the same function objects for both roles,
+    so a direct orchestrator inherits plan-mode refusal and edit-mode
+    confirmation unchanged -- these tools are declared is_safe=False.
+    """
+    import asyncio
+    from types import SimpleNamespace
+    import opalatex.tools as tools
+
+    tools.set_project_context(SimpleNamespace(project_path=str(tmp_path), mode="plan"))
+    tool = getattr(tools, tool_name)
+    raw = getattr(tool, "_func", None) or tool
+    result = asyncio.run(raw(*args))
+
+    assert result.startswith("Execution blocked: In 'plan' mode")
+
+
+# ── Recovery advice follows the toolset, not the role ────────────────────────
+
+def test_direct_orchestrator_is_told_to_convert_documents_itself(tmp_path, monkeypatch):
+    """Guidance must name a route this caller can take (PROJECT_DESIGN 2.6)."""
+    from opalatex.tools import _binary_read_error
+
+    project = _catalog(tmp_path, monkeypatch, "ollama/m", orchestrator_policy="direct")
+    build_chat_orchestrator(project, None)
+
+    message = _binary_read_error(str(tmp_path / "data.xls"))
+    assert "run_command" in message
+    assert "command-line" not in message
+
+
+def test_delegate_orchestrator_is_still_sent_to_the_command_line_skill(tmp_path, monkeypatch):
+    from opalatex.tools import _binary_read_error
+
+    project = _catalog(tmp_path, monkeypatch, "ollama/m", orchestrator_policy="delegate")
+    build_chat_orchestrator(project, None)
+
+    message = _binary_read_error(str(tmp_path / "data.xls"))
+    assert "'command-line'" in message
+    assert "no terminal tool" in message
+
+
+def test_worker_advice_ignores_the_orchestrator_policy(tmp_path, monkeypatch):
+    """A worker always has run_command, whatever the orchestrator was granted."""
+    import opalatex.tools as tools
+
+    project = _catalog(tmp_path, monkeypatch, "ollama/m", orchestrator_policy="delegate")
+    build_chat_orchestrator(project, None)
+    tools.set_worker_context(True)
+    try:
+        message = tools._binary_read_error(str(tmp_path / "data.xls"))
+    finally:
+        tools.set_worker_context(False)
+
+    assert "You have run_command" in message
+
+
 def test_delegate_policy_does_not_disarm_the_worker(tmp_path, monkeypatch):
     """The policy is orchestrator-scoped: workers must still be able to write.
 
@@ -113,7 +231,7 @@ def test_delegate_policy_does_not_disarm_the_worker(tmp_path, monkeypatch):
     from opalatex.tools import get_available_tools
 
     worker_names = {t.name for t in get_available_tools()}
-    assert WRITE_TOOLS <= worker_names
+    assert (WRITE_TOOLS | EXEC_TOOLS) <= worker_names
 
 
 # ── The two axes stay independent ────────────────────────────────────────────

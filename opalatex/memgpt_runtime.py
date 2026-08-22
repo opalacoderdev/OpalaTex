@@ -47,11 +47,7 @@ from .tools import (
     search_code,
     web_search,
     analyze_image,
-    create_docx_file,
-    create_pptx_file,
     read_content_pos,
-    replace_content_range,
-    write_content_pos,
     get_editor_state,
     set_project_context,
 )
@@ -398,15 +394,27 @@ def build_run_skill_tool(
                 s["name"] for s in active_skills(project_path)
                 if s["name"] != CHAT_ORCHESTRATOR_SKILL
             ]
+            # The closing advice has to match this orchestrator's real toolset
+            # (PROJECT_DESIGN 2.6): under "direct" it can write and run commands
+            # itself, so sending it to 'command-line' for that would be a
+            # needless round-trip; under "delegate" that skill is its only route.
+            from .tools import caller_has_terminal
+            fallback = (
+                "If you need to list, search, read, write, or run something directly, use your "
+                "own direct tools (e.g. get_project_overview, search_code, read_file, "
+                "write_file, run_command)."
+                if caller_has_terminal() else
+                "If you need to list, search, or read files directly, use your own direct tools "
+                "(e.g. get_project_overview, search_code, read_file), and delegate anything that "
+                "writes or runs to the 'command-line' skill."
+            )
             return (
                 f"[ERROR] Skill '{skill_name}' was not found / is not active. "
                 f"You MUST NOT invent skill names. Your own tools (read_file, search_code, "
                 f"get_project_overview, create_plan, web_search, ...) are tools you call "
                 f"directly — they are never skill names. The only active skills you can "
                 f"delegate to are: {active}. "
-                "If you need to list, search, read, or write files directly, use your own direct tools "
-                "(e.g. get_project_overview, search_code, read_file) "
-                "or delegate to the 'command-line' skill."
+                f"{fallback}"
             )
         meta = parse_skill_md(skill_dir)
         if meta is None:
@@ -977,7 +985,8 @@ def _chat_orchestrator_body(project_path: str, profile: str = "full", policy: st
     else:
         tools_rule = (
             "3. You CAN and SHOULD use your tools (like search_code, read_file, read_content_pos, get_editor_state, write_file, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly. "
-            "write_file is the only tool that creates a new file; write_content_pos and replace_content_range require the file to already exist.\n"
+            "write_file is the only tool that creates a new file; write_content_pos and replace_content_range require the file to already exist. "
+            "You also run commands yourself with run_command (non-interactive), run_python_script, run_interactive_command (commands that prompt the user) and run_background_command (servers and other long-running processes): compile, build, test, rename and delete directly instead of delegating a single command to a worker.\n"
         )
     return (
         "Execute actions only through native tool calls.\n"
@@ -990,7 +999,7 @@ def _chat_orchestrator_body(project_path: str, profile: str = "full", policy: st
         + (
             "To list, search or read directly, use get_project_overview, search_code, read_file or read_content_pos; every edit goes to a worker.\n"
             if policy == "delegate" else
-            "If you need to list, search, read, or make a precise line edit directly, use get_project_overview, search_code, read_file, read_content_pos, write_file, replace_content_range, or write_content_pos.\n"
+            "If you need to list, search, read, make a precise line edit, or run a command directly, use get_project_overview, search_code, read_file, read_content_pos, write_file, replace_content_range, write_content_pos, or run_command.\n"
         ) +
         "7. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If the worker changed files, verify the changed location with read_file/read_content_pos before reporting success. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan unless a worker loop breaker tells you to stop. If the task IS complete, return a non-empty final result for the user.\n"
         "8. Every invocation of run_skill spawns a completely stateless, ephemeral sub-agent. The worker starts fresh with no memory of prior runs. You MUST NOT try to converse/coordinate with the worker across multiple turns or promise to provide details in a 'next step'. Provide all instructions and details in a single run_skill call.\n"
@@ -1206,21 +1215,28 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     # disarm the worker too and leave the delegate policy with no way to write at
     # all. Withholding the tools here scopes the restriction to this agent.
     #
-    # write_file is what the orchestrator was missing under "direct": with only
-    # write_content_pos and replace_content_range -- both of which require an
-    # existing file -- a model asked to create one had no valid call to make and
-    # reached for write_content_pos, which fails with "file not found".
+    # What "direct" grants is the worker's own action toolset, taken from the
+    # single list in `tools.get_workspace_action_tools()` rather than restated
+    # here: an orchestrator authorized to rewrite `main.tex` but not to run
+    # `pdflatex` on it holds half an authority and has to delegate mid-task
+    # anyway, which is the round-trip the policy exists to avoid. Composing both
+    # roles from one list also keeps them from drifting apart as tools are added.
+    #
+    # The command-execution tools are `is_safe=False`, so plan mode still blocks
+    # them and edit mode still asks the user -- the gate is role-independent, and
+    # granting the tools here does not weaken it.
     from .config import model_orchestrator_policy
     orchestrator_policy = model_orchestrator_policy(model)
+    # Recovery advice in tools.py branches on whether the caller can run commands
+    # (PROJECT_DESIGN 2.6), so it is recorded from the same policy decision that
+    # composes the tool list and can never contradict it.
+    from .tools import set_orchestrator_terminal_access
+    set_orchestrator_terminal_access(orchestrator_policy != "delegate")
     if orchestrator_policy != "delegate":
-        from .tools import write_file
-        orchestrator_tools.extend([
-            wrap_tool(write_file),
-            wrap_tool(write_content_pos),
-            wrap_tool(replace_content_range),
-            wrap_tool(create_docx_file),
-            wrap_tool(create_pptx_file),
-        ])
+        from .tools import get_workspace_action_tools
+        orchestrator_tools.extend(
+            wrap_tool(tool) for tool in get_workspace_action_tools()
+        )
     if enable_achievements:
         from .tools import update_achievements_memory
         orchestrator_tools.append(wrap_tool(update_achievements_memory))
