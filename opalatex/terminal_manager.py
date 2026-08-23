@@ -4,6 +4,11 @@ import subprocess
 import asyncio
 import threading
 
+# Maximum amount of raw PTY output kept in memory per session so that a client
+# that reconnects (tab switch, React remount, dropped SSE stream) can restore
+# the visible scrollback instead of showing an empty terminal.
+SCROLLBACK_LIMIT = 256 * 1024
+
 class TerminalSession:
     def __init__(self, project_path):
         self.project_path = project_path
@@ -13,6 +18,12 @@ class TerminalSession:
         self.process = None
         self.master_fd = None
         self.slave_fd = None
+        # Rolling scrollback buffer plus the total number of bytes ever emitted
+        # by this session. `total_bytes` is the stream offset of the end of the
+        # buffer and is used as the SSE event id, so a reconnecting client can
+        # ask for "everything after offset N" via Last-Event-ID.
+        self.buffer = bytearray()
+        self.total_bytes = 0
 
         if sys.platform == "win32":
             try:
@@ -49,8 +60,7 @@ class TerminalSession:
         self.loop = loop
         if sys.platform == "win32" and self.process is None:
             msg = "\r\n\x1b[31m[OpalaTex] Para usar o terminal no Windows, instale o pacote: pip install pywinpty\x1b[0m\r\n"
-            for q in list(self.queues):
-                q.put_nowait(msg.encode('utf-8'))
+            self._forward_data(msg.encode('utf-8'))
             return
 
         # Start a background daemon thread to read from PTY
@@ -98,8 +108,33 @@ class TerminalSession:
                 self.close()
 
     def _forward_data(self, data):
+        self._append_to_buffer(data)
         for q in list(self.queues):
             q.put_nowait(data)
+
+    def _append_to_buffer(self, data):
+        self.buffer.extend(data)
+        self.total_bytes += len(data)
+        if len(self.buffer) > SCROLLBACK_LIMIT:
+            del self.buffer[:len(self.buffer) - SCROLLBACK_LIMIT]
+
+    def backlog_since(self, last_offset=None):
+        """Return (bytes_to_replay, end_offset) for a (re)connecting client.
+
+        `last_offset` is the stream offset the client already received (the SSE
+        Last-Event-ID). Only the part of the scrollback after that offset is
+        returned; when it is None, unusable, or older than what is still
+        retained, the whole retained buffer is replayed instead.
+
+        Callers MUST subscribe their queue and call this without awaiting in
+        between, so no chunk is lost or duplicated at the hand-off point.
+        """
+        buffered_from = self.total_bytes - len(self.buffer)
+        if last_offset is not None and buffered_from <= last_offset <= self.total_bytes:
+            start = last_offset - buffered_from
+        else:
+            start = 0
+        return bytes(self.buffer[start:]), self.total_bytes
 
     def write(self, data):
         if not self.is_running or not self.process:

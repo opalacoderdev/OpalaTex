@@ -188,7 +188,7 @@ def _print_debug_report(
             print(f"    • {tool_name:<30} {count:>3} call(s)")
     else:
         print("  No tools were used — response based entirely on the model.")
-    print(f"{'═' * 56}\n")
+    #print(f"{'═' * 56}\n")
 
 
 def _tool_call_signature(function_name: str, arguments: Any) -> str:

@@ -33,6 +33,10 @@ const DARK_TERMINAL_THEME = {
 // Hook that initialises an xterm.js terminal and connects it to the backend SSE stream.
 export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, fitAddonRef, eventSourceRef, activeBottomTab, bottomPanelHeight, isTerminalCollapsed, theme, termId = 'main', isActive = true }) {
   const { t } = useTranslation();
+  // The terminal effect must not be torn down just because the language changed,
+  // so `t` is read through a ref instead of being an effect dependency.
+  const tRef = useRef(t);
+  tRef.current = t;
   const promptDrawnRef = useRef(false);
   // Written on every render so the ResizeObserver callback (a closure created
   // once at mount) always reads the latest value without a stale-closure race.
@@ -48,9 +52,15 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
     }
   }, [theme, terminalInstanceRef]);
 
+  // Only the project path matters to the terminal session. `activeProject` gets
+  // a fresh object identity on unrelated updates (chat switch, model change,
+  // project settings), and depending on the object itself would dispose the
+  // xterm instance and wipe the visible scrollback every time.
+  const projectPath = activeProject ? activeProject.project_path : null;
+
   // Initialise / tear-down terminal when the active project changes.
   useEffect(() => {
-    if (!activeProject) {
+    if (!projectPath) {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
@@ -83,8 +93,8 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
     terminalInstanceRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Connect to SSE terminal stream.
-    const projectPath = activeProject.project_path;
+    // Connect to SSE terminal stream. The backend replays the session
+    // scrollback on connect, so a remount restores what was on screen.
     const url = `/api/terminal/stream?term_id=${termId}&projectPath=${encodeURIComponent(projectPath)}`;
     const evs = new EventSource(url);
     eventSourceRef.current = evs;
@@ -101,7 +111,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
     };
 
     evs.onerror = () => {
-      term.write(`\r\n\x1b[31m[OpalaTex] ${t('bottomPanel.terminalConnectionLost', 'Terminal connection lost. Reconnecting...')}\x1b[0m\r\n`);
+      term.write(`\r\n\x1b[31m[OpalaTex] ${tRef.current('bottomPanel.terminalConnectionLost', 'Terminal connection lost. Reconnecting...')}\x1b[0m\r\n`);
     };
 
     // Forward keystrokes to the backend.
@@ -109,7 +119,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
       fetch('/api/terminal/input', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ term_id: termId, action: 'input', text: data, projectPath: activeProject.project_path }),
+        body: JSON.stringify({ term_id: termId, action: 'input', text: data, projectPath }),
       }).catch(err => console.error('Failed to send terminal input', err));
     });
 
@@ -128,7 +138,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
               fetch('/api/terminal/input', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ term_id: termId, action: 'resize', cols, rows, projectPath: activeProject.project_path }),
+                body: JSON.stringify({ term_id: termId, action: 'resize', cols, rows, projectPath }),
               }).catch(err => console.error('Failed to send terminal resize', err));
             }
           } catch (e) { /* ignore */ }
@@ -144,11 +154,11 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
       terminalInstanceRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [activeProject, t]);
+  }, [projectPath, termId]);
 
   // Re-fit the terminal when the terminal tab becomes visible, the panel is expanded, or resized.
   useEffect(() => {
-    if (activeBottomTab === 'terminal' && !isTerminalCollapsed && terminalInstanceRef.current && fitAddonRef.current && activeProject && isActive) {
+    if (activeBottomTab === 'terminal' && !isTerminalCollapsed && terminalInstanceRef.current && fitAddonRef.current && projectPath && isActive) {
       setTimeout(() => {
         try {
           if (terminalRef.current && (terminalRef.current.clientWidth === 0 || terminalRef.current.clientHeight === 0)) return;
@@ -159,7 +169,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
             fetch('/api/terminal/input', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ term_id: termId, action: 'resize', cols, rows, projectPath: activeProject.project_path }),
+              body: JSON.stringify({ term_id: termId, action: 'resize', cols, rows, projectPath }),
             }).catch(err => console.error('Failed to send terminal resize', err));
           }
 
@@ -174,11 +184,11 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
               fetch('/api/terminal/input', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ term_id: termId, action: 'input', text: '\r', projectPath: activeProject.project_path }),
+              body: JSON.stringify({ term_id: termId, action: 'input', text: '\r', projectPath }),
             }).catch(err => console.error('Failed to send prompt redraw', err));
           }
         } catch (e) { /* ignore */ }
       }, 50);
     }
-  }, [activeBottomTab, bottomPanelHeight, activeProject, isTerminalCollapsed, isActive]);
+  }, [activeBottomTab, bottomPanelHeight, projectPath, isTerminalCollapsed, isActive]);
 }

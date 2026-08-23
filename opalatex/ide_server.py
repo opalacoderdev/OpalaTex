@@ -3139,6 +3139,13 @@ class AsyncHTTPServer:
         elif path == '/api/terminal/stream':
             term_id = query.get('term_id', ['main'])[0]
             project_path = query.get('projectPath', [None])[0]
+            # Read before the local `headers` below shadows the request headers.
+            # EventSource resends the id of the last event it saw; we use it to
+            # replay only the scrollback the client is missing.
+            try:
+                last_event_id = int(headers.get('last-event-id', ''))
+            except (TypeError, ValueError):
+                last_event_id = None
             
             if term_id == 'main':
                 if not self.active_terminal or (project_path and self.active_terminal.project_path != project_path) or not self.active_terminal.is_running:
@@ -3188,22 +3195,33 @@ class AsyncHTTPServer:
             writer.write(headers.encode('utf-8'))
             await writer.drain()
 
+            # Subscribe first, then snapshot the scrollback with no await in
+            # between: everything up to `sent_offset` comes from the backlog and
+            # everything after it from the queue, so nothing is lost or doubled.
             term_queue = asyncio.Queue()
             active_term.queues.append(term_queue)
+            backlog, sent_offset = active_term.backlog_since(last_event_id)
 
             def send_data(data_bytes: bytes):
                 # base64 is imported at the top of the module — no need to
                 # re-import it here. Re-importing inside a function would
                 # shadow the module-level name and cause
                 # "cannot access local variable 'base64'" errors elsewhere.
-                payload = f"data: {base64.b64encode(data_bytes).decode('utf-8')}\n\n"
+                payload = (
+                    f"id: {sent_offset}\n"
+                    f"data: {base64.b64encode(data_bytes).decode('utf-8')}\n\n"
+                )
                 writer.write(payload.encode('utf-8'))
 
             try:
+                if backlog:
+                    send_data(backlog)
+                    await writer.drain()
                 while True:
                     data = await term_queue.get()
                     if data is None:
                         break
+                    sent_offset += len(data)
                     send_data(data)
                     await writer.drain()
             except (ConnectionResetError, BrokenPipeError):
