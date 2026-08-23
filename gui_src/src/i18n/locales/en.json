@@ -1089,5 +1089,21 @@
   "modelSelect": {
     "notInCatalog": "Not in the model catalog",
     "notInCatalogTitle": "'{{id}}' is not registered in the model catalog. Select a registered model or add it under Edit Models."
+  },
+  "wysiwyg": {
+    "bold": "Bold (\\textbf)",
+    "displayMath": "Display formula",
+    "enter": "WYSIWYG mode (edit the document directly; unmodelled LaTeX is preserved as written)",
+    "enumerate": "Numbered list (enumerate)",
+    "exit": "Exit WYSIWYG mode",
+    "headingLevel": "Heading level {{level}}",
+    "italic": "Italic (\\textit)",
+    "itemize": "Bullet list (itemize)",
+    "loading": "Loading WYSIWYG editor…",
+    "monospace": "Monospace (\\texttt)",
+    "paragraph": "Paragraph",
+    "redo": "Redo",
+    "underline": "Underline (\\underline)",
+    "undo": "Undo"
   }
 }

@@ -53,11 +53,24 @@ export function serializeBlock(block, originalSource) {
       return serializeAlign(block, originalSource);
     case 'abstract':
       return serializeAbstract(block, originalSource);
+    case 'envblock':
+    case 'columns':
+    case 'column':
+      return serializeBodyEnvironment(block, originalSource);
     // 'graphic' (tikzpicture/PGFPlots) is non-editable; preserve source as-is.
     default:
       return block.source;
   }
 }
+
+// Block types that are always re-spliced rather than emitted from their
+// captured `source`, because an edit deep inside one of their descendants does
+// not mark the wrapper itself dirty. Any container type must be listed here —
+// omitting one means edits inside it are silently dropped on save.
+const RESPLICED_BLOCK_TYPES = new Set([
+  'container', 'list', 'listitem', 'align', 'abstract',
+  'envblock', 'columns', 'column',
+]);
 
 /**
  * Given the full original source and a list of blocks (some possibly edited),
@@ -97,7 +110,7 @@ function spliceBlocksIntoRange(originalSource, blocks, rangeStart, rangeEnd) {
     // \chapter* or \section[short]{long}. Containers are always re-spliced
     // (not just when `edited`) because an edit deep inside a child block
     // does not mark the container itself dirty.
-    result += (block.edited || block.type === 'container' || block.type === 'list' || block.type === 'listitem' || block.type === 'align' || block.type === 'abstract')
+    result += (block.edited || RESPLICED_BLOCK_TYPES.has(block.type))
       ? serializeBlock(block, originalSource)
       : block.source;
     cursor = block.end;
@@ -184,6 +197,19 @@ function serializeContainerHeader(block, originalSource) {
     return `\\begin{frame}${options}${title}${subtitle}`;
   }
   return `\\begin{${block.envName}}{${inlineToLatex(block.title || '')}}`;
+}
+
+// Generic serializer for any environment-like block whose body is a range of
+// child blocks: the generic `envblock`, `columns`, and a `column` in either of
+// its two forms. The header (`\\begin{env}` plus arguments, or `\\column{w}`)
+// and the footer (`\\end{env}`, or nothing for a marker-style column) are the
+// source outside the body range, so both are preserved verbatim without the
+// serializer needing to know which form it is looking at.
+function serializeBodyEnvironment(block, originalSource) {
+  const header = originalSource.slice(block.start, block.bodyStart);
+  const body = spliceBlocksIntoRange(originalSource, block.children || [], block.bodyStart, block.bodyEnd);
+  const footer = originalSource.slice(block.bodyEnd, block.end);
+  return `${header}${body}${footer}`;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

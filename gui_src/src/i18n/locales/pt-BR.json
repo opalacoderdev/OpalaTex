@@ -1089,5 +1089,21 @@
   "modelSelect": {
     "notInCatalog": "Fora do catálogo de modelos",
     "notInCatalogTitle": "'{{id}}' não está registrado no catálogo de modelos. Selecione um modelo registrado ou adicione-o em Editar Modelos."
+  },
+  "wysiwyg": {
+    "bold": "Negrito (\\textbf)",
+    "displayMath": "Fórmula em destaque",
+    "enter": "Modo WYSIWYG (edite o documento diretamente; LaTeX não modelado é preservado como está)",
+    "enumerate": "Lista numerada (enumerate)",
+    "exit": "Sair do modo WYSIWYG",
+    "headingLevel": "Título nível {{level}}",
+    "italic": "Itálico (\\textit)",
+    "itemize": "Lista com marcadores (itemize)",
+    "loading": "Carregando o editor WYSIWYG…",
+    "monospace": "Monoespaçado (\\texttt)",
+    "paragraph": "Parágrafo",
+    "redo": "Refazer",
+    "underline": "Sublinhado (\\underline)",
+    "undo": "Desfazer"
   }
 }

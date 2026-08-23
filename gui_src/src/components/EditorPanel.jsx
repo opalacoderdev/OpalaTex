@@ -1,6 +1,6 @@
 import { Suspense, lazy, useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, Trash2, FileText, HelpCircle, MoreHorizontal, Zap } from 'lucide-react';
+import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, Trash2, FileText, HelpCircle, MoreHorizontal, Zap, PenLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { getLanguage } from '../utils/language';
@@ -21,6 +21,9 @@ import HtmlPreview from './HtmlPreview';
 import LatexSnippetsPanel from './LatexSnippetsPanel';
 import RichTextEditor from './RichTextEditor';
 
+// The WYSIWYG mode pulls in the whole ProseMirror stack, so it is loaded only
+// when a file is actually switched into it.
+const LatexWysiwygEditor = lazy(() => import('../wysiwyg/LatexWysiwygEditor.jsx'));
 const DocxEditorPanel = lazy(() => import('./DocxEditorPanel'));
 const PptxEditorPanel = lazy(() => import('./PptxEditorPanel'));
 
@@ -75,6 +78,11 @@ export default function EditorPanel({
   // SyncTeX jump-to-source) should leave Rich Text mode for a given file.
   const [richTextFiles, setRichTextFiles] = useState(() => new Set());
   const isRichTextMode = !!selectedFile && richTextFiles.has(selectedFile);
+  // WYSIWYG mode is per-file for the same reason Rich Text is. The two are
+  // mutually exclusive: they are different editors over the same file, and
+  // running both would mean two models racing to write it.
+  const [wysiwygFiles, setWysiwygFiles] = useState(() => new Set());
+  const isWysiwygMode = !!selectedFile && wysiwygFiles.has(selectedFile);
   const [isPdfPreviewCollapsed, setIsPdfPreviewCollapsed] = useState(true);
   const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
   const [showLatexHelp, setShowLatexHelp] = useState(false);
@@ -104,7 +112,7 @@ export default function EditorPanel({
     return ['tex', 'cls', 'sty', 'bib'].includes(ext);
   };
   const isTexFile = isTexRelatedFile(selectedFile);
-  const isNormalLatexEditor = isTexFile && !isRichTextMode && !isPreviewMode;
+  const isNormalLatexEditor = isTexFile && !isRichTextMode && !isWysiwygMode && !isPreviewMode;
 
   const saveBinaryEditor = useCallback(() => {
     if (isDocxFile) return docxEditorRef.current?.save?.() || false;
@@ -617,7 +625,7 @@ export default function EditorPanel({
 
   useEffect(() => {
     setEditorSelectionText('');
-  }, [selectedFile, isRichTextMode, isPreviewMode]);
+  }, [selectedFile, isRichTextMode, isWysiwygMode, isPreviewMode]);
 
   useEffect(() => () => {
     if (selectionStatsTimerRef.current) {
@@ -687,13 +695,13 @@ export default function EditorPanel({
   }, []);
 
   useEffect(() => {
-    if (isDiffMode || isRichTextMode || isPreviewMode) return;
+    if (isDiffMode || isRichTextMode || isWysiwygMode || isPreviewMode) return;
     const editor = localEditorRef.current;
     if (!editor) return;
     if (editor.hasTextFocus?.()) return;
     if (pendingEditorValueRef.current !== null) return;
     syncEditorValue(editor, fileContent);
-  }, [fileContent, isDiffMode, isRichTextMode, isPreviewMode, selectedFile, syncEditorValue]);
+  }, [fileContent, isDiffMode, isRichTextMode, isWysiwygMode, isPreviewMode, selectedFile, syncEditorValue]);
 
   const revealEditorLine = useCallback((line) => {
     if (!line || !localEditorRef.current) return false;
@@ -713,6 +721,16 @@ export default function EditorPanel({
     });
   }, [selectedFile]);
   
+  const exitWysiwygMode = useCallback((line = richTextSourceLinesRef.current[selectedFile]) => {
+    if (line) pendingEditorLineRef.current = line;
+    setWysiwygFiles(prev => {
+      if (!selectedFile || !prev.has(selectedFile)) return prev;
+      const next = new Set(prev);
+      next.delete(selectedFile);
+      return next;
+    });
+  }, [selectedFile]);
+
   const handleSyncTexNavigate = (line, file) => {
     // file is a project-relative path returned from the SyncTeX backend
     const normalizeSlash = (p) => (p || '').replace(/\\/g, '/');
@@ -790,8 +808,11 @@ export default function EditorPanel({
 
   // ── Jump from Rich Text block to source line in Monaco ──────────────────
   const handleRichTextJumpToSource = (line, _charOffset) => {
-    // Exit rich text mode and show the Monaco editor at the target line
+    // Leave whichever document editor is active and show Monaco at the target
+    // line. Both modes render blocks they cannot edit as "jump to source", so
+    // the same handler serves them.
     exitRichTextMode(line);
+    exitWysiwygMode(line);
   };
 
   // Custom syntax definitions
@@ -1058,7 +1079,29 @@ export default function EditorPanel({
 
   const renderTexEditorSurface = () => (
     <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
-      {isRichTextMode ? (
+      {isWysiwygMode ? (
+        <Suspense
+          fallback={(
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', height: '100%', color: 'var(--vscode-descriptionForeground)' }}>
+              <RefreshCw size={16} className="animate-spin" />
+              <span>{t('wysiwyg.loading', { defaultValue: 'Loading WYSIWYG editor…' })}</span>
+            </div>
+          )}
+        >
+          <LatexWysiwygEditor
+            key={selectedFile}
+            source={fileContent}
+            activeProjectPath={activeProject?.project_path}
+            sourceTex={selectedFile}
+            zoomLevel={markdownZoomLevel}
+            onChange={setFileContent}
+            onJumpToSource={handleRichTextJumpToSource}
+            onActiveSourceLineChange={(line) => {
+              if (line) richTextSourceLinesRef.current[selectedFile] = line;
+            }}
+          />
+        </Suspense>
+      ) : isRichTextMode ? (
         <RichTextEditor
           key={selectedFile}
           source={fileContent}
@@ -1369,6 +1412,7 @@ export default function EditorPanel({
                       setRichTextFiles(prev => (prev.has(selectedFile) ? prev : new Set(prev).add(selectedFile)));
                     }
                   }
+                  exitWysiwygMode();
                   setIsPreviewMode(false);
                   setIsDiffMode(false);
                 }}
@@ -1378,7 +1422,32 @@ export default function EditorPanel({
               >
                 <Type size={12} style={{ color: isRichTextMode ? '#4daafc' : 'inherit' }} />
               </button>
-              {isRichTextMode && (
+              <button
+                onClick={() => {
+                  if (isWysiwygMode) {
+                    exitWysiwygMode();
+                  } else {
+                    const currentLine = localEditorRef.current?.getPosition?.()?.lineNumber;
+                    if (currentLine) richTextSourceLinesRef.current[selectedFile] = currentLine;
+                    if (selectedFile) {
+                      setWysiwygFiles(prev => (prev.has(selectedFile) ? prev : new Set(prev).add(selectedFile)));
+                    }
+                  }
+                  // The two document editors are mutually exclusive — see the
+                  // note on wysiwygFiles.
+                  exitRichTextMode();
+                  setIsPreviewMode(false);
+                  setIsDiffMode(false);
+                }}
+                className="vscode-bottom-panel-clear-btn"
+                style={{ padding: '6px' }}
+                title={isWysiwygMode
+                  ? t('wysiwyg.exit', { defaultValue: 'Exit WYSIWYG mode' })
+                  : t('wysiwyg.enter', { defaultValue: 'WYSIWYG mode (edit the document directly; unmodelled LaTeX is preserved as written)' })}
+              >
+                <PenLine size={12} style={{ color: isWysiwygMode ? '#4daafc' : 'inherit' }} />
+              </button>
+              {(isRichTextMode || isWysiwygMode) && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '4px' }}>
                   <button
                     onClick={() => setMarkdownZoomLevel(prev => Math.max(0.5, prev - 0.1))}

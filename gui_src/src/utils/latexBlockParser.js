@@ -69,6 +69,78 @@ const TABLE_WRAPPER_ENV_NAMES = new Set([
 // subtitle). The titled boxes take exactly one mandatory `{title}` arg.
 const TITLED_BOX_ENV_NAMES = new Set(['block', 'exampleblock', 'alertblock']);
 
+// Environments whose body is NOT a sub-document, and so must never be parsed
+// recursively. Everything else falls through to the generic `envblock`
+// container, which parses its body like any other.
+//
+// The default used to be the other way round — only the handful of beamer
+// environments above recursed, and every other wrapper became one opaque
+// read-only blob. That made the loss compound: a `columns`, `minipage` or
+// `theorem` swallowed the `itemize`s, figures and TikZ pictures inside it,
+// all of which this parser handles perfectly well on their own. Recursing by
+// default and naming the exceptions keeps one unknown wrapper from costing
+// every supported construct nested within it.
+//
+// Membership rule: the body is literal text (verbatim family), a cell/plot
+// grammar rather than prose (`array`, `tabbing`, matrices, pgfplots `axis`),
+// or content for another consumer entirely (`filecontents`). Note that most
+// such environments — `lstlisting`, `minted`, `tabular`, `tikzpicture`, the
+// math environments — are already claimed by an earlier branch and never
+// reach the fallback; they are listed only where that is not the case.
+const OPAQUE_ENV_NAMES = new Set([
+  'verbatim', 'verbatim*', 'Verbatim', 'BVerbatim', 'LVerbatim', 'SaveVerbatim',
+  'semiverbatim', 'alltt', 'comment', 'filecontents', 'filecontents*',
+  'array', 'tabbing',
+  'matrix', 'pmatrix', 'bmatrix', 'Bmatrix', 'vmatrix', 'Vmatrix', 'smallmatrix',
+  'axis', 'semilogxaxis', 'semilogyaxis', 'loglogaxis', 'groupplot',
+  'pgfpicture', 'pgfonlayer', 'scope', 'tikzcd', 'circuitikz',
+  'lilypond', 'asy', 'sageblock', 'sagesilent',
+]);
+
+/**
+ * Consumes the balanced `[option]` and `{argument}` groups that follow
+ * `\begin{env}`, so an environment's arguments end up in its header instead
+ * of leaking into its body as stray text (`\begin{minipage}{0.5\textwidth}`).
+ *
+ * Whitespace is deliberately NOT skipped: a brace group on the next line is
+ * body content, not an argument. When the guess is wrong the source is still
+ * safe — the header is preserved verbatim by both editors — only the split
+ * between header and body shifts.
+ *
+ * @param {string} text - text starting at the position just after `\begin{env}`
+ * @param {number} cursor - index to start consuming from
+ * @returns {number} index just past the last consumed group
+ */
+function consumeEnvArgs(text, cursor) {
+  let i = cursor;
+  for (;;) {
+    if (text[i] === '{') {
+      const close = findMatchingBrace(text, i);
+      if (close === -1) break;
+      i = close + 1;
+      continue;
+    }
+    if (text[i] === '[') {
+      const close = findMatchingBracket(text, i);
+      if (close === -1) break;
+      i = close + 1;
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+// Extracts the fraction from a beamer column width argument such as
+// `{0.55\textwidth}`. Returns null for absolute units (`{5cm}`), which the
+// renderers treat as "share the remaining space equally".
+function parseColumnWidth(arg) {
+  const match = /([0-9]*\.?[0-9]+)\s*\\(?:text|line|column|page)width/.exec(arg || '');
+  if (!match) return null;
+  const value = parseFloat(match[1]);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 /**
  * Parse LaTeX source into structured blocks with offsets.
  * @param {string} src - LaTeX source
@@ -606,13 +678,141 @@ function buildEnvironmentBlock(envName, envBody, envSource, start, end, envBodyO
     };
   }
 
-  // ── Fallback: unrecognized environment ───────────────────────────────────
+  // ── Beamer columns ───────────────────────────────────────────────────────
+  // `columns` holds `\column{width}` markers (or nested `column` environments)
+  // rather than ordinary block content, so it gets its own splitter. Falls
+  // through to the generic container when it contains neither, which is the
+  // only shape a malformed `columns` can take.
+  if (envName === 'columns') {
+    const argEnd = consumeEnvArgs(envBody, 0);
+    const bodyStart = envBodyOffset + argEnd;
+    const bodyEnd = envBodyOffset + envBody.length;
+    const columns = parseColumns(envBody.slice(argEnd), bodyStart, titleMeta);
+    if (columns.length) {
+      return {
+        ...base,
+        type: 'columns',
+        editable: true,
+        options: envBody.slice(0, argEnd),
+        bodyStart,
+        bodyEnd,
+        children: columns,
+      };
+    }
+  }
+
+  // ── Opaque environments ──────────────────────────────────────────────────
+  // Bodies that are not sub-documents (see OPAQUE_ENV_NAMES) stay read-only
+  // blobs; parsing them as prose would misread a cell or plot grammar.
+  if (OPAQUE_ENV_NAMES.has(envName)) {
+    return {
+      ...base,
+      type: 'environment',
+      editable: false,
+      raw: envSource,
+    };
+  }
+
+  // ── Generic container: any other environment ─────────────────────────────
+  // Its arguments become the header and its body is parsed like any other, so
+  // an unrecognized wrapper costs only its own styling — never the structure
+  // nested inside it.
+  const argEnd = consumeEnvArgs(envBody, 0);
+  const genericBodyStart = envBodyOffset + argEnd;
   return {
     ...base,
-    type: 'environment',
-    editable: false,
-    raw: envSource,
+    type: 'envblock',
+    editable: true,
+    envName,
+    bodyStart: genericBodyStart,
+    bodyEnd: envBodyOffset + envBody.length,
+    children: parseBody(envBody.slice(argEnd), genericBodyStart, titleMeta),
   };
+}
+
+/**
+ * Splits a `columns` body into its individual columns.
+ *
+ * Beamer offers two spellings and both appear in the wild: the `\column{w}`
+ * marker command, where a column runs until the next marker, and the
+ * `\begin{column}{w}` environment, which delimits itself. A body may use
+ * either; markers and environments are recognized in the same pass so a
+ * document mixing them still splits correctly.
+ *
+ * @param {string} body - text between the `columns` arguments and `\end{columns}`
+ * @param {number} bodyOffset - absolute offset of `body[0]` in the source
+ * @param {?object} titleMeta - threaded down to nested `parseBody` calls
+ * @returns {Array} `column` blocks, empty when the body holds neither form
+ */
+function parseColumns(body, bodyOffset, titleMeta) {
+  const spans = [];
+  let i = 0;
+  let depth = 0;
+
+  while (i < body.length) {
+    if (body.startsWith('\\begin{', i)) {
+      const match = /^\\begin\{([a-zA-Z*]+)\}/.exec(body.slice(i));
+      if (match) {
+        if (depth === 0 && match[1] === 'column') {
+          const envEnd = findEnvEnd(body, i, 'column');
+          if (envEnd !== -1) {
+            const headerStart = i + match[0].length;
+            const argEnd = consumeEnvArgs(body, headerStart);
+            spans.push({
+              form: 'environment',
+              start: i,
+              end: envEnd,
+              bodyStart: argEnd,
+              bodyEnd: envEnd - '\\end{column}'.length,
+              width: parseColumnWidth(body.slice(headerStart, argEnd)),
+            });
+            i = envEnd;
+            continue;
+          }
+        }
+        depth++;
+        i += match[0].length;
+        continue;
+      }
+    }
+    if (body.startsWith('\\end{', i)) {
+      const match = /^\\end\{[a-zA-Z*]+\}/.exec(body.slice(i));
+      if (match) { depth--; i += match[0].length; continue; }
+    }
+    // `\column` as a whole command, not `\columnwidth`/`\columnsep`.
+    if (depth === 0 && body.startsWith('\\column', i) && !/[a-zA-Z]/.test(body[i + '\\column'.length] || '')) {
+      const headerStart = i + '\\column'.length;
+      const argEnd = consumeEnvArgs(body, headerStart);
+      spans.push({
+        form: 'command',
+        start: i,
+        bodyStart: argEnd,
+        width: parseColumnWidth(body.slice(headerStart, argEnd)),
+      });
+      i = argEnd;
+      continue;
+    }
+    i++;
+  }
+
+  return spans.map((span, index) => {
+    // A marker-style column runs until the next column starts; an
+    // environment-style one already knows where it ends.
+    const end = span.end ?? (index + 1 < spans.length ? spans[index + 1].start : body.length);
+    const bodyEnd = span.bodyEnd ?? end;
+    return {
+      id: nextId(),
+      type: 'column',
+      editable: true,
+      form: span.form,
+      width: span.width,
+      start: bodyOffset + span.start,
+      end: bodyOffset + end,
+      bodyStart: bodyOffset + span.bodyStart,
+      bodyEnd: bodyOffset + bodyEnd,
+      children: parseBody(body.slice(span.bodyStart, bodyEnd), bodyOffset + span.bodyStart, titleMeta),
+    };
+  });
 }
 
 // ── Prose splitting ─────────────────────────────────────────────────────────

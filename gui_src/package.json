@@ -10,6 +10,7 @@
     "prebuild": "npm run build:docx-css",
     "build:docx-css": "node scripts/build-docx-css.mjs",
     "build": "vite build",
+    "test:wysiwyg": "node --test src/wysiwyg/__tests__/*.test.js src/utils/__tests__/*.test.js",
     "preview": "vite preview",
     "server": "node server.js",
     "start": "node start.js"

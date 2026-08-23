@@ -4,6 +4,7 @@ import { Lock } from 'lucide-react';
 import { parseLatexBlocks } from '../utils/latexBlockParser';
 import { serializeDocument } from '../utils/latexBlockSerializer';
 import { validateRenderableMath } from '../utils/mathValidation';
+import { declarationStyle, findFirstDeclaration } from '../utils/latexFontDeclarations';
 
 // ── Module-level cache: keyed by (projectPath, graphic-source-hash) ────────
 // This avoids re-compiling identical TikZ snippets on every keystroke. The
@@ -509,6 +510,34 @@ function BlockRenderer({ block, source, activeProjectPath, sourceTex, onBlockEdi
       return <TableBlock block={block} onJumpToSource={onJumpToSource} />;
     case 'code':
       return <CodeBlock block={block} onJumpToSource={onJumpToSource} />;
+    case 'envblock':
+      return (
+        <EnvBlock
+          block={block}
+          source={source}
+          activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
+          onBlockEdit={onBlockEdit}
+          onListItemEdit={onListItemEdit}
+          onContainerTitleEdit={onContainerTitleEdit}
+          onJumpToSource={onJumpToSource}
+          setActiveSourceLine={setActiveSourceLine}
+        />
+      );
+    case 'columns':
+      return (
+        <ColumnsBlock
+          block={block}
+          source={source}
+          activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
+          onBlockEdit={onBlockEdit}
+          onListItemEdit={onListItemEdit}
+          onContainerTitleEdit={onContainerTitleEdit}
+          onJumpToSource={onJumpToSource}
+          setActiveSourceLine={setActiveSourceLine}
+        />
+      );
     case 'environment':
       return <EnvironmentBlock block={block} onJumpToSource={onJumpToSource} />;
     case 'comment':
@@ -723,7 +752,9 @@ function FrameTitleBlock({ block, onEdit }) {
 // jumping to source.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TitlePageBlock({ block, onJumpToSource }) {
+// Exported for reuse by the WYSIWYG mode's node views, which render the same
+// previews for the blocks it preserves verbatim.
+export function TitlePageBlock({ block, onJumpToSource }) {
   const { t } = useTranslation();
   const meta = block.titleMeta || {};
   const authors = (meta.author || '')
@@ -805,7 +836,9 @@ function TitlePageBlock({ block, onJumpToSource }) {
 // the preamble, so editing happens by jumping to source.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function MakeTitleBlock({ block, onJumpToSource }) {
+// Exported for reuse by the WYSIWYG mode's node views, which render the same
+// previews for the blocks it preserves verbatim.
+export function MakeTitleBlock({ block, onJumpToSource }) {
   const { t } = useTranslation();
   const meta = block.titleMeta || {};
   const authors = (meta.author || '')
@@ -1004,6 +1037,149 @@ function AlignBlock({
 }) {
   return (
     <div style={{ textAlign: ALIGN_TEXT_ALIGN[block.align] || 'left' }}>
+      <BlockList
+        blocks={block.children}
+        source={source}
+        activeProjectPath={activeProjectPath}
+        sourceTex={sourceTex}
+        onBlockEdit={onBlockEdit}
+        onListItemEdit={onListItemEdit}
+        onContainerTitleEdit={onContainerTitleEdit}
+        onJumpToSource={onJumpToSource}
+        setActiveSourceLine={setActiveSourceLine}
+      />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EnvBlock — any environment without dedicated handling.
+//
+// Its body is real block structure, so this is a thin labelled wrapper rather
+// than a read-only source dump: the `itemize`, figure or TikZ picture inside a
+// `minipage` or a `theorem` renders exactly as it would outside one. The
+// environment's own styling is not reproduced — only its boundary is shown —
+// because what a package's environment looks like is not knowable without
+// running LaTeX. The header (`\begin{env}` plus its arguments) is preserved
+// verbatim and reachable through "source".
+// ─────────────────────────────────────────────────────────────────────────────
+
+function EnvBlock({
+  block,
+  source,
+  activeProjectPath,
+  sourceTex,
+  onBlockEdit,
+  onListItemEdit,
+  onContainerTitleEdit,
+  onJumpToSource,
+  setActiveSourceLine,
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      style={{
+        margin: '10px 0',
+        padding: '8px 12px',
+        borderLeft: '2px solid var(--vscode-widget-border, #2a2a2a)',
+        borderRadius: '2px',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+        <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--vscode-descriptionForeground, #888)' }}>
+          {block.envName}
+        </span>
+        <button
+          type="button"
+          onClick={() => onJumpToSource(block)}
+          title="Click to jump to source"
+          style={{ fontSize: '9px', color: 'var(--vscode-descriptionForeground, #888)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
+          {t('richTextEditor.block.jumpToSource', { defaultValue: 'source' })}
+        </button>
+      </div>
+      <BlockList
+        blocks={block.children}
+        source={source}
+        activeProjectPath={activeProjectPath}
+        sourceTex={sourceTex}
+        onBlockEdit={onBlockEdit}
+        onListItemEdit={onListItemEdit}
+        onContainerTitleEdit={onContainerTitleEdit}
+        onJumpToSource={onJumpToSource}
+        setActiveSourceLine={setActiveSourceLine}
+      />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ColumnsBlock / ColumnBlock — beamer `columns` and its `\column{width}`
+// markers (or nested `column` environments).
+//
+// Laid out side by side with the declared width fractions, so a two-column
+// slide reads the way it will compile. A column whose width is an absolute
+// length (`{5cm}`) has no fraction to honour and shares the remaining space
+// evenly. The layout collapses to a single stack on a narrow editor pane,
+// where side-by-side columns would be unreadable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ColumnsBlock({
+  block,
+  source,
+  activeProjectPath,
+  sourceTex,
+  onBlockEdit,
+  onListItemEdit,
+  onContainerTitleEdit,
+  onJumpToSource,
+  setActiveSourceLine,
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'flex-start',
+        gap: '16px',
+        margin: '10px 0',
+      }}
+    >
+      {(block.children || []).map((column) => (
+        <ColumnBlock
+          key={column.id}
+          block={column}
+          source={source}
+          activeProjectPath={activeProjectPath}
+          sourceTex={sourceTex}
+          onBlockEdit={onBlockEdit}
+          onListItemEdit={onListItemEdit}
+          onContainerTitleEdit={onContainerTitleEdit}
+          onJumpToSource={onJumpToSource}
+          setActiveSourceLine={setActiveSourceLine}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ColumnBlock({
+  block,
+  source,
+  activeProjectPath,
+  sourceTex,
+  onBlockEdit,
+  onListItemEdit,
+  onContainerTitleEdit,
+  onJumpToSource,
+  setActiveSourceLine,
+}) {
+  // `flex-basis: 0` with the fraction as the grow factor divides the row in
+  // the declared proportions; `minWidth: 12rem` is what makes the row wrap
+  // into a stack instead of crushing the columns in a narrow pane.
+  const grow = block.width || 1;
+  return (
+    <div style={{ flex: `${grow} 1 0`, minWidth: '12rem' }}>
       <BlockList
         blocks={block.children}
         source={source}
@@ -1866,7 +2042,9 @@ function isEscaped(text, index) {
   return slashCount % 2 === 1;
 }
 
-function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
+// Exported for reuse by the WYSIWYG mode's node views, which render the same
+// previews for the blocks it preserves verbatim.
+export function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
   const { t } = useTranslation();
   const [state, setState] = useState({ status: 'idle', svg: '', log: '' });
   const debounceRef = useRef(null);
@@ -2039,7 +2217,9 @@ function NonEditableWrapper({ block, onJumpToSource, children }) {
   );
 }
 
-function MathBlock({ block, onJumpToSource }) {
+// Exported for reuse by the WYSIWYG mode's node views, which render the same
+// previews for the blocks it preserves verbatim.
+export function MathBlock({ block, onJumpToSource }) {
   const { t } = useTranslation();
   const math = block.math || '';
   const displayMode = block.display !== false;
@@ -2172,7 +2352,9 @@ function MathBlock({ block, onJumpToSource }) {
 // This means users see a real preview of their figures without compiling
 // the whole document, including the \includegraphics{../illustrations/x.pdf}
 // case that previously 403'd on the /api/file/raw endpoint.
-function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
+// Exported for reuse by the WYSIWYG mode's node views, which render the same
+// previews for the blocks it preserves verbatim.
+export function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
   const { t } = useTranslation();
   const [state, setState] = useState({ status: 'idle', src: '', mime: '', svg: '', log: '' });
   const tokenRef = useRef(0);
@@ -2309,7 +2491,9 @@ function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTex }) {
   );
 }
 
-function TableBlock({ block, onJumpToSource }) {
+// Exported for reuse by the WYSIWYG mode's node views, which render the same
+// previews for the blocks it preserves verbatim.
+export function TableBlock({ block, onJumpToSource }) {
   const table = useMemo(() => parseTablePreview(block), [block]);
 
   return (
@@ -2566,6 +2750,25 @@ function renderStyledLatexText(text) {
 
 function renderStyledTextOnly(text) {
   const commandMatch = findFirstStyleCommand(text);
+  const declarationMatch = findFirstDeclaration(text);
+
+  // A font declaration (`{\Huge\bfseries ...}`, or a bare `\small ...`
+  // running to the end of the scope) takes no argument, so it is not found by
+  // findFirstStyleCommand and used to leak into the preview as literal
+  // markup. Whichever of the two comes first in the text is rendered first,
+  // so the outer construct wraps the inner one.
+  if (declarationMatch && (!commandMatch || declarationMatch.start < commandMatch.start)) {
+    return (
+      <>
+        {renderStyledTextOnly(text.slice(0, declarationMatch.start))}
+        <span style={declarationStyle(declarationMatch.prefix)}>
+          {renderStyledTextOnly(text.slice(declarationMatch.contentStart, declarationMatch.contentEnd))}
+        </span>
+        {renderStyledTextOnly(text.slice(declarationMatch.end))}
+      </>
+    );
+  }
+
   if (!commandMatch) return stripSimpleLatexCommands(text);
 
   const before = text.slice(0, commandMatch.start);
@@ -2650,7 +2853,9 @@ function findMatchingBraceInText(text, openPos) {
   return -1;
 }
 
-function CodeBlock({ block, onJumpToSource }) {
+// Exported for reuse by the WYSIWYG mode's node views, which render the same
+// previews for the blocks it preserves verbatim.
+export function CodeBlock({ block, onJumpToSource }) {
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
       {block.lang && (
@@ -2665,7 +2870,9 @@ function CodeBlock({ block, onJumpToSource }) {
   );
 }
 
-function EnvironmentBlock({ block, onJumpToSource }) {
+// Exported for reuse by the WYSIWYG mode's node views, which render the same
+// previews for the blocks it preserves verbatim.
+export function EnvironmentBlock({ block, onJumpToSource }) {
   const { t } = useTranslation();
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
@@ -2691,7 +2898,9 @@ function EnvironmentBlock({ block, onJumpToSource }) {
 // Monaco, and serialization keeps using `block.source` unchanged.
 // The closing block (`\end{document}` onward) has no such boilerplate to
 // hide, so it keeps the original raw-dump rendering.
-function PreambleBlock({ block, onJumpToSource }) {
+// Exported for reuse by the WYSIWYG mode's node views, which render the same
+// previews for the blocks it preserves verbatim.
+export function PreambleBlock({ block, onJumpToSource }) {
   const { t } = useTranslation();
 
   if (block.postamble) {
@@ -2728,7 +2937,9 @@ function PreambleBlock({ block, onJumpToSource }) {
   );
 }
 
-function CommentBlock({ block }) {
+// Exported for reuse by the WYSIWYG mode's node views, which render the same
+// previews for the blocks it preserves verbatim.
+export function CommentBlock({ block }) {
   return (
     <div style={{ margin: '4px 0', fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', fontStyle: 'italic' }}>
       {block.text}
