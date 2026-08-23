@@ -32,6 +32,7 @@
 
 import { Schema } from 'prosemirror-model';
 import { declarationStyle } from '../utils/latexFontDeclarations.js';
+import { latexToPlainText } from '../utils/latexInlineCommands.js';
 
 // Attributes shared by every node that maps onto a span of the source file.
 // `raw`  — the exact source slice this node was parsed from (null when the
@@ -281,8 +282,30 @@ export const schema = new Schema({
       toDOM: (node) => ['span', { class: 'ltx-math-inline' }, node.attrs.math],
     },
 
+    // `\footnote{...}` and its relatives. A note is not part of the sentence —
+    // it compiles to a marker here and text at the foot of the page — so it
+    // renders as a marker rather than being spliced inline, which would read
+    // as if the author had written the note into the paragraph. The note text
+    // is available on hover; editing it means going to the source.
+    footnote: {
+      group: 'inline',
+      inline: true,
+      atom: true,
+      attrs: {
+        // The whole command, verbatim. It is what gets written back, so an
+        // optional argument (`\footnote[3]{...}`) survives untouched.
+        raw: { default: '' },
+        content: { default: '' },
+      },
+      toDOM: (node) => [
+        'sup',
+        { class: 'ltx-footnote', title: latexToPlainText(node.attrs.content) },
+        '\u2020',
+      ],
+    },
+
     // Any inline construct outside the modelled subset: `\ref{}`, `\cite{}`,
-    // `\footnote{}`, `\includegraphics`, user macros. Carries its full source
+    // `\includegraphics`, user macros. Carries its full source
     // (command plus balanced arguments) and is written back untouched.
     inline_raw: {
       group: 'inline',

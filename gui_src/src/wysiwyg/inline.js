@@ -26,6 +26,7 @@
 import { COMMAND_MARKS, MARK_WRAPPERS } from './schema.js';
 import { matchDeclarationRun } from '../utils/latexFontDeclarations.js';
 import { isTransparentGroup } from '../utils/latexBraceGroups.js';
+import { NOTE_COMMANDS, findCommandWithArgument } from '../utils/latexInlineCommands.js';
 
 // ── Character-level bijection ───────────────────────────────────────────────
 // Decoded on parse, re-encoded on serialize. Every entry must be reversible;
@@ -194,6 +195,22 @@ export function parseInline(src, schema, options = {}) {
       if (nameMatch) {
         const name = nameMatch[0];
         const afterName = i + 1 + name.length;
+
+        // A note command keeps its whole source and renders as a marker. It
+        // is matched with brace counting, not a regex: a footnote routinely
+        // contains `\textit{...}`, and stopping at the first `}` would cut
+        // the argument in half.
+        if (NOTE_COMMANDS.has(name)) {
+          const note = findCommandWithArgument(text, i);
+          if (note && note.start === i) {
+            pushAtom(schema.nodes.footnote.create({
+              raw: text.slice(i, note.end),
+              content: text.slice(note.argStart, note.argEnd),
+            }));
+            i = note.end;
+            continue;
+          }
+        }
 
         // A formatting command with a single brace argument becomes a mark
         // applied to its recursively parsed content.
@@ -420,6 +437,7 @@ function serializeInlineNode(node) {
       return node.attrs.delim === 'paren'
         ? `\\(${node.attrs.math}\\)`
         : `$${node.attrs.math}$`;
+    case 'footnote':
     case 'inline_raw':
       return node.attrs.raw || '';
     case 'hard_break':

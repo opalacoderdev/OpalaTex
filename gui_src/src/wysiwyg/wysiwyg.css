@@ -93,6 +93,16 @@
   color: var(--vscode-descriptionForeground, #8a8a8a);
 }
 
+/* A footnote marker. Deliberately not a number: LaTeX assigns those at
+   compile time from a document-wide counter, and inventing one here would be
+   a guess the reader could mistake for the real numbering. */
+.ltx-wysiwyg .ltx-footnote {
+  color: var(--vscode-accent, #007acc);
+  cursor: help;
+  font-size: 0.8em;
+  padding: 0 0.1em;
+}
+
 /* ── Wrappers without dedicated styling ──────────────────────────────────── */
 
 /* A generic environment shows its boundary and nothing else: what a package's

@@ -6,6 +6,9 @@ import { serializeDocument } from '../utils/latexBlockSerializer';
 import { validateRenderableMath } from '../utils/mathValidation';
 import { declarationStyle, findFirstDeclaration } from '../utils/latexFontDeclarations';
 import { stripTransparentGroups } from '../utils/latexBraceGroups';
+import {
+  NOTE_COMMANDS, findCommandWithArgument, latexToPlainText, reduceCommandsToArguments,
+} from '../utils/latexInlineCommands';
 
 // ── Module-level cache: keyed by (projectPath, graphic-source-hash) ────────
 // This avoids re-compiling identical TikZ snippets on every keystroke. The
@@ -2752,13 +2755,40 @@ function renderStyledLatexText(text) {
 function renderStyledTextOnly(text) {
   const commandMatch = findFirstStyleCommand(text);
   const declarationMatch = findFirstDeclaration(text);
+  const noteMatch = findCommandWithArgument(text, 0, (name) => NOTE_COMMANDS.has(name));
+
+  // Whichever construct comes first in the text is rendered first, so the
+  // outer one wraps the inner one.
+  const earliest = Math.min(
+    commandMatch ? commandMatch.start : Infinity,
+    declarationMatch ? declarationMatch.start : Infinity,
+    noteMatch ? noteMatch.start : Infinity,
+  );
+
+  // A note compiles to a marker here and text at the foot of the page.
+  // Splicing its argument into the sentence, the way an ordinary command's
+  // argument is spliced, would read as if the author had written the note
+  // into the paragraph.
+  if (noteMatch && noteMatch.start === earliest) {
+    return (
+      <>
+        {renderStyledTextOnly(text.slice(0, noteMatch.start))}
+        <sup
+          title={latexToPlainText(text.slice(noteMatch.argStart, noteMatch.argEnd))}
+          style={{ color: 'var(--vscode-accent, #007acc)', cursor: 'help', fontSize: '0.8em', padding: '0 0.1em' }}
+        >
+          {'\u2020'}
+        </sup>
+        {renderStyledTextOnly(text.slice(noteMatch.end))}
+      </>
+    );
+  }
 
   // A font declaration (`{\Huge\bfseries ...}`, or a bare `\small ...`
   // running to the end of the scope) takes no argument, so it is not found by
   // findFirstStyleCommand and used to leak into the preview as literal
-  // markup. Whichever of the two comes first in the text is rendered first,
-  // so the outer construct wraps the inner one.
-  if (declarationMatch && (!commandMatch || declarationMatch.start < commandMatch.start)) {
+  // markup.
+  if (declarationMatch && declarationMatch.start === earliest) {
     return (
       <>
         {renderStyledTextOnly(text.slice(0, declarationMatch.start))}
@@ -2832,13 +2862,16 @@ function stripSimpleLatexCommands(text) {
   const stripped = text
     .replace(INVISIBLE_LATEX_COMMAND_RE, '')
     .replace(/``([\s\S]*?)''/g, '"$1"')
-    .replace(/\\(?:label|ref|cite|eqref)\{([^}]*)\}/g, '$1')
     .replace(/\\%/g, '%')
     .replace(/\\&/g, '&')
     .replace(/\\_/g, '_')
     .replace(/\\#/g, '#')
-    .replace(/~/g, '\u00a0')
-    .replace(/\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^}]*)\}/g, '$1');
+    .replace(/~/g, '\u00a0');
+
+  // `\cmd{arg}` → `arg`, counting braces. The regex this replaces could not:
+  // it ended the argument at the first `}`, so anything containing nested
+  // markup came out mangled rather than merely unrendered.
+  const reduced = reduceCommandsToArguments(stripped);
 
   // Free-standing braces that only group — `1{,}5` reads as `1,5`. Display
   // only: the block text, and so the saved source, keeps its braces.
@@ -2846,7 +2879,7 @@ function stripSimpleLatexCommands(text) {
   // Before the escaped-brace rule below, not after: `\{a\}` is a literal
   // pair of braces, and unescaping it first would turn it into a group this
   // would then strip, losing the braces the author asked for.
-  return stripTransparentGroups(stripped).replace(/\\([{}])/g, '$1');
+  return stripTransparentGroups(reduced).replace(/\\([{}])/g, '$1');
 }
 
 function findMatchingBraceInText(text, openPos) {
