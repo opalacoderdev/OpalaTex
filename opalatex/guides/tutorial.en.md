@@ -179,11 +179,12 @@ When you register a model in the catalog you can declare capabilities:
   loop blocks a tool call; the orchestrator's reasoning is visible and useful to you.
   For an `ollama/` model with thinking enabled, OpalaTex switches to `ollama_chat/`
   internally so reasoning can stream natively.
-- **`requires_single_system_message`** — some chat templates (seen with an
-  Ollama-served qwen3.8) reject a request with more than one `system` message, with the
-  error `system message must be at the beginning`. Enable this flag for such a model
-  and OpalaTex merges all system messages into one leading message for it — and only
-  for it.
+- **`requires_single_system_message`** — some chat templates reject a request with more
+  than one `system` message, with the error `system message must be at the beginning`.
+  It depends on the model, not on the server: it shows up both on Ollama-served models
+  (seen with qwen3.8) and on the same families served over an OpenAI-compatible endpoint
+  (vLLM/NIM). Enable this flag for such a model and OpalaTex merges all system messages
+  into one leading message for it — and only for it, whatever the provider.
 - **`prompt_profile`** (`full` or `light`) — how much prompt text the model receives.
   `full` delivers the complete guardrails, instructions and examples; `light` delivers a
   condensed version (same rules, less prose) that saves tokens and latency.

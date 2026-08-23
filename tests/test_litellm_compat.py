@@ -657,8 +657,11 @@ def test_wrap_agent_litellm_compat_leaves_message_order_when_catalog_does_not_re
     assert [m["role"] for m in calls["messages"]] == ["system", "user", "assistant", "system"]
 
 
-def test_wrap_agent_litellm_compat_leaves_message_order_for_non_ollama_provider():
+def test_wrap_agent_litellm_compat_leaves_message_order_for_non_ollama_provider(monkeypatch):
+    from opalatex import litellm_compat
     from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    monkeypatch.setattr(litellm_compat, "model_requires_single_system_message", lambda model: False)
 
     calls = {}
     messages = [
@@ -683,6 +686,61 @@ def test_wrap_agent_litellm_compat_leaves_message_order_for_non_ollama_provider(
 
     assert result == "ok"
     assert [m["role"] for m in calls["messages"]] == ["system", "user", "assistant", "system"]
+
+
+def test_wrap_agent_litellm_compat_merges_system_messages_for_openai_compatible_model(monkeypatch):
+    """The capability is per model, not per provider prefix.
+
+    The same chat templates that reject multiple system messages under Ollama
+    reject them when the model is served over an OpenAI-compatible endpoint
+    (vLLM/NIM), where the runtime id carries an ``openai/`` prefix.
+    """
+    from opalatex import litellm_compat
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    monkeypatch.setattr(litellm_compat, "model_requires_single_system_message", lambda model: True)
+
+    calls = {}
+    messages = [
+        {"role": "system", "content": "base prompt"},
+        {"role": "system", "content": "recursive summary"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "system", "content": "SYSTEM ALERT: empty response correction"},
+    ]
+
+    class FakeAgent:
+        model = "openai/nvidia/Qwen3.6-35B-A3B-NVFP4"
+
+        async def _acompletion(self, messages, **kwargs):
+            calls["messages"] = messages
+            return "ok"
+
+    agent = wrap_agent_litellm_compat(FakeAgent())
+
+    import asyncio
+
+    result = asyncio.run(agent._acompletion(messages))
+
+    assert result == "ok"
+    assert [m["role"] for m in calls["messages"]] == ["system", "user", "assistant"]
+    assert calls["messages"][0]["content"] == (
+        "base prompt\n\nrecursive summary\n\nSYSTEM ALERT: empty response correction"
+    )
+
+
+def test_consolidate_leading_system_messages_flattens_content_parts():
+    from opalatex.litellm_compat import consolidate_leading_system_messages
+
+    messages = [
+        {"role": "system", "content": [{"type": "text", "text": "base prompt"}]},
+        {"role": "user", "content": "hi"},
+        {"role": "system", "content": "SYSTEM ALERT: correction"},
+    ]
+
+    consolidated = consolidate_leading_system_messages(messages)
+
+    assert consolidated[0]["content"] == "base prompt\n\nSYSTEM ALERT: correction"
 
 
 def test_normalize_ollama_tool_call_parse_error_keeps_diagnostic_detail():

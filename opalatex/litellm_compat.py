@@ -101,28 +101,53 @@ def sanitize_tool_call_messages(messages: list[dict[str, Any]]) -> list[dict[str
 def consolidate_leading_system_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Merge every ``system`` message into a single leading message.
 
-    Some provider chat templates (observed with an Ollama-served qwen3.8)
-    reject a request outright with ``{"error":"system message must be at the
-    beginning"}`` as soon as more than one ``system``-role message is present,
-    even when both are consecutive at the very start of the list. The
-    chat-orchestrator always sends two leading system messages (the system
-    prompt and the recursive summary) on every turn, and AgenticBlocks
-    separately injects mid-turn corrective alerts with the ``system`` role
-    (see PROJECT_DESIGN.md 2.6) so local models do not treat them as
-    user-authored content. Merging their content into a single message
-    satisfies that "one system message, first position" requirement without
-    changing role or semantics. Callers should only invoke this for models
-    whose catalog entry sets ``requires_single_system_message`` (see
+    Some chat templates reject a request outright with ``system message must
+    be at the beginning`` as soon as more than one ``system``-role message is
+    present, even when both are consecutive at the very start of the list.
+    This was first observed with an Ollama-served qwen3.8, but it is a
+    property of the model's chat template, not of the transport: the same
+    rejection arrives from OpenAI-compatible servers (vLLM/NIM) hosting the
+    same model families, so the behaviour is keyed on the catalog capability
+    alone and never on the provider prefix. The chat-orchestrator always sends
+    two leading system messages (the system prompt and the recursive summary)
+    on every turn, and AgenticBlocks separately injects mid-turn corrective
+    alerts with the ``system`` role (see PROJECT_DESIGN.md 2.6) so local models
+    do not treat them as user-authored content. Merging their content into a
+    single message satisfies that "one system message, first position"
+    requirement without changing role or semantics. Callers should only invoke
+    this for models whose catalog entry sets
+    ``requires_single_system_message`` (see
     ``opalatex.config.model_requires_single_system_message``) so every other
     model's request shape is unaffected.
     """
     system_msgs = [m for m in messages if (m or {}).get("role") == "system"]
     if len(system_msgs) <= 1:
         return messages
-    merged_content = "\n\n".join(str((m or {}).get("content") or "") for m in system_msgs)
+    merged_content = "\n\n".join(_system_message_text(m) for m in system_msgs)
     merged = {"role": "system", "content": merged_content}
     rest = [m for m in messages if (m or {}).get("role") != "system"]
     return [merged] + rest
+
+
+def _system_message_text(msg: dict[str, Any] | None) -> str:
+    """Return a system message's content as plain text.
+
+    OpenAI-compatible providers accept content parts (a list of
+    ``{"type": "text", "text": ...}`` dicts) as well as a bare string, so the
+    merge must not stringify a list into its Python repr.
+    """
+    content = (msg or {}).get("content")
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict):
+                text = part.get("text")
+                if text:
+                    parts.append(str(text))
+            elif part:
+                parts.append(str(part))
+        return "\n\n".join(parts)
+    return str(content or "")
 
 
 def wrap_agent_litellm_compat(agent: Any) -> Any:
@@ -155,10 +180,7 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
                 ),
             }]
             kwargs["tool_choice"] = "none"
-        if (
-            (model.startswith("ollama/") or model.startswith("ollama_chat/"))
-            and model_requires_single_system_message(model)
-        ):
+        if model_requires_single_system_message(model):
             cleaned_messages = consolidate_leading_system_messages(cleaned_messages)
         try:
             res = await original(cleaned_messages, **kwargs)

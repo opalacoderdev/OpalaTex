@@ -186,11 +186,13 @@ Ao cadastrar um modelo no catálogo você pode declarar capacidades:
   visível e é útil para você. Para um modelo `ollama/` com thinking ativado, o OpalaTex
   passa a usar `ollama_chat/` internamente para que o raciocínio possa ser transmitido
   nativamente.
-- **`requires_single_system_message`** — alguns templates de chat (observado com um
-  qwen3.8 servido pelo Ollama) rejeitam uma requisição com mais de uma mensagem
-  `system`, com o erro `system message must be at the beginning`. Ative essa opção para
-  um modelo assim e o OpalaTex passa a unir todas as mensagens de sistema em uma única
-  mensagem inicial — só para ele.
+- **`requires_single_system_message`** — alguns templates de chat rejeitam uma
+  requisição com mais de uma mensagem `system`, com o erro `system message must be at
+  the beginning`. Isso depende do modelo, não do servidor: acontece tanto com modelos
+  servidos pelo Ollama (observado com o qwen3.8) quanto com as mesmas famílias servidas
+  por um endpoint compatível com OpenAI (vLLM/NIM). Ative essa opção para um modelo
+  assim e o OpalaTex passa a unir todas as mensagens de sistema em uma única mensagem
+  inicial — só para ele, seja qual for o provedor.
 - **`prompt_profile`** (`full` ou `light`) — quanto texto de prompt o modelo recebe.
   `full` envia o prompt completo com todas as salvaguardas e exemplos; `light` envia uma
   versão condensada (mesmas regras, menos prosa) que economiza tokens e latência.

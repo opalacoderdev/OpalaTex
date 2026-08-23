@@ -1290,6 +1290,64 @@ def test_ollama_system_message_order_error_reports_unresolved_when_flag_already_
     assert "please report" in msg
 
 
+def test_badrequest_system_message_order_error_is_not_reported_as_parameter_rejection(monkeypatch):
+    """An OpenAI-compatible server reports this as a BadRequestError.
+
+    The generic invalid-parameter branch matches ``badrequest``/
+    ``invalid_request_error`` too, so the ordering diagnostic must be checked
+    first or the actionable message is lost.
+    """
+    from opalatex.i18n import set_lang
+    from opalatex import config as config_mod
+
+    monkeypatch.setattr(config_mod, "model_requires_single_system_message", lambda model: False)
+
+    project = SimpleNamespace(model="openai/nvidia/Qwen3.6-35B-A3B-NVFP4", api_base="")
+    exc = Exception(
+        "litellm.BadRequestError: OpenAIException - could not encode request: "
+        "System message must be at the beginning.. "
+        "Received Model Group=openai/nvidia/Qwen3.6-35B-A3B-NVFP4"
+    )
+
+    set_lang("en")
+    msg = _friendly_llm_error(exc, project)
+
+    assert "rejected a parameter value" not in msg
+    assert "Requires a single system message" in msg
+
+
+def test_server_prompt_budget_error_is_not_reported_as_connection_failure():
+    """LiteLLM wraps the server's prompt-too-long refusal in APIConnectionError.
+
+    The server answered, so blaming the connection hides the only two things
+    the user can act on: the host's KV cache budget and the catalog num_ctx.
+    """
+    from opalatex.i18n import set_lang
+
+    project = SimpleNamespace(model="openai/Qwen3.6-35B-A3B-NVFP4", api_base="")
+    exc = Exception(
+        "litellm.MidStreamFallbackError: litellm.APIConnectionError: APIConnectionError: "
+        "OpenAIException - prompt is too long: 13557 tokens > 8221 maximum "
+        "(prompt + generation); shorten the prompt or increase the KV cache budget. "
+        "Received Model Group=openai/Qwen3.6-35B-A3B-NVFP4"
+    )
+
+    set_lang("en")
+    msg = _friendly_llm_error(exc, project)
+
+    assert "Could not connect" not in msg
+    assert "13557" in msg
+    assert "8221" in msg
+    assert "num_ctx" in msg
+
+
+def test_prompt_budget_from_error_ignores_unrelated_failures():
+    from opalatex.agent_stdin import _prompt_budget_from_error
+
+    assert _prompt_budget_from_error("litellm.APIConnectionError: connection refused") is None
+    assert _prompt_budget_from_error("prompt is too long: 13557 tokens > 8221 maximum") == (13557, 8221)
+
+
 def test_inline_response_contract_discards_preamble_and_orphan_think_close():
     response = "This is the final output.</think>```tex\ncontent\nA replacement paragraph.\n```"
     assert _normalize_inline_fenced_replacement(response) == "A replacement paragraph."

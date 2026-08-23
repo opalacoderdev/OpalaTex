@@ -163,6 +163,35 @@ from opalatex.token_usage import (
     set_usage_listener,
 )
 
+def _prompt_budget_from_error(msg: str) -> tuple[int, int] | None:
+    """Extract (prompt_tokens, server_max_tokens) from a prompt-too-long error.
+
+    OpenAI-compatible runtimes (vLLM, llama.cpp servers, and the FreeToken-style
+    local hosts) reject an oversized request with a plain-text message such as
+    ``prompt is too long: 13557 tokens > 8221 maximum (prompt + generation)``.
+    LiteLLM wraps it in an ``APIConnectionError``, so without this the generic
+    connection branch below reports an unreachable server for a server that
+    answered. The wording never contains "context", so the context-window branch
+    does not catch it either.
+    """
+    import re
+
+    match = re.search(
+        r"prompt is too long:\s*(\d+)\s*tokens?\s*>\s*(\d+)\s*maximum",
+        msg,
+        re.IGNORECASE,
+    )
+    if not match:
+        match = re.search(
+            r"(\d+)\s*tokens?[^\d]{0,40}?>\s*(\d+)\s*maximum\s*\(prompt",
+            msg,
+            re.IGNORECASE,
+        )
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
 def _friendly_llm_error(exc: Exception, project=None) -> str:
     """Convert a LiteLLM/agent exception into a user-friendly message."""
     msg = str(exc)
@@ -181,6 +210,19 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
             f"Ollama rejected a tool call from {model}: the model emitted invalid "
             "JSON inside a tool argument. The tool-call JSON was invalid, commonly "
             "from unescaped LaTeX backslashes or raw newlines. Automatic correction attempts were exhausted."
+        )
+
+    # Checked before the connection branch: OpenAI-compatible servers raise this
+    # as an APIConnectionError even though the server was reached and answered.
+    prompt_budget = _prompt_budget_from_error(msg)
+    if prompt_budget is not None:
+        from opalatex.i18n import _
+        prompt_tokens, max_tokens = prompt_budget
+        return _(
+            "err_prompt_exceeds_server_budget",
+            model=model,
+            prompt_tokens=prompt_tokens,
+            max_tokens=max_tokens,
         )
 
     if "exceed_context_size_error" in low or (
@@ -209,16 +251,19 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
             f"Remove it with: /set-model-param {param} (leave value empty) or check the model's documentation."
         )
 
-    if "invalid value for" in low or "invalid_request_error" in low or "badrequest" in low:
-        return f"The model rejected a parameter value: {msg}"
-
     from opalatex.i18n import _
 
+    # Checked before the generic parameter-rejection branch below: providers
+    # report this as a BadRequestError/invalid_request_error, so the generic
+    # branch would swallow it and hide the actionable diagnostic.
     if "system message must be at the beginning" in low:
         from opalatex.config import model_requires_single_system_message
         if model_requires_single_system_message(model):
             return _("err_system_message_order_unresolved", model=model)
         return _("err_system_message_order", model=model)
+
+    if "invalid value for" in low or "invalid_request_error" in low or "badrequest" in low:
+        return f"The model rejected a parameter value: {msg}"
 
     if "404 page not found" in low:
         return _("err_connection_failed").format(model=model)
