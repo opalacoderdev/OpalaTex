@@ -444,8 +444,9 @@
     "closeChat": "Close chat",
     "tryAgain": "Try Again",
     "continue": "Continue",
-    "attachFile": "Attach image, PDF, DOCX, or PPTX",
-    "uploadingFiles": "Processing attachment..."
+    "attachFile": "Attach images, PDFs, DOCX or PPTX (you can also paste images)",
+    "uploadingFiles": "Processing attachment...",
+    "localAttachmentWarning": "Local model: attachments compete with the conversation for a small context window, so attach few files at a time. Cloud models handle larger batches."
   },
   "chatComparison": {
     "leftPanel": "Left chat",

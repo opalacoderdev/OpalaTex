@@ -605,6 +605,65 @@ def _read_clipboard() -> str:
     return ''
 
 
+_CLIPBOARD_IMAGE_SUBPROCESS = (
+    "import base64, sys\n"
+    "from PyQt6.QtWidgets import QApplication\n"
+    "from PyQt6.QtCore import QBuffer, QIODevice\n"
+    "app = QApplication([])\n"
+    "image = app.clipboard().image()\n"
+    "if image.isNull():\n"
+    "    sys.exit(1)\n"
+    "buffer = QBuffer()\n"
+    "buffer.open(QIODevice.OpenModeFlag.WriteOnly)\n"
+    "image.save(buffer, 'PNG')\n"
+    "sys.stdout.write(base64.b64encode(bytes(buffer.data())).decode())\n"
+)
+
+
+def _clipboard_image_to_png_b64() -> str:
+    """Encode the clipboard image of the running QApplication as base64 PNG."""
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QBuffer, QIODevice
+
+    app = QApplication.instance()
+    if app is None:
+        return ''
+    image = app.clipboard().image()
+    if image.isNull():
+        return ''
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buffer, 'PNG')
+    return base64.b64encode(bytes(buffer.data())).decode()
+
+
+def _read_clipboard_image() -> str:
+    """Return the clipboard image as base64 PNG, or '' when there is none.
+
+    The embedded QtWebEngine shell does not implement the async Clipboard API,
+    so a screenshot copied outside the app can be unreachable from JavaScript
+    when the paste event carries no file. This mirrors the two fallbacks of
+    `_read_clipboard`: in-process Qt first, then a throwaway QApplication in a
+    subprocess for the session types where that fails.
+    """
+    result = _qt_invoke(_clipboard_image_to_png_b64)
+    if result:
+        return result
+
+    try:
+        import subprocess
+        r = subprocess.run(
+            [sys.executable, '-c', _CLIPBOARD_IMAGE_SUBPROCESS],
+            capture_output=True, timeout=5, env=os.environ.copy(), **utf8_text_kwargs(),
+        )
+        if r.returncode == 0 and r.stdout:
+            return r.stdout.strip()
+    except Exception:
+        pass
+
+    return ''
+
+
 def _write_clipboard(text: str):
     # 1. In-process Qt (GNOME/Wayland)
     def _do_write():
@@ -2601,7 +2660,12 @@ class AsyncHTTPServer:
                             # max_chars is applied later in agent_stdin with context info;
                             # here we apply a hard cap of 200 000 chars to protect memory.
                             max_chars = 200_000
-                descriptor = build_attachment_descriptor(filename, data_b64, mime, max_chars=max_chars)
+                # PDF/DOCX extraction and image re-encoding are synchronous and slow;
+                # attaching several files at once would otherwise stall every other
+                # request of the IDE (editor, preview, terminal) until they finish.
+                descriptor = await asyncio.to_thread(
+                    build_attachment_descriptor, filename, data_b64, mime, max_chars=max_chars
+                )
                 self.send_response(writer, 200, json.dumps(descriptor).encode(), "application/json")
             except ImportError as imp_err:
                 missing = str(imp_err).replace("No module named ", "").strip("'\"")
@@ -4155,6 +4219,12 @@ class AsyncHTTPServer:
         elif path == '/api/clipboard/read' and method == 'GET':
             text = _read_clipboard()
             self.send_response(writer, 200, json.dumps({'text': text}).encode('utf-8'), "application/json")
+
+        elif path == '/api/clipboard/read-image' and method == 'GET':
+            # Reading the clipboard can spawn a subprocess; keep the event loop free.
+            image_b64 = await asyncio.to_thread(_read_clipboard_image)
+            payload = {"data_b64": image_b64 or None, "mime": "image/png" if image_b64 else None}
+            self.send_response(writer, 200, json.dumps(payload).encode(), "application/json")
 
         elif path == '/api/clipboard/write' and method == 'POST':
             text_to_write = data.get('text', '') if isinstance(data, dict) else ''

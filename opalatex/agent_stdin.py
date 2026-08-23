@@ -884,6 +884,57 @@ def _attachment_alias(index: int, att: dict) -> str:
     return f"input_file_{index}{ext or ''}"
 
 
+def _apply_document_budget(
+    attachments: list,
+    free_chars: int,
+    truncate_pct: int,
+) -> list:
+    """Fit every extracted document of a turn into ONE shared slice of context.
+
+    The slice used to be recomputed for each attachment, so N documents each
+    took `truncate_pct` of the free window and any N > 1 overflowed it. It is
+    now computed once and divided between the documents, and whatever a short
+    document leaves unused rolls over to the ones after it.
+
+    A non-positive budget means the window is already full (or was never
+    measured). The attachments are then returned untouched, exactly as before:
+    the request is doomed either way and silently blanking the documents would
+    hide the real problem.
+    """
+    doc_indexes = [
+        index for index, att in enumerate(attachments)
+        if att.get("type") == "pdf_text"
+    ]
+    if not doc_indexes:
+        return list(attachments)
+
+    remaining_chars = int(free_chars * truncate_pct / 100)
+    if remaining_chars <= 0:
+        return list(attachments)
+
+    budgeted = list(attachments)
+    remaining_docs = len(doc_indexes)
+    for index in doc_indexes:
+        att = budgeted[index]
+        data = att.get("data", "") or ""
+        share = remaining_chars // remaining_docs
+        remaining_docs -= 1
+        if len(data) <= share:
+            remaining_chars -= len(data)
+            continue
+        shared_note = (
+            f" shared across {len(doc_indexes)} documents"
+            if len(doc_indexes) > 1 else ""
+        )
+        truncated = data[:share] + (
+            f"\n\n[PDF truncated: {len(data):,} chars total, "
+            f"{share:,} shown ({truncate_pct}% of free context{shared_note})]"
+        )
+        budgeted[index] = {**att, "data": truncated}
+        remaining_chars -= share
+    return budgeted
+
+
 def _attachment_summary(att: dict, alias: str) -> str:
     name = att.get("name") or alias
     att_type = att.get("type", "")
@@ -1909,28 +1960,19 @@ async def handle_run(data: dict):
                 history_attachments = _recent_history_attachments(getattr(current_project, "history", []) or [])
 
             attachments_for_turn = list(raw_attachments or history_attachments)
+            if pdf_truncate_enabled:
+                attachments_for_turn = _apply_document_budget(
+                    attachments_for_turn, free_chars, pdf_truncate_pct
+                )
             final_attachments = []
             for att in attachments_for_turn:
-                att_type = att.get("type", "")
-                if att_type == "image" and not model_supports_vision:
+                if att.get("type") == "image" and not model_supports_vision:
                     prompt += (
                         f"\n\n[Note: The user attached image '{att.get('name', 'image')}' "
                         f"but the active model does not support vision. The image was not analysed.]"
                     )
-                elif att_type == "pdf_text" and pdf_truncate_enabled:
-                    pdf_data = att.get("data", "")
-                    pdf_chars = len(pdf_data)
-                    allowed_chars = int(free_chars * pdf_truncate_pct / 100)
-                    if pdf_chars > allowed_chars and allowed_chars > 0:
-                        truncated = pdf_data[:allowed_chars]
-                        truncated += (
-                            f"\n\n[PDF truncated: {pdf_chars:,} chars total, "
-                            f"{allowed_chars:,} shown ({pdf_truncate_pct}% of free context)]"
-                        )
-                        att = {**att, "data": truncated}
-                    final_attachments.append(att)
-                else:
-                    final_attachments.append(att)
+                    continue
+                final_attachments.append(att)
 
             attachment_aliases = {
                 _attachment_alias(idx, att): att

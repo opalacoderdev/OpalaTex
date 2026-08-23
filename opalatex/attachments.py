@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import os
 import re
@@ -10,9 +11,18 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 
+ATTACHMENT_CACHE_DIRNAME = "attachment_cache"
+
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+_MIME_EXTENSIONS = {
+    "application/pdf": ".pdf",
+    DOCX_MIME: ".docx",
+    PPTX_MIME: ".pptx",
+    XLSX_MIME: ".xlsx",
+}
 
 
 def _truncate(text: str, max_chars: int | None) -> str:
@@ -241,6 +251,45 @@ def compress_image(data_b64: str, mime: str, max_side: int = 1024) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
+def store_original_upload(data_b64: str, filename: str, mime: str = "") -> str:
+    """Write an uploaded document to the local cache and return its path.
+
+    The original bytes have to survive the upload: `read_file(alias)` re-extracts
+    the attached document on demand. Carrying them as base64 inside the
+    descriptor meant the whole file was sent back to the server on every turn of
+    the chat and stored again in each history row, so a handful of PDFs made both
+    the request and the database grow by tens of megabytes. On disk it is written
+    once, addressed by content so repeated uploads of the same file share it, and
+    it travels as a path.
+
+    Returns an empty string when the cache cannot be written; the caller then
+    keeps working from the extracted text alone.
+    """
+    from opalatex.config import get_opalatex_home
+
+    try:
+        raw = base64.b64decode(data_b64)
+        digest = hashlib.sha256(raw).hexdigest()
+        # The extension is what tells the by-path extractor which format this
+        # is, so an upload named without one takes it from the MIME type.
+        ext = os.path.splitext(filename or "")[1].lower()
+        if ext not in EXTRACTABLE_DOC_EXTS:
+            ext = _MIME_EXTENSIONS.get(_guess_mime(filename, mime), "")
+        cache_dir = os.path.join(get_opalatex_home(), ATTACHMENT_CACHE_DIRNAME)
+        os.makedirs(cache_dir, exist_ok=True)
+        path = os.path.join(cache_dir, f"{digest}{ext}")
+        if not os.path.exists(path):
+            # Write to a sibling first so a crash cannot leave a half file that
+            # the content hash would later vouch for.
+            tmp_path = f"{path}.part"
+            with open(tmp_path, "wb") as handle:
+                handle.write(raw)
+            os.replace(tmp_path, path)
+        return path
+    except Exception:
+        return ""
+
+
 def build_attachment_descriptor(
     filename: str,
     data_b64: str,
@@ -251,7 +300,8 @@ def build_attachment_descriptor(
     """Convert a raw upload into a normalised attachment descriptor.
 
     For images: compresses and returns type="image".
-    For documents: extracts text and returns type="pdf_text".
+    For documents: extracts text, caches the original on disk and returns
+    type="pdf_text" with a "raw_path" pointing at it.
     Unknown types: returned as-is with type="unknown".
 
     Returns:
@@ -263,7 +313,7 @@ def build_attachment_descriptor(
         return {
             "type": "pdf_text",
             "data": text,
-            "raw_data": data_b64,
+            "raw_path": store_original_upload(data_b64, filename, normalized_mime),
             "raw_mime": normalized_mime,
             "mime": normalized_mime,
             "name": filename,

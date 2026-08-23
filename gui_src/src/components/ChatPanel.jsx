@@ -1,9 +1,11 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
-import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal } from 'lucide-react';
+import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { FormattedMessage } from '../utils/formatMessage';
-import { readClipboard } from '../utils/clipboard.js';
+import { readClipboard, readClipboardImage } from '../utils/clipboard.js';
+import { base64ImageToFile, clipboardHasText, extractClipboardFiles, pastedImageName } from '../utils/clipboardAttachments.js';
+import { isLocalModelId } from '../utils/models.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
@@ -105,6 +107,9 @@ export default function ChatPanel({
   const historyRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+  // The context-menu paste is defined above the attachment helpers; the ref
+  // lets it reach them without hoisting the whole attachment section.
+  const attachClipboardImageRef = useRef(null);
   const chatActionsMenuRef = useRef(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
@@ -182,7 +187,11 @@ export default function ChatPanel({
 
   const handlePaste = useCallback(() => {
     readClipboard().then((text) => {
-      if (!text) return;
+      if (!text) {
+        // No text on the clipboard: the user may be pasting a copied image.
+        attachClipboardImageRef.current?.();
+        return;
+      }
       const el = inputRef.current;
       if (el) {
         const start = el.selectionStart ?? chatInput.length;
@@ -561,6 +570,12 @@ export default function ChatPanel({
 
   const hasMcp = webSearchConfig?.provider === 'mcp' && !!(webSearchConfig?.mcp_url);
 
+  // A local model runs on the user's own machine with a small context window,
+  // and every attachment competes with the conversation for it. Cloud models
+  // take much larger batches, so the warning is scoped to the local case.
+  const usesLocalModel = isLocalModelId(activeProject?.model, activeProject?.api_base);
+  const showLocalAttachmentWarning = usesLocalModel && (pendingAttachments?.length || 0) >= 2;
+
   // ---- Attachment helpers ----
   const supportedAttachmentMimes = new Set([
     'application/pdf',
@@ -657,6 +672,44 @@ export default function ChatPanel({
   const handleFileInputChange = (e) => {
     processFiles(e.target.files);
     e.target.value = '';
+  };
+
+  // Reads the system clipboard directly. Used when the paste event carried no
+  // file, which is what happens in the embedded QtWebEngine shell for an image
+  // copied outside the app. Returns true when an image was attached.
+  const attachClipboardImage = async () => {
+    if (!activeProject || isAgentRunning) return false;
+    try {
+      const image = await readClipboardImage();
+      if (!image) return false;
+      const file = image.blob
+        ? new File([image.blob], pastedImageName(image.mime), { type: image.mime })
+        : base64ImageToFile(image.data_b64, image.mime);
+      await processFiles([file]);
+      return true;
+    } catch (err) {
+      console.error('Clipboard image paste failed:', err);
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    attachClipboardImageRef.current = attachClipboardImage;
+  });
+
+  const handleInputPaste = (e) => {
+    if (!activeProject || isAgentRunning) return;
+    const files = extractClipboardFiles(e.clipboardData).filter(isSupportedAttachment);
+    if (files.length > 0) {
+      // An image copied from a page also carries a text/html twin; without this
+      // the markup would be inserted into the box alongside the attachment.
+      e.preventDefault();
+      processFiles(files);
+      return;
+    }
+    // clipboardData is unusable after the first await, so decide before it.
+    if (clipboardHasText(e.clipboardData)) return;
+    attachClipboardImage();
   };
 
   const handleDragOver = (e) => { e.preventDefault(); setIsDragOver(true); };
@@ -1997,6 +2050,21 @@ export default function ChatPanel({
             ))}
           </div>
         )}
+        {/* Local models pay for every attachment out of a small context window */}
+        {showLocalAttachmentWarning && (
+          <div style={{
+            padding: '4px 10px', fontSize: '11px', color: '#d7ba7d',
+            display: 'flex', alignItems: 'center', gap: '5px',
+          }}>
+            <AlertTriangle size={12} style={{ flexShrink: 0 }} />
+            <span>
+              {t(
+                'chatPanel.localAttachmentWarning',
+                'Local model: attachments compete with the conversation for a small context window, so attach few files at a time. Cloud models handle larger batches.',
+              )}
+            </span>
+          </div>
+        )}
         {/* Upload status */}
         {uploadingFiles && (
           <div style={{ padding: '4px 10px', fontSize: '11px', color: '#888' }}>
@@ -2019,7 +2087,7 @@ export default function ChatPanel({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={!activeProject || isAgentRunning}
-            title={t('chatPanel.attachFile', 'Attach image, PDF, DOCX, or PPTX')}
+            title={t('chatPanel.attachFile', 'Attach images, PDFs, DOCX or PPTX (you can also paste images)')}
             style={{
               background: 'transparent', border: 'none', cursor: 'pointer',
               color: (pendingAttachments && pendingAttachments.length > 0) ? '#4ec9b0' : '#666',
@@ -2034,6 +2102,7 @@ export default function ChatPanel({
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handleInputPaste}
             disabled={!activeProject || isAgentRunning || isEvolvingPrompt}
             placeholder={
               !activeProject ? t('chatPanel.setProjectFirst') :

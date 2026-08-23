@@ -121,18 +121,56 @@ def test_build_attachment_descriptor_image():
     base64.b64decode(desc["data"])
 
 
-def test_build_attachment_descriptor_pdf_preserves_original(monkeypatch):
+def test_build_attachment_descriptor_pdf_preserves_original(tmp_path, monkeypatch):
     from opalatex import attachments
 
     raw = base64.b64encode(b"%PDF-1.4 fake").decode()
+    monkeypatch.setenv("OPALATEX_HOME", str(tmp_path))
     monkeypatch.setattr(attachments, "extract_pdf_text", lambda data_b64, max_chars=None: "PDF text")
 
     desc = attachments.build_attachment_descriptor("paper.pdf", raw, "application/pdf")
 
     assert desc["type"] == "pdf_text"
     assert desc["data"] == "PDF text"
-    assert desc["raw_data"] == raw
     assert desc["raw_mime"] == "application/pdf"
+    # The original is cached on disk instead of riding along as base64.
+    assert "raw_data" not in desc
+    assert open(desc["raw_path"], "rb").read() == base64.b64decode(raw)
+
+
+def test_store_original_upload_is_content_addressed(tmp_path, monkeypatch):
+    from opalatex.attachments import store_original_upload
+
+    monkeypatch.setenv("OPALATEX_HOME", str(tmp_path))
+    raw = base64.b64encode(b"%PDF-1.4 fake").decode()
+
+    first = store_original_upload(raw, "paper.pdf")
+    second = store_original_upload(raw, "paper.pdf")
+
+    assert first == second  # the same file is never stored twice
+    assert first.endswith(".pdf")
+
+
+def test_store_original_upload_names_the_cache_by_mime_when_the_upload_has_no_extension(tmp_path, monkeypatch):
+    """The by-path extractor dispatches on the extension, so it must be there."""
+    from opalatex.attachments import store_original_upload
+
+    monkeypatch.setenv("OPALATEX_HOME", str(tmp_path))
+    raw = base64.b64encode(b"%PDF-1.4 fake").decode()
+
+    path = store_original_upload(raw, "scan", "application/pdf")
+
+    assert path.endswith(".pdf")
+
+
+def test_store_original_upload_survives_an_unwritable_cache(tmp_path, monkeypatch):
+    """A failed cache write must not fail the upload: the text still works."""
+    from opalatex import attachments
+
+    monkeypatch.setenv("OPALATEX_HOME", str(tmp_path))
+    monkeypatch.setattr(attachments.os, "makedirs", lambda *a, **k: (_ for _ in ()).throw(OSError("read-only")))
+
+    assert attachments.store_original_upload(base64.b64encode(b"x").decode(), "a.pdf") == ""
 
 
 def test_extract_docx_text_reads_document_xml():
@@ -152,27 +190,29 @@ def test_extract_pptx_text_reads_slides_in_order():
     assert "Slide 2:" in text
 
 
-def test_build_attachment_descriptor_docx_by_extension_when_mime_missing():
+def test_build_attachment_descriptor_docx_by_extension_when_mime_missing(tmp_path, monkeypatch):
     from opalatex.attachments import DOCX_MIME, build_attachment_descriptor
 
+    monkeypatch.setenv("OPALATEX_HOME", str(tmp_path))
     raw = _minimal_docx_b64()
     desc = build_attachment_descriptor("notes.docx", raw, "application/octet-stream")
 
     assert desc["type"] == "pdf_text"
     assert desc["mime"] == DOCX_MIME
-    assert desc["raw_data"] == raw
+    assert open(desc["raw_path"], "rb").read() == base64.b64decode(raw)
     assert "Hello DOCX" in desc["data"]
 
 
-def test_build_attachment_descriptor_pptx_preserves_original():
+def test_build_attachment_descriptor_pptx_preserves_original(tmp_path, monkeypatch):
     from opalatex.attachments import PPTX_MIME, build_attachment_descriptor
 
+    monkeypatch.setenv("OPALATEX_HOME", str(tmp_path))
     raw = _minimal_pptx_b64()
     desc = build_attachment_descriptor("deck.pptx", raw, PPTX_MIME)
 
     assert desc["type"] == "pdf_text"
     assert desc["raw_mime"] == PPTX_MIME
-    assert desc["raw_data"] == raw
+    assert open(desc["raw_path"], "rb").read() == base64.b64decode(raw)
     assert "Title slide" in desc["data"]
 
 
@@ -205,7 +245,48 @@ def test_agent_input_accepts_attachments():
     assert inp.attachments[0]["type"] == "image"
 
 
+def test_read_file_extracts_attachment_from_the_cached_original(tmp_path):
+    import opalatex.tools as tools
+
+    cached = tmp_path / "paper.docx"
+    cached.write_bytes(base64.b64decode(_minimal_docx_b64()))
+
+    tools.set_recent_file_attachments({
+        "input_file_0.docx": {
+            "type": "pdf_text",
+            "data": "preview text",
+            "raw_path": str(cached),
+            "mime": "application/pdf",
+            "name": "paper.docx",
+        }
+    })
+
+    input_model = tools.read_file.input_schema()
+    result = asyncio.run(tools.read_file.run(input_model(path="input_file_0.docx")))
+    assert "Hello DOCX" in result.result
+
+
+def test_read_file_falls_back_to_extracted_text_when_the_cache_is_gone(tmp_path):
+    """An old chat whose cached original was deleted still reads its text."""
+    import opalatex.tools as tools
+
+    tools.set_recent_file_attachments({
+        "input_file_0.pdf": {
+            "type": "pdf_text",
+            "data": "preview text",
+            "raw_path": str(tmp_path / "missing.pdf"),
+            "mime": "application/pdf",
+            "name": "paper.pdf",
+        }
+    })
+
+    input_model = tools.read_file.input_schema()
+    result = asyncio.run(tools.read_file.run(input_model(path="input_file_0.pdf")))
+    assert result.result == "preview text"
+
+
 def test_read_file_extracts_recent_pdf_attachment(monkeypatch):
+    """Legacy history rows still carry the original as inline base64."""
     import opalatex.tools as tools
 
     raw = base64.b64encode(b"%PDF-1.4 fake").decode()

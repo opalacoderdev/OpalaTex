@@ -444,8 +444,9 @@
     "closeChat": "Fechar chat",
     "tryAgain": "Tentar Novamente",
     "continue": "Continuar",
-    "attachFile": "Anexar imagem, PDF, DOCX ou PPTX",
-    "uploadingFiles": "Processando anexo..."
+    "attachFile": "Anexar imagens, PDFs, DOCX ou PPTX (também dá para colar imagens)",
+    "uploadingFiles": "Processando anexo...",
+    "localAttachmentWarning": "Modelo local: os anexos disputam com a conversa uma janela de contexto pequena, então anexe poucos arquivos por vez. Modelos em nuvem suportam lotes maiores."
   },
   "chatComparison": {
     "leftPanel": "Chat esquerdo",

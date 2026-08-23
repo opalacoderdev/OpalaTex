@@ -559,7 +559,16 @@ def read_file(path: str) -> str:
     if attachment:
         att_type = attachment.get("type", "")
         if att_type == "pdf_text":
+            # Uploads made from this version cache the original on disk and carry
+            # a path; history written before that still carries the base64 inline.
+            raw_path = attachment.get("raw_path")
             raw_data = attachment.get("raw_data")
+            if raw_path and os.path.exists(raw_path):
+                try:
+                    from opalatex.attachments import extract_document_text_from_path
+                    return extract_document_text_from_path(raw_path)
+                except Exception as e:
+                    raise ValueError(f"Error extracting attached document '{attachment.get('name', path)}': {e}")
             if raw_data:
                 try:
                     from opalatex.attachments import extract_document_text
@@ -570,6 +579,8 @@ def read_file(path: str) -> str:
                     )
                 except Exception as e:
                     raise ValueError(f"Error extracting attached document '{attachment.get('name', path)}': {e}")
+            # No original available (old chat whose cache entry is gone): the
+            # extracted text is exactly what the model was shown for this turn.
             return attachment.get("data", "")
         if att_type == "image":
             raise ValueError(
