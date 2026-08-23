@@ -233,6 +233,13 @@ async def test_update_project_endpoint_updates_model(tmp_path, monkeypatch):
         project_path=str(tmp_path / "project"),
     )
     monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
+    # Selecting a local Ollama model pre-fetches it; the test must not shell out
+    # to `ollama pull`. See tests/test_ollama_model_prefetch.py for that path.
+    pulled = []
+    monkeypatch.setattr(
+        "opalatex.ollama_manager.pull_model_in_background",
+        lambda name, report=None: pulled.append(name) or True,
+    )
 
     server = AsyncHTTPServer()
     writer = AsyncMock()
@@ -261,6 +268,7 @@ async def test_update_project_endpoint_updates_model(tmp_path, monkeypatch):
     assert data["model"] == "ollama/new-model:latest"
     loaded = store.load("myproj")
     assert loaded.model == "ollama/new-model:latest"
+    assert pulled == ["new-model:latest"]
 
 
 

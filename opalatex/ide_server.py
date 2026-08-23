@@ -2030,16 +2030,12 @@ class AsyncHTTPServer:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
                 return
                 
+            # A project created against a local Ollama model is pre-fetched so the
+            # first message does not fail on a model that was never downloaded.
+            # The helper skips models Ollama already serves.
             if model and model.startswith("ollama/") and is_local_model(model, api_base):
-                m_name = model.split("ollama/", 1)[1]
-                import threading
-                import subprocess
-                def pull_model():
-                    try:
-                        subprocess.run(["ollama", "pull", m_name], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    except Exception:
-                        pass
-                threading.Thread(target=pull_model, daemon=True).start()
+                from opalatex.ollama_manager import pull_model_in_background
+                pull_model_in_background(model.split("ollama/", 1)[1])
             
             if "piloto" in project_name.lower() or "pilot" in project_name.lower():
                 from opalatex.onboarding import PILOT_SKILL_NAME, pilot_skill_content
@@ -2766,10 +2762,15 @@ class AsyncHTTPServer:
             # Patch only supplied fields
             if "display_name" in data:
                 project.project_name = data["display_name"]
+            previous_model = str(getattr(project, "model", "") or "")
             # An explicit empty value clears the selection: the project must be able
             # to go back to "no model configured".
             if "model" in data:
                 project.model = str(data["model"] or "")
+            # Compared against the stored value, not against `"model" in data`: the
+            # GUI re-sends the current model on unrelated saves, and that must not
+            # count as a change.
+            model_changed = str(getattr(project, "model", "") or "") != previous_model
             if "worker_model" in data:
                 project.worker_model = str(data["worker_model"] or "")
             if "description" in data:
@@ -2851,17 +2852,19 @@ class AsyncHTTPServer:
 
             store.save(project)
             
+            # Only a real model *change* pre-fetches. This endpoint patches any
+            # project field -- main file, git root, compile flags -- and pulling on
+            # every call downloaded gigabytes behind the user's back for edits that
+            # had nothing to do with the model.
             from opalatex.config import is_local_model
-            if project.model and project.model.startswith("ollama/") and is_local_model(project.model, getattr(project, "api_base", "")):
-                m_name = project.model.split("ollama/", 1)[1]
-                import threading
-                import subprocess
-                def pull_model_update():
-                    try:
-                        subprocess.run(["ollama", "pull", m_name], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    except Exception:
-                        pass
-                threading.Thread(target=pull_model_update, daemon=True).start()
+            if (
+                model_changed
+                and project.model
+                and project.model.startswith("ollama/")
+                and is_local_model(project.model, getattr(project, "api_base", ""))
+            ):
+                from opalatex.ollama_manager import pull_model_in_background
+                pull_model_in_background(project.model.split("ollama/", 1)[1])
             
             # Propagate updated project settings to in-memory state and rebuild orchestrator
             import opalatex.agent_stdin as agent_stdin
