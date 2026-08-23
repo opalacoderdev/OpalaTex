@@ -307,25 +307,34 @@ export const schema = new Schema({
   // the order declared here, so `strong` before `em` makes the canonical form
   // `\textbf{\textit{x}}`.
   marks: {
-    // A LaTeX font *declaration* scope: `{\Huge\bfseries ...}` or a bare
-    // `\small ...` running to the end of its scope. Unlike `\textbf{x}`,
-    // these take no argument, so they are modelled as a mark over whatever
-    // they affect rather than as a command wrapping an argument.
+    // A scope in the inline source, in any of the three shapes that occur:
+    //
+    //     {\Huge\bfseries x}   braces carrying font declarations
+    //     \small x             a bare declaration, to the end of its scope
+    //     1{,}5                braces that only group
+    //
+    // Font declarations take no argument, so they are modelled as a mark over
+    // whatever they affect rather than as a command wrapping an argument; a
+    // grouping-only brace pair is the same shape with no declarations.
     //
     // `prefix` holds the declaration run verbatim, including the whitespace
-    // that terminates it, so the scope is written back exactly as written.
-    // `braced` records whether the source used a group. `depth` records how
-    // deeply the scope was nested, which is what lets the serializer restore
-    // the original nesting order when two declaration scopes overlap —
-    // ProseMirror keeps same-type marks in insertion order, not source order.
+    // that terminates it (empty for a grouping-only pair), so the scope is
+    // written back exactly as written. `braced` records whether the source
+    // used a group. `depth` records how deeply the scope was nested, which is
+    // what lets the serializer restore the original nesting order when two
+    // scopes overlap — ProseMirror keeps same-type marks in insertion order,
+    // not source order. `key` distinguishes one braced group from the next so
+    // that adjacent ones are never merged: `sha{f}{f}le` breaks a ligature
+    // and must not become `sha{ff}le`.
     //
     // `excludes: ''` is required: a mark type excludes itself by default,
-    // which would make a nested declaration replace its enclosing one.
-    decl: {
+    // which would make a nested scope replace its enclosing one.
+    scope: {
       attrs: {
         prefix: { default: '' },
         braced: { default: true },
         depth: { default: 0 },
+        key: { default: null },
       },
       excludes: '',
       toDOM: (mark) => ['span', { style: styleToCss(declarationStyle(mark.attrs.prefix)) }, 0],
@@ -380,7 +389,7 @@ export const MARK_WRAPPERS = {
   // it over the rest of the paragraph instead of just that argument. Bracing
   // gives `{\small \textbf{x}}` — the same scope the source had, at the cost
   // of not being byte-identical for this shape.
-  decl: (mark, context = {}) => {
+  scope: (mark, context = {}) => {
     const braced = mark.attrs.braced || mark.attrs.depth > 0 || context.outermost === false;
     return braced
       ? { open: `{${mark.attrs.prefix}`, close: '}' }

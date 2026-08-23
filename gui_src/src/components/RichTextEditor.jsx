@@ -5,6 +5,7 @@ import { parseLatexBlocks } from '../utils/latexBlockParser';
 import { serializeDocument } from '../utils/latexBlockSerializer';
 import { validateRenderableMath } from '../utils/mathValidation';
 import { declarationStyle, findFirstDeclaration } from '../utils/latexFontDeclarations';
+import { stripTransparentGroups } from '../utils/latexBraceGroups';
 
 // ── Module-level cache: keyed by (projectPath, graphic-source-hash) ────────
 // This avoids re-compiling identical TikZ snippets on every keystroke. The
@@ -2828,7 +2829,7 @@ const INVISIBLE_LATEX_COMMAND_RE = new RegExp(
 );
 
 function stripSimpleLatexCommands(text) {
-  return text
+  const stripped = text
     .replace(INVISIBLE_LATEX_COMMAND_RE, '')
     .replace(/``([\s\S]*?)''/g, '"$1"')
     .replace(/\\(?:label|ref|cite|eqref)\{([^}]*)\}/g, '$1')
@@ -2837,8 +2838,15 @@ function stripSimpleLatexCommands(text) {
     .replace(/\\_/g, '_')
     .replace(/\\#/g, '#')
     .replace(/~/g, '\u00a0')
-    .replace(/\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^}]*)\}/g, '$1')
-    .replace(/\\([{}])/g, '$1');
+    .replace(/\\[a-zA-Z]+\*?(?:\[[^\]]*\])?\{([^}]*)\}/g, '$1');
+
+  // Free-standing braces that only group — `1{,}5` reads as `1,5`. Display
+  // only: the block text, and so the saved source, keeps its braces.
+  //
+  // Before the escaped-brace rule below, not after: `\{a\}` is a literal
+  // pair of braces, and unescaping it first would turn it into a group this
+  // would then strip, losing the braces the author asked for.
+  return stripTransparentGroups(stripped).replace(/\\([{}])/g, '$1');
 }
 
 function findMatchingBraceInText(text, openPos) {

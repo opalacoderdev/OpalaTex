@@ -25,6 +25,7 @@
 
 import { COMMAND_MARKS, MARK_WRAPPERS } from './schema.js';
 import { matchDeclarationRun } from '../utils/latexFontDeclarations.js';
+import { isTransparentGroup } from '../utils/latexBraceGroups.js';
 
 // ── Character-level bijection ───────────────────────────────────────────────
 // Decoded on parse, re-encoded on serialize. Every entry must be reversible;
@@ -178,7 +179,7 @@ export function parseInline(src, schema, options = {}) {
           declDepth: declDepth + 1,
         });
         flush();
-        const mark = schema.marks.decl.create({
+        const mark = schema.marks.scope.create({
           prefix: bareDecl.prefix,
           braced: false,
           depth: declDepth,
@@ -257,15 +258,44 @@ export function parseInline(src, schema, options = {}) {
             declDepth: declDepth + 1,
           });
           flush();
-          const mark = schema.marks.decl.create({
+          const mark = schema.marks.scope.create({
             prefix: groupDecl.prefix,
             braced: true,
             depth: declDepth,
+            key: i,
           });
           for (const child of inner) nodes.push(child.mark(mark.addToSet(child.marks)));
           i = close + 1;
           continue;
         }
+        // Braces that only group — `1{,}5`, `sha{f}{f}le`. The content is
+        // shown without them, but they are kept in `braced` so the source
+        // still compiles the same: `{f}{f}` is how an "ff" ligature is
+        // broken, and dropping the braces would change the output.
+        const groupContent = text.slice(i + 1, close);
+        if (isTransparentGroup(groupContent)) {
+          const inner = parseInline(groupContent, schema, {
+            ...options,
+            declDepth: declDepth + 1,
+          });
+          flush();
+          if (inner.length) {
+            const mark = schema.marks.scope.create({
+              prefix: '',
+              braced: true,
+              depth: declDepth,
+              key: i,
+            });
+            for (const child of inner) nodes.push(child.mark(mark.addToSet(child.marks)));
+          } else {
+            // An empty group has no content to carry the mark, so it stays an
+            // atom rather than vanishing.
+            nodes.push(schema.nodes.inline_raw.create({ raw: text.slice(i, close + 1) }));
+          }
+          i = close + 1;
+          continue;
+        }
+
         pushAtom(schema.nodes.inline_raw.create({ raw: text.slice(i, close + 1) }));
         i = close + 1;
         continue;

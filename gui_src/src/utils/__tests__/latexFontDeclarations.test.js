@@ -182,10 +182,16 @@ test('a declaration inside a command argument keeps its scope, gaining braces', 
   assert.equal(afterScope, ' b', 'trailing text must not be swallowed by the declaration');
 });
 
-test('a brace group that is not a declaration scope is left alone', () => {
-  // Preserving it whole is the honest option: what such a group means depends
-  // on what is inside it.
-  const source = '{plain group untouched}';
-  assert.equal(roundTrip(source), source);
-  assert.equal(visibleText(source), source);
+test('a brace group that is not a declaration scope keeps its braces in source', () => {
+  // Braces that only group are rendered away — see latexBraceGroups.test.js —
+  // but they are never written away, since they can carry meaning the
+  // rendering does not show.
+  assert.equal(roundTrip('{plain group}'), '{plain group}');
+  assert.equal(visibleText('{plain group}'), 'plain group');
+
+  // A group holding a command is preserved whole, rendering included: what it
+  // means depends on the command, and guessing is how markup ends up
+  // silently altered.
+  assert.equal(roundTrip('{\\color{red} x}'), '{\\color{red} x}');
+  assert.equal(visibleText('{\\color{red} x}'), '{\\color{red} x}');
 });
