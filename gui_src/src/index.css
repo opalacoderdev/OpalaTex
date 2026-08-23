@@ -59,6 +59,10 @@
   --diff-text-meta: #9cdcfe;
   --diff-text-header: #808080;
   --diff-text-default: #cccccc;
+
+  /* Text selection (native ::selection highlight) */
+  --vscode-selection-bg: #264f78;
+  --vscode-selection-fg: #ffffff;
 }
 
 /* ─── Light Theme ──────────────────────────────────────────────────────────
@@ -130,6 +134,34 @@
   --diff-text-meta: #005fb8;
   --diff-text-header: #6a737d;
   --diff-text-default: #1e1e1e;
+
+  /* Text selection (native ::selection highlight) */
+  --vscode-selection-bg: #add6ff;
+  --vscode-selection-fg: #1e1e1e;
+}
+
+/* ── Native text selection ────────────────────────────────────────────────
+   The UA default selection color follows the resolved `color-scheme`, which
+   on some Linux WebKitGTK/QtWebEngine builds paints a near-white highlight —
+   invisible over the white surfaces of the light theme. Declare the colors
+   explicitly for both themes so selected text is always visible.
+   ────────────────────────────────────────────────────────────────────── */
+::selection {
+  background-color: var(--vscode-selection-bg);
+  color: var(--vscode-selection-fg);
+}
+
+::-moz-selection {
+  background-color: var(--vscode-selection-bg);
+  color: var(--vscode-selection-fg);
+}
+
+/* The pdf.js text layer draws invisible glyphs on top of the rendered canvas
+   text, so selected text there must keep its transparent color — only the
+   highlight background may show. */
+.textLayer ::selection {
+  background-color: var(--vscode-selection-bg);
+  color: transparent;
 }
 
 /* ── Light-theme component overrides ──────────────────────────────────────

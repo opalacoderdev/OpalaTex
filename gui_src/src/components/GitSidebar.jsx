@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye, EyeOff, Bot, Download } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus, RotateCcw, GitCommit, History, GitBranch, FolderOpen, X, Eye, EyeOff, Bot, Download, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { groupAgentTurns } from '../utils/gitReviewGrouping';
@@ -162,6 +162,7 @@ export default function GitSidebar({
   const [loadingLog, setLoadingLog] = useState(false);
   const [reviewPage, setReviewPage] = useState(0);
   const [reviewHasNextPage, setReviewHasNextPage] = useState(false);
+  const [nestedRepos, setNestedRepos] = useState([]);
 
   const projectPath = activeProject?.project_path;
   const effectiveUseShadowGit = reviewMode ? true : useShadowGit;
@@ -206,6 +207,27 @@ export default function GitSidebar({
     if (reviewMode) return;
     fetchGitStatus();
   }, [effectiveUseShadowGit, gitRootPath, reviewMode]);
+
+  // A sub-folder with its own .git is a gitlink for the shadow repository, so
+  // nothing the agent changes inside it reaches a turn checkpoint. Only the
+  // shadow history has this blind spot; the user repository sees those folders
+  // through its own Git root.
+  useEffect(() => {
+    if (!projectPath || !effectiveUseShadowGit) {
+      setNestedRepos([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/git/nested-repos?${new URLSearchParams({ projectPath })}`);
+        if (!res.ok) return;
+        const d = await res.json();
+        if (!cancelled) setNestedRepos(d.nested_repos || []);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [projectPath, effectiveUseShadowGit]);
 
   useEffect(() => {
     setExpandedDiffs({});
@@ -768,6 +790,33 @@ export default function GitSidebar({
       {reviewMode && (
         <div style={{ padding: '0 20px 10px', color: 'var(--vscode-descriptionForeground)', fontSize: '12px' }}>
           {t('gitSidebar.reviewSubtitle')}
+        </div>
+      )}
+
+      {effectiveUseShadowGit && nestedRepos.length > 0 && (
+        <div
+          style={{
+            margin: reviewMode ? '0 20px 12px' : '0 12px 8px',
+            padding: '8px 10px',
+            border: '1px solid #e2b52b',
+            borderRadius: '4px',
+            background: 'rgba(226, 181, 43, 0.12)',
+            fontSize: '11px',
+            color: 'var(--vscode-text-fg)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, marginBottom: '4px' }}>
+            <AlertTriangle size={13} style={{ color: '#e2b52b', flexShrink: 0 }} />
+            {t('gitSidebar.nestedRepoWarningTitle')}
+          </div>
+          <div style={{ color: 'var(--vscode-descriptionForeground)' }}>
+            {t('gitSidebar.nestedRepoWarningBody')}
+          </div>
+          <ul style={{ margin: '6px 0 0', paddingLeft: '18px', fontFamily: 'monospace' }}>
+            {nestedRepos.map(repoPath => (
+              <li key={repoPath} className="truncate" title={repoPath}>{repoPath}</li>
+            ))}
+          </ul>
         </div>
       )}
 

@@ -3661,6 +3661,25 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        # 7h.1 Shadow-git blind spots
+        #      A sub-directory with its own .git is stored by the shadow
+        #      repository as a gitlink, so agent edits inside it never reach a
+        #      turn checkpoint and the turn is discarded as a no-op. Reported so
+        #      the Review UI and the log can say why entries are missing.
+        elif path == '/api/git/nested-repos':
+            project_path = query.get('projectPath', [None])[0]
+            if not project_path or not os.path.isdir(project_path):
+                self.send_response(writer, 400, b'{"error":"Invalid project path"}', "application/json")
+                return
+            try:
+                from opalatex.vcs import find_nested_git_repos
+                nested = await asyncio.to_thread(find_nested_git_repos, project_path)
+                self.send_response(writer, 200, json.dumps({
+                    "nested_repos": nested,
+                }).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
         # 7i. Git stage / unstage
         elif path == '/api/git/stage' and method == 'POST':
             project_path = data.get("projectPath")

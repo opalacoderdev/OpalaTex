@@ -76,7 +76,8 @@ class MCPClientBridge:
                 name=tool.name,
                 description=tool.description or ""
             )
-            block.raw_mcp_schema = tool.inputSchema
+            # MCP SDK 2.x usa input_schema; versões antigas usavam inputSchema.
+            block.raw_mcp_schema = getattr(tool, "input_schema", getattr(tool, "inputSchema", {}))
             block.session = self.session
             proxy_blocks.append(block)
             

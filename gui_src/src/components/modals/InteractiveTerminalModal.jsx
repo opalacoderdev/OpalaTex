@@ -49,7 +49,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Consolas, "Courier New", monospace',
-      theme: { background: '#1e1e2e', foreground: '#cccccc' },
+      theme: { background: '#1e1e2e', foreground: '#cccccc', selectionBackground: '#264f78', selectionInactiveBackground: '#3a3d41' },
     });
     
     const fitAddon = new FitAddon();

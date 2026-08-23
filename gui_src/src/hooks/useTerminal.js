@@ -7,6 +7,10 @@ const LIGHT_TERMINAL_THEME = {
   background: '#ffffff',
   foreground: '#1e1e1e',
   cursor: '#1e1e1e',
+  // xterm defaults to a white 30% selection layer, which is invisible over the
+  // white light-theme background, so both themes set it explicitly.
+  selectionBackground: '#add6ff',
+  selectionInactiveBackground: '#dcdcdc',
   black: '#000000',
   red: '#a1260d',
   green: '#008000',
@@ -28,6 +32,8 @@ const LIGHT_TERMINAL_THEME = {
 const DARK_TERMINAL_THEME = {
   background: '#1e1e1e',
   foreground: '#cccccc',
+  selectionBackground: '#264f78',
+  selectionInactiveBackground: '#3a3d41',
 };
 
 // Hook that initialises an xterm.js terminal and connects it to the backend SSE stream.

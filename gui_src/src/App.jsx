@@ -1019,6 +1019,10 @@ export default function App() {
     safeSetLocalStorage('theme', theme);
     if (theme === 'light') document.body.classList.add('light-theme');
     else document.body.classList.remove('light-theme');
+    // `color-scheme` is declared on :root, so the html element keeps the dark
+    // palette (native scrollbars, form controls and the UA selection color)
+    // unless it is switched here as well.
+    document.documentElement.style.colorScheme = theme === 'light' ? 'light' : 'dark';
   }, [theme]);
 
   useEffect(() => {
@@ -1367,6 +1371,29 @@ export default function App() {
       },
     ], panelMaxLines));
   };
+
+  // Sub-folders with their own .git are gitlinks for the shadow repository, so
+  // agent edits inside them never produce a turn checkpoint and the Review panel
+  // stays empty for work that really happened. Said once per project path when
+  // the project is opened, instead of leaving the gap silent.
+  const warnedNestedReposRef = useRef(new Set());
+  useEffect(() => {
+    const projectPath = activeProject?.project_path;
+    if (!projectPath || warnedNestedReposRef.current.has(projectPath)) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/git/nested-repos?${new URLSearchParams({ projectPath })}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const nested = data.nested_repos || [];
+        if (cancelled || nested.length === 0) return;
+        warnedNestedReposRef.current.add(projectPath);
+        addLog('warning', t('app.shadowGitNestedRepos', { paths: nested.join(', ') }));
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [activeProject?.project_path]);
 
   const compactForLatexFixPrompt = (value, limit) => {
     const text = String(value || '');

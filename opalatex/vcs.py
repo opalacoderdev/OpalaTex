@@ -237,6 +237,90 @@ def auto_checkpoint_if_changed(message: str, project_path: str | None = None) ->
             return False
 
 
+# ─── Nested Repository Detection ──────────────────────────────────────────────
+
+# Directories that never hold reviewable project content; skipping them keeps the
+# scan cheap on trees that carry a virtualenv or a node_modules folder.
+NESTED_REPO_SCAN_SKIP_DIRS = {
+    ".git",
+    ".opalatex",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "env",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".idea",
+    ".vscode",
+}
+
+NESTED_REPO_SCAN_MAX_DEPTH = 4
+NESTED_REPO_SCAN_LIMIT = 50
+
+
+def find_nested_git_repos(
+    project_path: str | None = None,
+    max_depth: int = NESTED_REPO_SCAN_MAX_DEPTH,
+    limit: int = NESTED_REPO_SCAN_LIMIT,
+) -> list[str]:
+    """List sub-directories of the project that carry their own Git repository.
+
+    Git records such a directory in the shadow repository as a gitlink (mode
+    160000), never as a tree of files: `git add .` stages a new commit id only
+    when the nested repository's HEAD moves, and edits to the files inside it
+    stage nothing at all. An agent turn that only touches those files therefore
+    produces no net diff between its start and end checkpoints, both checkpoints
+    are discarded by `finalize_agent_turn_checkpoint`, and the turn leaves no
+    entry in the Review UI. Callers report these paths so that blind spot is
+    stated instead of looking like an agent that changed nothing.
+
+    Returns project-relative POSIX paths, sorted. Directories that are
+    themselves nested repositories are not descended into: everything below them
+    is already invisible for the same reason, and listing the outermost one is
+    what the user has to act on.
+    """
+    if project_path is None:
+        project_path = _get_project_path()
+    project_path = os.path.abspath(project_path)
+    if not project_path or not os.path.isdir(project_path):
+        return []
+
+    found: list[str] = []
+    # Breadth-first so that, when the limit truncates the scan, what survives is
+    # the shallow directories the user recognizes rather than a deep tail.
+    queue: list[tuple[str, int]] = [(project_path, 0)]
+    while queue and len(found) < limit:
+        current, depth = queue.pop(0)
+        try:
+            entries = sorted(os.scandir(current), key=lambda e: e.name)
+        except OSError:
+            continue
+        for entry in entries:
+            if len(found) >= limit:
+                break
+            if entry.name in NESTED_REPO_SCAN_SKIP_DIRS:
+                continue
+            # Symlinks are not followed: they can point outside the project or
+            # back into it, and neither is worth a cycle guard here.
+            try:
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+            except OSError:
+                continue
+            # A `.git` entry may be a directory (a normal clone) or a file (a
+            # worktree or a submodule checkout); both make the directory a
+            # gitlink for the shadow repository.
+            if os.path.exists(os.path.join(entry.path, ".git")):
+                found.append(os.path.relpath(entry.path, project_path).replace(os.sep, "/"))
+                continue
+            if depth + 1 < max_depth:
+                queue.append((entry.path, depth + 1))
+
+    return sorted(found)
+
+
 # ─── Agent Git Tools ──────────────────────────────────────────────────────────
 
 def _remove_agent_turn_checkpoints(project_path: str, start_checkpoint: str) -> bool:

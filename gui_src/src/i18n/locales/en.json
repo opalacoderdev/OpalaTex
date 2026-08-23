@@ -182,7 +182,9 @@
     "agentCheckpointUndoConfirm": "Undo this agent turn?\n\nThe project will revert to the state before the agent ran.\n\nCheckpoint: {{short}}",
     "agentCheckpointUndoFailed": "Failed to undo agent turn: {{error}}",
     "reviewFileFilter": "File",
-    "reviewAllFiles": "All files"
+    "reviewAllFiles": "All files",
+    "nestedRepoWarningTitle": "Folders outside the agent history",
+    "nestedRepoWarningBody": "Git stores a folder that has its own .git as a link, so the agent history never records what changes inside it. Open that folder as the project, or remove its inner .git, to review those changes."
   },
   "editorPanel": {
     "emptyRichText": "No editable content. Open a .tex file with a document body.",
@@ -1007,7 +1009,8 @@
     "svgCreatedInserted": "Illustration created and reference inserted successfully.",
     "inlineGenerationApplied": "Inline generation applied successfully.",
     "inlineEditApplied": "Inline edit applied successfully.",
-    "inlineEditFailed": "Inline edit failed: {{error}}"
+    "inlineEditFailed": "Inline edit failed: {{error}}",
+    "shadowGitNestedRepos": "The agent history does not version nested Git repositories: {{paths}} — changes the agent makes inside them are not recorded and produce no review entries."
   },
   "onboarding": {
     "welcome": "Welcome to OpalaTex! ",

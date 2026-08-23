@@ -182,7 +182,9 @@
     "agentCheckpointUndoConfirm": "Desfazer este turno do agente?\n\nO projeto voltará ao estado anterior à execução do agente.\n\nCheckpoint: {{short}}",
     "agentCheckpointUndoFailed": "Falha ao desfazer turno do agente: {{error}}",
     "reviewFileFilter": "Arquivo",
-    "reviewAllFiles": "Todos os arquivos"
+    "reviewAllFiles": "Todos os arquivos",
+    "nestedRepoWarningTitle": "Pastas fora do histórico do agente",
+    "nestedRepoWarningBody": "O Git guarda uma pasta com .git próprio como um link, então o histórico do agente nunca registra o que muda dentro dela. Abra essa pasta como o projeto, ou remova o .git interno, para revisar essas mudanças."
   },
   "editorPanel": {
     "emptyRichText": "Nenhum conteúdo editável. Abra um arquivo .tex com o corpo do documento.",
@@ -1007,7 +1009,8 @@
     "svgCreatedInserted": "Ilustracao criada e referencia inserida com sucesso.",
     "inlineGenerationApplied": "Geracao inline aplicada com sucesso.",
     "inlineEditApplied": "Edicao inline aplicada com sucesso.",
-    "inlineEditFailed": "Falha na edicao inline: {{error}}"
+    "inlineEditFailed": "Falha na edicao inline: {{error}}",
+    "shadowGitNestedRepos": "O histórico do agente não versiona repositórios Git aninhados: {{paths}} — mudanças feitas pelo agente dentro deles não são registradas e não geram entradas de revisão."
   },
   "onboarding": {
     "welcome": "Bem-vindo ao OpalaTex! 🚀",
