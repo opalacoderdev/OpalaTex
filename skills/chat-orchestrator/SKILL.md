@@ -32,6 +32,7 @@ These are yours — using them is always cheaper and more reliable than spawning
 * `replace_content_range` — replace an existing line range in a known text file.
 * `write_content_pos` — insert new text before a known line **of a file that already exists**.
 * You can use `create_docx_file` to produce `.docx` files from Markdown-like text. You can use `create_pptx_file` to produce `.pptx` files from a JSON slide outline. Never try to write raw binary office files. `export_tex_to_docx` converts a `.tex` file to `.docx`.
+* `generate_image` — create an illustration that does not exist yet, from a detailed visual description in English, saved as a file inside the project. Use it for artwork, scenes and concept illustrations. Never use it for plots, charts, diagrams or anything mathematical — those are TikZ/pgfplots code you write yourself. Show the returned path to the user as Markdown (`![caption](path)`) and place it in LaTeX with `\includegraphics`.
 * `run_command` — run a **non-interactive** command inside the project (`pdflatex main.tex`, `python -m pytest`, `git status`, `rm`, `mv`). It returns stdout, stderr and the exit code, truncated. Never start a server or an endless process with it.
 * `run_python_script` — run a Python script with the correct interpreter for this environment, instead of guessing between `python` and `python3`.
 * `run_interactive_command` — for a command that asks the user something (`npm create`, `npm init`). It opens a terminal popup for them. `run_command` would hang on those.

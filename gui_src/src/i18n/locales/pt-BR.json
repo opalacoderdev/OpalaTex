@@ -715,7 +715,14 @@
     "installPandocSuccess": "Pandoc instalado com sucesso!",
     "installPandocError": "Erro ao instalar Pandoc: ",
     "installPandocBtn": "Instalar Pandoc (Fallback)",
-    "installPandocHint": "Baixa o Pandoc manualmente caso a exportacao TeX para DOCX esteja falhando por falta do executavel no sistema."
+    "installPandocHint": "Baixa o Pandoc manualmente caso a exportacao TeX para DOCX esteja falhando por falta do executavel no sistema.",
+    "imageGeneration": "Geração de Imagens",
+    "imageGenerationEnabled": "Permitir que o agente gere imagens",
+    "imageGenerationNoModels": "Nenhum modelo de imagem registrado. Abra 'Editar Modelos' na barra superior e marque \"Gera imagens\" no modelo que deseja usar.",
+    "imageGenerationModelPlaceholder": "Selecione um modelo de imagem…",
+    "imageGenerationSize": "Tamanho padrão",
+    "imageGenerationOutputDir": "Pasta de saída",
+    "imageGenerationHint": "As imagens geradas são salvas dentro do projeto, na pasta acima, e podem ser incluídas no LaTeX com \\includegraphics."
   },
   "hardwareModal": {
     "title": "Configuração de Hardware",
@@ -804,7 +811,16 @@
     "numCtxError": "A janela de contexto deve ser um número inteiro positivo.",
     "generatedId": "ID gerado",
     "requiredError": "Conexão e Nome do Modelo são obrigatórios.",
-    "duplicateError": "Já existe um modelo com este nome nesta conexão."
+    "duplicateError": "Já existe um modelo com este nome nesta conexão.",
+    "supportsImageGenerationLabel": "Gera imagens (texto para imagem)",
+    "supportsImageGenerationHint": "Marque para um modelo que responde a um endpoint de imagem (DALL-E, Imagen, Stable Diffusion, FLUX) em vez de chat. Só modelos marcados aqui podem ser escolhidos em Configurações > Geração de Imagens.",
+    "imageRouteLabel": "Transporte de imagem",
+    "imageRoute": {
+      "images_api": "API de Imagens (/v1/images/generations)",
+      "chat_multimodal": "Chat completions com saída de imagem",
+      "images_apiHint": "O contrato padrão da API de Imagens da OpenAI. Funciona com OpenAI, Gemini/Imagen, Stability e qualquer servidor local compatível (LocalAI, Docker Model Runner, vLLM-Omni) configurado pela URL base da conexão.",
+      "chat_multimodalHint": "Para modelos que devolvem a imagem dentro de uma resposta de chat, como o gemini-2.5-flash-image. Use quando o modelo servir para refinar a imagem conversando."
+    }
   },
   "connectionForm": {
     "addTitle": "Adicionar Conexão",

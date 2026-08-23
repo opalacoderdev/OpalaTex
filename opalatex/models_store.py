@@ -18,6 +18,10 @@ _LOCAL_OLLAMA_API_BASE = "http://localhost:11434/v1"
 _LOCAL_OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags"
 _LOCAL_OLLAMA_CONNECTION_ID = "ollama-local"
 
+# Transport adapters a model entry may name; kept in sync with the routes
+# registered by `agenticblocks.blocks.image.adapters`.
+IMAGE_ROUTES = ("images_api", "chat_multimodal")
+
 
 class LocalOllamaNotInstalledError(RuntimeError):
     """Raised when local Ollama discovery is requested without Ollama installed."""
@@ -54,7 +58,20 @@ def normalize_model_entry(model: Dict[str, Any]) -> Dict[str, Any]:
         entry["num_ctx"] = None
     entry["connection_id"] = str(entry.get("connection_id", "") or "")
     entry["connection_label"] = str(entry.get("connection_label", "") or "")
+    # Image generation is a separate capability from chat, not a stronger form of
+    # it: a diffusion model answers /v1/images/generations and nothing else, so a
+    # catalog entry that declares it is never a candidate for the orchestrator or
+    # a worker. `image_route` names the transport adapter
+    # (`agenticblocks.blocks.image`); "" means the framework default.
+    entry["supports_image_generation"] = bool(entry.get("supports_image_generation", False))
+    _image_route = str(entry.get("image_route", "") or "").strip().lower()
+    entry["image_route"] = _image_route if _image_route in IMAGE_ROUTES else ""
     return entry
+
+
+def list_image_generation_models() -> List[Dict[str, Any]]:
+    """Return the catalog entries declared as image-capable."""
+    return [m for m in load_models() if m.get("supports_image_generation")]
 
 
 def normalize_connection_entry(connection: Dict[str, Any]) -> Dict[str, Any]:

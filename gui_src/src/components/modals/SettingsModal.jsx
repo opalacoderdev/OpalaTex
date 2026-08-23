@@ -40,6 +40,8 @@ export default function SettingsModal({
   const [pandocInstallMessage, setPandocInstallMessage] = React.useState('');
   const [promptEvolutionIterations, setPromptEvolutionIterations] = React.useState(1);
   const [promptEvolutionMaxTokens, setPromptEvolutionMaxTokens] = React.useState(4096);
+  const [imageGen, setImageGen] = React.useState({ enabled: true, model: '', size: '1024x1024', output_dir: 'figures' });
+  const [imageModels, setImageModels] = React.useState([]);
 
   const activeTab = (settingsTab === 'preferences' || !['general', 'dependencies', 'about'].includes(settingsTab))
     ? 'general'
@@ -74,6 +76,16 @@ export default function SettingsModal({
       })
       .catch(() => { });
 
+    fetch('/api/settings/image-generation')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (!cfg) return;
+        const { models, routes, ...rest } = cfg;
+        setImageGen(prev => ({ ...prev, ...rest }));
+        setImageModels(Array.isArray(models) ? models : []);
+      })
+      .catch(() => { });
+
     fetch('/api/settings/prompt-evolution')
       .then(r => r.ok ? r.json() : null)
       .then(cfg => {
@@ -92,6 +104,15 @@ export default function SettingsModal({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ draft_synctex_enabled: draftSynctexValue }),
+    }).catch(() => { });
+  };
+
+  const saveImageGenSettings = (next) => {
+    setImageGen(next);
+    fetch('/api/settings/image-generation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
     }).catch(() => { });
   };
 
@@ -291,6 +312,68 @@ export default function SettingsModal({
                   <span>{t('settingsModal.draftSynctexEnabled')}</span>
                 </label>
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('settingsModal.draftSynctexHint')}</span>
+              </div>
+
+              {/* Image generation */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.imageGeneration')}</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--vscode-text-fg)' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!imageGen.enabled}
+                    onChange={(e) => saveImageGenSettings({ ...imageGen, enabled: e.target.checked })}
+                  />
+                  {t('settingsModal.imageGenerationEnabled')}
+                </label>
+
+                {imageModels.length === 0 ? (
+                  <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                    {t('settingsModal.imageGenerationNoModels')}
+                  </span>
+                ) : (
+                  <>
+                    <select
+                      className="vscode-settings-input"
+                      style={{ width: '100%' }}
+                      value={imageGen.model || ''}
+                      onChange={(e) => saveImageGenSettings({ ...imageGen, model: e.target.value })}
+                    >
+                      <option value="">{t('settingsModal.imageGenerationModelPlaceholder')}</option>
+                      {imageModels.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.id}{m.connection_label ? ` (${m.connection_label})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex" style={{ gap: '8px' }}>
+                      <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
+                        <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.imageGenerationSize')}</label>
+                        <input
+                          type="text"
+                          className="vscode-settings-input"
+                          value={imageGen.size || ''}
+                          placeholder="1024x1024"
+                          onChange={(e) => setImageGen({ ...imageGen, size: e.target.value })}
+                          onBlur={() => saveImageGenSettings(imageGen)}
+                        />
+                      </div>
+                      <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
+                        <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.imageGenerationOutputDir')}</label>
+                        <input
+                          type="text"
+                          className="vscode-settings-input"
+                          value={imageGen.output_dir || ''}
+                          placeholder="figures"
+                          onChange={(e) => setImageGen({ ...imageGen, output_dir: e.target.value })}
+                          onBlur={() => saveImageGenSettings(imageGen)}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.imageGenerationHint')}
+                </span>
               </div>
 
               <div className="flex flex-col" style={{ gap: '6px' }}>

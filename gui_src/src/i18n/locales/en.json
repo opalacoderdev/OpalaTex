@@ -715,7 +715,14 @@
     "installPandocSuccess": "Pandoc installed successfully!",
     "installPandocError": "Error installing Pandoc: ",
     "installPandocBtn": "Install Pandoc (Fallback)",
-    "installPandocHint": "Downloads Pandoc manually if TeX to DOCX export is failing due to missing executable."
+    "installPandocHint": "Downloads Pandoc manually if TeX to DOCX export is failing due to missing executable.",
+    "imageGeneration": "Image Generation",
+    "imageGenerationEnabled": "Let the agent generate images",
+    "imageGenerationNoModels": "No image-capable model registered yet. Open 'Edit Models' in the top bar and tick \"Generates images\" on the model you want to use.",
+    "imageGenerationModelPlaceholder": "Select an image model…",
+    "imageGenerationSize": "Default size",
+    "imageGenerationOutputDir": "Output folder",
+    "imageGenerationHint": "Generated images are saved inside the project, under the folder above, and can be included in LaTeX with \\includegraphics."
   },
   "hardwareModal": {
     "title": "Hardware Configuration",
@@ -804,7 +811,16 @@
     "numCtxError": "Context window must be a positive whole number.",
     "generatedId": "Generated ID",
     "requiredError": "Connection and Model Name are required.",
-    "duplicateError": "A model with this name already exists for this connection."
+    "duplicateError": "A model with this name already exists for this connection.",
+    "supportsImageGenerationLabel": "Generates images (text-to-image)",
+    "supportsImageGenerationHint": "Mark this for a model that answers an image endpoint (DALL-E, Imagen, Stable Diffusion, FLUX) instead of a chat one. Only models marked here can be selected in Settings > Image Generation.",
+    "imageRouteLabel": "Image transport",
+    "imageRoute": {
+      "images_api": "Images API (/v1/images/generations)",
+      "chat_multimodal": "Chat completions with image output",
+      "images_apiHint": "The standard OpenAI Images contract. Works with OpenAI, Gemini/Imagen, Stability and any compatible local server (LocalAI, Docker Model Runner, vLLM-Omni) set through the connection's base URL.",
+      "chat_multimodalHint": "For models that return the image inside a chat reply, such as gemini-2.5-flash-image. Use it when the model is meant to refine an image conversationally."
+    }
   },
   "connectionForm": {
     "addTitle": "Add Connection",

@@ -931,6 +931,7 @@ from opalatex.tools import (
     set_project_context,
     web_search,
     analyze_image,
+    generate_image,
     get_editor_state,
 )
 
@@ -950,6 +951,7 @@ ALL_TOOLS_MAP = {
     "read_content_pos": read_content_pos,
     "web_search": web_search,
     "analyze_image": analyze_image,
+    "generate_image": generate_image,
     "get_editor_state": get_editor_state,
 }
 

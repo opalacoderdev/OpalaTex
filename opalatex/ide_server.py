@@ -4053,6 +4053,36 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        # 7k2. Image generation config — GET
+        elif path == '/api/settings/image-generation' and method == 'GET':
+            from opalatex.image_gen_config import load_config
+            from opalatex.models_store import IMAGE_ROUTES, list_image_generation_models
+            try:
+                cfg = dict(load_config())
+                cfg["models"] = [
+                    {
+                        "id": m.get("id", ""),
+                        "name": m.get("name", ""),
+                        "provider": m.get("provider", ""),
+                        "image_route": m.get("image_route", ""),
+                        "connection_label": m.get("connection_label", ""),
+                    }
+                    for m in list_image_generation_models()
+                ]
+                cfg["routes"] = list(IMAGE_ROUTES)
+                self.send_response(writer, 200, json.dumps(cfg).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7k3. Image generation config — POST (save)
+        elif path == '/api/settings/image-generation' and method == 'POST':
+            from opalatex.image_gen_config import load_config, save_config
+            try:
+                save_config(data)
+                self.send_response(writer, 200, json.dumps({"success": True, **load_config()}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
         # 7m. Language — GET
         elif path == '/api/settings/language' and method == 'GET':
             from opalatex.ui_settings import load_ui_settings

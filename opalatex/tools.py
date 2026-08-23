@@ -797,6 +797,180 @@ def analyze_image(file_path: str, prompt: str = "Describe this image in detail")
     except Exception as e:
         return f"CRITICAL ERROR: An internal error occurred while analyzing the image using the model {model}. Tell the user the following reason: {str(e)}"
 
+
+# ─── Image generation ─────────────────────────────────────────────────────────
+# One tool, several providers: the transport lives in
+# `agenticblocks.blocks.image`, and which provider answers is a catalog entry
+# plus an api_base (Settings > Image Generation). The tool itself only knows
+# "prompt in, file on disk out".
+
+_IMAGE_ERROR_GUIDANCE = {
+    "auth": (
+        "Tell the user the image model's API key is missing or was rejected, and "
+        "that they can set it in the top bar under 'Edit Models'."
+    ),
+    "connection": (
+        "Tell the user the image endpoint could not be reached: if it is a local "
+        "server (LocalAI, Docker Model Runner, vLLM-Omni, Ollama), it must be "
+        "running and its api_base must match what is registered in 'Edit Models'."
+    ),
+    "unsupported": (
+        "Tell the user this endpoint has no image generation route. A local "
+        "Ollama only serves one on builds where image generation is available "
+        "(currently macOS); on Linux/Windows use LocalAI, Docker Model Runner or "
+        "vLLM-Omni, or point api_base at a machine that does serve it."
+    ),
+    "bad_request": (
+        "The provider rejected the request. Report the technical detail to the "
+        "user: usually the model id or the requested size is not supported."
+    ),
+    "empty": (
+        "The provider accepted the request but returned no image. This is often a "
+        "content filter. Report it to the user instead of retrying the same prompt."
+    ),
+    "unknown_route": (
+        "The configured image route does not exist. Tell the user to review "
+        "Settings > Image Generation."
+    ),
+    "not_configured": (
+        "Tell the user to configure an image model in Settings > Image Generation."
+    ),
+}
+
+
+def _image_filename_stem(filename: str, prompt: str) -> str:
+    """Return a safe file stem from *filename*, or one derived from *prompt*."""
+    raw = (filename or "").strip().replace("\\", "/")
+    raw = raw.split("/")[-1]
+    raw = os.path.splitext(raw)[0]
+    if not raw:
+        raw = "-".join((prompt or "image").lower().split())[:48]
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("-._")
+    return stem or "image"
+
+
+def _unique_image_path(directory: str, stem: str, ext: str) -> str:
+    """Return a path inside *directory* that does not overwrite an existing file."""
+    candidate = os.path.join(directory, f"{stem}{ext}")
+    index = 2
+    while os.path.exists(candidate):
+        candidate = os.path.join(directory, f"{stem}-{index}{ext}")
+        index += 1
+    return candidate
+
+
+def _format_byte_size(count: int) -> str:
+    """Return a human-readable size; small files must not read as "0 KB"."""
+    if count < 1024:
+        return f"{count} bytes"
+    if count < 1024 * 1024:
+        return f"{count / 1024:.0f} KB"
+    return f"{count / (1024 * 1024):.1f} MB"
+
+
+def _write_generated_image(target_path: str, data: bytes) -> tuple[int, str]:
+    """Write *data* to *target_path*; return (byte count, "WxH" or "")."""
+    Path(target_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(target_path, "wb") as f:
+        f.write(data)
+
+    dimensions = ""
+    try:
+        from PIL import Image
+
+        with Image.open(target_path) as img:
+            dimensions = f"{img.width}x{img.height}"
+    except Exception:
+        pass
+    return len(data), dimensions
+
+
+@opalatex_tool(
+    name="generate_image",
+    is_safe=False,
+    description=(
+        "Generate an image from a text prompt and save it as a file inside the "
+        "project, returning its project-relative path. Use it when the user asks "
+        "for an illustration, figure or diagram that does not exist yet. The "
+        "prompt should be a detailed visual description in English. Never use it "
+        "to render LaTeX, plots or charts -- those belong in TikZ/pgfplots code. "
+        "The returned path can be shown in chat as Markdown (![caption](path)) "
+        "and included in LaTeX with \\includegraphics."
+    ),
+)
+async def generate_image(
+    prompt: str,
+    filename: str = "",
+    size: str = "",
+    negative_prompt: str = "",
+    seed: int = -1,
+) -> str:
+    from agenticblocks.blocks.image import (
+        ImageGenerationError,
+        ImageGenerationInput,
+        extension_for_mime,
+        resolve_image_bytes,
+    )
+
+    from .image_gen_config import build_block, configuration_problem, load_config
+
+    if not (prompt or "").strip():
+        return "CRITICAL ERROR: generate_image requires a non-empty 'prompt'."
+
+    problem = configuration_problem()
+    if problem:
+        return f"CRITICAL ERROR: {problem}"
+
+    cfg = load_config()
+    AGENT_PROGRESS.update("generate_image", f"prompt={_preview(prompt)}")
+
+    try:
+        block = build_block()
+        request = ImageGenerationInput(
+            prompt=prompt,
+            n=1,
+            size=(size or cfg.get("size") or "").strip(),
+            negative_prompt=(negative_prompt or "").strip(),
+            seed=(int(seed) if seed is not None and int(seed) >= 0 else None),
+        )
+        output = await block.run(request)
+        data, mime = await resolve_image_bytes(output.images[0])
+    except ImageGenerationError as e:
+        guidance = _IMAGE_ERROR_GUIDANCE.get(e.kind, "Report the failure to the user.")
+        return f"CRITICAL ERROR: {e} {guidance}"
+    except Exception as e:
+        return (
+            "CRITICAL ERROR: An internal error occurred while generating the image. "
+            f"Tell the user the following reason: {e}"
+        )
+
+    output_dir = str(cfg.get("output_dir") or "figures")
+    target_dir = _resolve_path(output_dir)
+    stem = _image_filename_stem(filename, prompt)
+    target_path = _unique_image_path(target_dir, stem, extension_for_mime(mime))
+
+    try:
+        byte_count, dimensions = await asyncio.to_thread(
+            _write_generated_image, target_path, data
+        )
+    except OSError as e:
+        raise ValueError(f"Error saving the generated image: {e}")
+
+    relative = os.path.relpath(target_path, get_project_path()).replace(os.sep, "/")
+    latex_path = os.path.splitext(relative)[0]
+    detail = f"{dimensions}, " if dimensions else ""
+
+    # The bytes never enter the conversation: a 1024x1024 PNG in base64 is over a
+    # megabyte of context, and the file on disk is the deliverable anyway
+    # (PROJECT_DESIGN 2.6, tool results are bounded by the remaining window).
+    return (
+        f"Image generated with {output.model} and saved to {relative} "
+        f"({detail}{_format_byte_size(byte_count)}).\n"
+        f"To show it to the user in chat, write the Markdown ![{stem}]({relative}).\n"
+        f"To place it in a LaTeX document, use \\includegraphics[width=0.8\\textwidth]{{{latex_path}}} "
+        f"inside a figure environment."
+    )
+
 @opalatex_tool(name="write_file", is_safe=False, description="Write or overwrite a file inside the project directory. Relative paths are resolved from the project directory. Creates parent directories if needed. ALWAYS use this tool to save file content — never use run_command with echo/printf/cat to write files, as shell quoting will break with multi-line or HTML/JSON content.")
 def write_file(path: str, content: str) -> str:
     try:
@@ -1556,6 +1730,7 @@ def get_workspace_action_tools():
         create_docx_file,
         create_pptx_file,
         export_tex_to_docx,
+        generate_image,
         run_command,
         run_python_script,
         run_background_command,

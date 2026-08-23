@@ -30,6 +30,10 @@ WRITE_TOOLS = {
     "replace_content_range",
     "create_docx_file",
     "create_pptx_file",
+    # Generating an image produces a project file like any other write, so it
+    # belongs to the same authority: a direct orchestrator gets it, a delegate
+    # one hands it to the worker.
+    "generate_image",
 }
 
 # Command execution is part of the same authority as writing: an orchestrator

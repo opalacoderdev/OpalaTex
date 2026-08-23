@@ -38,6 +38,8 @@ export default function ModelForm({
   const [promptProfile, setPromptProfile] = useState('full');
   const [orchestratorPolicy, setOrchestratorPolicy] = useState('direct');
   const [numCtx, setNumCtx] = useState('');
+  const [supportsImageGeneration, setSupportsImageGeneration] = useState(false);
+  const [imageRoute, setImageRoute] = useState('images_api');
   const [error, setError] = useState('');
   const [showNewConnection, setShowNewConnection] = useState(connections.length === 0);
 
@@ -50,6 +52,8 @@ export default function ModelForm({
       setPromptProfile(editingModel.prompt_profile || 'full');
       setOrchestratorPolicy(editingModel.orchestrator_policy || 'direct');
       setNumCtx(editingModel.num_ctx ? String(editingModel.num_ctx) : '');
+      setSupportsImageGeneration(!!editingModel.supports_image_generation);
+      setImageRoute(editingModel.image_route || 'images_api');
       setShowNewConnection(false);
     } else {
       setSupportsThinking(false);
@@ -57,6 +61,8 @@ export default function ModelForm({
       setPromptProfile('full');
       setOrchestratorPolicy('direct');
       setNumCtx('');
+      setSupportsImageGeneration(false);
+      setImageRoute('images_api');
       setShowNewConnection(connections.length === 0);
     }
   }, [editingModel]);
@@ -74,6 +80,8 @@ export default function ModelForm({
     setRequiresSingleSystemMessage(false);
     setPromptProfile('full');
     setNumCtx('');
+    setSupportsImageGeneration(false);
+    setImageRoute('images_api');
     setError('');
     setShowNewConnection(connections.length === 0);
   };
@@ -146,6 +154,8 @@ export default function ModelForm({
       prompt_profile: promptProfile,
       orchestrator_policy: orchestratorPolicy,
       num_ctx: trimmedNumCtx ? Number(trimmedNumCtx) : null,
+      supports_image_generation: supportsImageGeneration,
+      image_route: supportsImageGeneration ? imageRoute : '',
     }, { reset });
   };
 
@@ -292,6 +302,36 @@ export default function ModelForm({
           <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
             {t('modelForm.requiresSingleSystemMessageHint')}
           </span>
+        </div>
+
+        <div className="vscode-form-group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={supportsImageGeneration}
+              onChange={e => setSupportsImageGeneration(e.target.checked)}
+            />
+            {t('modelForm.supportsImageGenerationLabel')}
+          </label>
+          <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+            {t('modelForm.supportsImageGenerationHint')}
+          </span>
+          {supportsImageGeneration && (
+            <div style={{ marginTop: '8px' }}>
+              <label>{t('modelForm.imageRouteLabel')}</label>
+              <select
+                className="vscode-settings-input"
+                value={imageRoute}
+                onChange={e => setImageRoute(e.target.value)}
+              >
+                <option value="images_api">{t('modelForm.imageRoute.images_api')}</option>
+                <option value="chat_multimodal">{t('modelForm.imageRoute.chat_multimodal')}</option>
+              </select>
+              <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                {t(`modelForm.imageRoute.${imageRoute}Hint`)}
+              </span>
+            </div>
+          )}
         </div>
 
         {(selectedConnection && name) && (
