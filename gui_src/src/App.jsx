@@ -2302,6 +2302,9 @@ export default function App() {
       if (res.ok) {
         const updated = await res.json();
         addLog('info', t('app.projectUpdated', { name: updated.project_name }));
+        // The saved git root was kept as stored but no longer resolves on this
+        // machine; the save is not blocked, so say so instead of failing silently.
+        if (updated.git_root_warning) addLog('warning', t('app.gitRootStale', { path: updated.git_root_path }));
         setEditingProject(null);
         // Auto-selects the project once its path is fixed, so repairing a
         // project whose folder had moved (e.g. after switching OS) takes effect immediately.

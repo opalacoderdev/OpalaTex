@@ -959,6 +959,7 @@
     "gitRootSet": "Raiz Git definida: {{path}}",
     "gitRootReset": "Raiz Git redefinida para a pasta do projeto.",
     "gitRootSetError": "Erro ao definir raiz Git: {{error}}",
+    "gitRootStale": "A raiz Git salva não existe mais nesta máquina: {{path}} — os recursos de Git ficam desativados até você corrigi-la ou limpá-la nas configurações do projeto.",
     "projectImported": "Projeto importado: {{name}}",
     "importProjectError": "Erro ao importar projeto.",
     "importProjectErrorDetail": "Erro ao importar: {{error}}",

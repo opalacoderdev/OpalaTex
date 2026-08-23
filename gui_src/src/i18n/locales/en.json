@@ -959,6 +959,7 @@
     "gitRootSet": "Git root set: {{path}}",
     "gitRootReset": "Git root reset to the project folder.",
     "gitRootSetError": "Error setting Git root: {{error}}",
+    "gitRootStale": "Saved Git root no longer exists on this machine: {{path}} — Git features stay disabled until you fix or clear it in the project settings.",
     "projectImported": "Project imported: {{name}}",
     "importProjectError": "Error importing project.",
     "importProjectErrorDetail": "Error importing: {{error}}",

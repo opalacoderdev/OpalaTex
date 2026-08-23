@@ -2848,9 +2848,26 @@ class AsyncHTTPServer:
                     return
                 project.project_path = os.path.abspath(new_path)
 
+            # Reported back to the client when a *stored* git root stopped
+            # resolving; see the unchanged-value branch below.
+            git_root_warning = ""
             if "git_root_path" in data:
                 new_git_root = data.get("git_root_path") or ""
-                if new_git_root:
+                stored_git_root = str(getattr(project, "git_root_path", "") or "")
+                if not new_git_root:
+                    project.git_root_path = ""
+                elif new_git_root == stored_git_root:
+                    # The edit modal echoes the stored git root back on every save,
+                    # so validating it here rejected edits that had nothing to do
+                    # with Git whenever the stored value stopped resolving -- a
+                    # folder that moved, or a Windows path in a database synced to
+                    # another OS. Only a *changed* value is validated; an unchanged
+                    # one is kept verbatim and reported as a warning, never
+                    # rewritten or silently cleared.
+                    if not os.path.isdir(new_git_root):
+                        git_root_warning = "Git root path does not exist or is not a directory"
+                    project.git_root_path = stored_git_root
+                else:
                     abs_git_root = os.path.abspath(new_git_root)
                     if not os.path.isdir(abs_git_root):
                         self.send_response(writer, 400, b'{"error":"Git root path does not exist or is not a directory"}', "application/json")
@@ -2862,8 +2879,6 @@ class AsyncHTTPServer:
                         self.send_response(writer, 400, b'{"error":"Git root path must contain a .git repository"}', "application/json")
                         return
                     project.git_root_path = abs_git_root
-                else:
-                    project.git_root_path = ""
             
             if "main_file" in data:
                 project.main_file = data["main_file"]
@@ -2958,6 +2973,7 @@ class AsyncHTTPServer:
                 "worker_api_base": getattr(project, "worker_api_base", ""),
                 "current_chat_id": project.current_chat_id,
                 "git_root_path": getattr(project, "git_root_path", ""),
+                "git_root_warning": git_root_warning,
                 "compile_on_save_partial": getattr(project, "compile_on_save_partial", True),
                 "compile_on_save_full": getattr(project, "compile_on_save_full", False),
             }
