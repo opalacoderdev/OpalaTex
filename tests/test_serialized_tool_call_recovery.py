@@ -13,6 +13,14 @@ Three defences, tested here:
   3. the root cause itself: Ollama models now always reach the native chat route
      (see `test_agent_config.py`), so turning thinking off no longer costs the
      agent its ability to issue tool calls.
+
+Later observed with `openai/nvidia/Qwen3.6-35B-A3B-NVFP4` served locally: after
+its native `ask_question` calls were rejected for a bad argument type, the model
+fell back to its chat template's markup and printed
+`<tool_call><function=ask_question>...` to the user. Defences 1 and 2 both missed
+it -- the detector scanned for JSON only, and the reminder was gated on `ollama`,
+so a self-hosted model reached through the plain `openai/` route never got it.
+Both are widened here.
 """
 
 import pytest
@@ -50,6 +58,38 @@ def test_orchestrator_prompt_carries_the_reminder_for_ollama(tmp_path):
     project = ProjectData(
         name="t", project_name="t",
         project_path=str(tmp_path), model="ollama/glm-5.2:cloud", mode="auto",
+    )
+    assert _NATIVE_TOOL_CALL_REMINDER.strip() in build_chat_orchestrator(project, None).system_prompt
+
+
+@pytest.mark.parametrize("model", [
+    "openai/nvidia/Qwen3.6-35B-A3B-NVFP4",
+    "hosted_vllm/meta-llama/Llama-3.3-70B-Instruct",
+    "lm_studio/qwen3-coder",
+])
+def test_self_hosted_models_outside_ollama_need_the_reminder(model):
+    """The reported failure: a local Qwen on the plain `openai/` route.
+
+    Gating on `ollama` covered only where the failure was first seen, not the
+    class it belongs to -- any model the user serves themselves.
+    """
+    assert _needs_native_tool_call_reminder(model)
+
+
+@pytest.mark.parametrize("model", [
+    "openai/gpt-4o",
+    "openai/o3",
+    "anthropic/claude-opus-5",
+])
+def test_first_party_openai_models_do_not_get_the_reminder(model):
+    """A genuine OpenAI model id has no second path segment, which is the tell."""
+    assert not _needs_native_tool_call_reminder(model)
+
+
+def test_orchestrator_prompt_carries_the_reminder_for_self_hosted_openai_route(tmp_path):
+    project = ProjectData(
+        name="t", project_name="t", project_path=str(tmp_path),
+        model="openai/nvidia/Qwen3.6-35B-A3B-NVFP4", mode="auto",
     )
     assert _NATIVE_TOOL_CALL_REMINDER.strip() in build_chat_orchestrator(project, None).system_prompt
 
@@ -95,6 +135,52 @@ def test_fenced_json_is_left_alone():
         '```json\n{"name": "web_search", "arguments": {"query": "x"}}\n```\n\n'
         "Note that OpalaTex issues it natively instead."
     )
+
+
+def test_markup_tool_call_is_detected():
+    """The reported shape: Qwen chat-template markup, carrying no JSON object.
+
+    `_iter_json_spans` finds nothing here, so before this the whole block was
+    handed to the user as if it were the answer.
+    """
+    assert _has_unfenced_tool_call_payload(
+        "The error suggests the options parameter is being serialized as a string.\n"
+        "<tool_call>\n"
+        "<function=ask_question>\n"
+        "<parameter=question>\nO que voce quer com as imagens?\n</parameter>\n"
+        "</function>\n"
+        "</tool_call>"
+    )
+
+
+def test_hermes_markup_wrapping_json_is_detected_once():
+    assert _has_unfenced_tool_call_payload(
+        '<tool_call>{"name": "read_file", "arguments": {"path": "a.tex"}}</tool_call>'
+    )
+
+
+def test_truncated_markup_tool_call_is_detected():
+    """A block the model never closed is still a call it failed to issue."""
+    assert _has_unfenced_tool_call_payload("Vou ler o arquivo.\n<tool_call>\n<function=read_file>")
+
+
+def test_bare_function_element_is_detected():
+    assert _has_unfenced_tool_call_payload("<function=web_search>\n<parameter=query>x</parameter>\n</function>")
+
+
+def test_fenced_markup_is_left_alone():
+    """Explaining the markup to the user must still reach them."""
+    assert not _has_unfenced_tool_call_payload(
+        "Your model emitted this instead of a real call:\n\n"
+        "```xml\n<tool_call><function=ask_question></function></tool_call>\n```\n\n"
+        "That is why nothing ran."
+    )
+
+
+def test_ordinary_markup_and_math_are_left_alone():
+    """LaTeX and HTML use angle brackets too; only the call shapes may match."""
+    assert not _has_unfenced_tool_call_payload("Use <br> to break the line when $a < b$.")
+    assert not _has_unfenced_tool_call_payload("The \\texttt{<function>} macro is undefined here.")
 
 
 def test_ordinary_prose_and_data_json_are_left_alone():

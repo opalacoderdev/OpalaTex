@@ -86,6 +86,22 @@ _BROKEN_SERIALIZATION_MARKER = (
 )
 
 
+# Chat-template markup for a tool call, which weak models emit as plain content
+# when their native calls keep being rejected. `<tool_call>` is the Hermes/Qwen
+# wrapper; `<function=name>` is the element Qwen-Coder-style templates use inside
+# it, and which some models emit on its own. Both are matched lazily so a run of
+# several blocks is cut one at a time, and both accept a missing closing tag so a
+# truncated block is still recognized.
+_MARKUP_TOOL_CALL_RE = re.compile(
+    r"<(?P<tag>tool_call|function_call)\b[^>]*>.*?(?:</(?P=tag)\s*>|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
+_MARKUP_FUNCTION_CALL_RE = re.compile(
+    r"<function\s*=\s*[^<>\s]+\s*>.*?(?:</function\s*>|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
 def _is_tool_call_payload(value: Any) -> bool:
     """True when parsed JSON has the shape of a tool call rather than of data."""
     if isinstance(value, list):
@@ -132,21 +148,55 @@ def _iter_json_spans(text: str):
                 start = -1
 
 
-def _strip_serialized_tool_calls(text: str) -> tuple[str, bool]:
-    """Replace tool-call JSON emitted as text with a fixed marker.
+def _iter_serialized_tool_call_spans(text: str):
+    """Yield ``(start, end)`` spans of every tool call written as text.
 
-    Weak local models sometimes print a tool call instead of issuing it. Replaying
-    that payload verbatim into the next worker prompt teaches the next model to do
-    the same, so the payload never reaches a prompt — only the marker does.
+    A tool call is serialized in one of two encodings, and only the JSON one used
+    to be recognized. Qwen-family models served locally fall back to their chat
+    template's markup instead -- ``<tool_call>`` wrapping either a JSON payload or
+    ``<function=name>``/``<parameter=key>`` elements -- which carries no JSON
+    object for `_iter_json_spans` to find. Both encodings are plain text, so
+    neither executes, and both must be caught the same way.
+
+    An unterminated block still counts: a truncated ``<tool_call>`` is a call the
+    model failed to issue, not prose.
     """
-    spans = []
+    for pattern in (_MARKUP_TOOL_CALL_RE, _MARKUP_FUNCTION_CALL_RE):
+        for match in pattern.finditer(text):
+            yield match.start(), match.end()
     for start, end in _iter_json_spans(text):
         try:
             parsed = json.loads(text[start:end])
         except Exception:
             continue
         if _is_tool_call_payload(parsed):
-            spans.append((start, end))
+            yield start, end
+
+
+def _merge_spans(spans) -> list[tuple[int, int]]:
+    """Merge overlapping and nested spans so no region is excised twice.
+
+    A ``<tool_call>`` block normally contains a ``<function=...>`` element or a
+    JSON payload, so the same text is reported by more than one scanner.
+    """
+    merged: list[list[int]] = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(start, end) for start, end in merged]
+
+
+def _strip_serialized_tool_calls(text: str) -> tuple[str, bool]:
+    """Replace a tool call emitted as text with a fixed marker.
+
+    Weak local models sometimes print a tool call instead of issuing it, as JSON
+    or as chat-template markup. Replaying that payload verbatim into the next
+    worker prompt teaches the next model to do the same, so the payload never
+    reaches a prompt — only the marker does.
+    """
+    spans = _merge_spans(_iter_serialized_tool_call_spans(text))
     if not spans:
         return text, False
 
@@ -912,26 +962,47 @@ def seed_chat_orchestrator_history(memgpt: MemGPTAgentBlock, project) -> None:
 
 _NATIVE_TOOL_CALL_REMINDER = (
     "\nUse the provider-native tool-calling protocol for actions. Never write a "
-    "tool call, its arguments, or an action request as JSON or Markdown text."
+    "tool call, its arguments, or an action request as text: not as JSON, not as "
+    "Markdown, and not as <tool_call> or <function=...> markup."
+)
+
+
+# LiteLLM routes that only ever point at a server the user runs themselves.
+_SELF_HOSTED_ROUTE_PREFIXES = (
+    "hosted_vllm/",
+    "vllm/",
+    "openai_like/",
+    "lm_studio/",
+    "llamafile/",
 )
 
 
 def _needs_native_tool_call_reminder(model: str) -> bool:
-    """True for models served through Ollama, which need the protocol spelled out.
+    """True for self-hosted models, which need the protocol spelled out.
 
-    Ollama-served models are the ones observed printing a tool call as text
-    instead of issuing it, and LiteLLM's OpenAI-compatible `ollama/` route (the
-    one a model without thinking enabled lands on) is where it happens most.
+    Self-hosted models are the ones observed printing a tool call as text instead
+    of issuing it. Ollama is where it happens most -- LiteLLM's OpenAI-compatible
+    `ollama/` route is the one a model without thinking enabled lands on -- but the
+    same failure appears on any model the user serves themselves, including the
+    vLLM/NIM/LM Studio servers that are reached through the plain `openai/` route
+    rather than a dedicated one. Gating on `ollama` alone left those uncovered.
+
     Both the orchestrator and skill workers use this: the reminder used to exist
     for workers only, which left the agent that talks to the user -- and whose
     serialized output goes straight to the screen -- as the only one without it.
     """
     model = str(model or "")
-    return (
-        model.startswith("ollama")
-        or model.startswith("ollama_chat")
-        or "local" in model
-    )
+    if model.startswith("ollama") or model.startswith("ollama_chat") or "local" in model:
+        return True
+    if model.startswith(_SELF_HOSTED_ROUTE_PREFIXES):
+        return True
+    # `openai/<vendor>/<model>`: a genuine OpenAI model id carries no second path
+    # segment, so an extra one means the OpenAI-compatible route is aimed at a
+    # self-hosted server, which names its models after their source repository
+    # (`openai/nvidia/Qwen3.6-35B-A3B-NVFP4`). Providers that legitimately use a
+    # vendor path have their own prefix (`openrouter/`, `together_ai/`) and so are
+    # untouched by this.
+    return model.startswith("openai/") and "/" in model[len("openai/"):]
 
 
 def _orchestrator_body_variant(skill_dir: str, profile: str, policy: str) -> str:
