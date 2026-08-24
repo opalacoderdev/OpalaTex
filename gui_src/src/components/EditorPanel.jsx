@@ -13,6 +13,7 @@ import {
 import { safeSetLocalStorage } from '../utils/storage';
 import InlinePromptOverlay from './InlinePromptOverlay';
 import EditorContextMenuOverlay from './EditorContextMenuOverlay';
+import TabContextMenu from './TabContextMenu';
 import { FormattedMessage } from '../utils/formatMessage';
 import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 import Split from 'react-split';
@@ -43,6 +44,8 @@ export default function EditorPanel({
   editorMinimap = 'on',
   handleFileSelect,
   handleCloseTab,
+  handleCloseOtherTabs,
+  handleCloseAllTabs,
   saveFile,
   handleEditorDidMount,
   setFileContent,
@@ -88,6 +91,8 @@ export default function EditorPanel({
   const [showLatexHelp, setShowLatexHelp] = useState(false);
   const [showDocumentActionsMenu, setShowDocumentActionsMenu] = useState(false);
   const [editorContextMenu, setEditorContextMenu] = useState(null);
+  // Right-click menu for the tab bar: { x, y, filePath } or null.
+  const [tabContextMenu, setTabContextMenu] = useState(null);
   const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
   const pendingEditorLineRef = useRef(null);
   // Last known Rich Text active/initial line, per file — keyed by file path
@@ -1191,6 +1196,11 @@ export default function EditorPanel({
               <div
                 key={filePath}
                 onClick={() => handleFileSelect(filePath)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setTabContextMenu({ x: e.clientX, y: e.clientY, filePath });
+                }}
                 className={`vscode-tab ${isActive ? 'active' : ''}`}
                 style={{ cursor: 'pointer', userSelect: 'none' }}
               >
@@ -1780,6 +1790,16 @@ export default function EditorPanel({
           t={t}
         />
       )}
+
+      {/* Right-click menu for the tab bar */}
+      <TabContextMenu
+        menu={tabContextMenu}
+        onClose={() => setTabContextMenu(null)}
+        onCloseTab={handleCloseTab}
+        onCloseOthers={handleCloseOtherTabs}
+        onCloseAll={handleCloseAllTabs}
+        tabCount={openFiles.length}
+      />
     </div>
   );
 }

@@ -12,6 +12,10 @@
   --vscode-activitybar-bg: #333333;
   --vscode-editor-bg: #1e1e1e;
   --vscode-panel-bg: #1e1e1e;
+  /* Backdrop behind the rendered PDF pages. Kept separate from
+     --vscode-editor-bg so the (always white) pages stay visually
+     detached from the canvas in both themes. */
+  --pdf-viewer-bg: #1e1e1e;
   --vscode-statusbar-bg: #007acc;
   --vscode-statusbar-fg: #ffffff;
   --vscode-text-fg: #cccccc;
@@ -87,6 +91,7 @@
   --vscode-activitybar-bg: #e8e8e8;
   --vscode-editor-bg: #ffffff;
   --vscode-panel-bg: #f0f0f0;
+  --pdf-viewer-bg: #e6e6e9;
   --vscode-statusbar-bg: #005fb8;
   --vscode-statusbar-fg: #ffffff;
   --vscode-text-fg: #1e1e1e;
@@ -1781,6 +1786,17 @@ input:focus, select:focus, textarea:focus {
   white-space: nowrap;
 }
 
+/* On the light canvas --vscode-border (#c8c8c8) nearly vanishes, so the
+   divider rules and label get their own higher-contrast light values. */
+.light-theme .pdf-page-divider {
+  color: #5a5a60;
+}
+
+.light-theme .pdf-page-divider::before,
+.light-theme .pdf-page-divider::after {
+  background: rgba(0, 0, 0, 0.22);
+}
+
 .pdf-preview-compile-overlay {
   position: absolute;
   inset: 0;
@@ -2083,9 +2099,14 @@ select {
   white-space: nowrap;
 }
 
-.editor-ctx-item:hover {
+.editor-ctx-item:hover:not(:disabled) {
   background: #04395e;
   color: #ffffff;
+}
+
+.editor-ctx-item:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .editor-ctx-label {
@@ -2122,8 +2143,8 @@ select {
   color: #1e1e1e;
 }
 
-[data-theme="light"] .editor-ctx-item:hover,
-.light-theme .editor-ctx-item:hover {
+[data-theme="light"] .editor-ctx-item:hover:not(:disabled),
+.light-theme .editor-ctx-item:hover:not(:disabled) {
   background: #0060c0;
   color: #ffffff;
 }
@@ -2187,6 +2208,15 @@ select {
 .pdf-page-wrapper {
   isolation: isolate;
   background-color: white !important;
+}
+
+/* Outline the page edges against the light canvas (box-shadow instead of a
+   border so page geometry — used for click-to-source mapping — is unchanged).
+   Stacks with the Tailwind shadow-2xl applied on the wrapper. */
+.light-theme .pdf-page-wrapper {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.12),
+    0 10px 24px rgba(0, 0, 0, 0.14);
 }
 
 /* Also ensure .react-pdf__Page has a white background. If it is transparent,

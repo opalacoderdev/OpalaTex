@@ -673,7 +673,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   }
 
   return (
-    <div className="w-full h-full relative overflow-hidden" style={{ background: 'var(--vscode-editor-bg)' }}>
+    <div className="w-full h-full relative overflow-hidden" style={{ background: 'var(--pdf-viewer-bg, var(--vscode-editor-bg))' }}>
       {isCompiling && (
         <div className="pdf-preview-compile-overlay" role="status" aria-live="polite">
           <div className="pdf-preview-compile-panel">
@@ -1062,7 +1062,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         ref={containerRef}
         onScroll={handleScroll}
         onPointerDownCapture={handlePdfPointerDownCapture}
-        style={{ background: 'var(--vscode-editor-bg)' }}
+        style={{ background: 'var(--pdf-viewer-bg, var(--vscode-editor-bg))' }}
       >
         {pdfUrl && (
           <Document

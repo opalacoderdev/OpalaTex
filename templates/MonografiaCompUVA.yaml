@@ -1,0 +1,7 @@
+template:
+  name: "Monografia Computação UVA"
+  version: "1.0.0"
+  active: true
+  Description: "Template de Monografia do Curso de Ciência da Computação da UVA."
+
+

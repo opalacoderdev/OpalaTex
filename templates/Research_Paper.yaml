@@ -1,0 +1,7 @@
+template:
+  name: "Research Paper"
+  version: "1.0.0"
+  active: true
+  Description: "Research Paper Template."
+
+

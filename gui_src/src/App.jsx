@@ -2001,6 +2001,31 @@ export default function App() {
     });
   };
 
+  // Keeps only `filePath` open. When it is not the active tab we go through
+  // handleFileSelect first, so its content is loaded/persisted exactly like a
+  // regular tab switch before the other tabs disappear.
+  const handleCloseOtherTabs = async (filePath) => {
+    if (!sameFilePath(selectedFile, filePath)) {
+      await handleFileSelect(filePath);
+    } else {
+      const currentContent = getCurrentTextFileContent();
+      fileContentRef.current = currentContent;
+      setFileContents(prev => ({ ...prev, [filePath]: currentContent }));
+    }
+    setOpenFiles(prev => prev.filter(f => sameFilePath(f, filePath)));
+  };
+
+  const handleCloseAllTabs = () => {
+    if (selectedFile) {
+      const currentContent = getCurrentTextFileContent();
+      fileContentRef.current = currentContent;
+      setFileContents(prev => ({ ...prev, [selectedFile]: currentContent }));
+    }
+    setOpenFiles([]);
+    setSelectedFile(null);
+    setFileContent('');
+  };
+
   const handleCreateNewFile = (parentPath) => {
     if (!activeProject) return;
     setConfirmRequest({
@@ -3770,6 +3795,8 @@ export default function App() {
               editorMinimap={editorMinimap}
               handleFileSelect={handleFileSelect}
               handleCloseTab={handleCloseTab}
+              handleCloseOtherTabs={handleCloseOtherTabs}
+              handleCloseAllTabs={handleCloseAllTabs}
               saveFile={saveFile}
               handleEditorDidMount={handleEditorDidMount}
               setFileContent={setFileContent}

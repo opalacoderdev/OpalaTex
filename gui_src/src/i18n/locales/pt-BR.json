@@ -508,6 +508,11 @@
     "commandPalette": "Paleta de Comandos",
     "openInSystem": "Abrir com app padrão"
   },
+  "tabContextMenu": {
+    "close": "Fechar",
+    "closeOthers": "Fechar as outras",
+    "closeAll": "Fechar todas"
+  },
   "textContextMenu": {
     "copy": "Copiar",
     "paste": "Colar",
