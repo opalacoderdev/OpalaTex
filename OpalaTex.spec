@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import copy_metadata
 
-datas = [('opalatex/gui', 'opalatex/gui'), ('opalatex/icon.png', 'opalatex'), ('opalatex/assetstore', 'opalatex/assetstore'), ('opalatex/templates', 'opalatex/templates'), ('opalatex/guides', 'opalatex/guides'), ('bin', 'bin'), ('config.yaml', '.'), ('skills', 'skills'), ('templates', 'templates'), ('version_info.txt', '.')]
+datas = [('opalatex/gui', 'opalatex/gui'), ('opalatex/icon.png', 'opalatex'), ('icon.png', '.'), ('opalatex/assetstore', 'opalatex/assetstore'), ('opalatex/templates', 'opalatex/templates'), ('opalatex/guides', 'opalatex/guides'), ('bin', 'bin'), ('config.yaml', '.'), ('skills', 'skills'), ('templates', 'templates')]
 binaries = [('C:\\Users\\gilza\\projetos\\OpalaTex\\.venv\\Lib\\site-packages\\winpty\\winpty-agent.exe', 'winpty')]
 hiddenimports = []
 datas += copy_metadata('tiktoken')
