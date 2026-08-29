@@ -67,6 +67,9 @@
   /* Text selection (native ::selection highlight) */
   --vscode-selection-bg: #264f78;
   --vscode-selection-fg: #ffffff;
+  /* PDF text-layer selection: translucent, so the rendered page glyphs
+     underneath the invisible text layer stay readable while selected. */
+  --pdf-selection-bg: rgba(64, 132, 204, 0.30);
 }
 
 /* ─── Light Theme ──────────────────────────────────────────────────────────
@@ -143,6 +146,7 @@
   /* Text selection (native ::selection highlight) */
   --vscode-selection-bg: #add6ff;
   --vscode-selection-fg: #1e1e1e;
+  --pdf-selection-bg: rgba(0, 95, 184, 0.26);
 }
 
 /* ── Native text selection ────────────────────────────────────────────────
@@ -163,9 +167,16 @@
 
 /* The pdf.js text layer draws invisible glyphs on top of the rendered canvas
    text, so selected text there must keep its transparent color — only the
-   highlight background may show. */
+   highlight background may show. Because that background is painted *over*
+   the canvas that carries the visible glyphs, it must be translucent: an
+   opaque color hides the very text being selected. */
 .textLayer ::selection {
-  background-color: var(--vscode-selection-bg);
+  background-color: var(--pdf-selection-bg);
+  color: transparent;
+}
+
+.textLayer ::-moz-selection {
+  background-color: var(--pdf-selection-bg);
   color: transparent;
 }
 
