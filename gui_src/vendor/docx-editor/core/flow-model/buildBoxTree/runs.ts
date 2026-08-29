@@ -13,6 +13,7 @@ import type {
   TabRun,
   ImageRun,
   FieldRun,
+  MathRun,
   RunFormatting,
 } from '../../pagination-model/types';
 import type { InlineSdtWidget } from '../../pagination-model/inlineSdtWidgets';
@@ -32,6 +33,9 @@ import {
   checkboxDisplayStateFromAttrs,
   textStartsWithCheckboxGlyph,
 } from '../../prosemirror/checkboxSdt';
+import { mathmlForOmml } from '../../math/cache';
+import { ommlParagraphJustification } from '../../math/ommlProperties';
+import { measureMathBox } from '../metrics/mathMetrics';
 import { twipsToPixels, constrainImageToPage } from './shared';
 import type { BuildBoxTreeOptions } from './shared';
 
@@ -499,15 +503,36 @@ export function paragraphToRuns(
         docTo: childPos + child.nodeSize,
       });
     } else if (child.type.name === 'math') {
-      const text = (child.attrs.plainText as string) || '[equation]';
-      runs.push({
-        kind: 'text',
-        text,
-        italic: true,
-        fontFamily: 'Cambria Math',
+      const formatting = extractRunFormatting(child.marks, theme);
+      const display = (child.attrs.display as 'inline' | 'block') || 'inline';
+      const plainText = (child.attrs.plainText as string) || '';
+      // The equation is measured at the run's own point size: an equation in a
+      // heading has to come out as big as the heading.
+      const fontSizePt = formatting.fontSize ?? paraDefaults.fontSize ?? 11;
+      const fontSizePx = (fontSizePt * 96) / 72;
+      const ommlXml = (child.attrs.ommlXml as string) || '';
+      const mathml = mathmlForOmml(ommlXml, display);
+      const box = measureMathBox(mathml, fontSizePx, plainText || '[equation]', display);
+
+      const run: MathRun = {
+        kind: 'math',
+        mathml,
+        plainText,
+        display,
+        ...(display === 'block'
+          ? { justification: ommlParagraphJustification(ommlXml) ?? 'center' }
+          : {}),
+        width: box.width,
+        height: box.height,
+        ascent: box.ascent,
+        descent: box.descent,
+        fontSizePx,
+        ...paraDefaults,
+        ...formatting,
         docFrom: childPos,
         docTo: childPos + child.nodeSize,
-      });
+      };
+      runs.push(run);
     } else if (child.type.name === 'sdt') {
       const syntheticCheckboxRun = syntheticCheckboxRunFor(child, childPos);
       if (syntheticCheckboxRun) runs.push(syntheticCheckboxRun);

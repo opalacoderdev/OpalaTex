@@ -4372,6 +4372,135 @@ class AsyncHTTPServer:
                 self.send_response(writer, 200, b'{"success":false,"message":"No active prompt evolution running"}', "application/json")
             return
 
+        elif path == '/api/settings/translation' and method == 'GET':
+            from opalatex.translation import TRANSLATION_LANGUAGE_NAMES
+            from opalatex.ui_settings import load_ui_settings
+            cfg = load_ui_settings()
+            self.send_response(writer, 200, json.dumps({
+                "translate_target_lang": str(cfg.get("translate_target_lang", "") or ""),
+                "known_languages": sorted(TRANSLATION_LANGUAGE_NAMES.keys()),
+            }).encode('utf-8'), "application/json")
+
+        elif path == '/api/settings/translation' and method == 'POST':
+            from opalatex.ui_settings import save_ui_settings
+            target_lang = str(data.get("translate_target_lang", "") or "").strip()
+            save_ui_settings({"translate_target_lang": target_lang})
+            self.send_response(writer, 200, json.dumps({
+                "success": True,
+                "translate_target_lang": target_lang,
+            }).encode('utf-8'), "application/json")
+
+        elif path == '/api/translate' and method == 'POST':
+            from opalatex.translation import execute_translation, resolve_target_language
+            from opalatex.ui_settings import load_ui_settings
+            snippet = str(data.get("text") or "")
+            if not snippet.strip():
+                self.send_response(writer, 400, b'{"error":"text is required"}', "application/json")
+                return
+            cfg = load_ui_settings()
+            target_language = resolve_target_language(
+                data.get("target_lang"),
+                cfg.get("translate_target_lang"),
+                cfg.get("lang"),
+            )
+            try:
+                translated_text = await execute_translation(
+                    snippet,
+                    target_language,
+                    model=str(data.get("model") or "").strip() or None,
+                )
+                self.send_response(writer, 200, json.dumps({
+                    "success": True,
+                    "target_language": target_language,
+                    "translated_text": translated_text,
+                }).encode('utf-8'), "application/json")
+            except ValueError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # ── PDF annotations (standalone PDFs) ──────────────────────────────
+        # Stored inside the PDF itself, so they interoperate with Zotero,
+        # Acrobat and any other reader. See opalatex/pdf_annotations.py.
+        elif path.startswith('/api/pdf/annotations'):
+            from opalatex.pdf_annotations import (
+                DEFAULT_AUTHOR,
+                DEFAULT_COLOR,
+                PdfAnnotationError,
+                add_annotation,
+                delete_annotation,
+                list_annotations,
+                move_annotation_marker,
+                read_without_annotations,
+                update_annotation,
+            )
+
+            project_path = (query.get('projectPath', [None])[0] if method == 'GET'
+                            else data.get('projectPath'))
+            file_path = (query.get('filePath', [None])[0] if method == 'GET'
+                         else data.get('filePath'))
+            if not project_path or not file_path:
+                self.send_response(writer, 400, b'{"error":"projectPath and filePath are required"}', "application/json")
+                return
+
+            project_abs = os.path.abspath(project_path)
+            full_path = os.path.abspath(os.path.join(project_abs, file_path))
+            if not _is_path_within(full_path, project_abs):
+                self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
+                return
+
+            try:
+                if path == '/api/pdf/annotations/document' and method == 'GET':
+                    # The viewer's "hide annotations" toggle: pdf.js paints marks
+                    # into the page canvas and react-pdf gives no way to turn that
+                    # off, so the stripped copy is produced here. The file on disk
+                    # is untouched.
+                    self.send_response(
+                        writer, 200, read_without_annotations(full_path), "application/pdf",
+                    )
+                    return
+                if path == '/api/pdf/annotations' and method == 'GET':
+                    payload = {"success": True, "annotations": list_annotations(full_path)}
+                elif path == '/api/pdf/annotations' and method == 'POST':
+                    payload = {"success": True, "annotation": add_annotation(
+                        full_path,
+                        page=int(data.get('page') or 0),
+                        kind=str(data.get('kind') or ''),
+                        rects=data.get('rects') or [],
+                        color=str(data.get('color') or '') or DEFAULT_COLOR,
+                        content=str(data.get('content') or ''),
+                        author=str(data.get('author') or '') or DEFAULT_AUTHOR,
+                    )}
+                elif path == '/api/pdf/annotations/update' and method == 'POST':
+                    payload = {"success": True, "annotation": update_annotation(
+                        full_path,
+                        int(data.get('id') or 0),
+                        content=data.get('content'),
+                        color=data.get('color'),
+                    )}
+                elif path == '/api/pdf/annotations/marker' and method == 'POST':
+                    payload = {"success": True, "annotation": move_annotation_marker(
+                        full_path,
+                        int(data.get('id') or 0),
+                        data.get('point') or [],
+                    )}
+                elif path == '/api/pdf/annotations/delete' and method == 'POST':
+                    payload = {"success": True, "deleted": delete_annotation(
+                        full_path, int(data.get('id') or 0)
+                    )}
+                else:
+                    self.send_response(writer, 404, b'{"error":"Not Found"}', "application/json")
+                    return
+                self.send_response(writer, 200, json.dumps(payload).encode('utf-8'), "application/json")
+            except PdfAnnotationError as e:
+                # A PDF that cannot be annotated is a 409, not a 500: the request
+                # was well-formed and the message names a condition the user can act on.
+                self.send_response(writer, 409, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            except (TypeError, ValueError) as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
         else:
             self.send_response(writer, 404, b'{"error":"Not Found"}', "application/json")
 

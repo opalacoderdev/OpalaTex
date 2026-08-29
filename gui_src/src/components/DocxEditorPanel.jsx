@@ -1,11 +1,19 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Save, Wand2 } from 'lucide-react';
+import { RefreshCw, Save, Sigma, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { TextSelection } from 'prosemirror-state';
 import { DocxEditor } from '@docx-editor.dev/react';
 import enDocxLocale from '../../vendor/docx-editor/i18n/en';
 import ptBRDocxLocale from '../../vendor/docx-editor/i18n/pt-BR';
+import {
+  mathmlForOmml,
+  mathmlPlainText,
+  mathmlToLatex,
+  mathmlToOmml,
+  ommlParagraphJustification,
+} from '@docx-editor.dev/core/math';
 import InlinePromptOverlay from './InlinePromptOverlay';
+import MathEquationEditor from './MathEquationEditor';
 import '../../vendor/docx-editor/react/styles/editor.compiled.css';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -236,6 +244,41 @@ function formatSelectionStructureForPrompt(structure) {
   }, null, 2);
 }
 
+/**
+ * The painted equation under a pointer event, if the event landed on one.
+ * The painter tags every equation span with `layout-run-math` and the
+ * ProseMirror positions of the node it came from.
+ */
+function paintedEquationAt(target) {
+  if (!(target instanceof Element)) return null;
+  const element = target.closest('.layout-run-math');
+  if (!element) return null;
+
+  const from = Number(element.getAttribute('data-doc-from'));
+  const to = Number(element.getAttribute('data-doc-to'));
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  return { element, from, to };
+}
+
+/** The `math` node at a document position, or null if something else is there. */
+function mathNodeAt(view, from) {
+  if (!view) return null;
+  const node = view.state.doc.nodeAt(from);
+  return node && node.type.name === 'math' ? node : null;
+}
+
+/** Rect of `element` in the coordinate space of `host`. */
+function rectWithin(element, host) {
+  const elementRect = element.getBoundingClientRect();
+  const hostRect = host.getBoundingClientRect();
+  return {
+    left: elementRect.left - hostRect.left,
+    top: elementRect.top - hostRect.top,
+    width: elementRect.width,
+    height: elementRect.height,
+  };
+}
+
 const DocxEditorPanel = forwardRef(function DocxEditorPanel({
   activeProject,
   selectedFile,
@@ -251,6 +294,8 @@ const DocxEditorPanel = forwardRef(function DocxEditorPanel({
   const [isRefining, setIsRefining] = useState(false);
   const [inlinePrompt, setInlinePrompt] = useState(null);
   const [docVersion, setDocVersion] = useState(0);
+  const hostRef = useRef(null);
+  const [equationEditor, setEquationEditor] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -354,6 +399,158 @@ const DocxEditorPanel = forwardRef(function DocxEditorPanel({
   useImperativeHandle(ref, () => ({
     save: () => handleSave(),
   }), [handleSave]);
+
+  /**
+   * Open the equation editor on the equation the user double-clicked.
+   *
+   * The document keeps the equation as OMML; the editor needs LaTeX, so it is
+   * converted through MathML — the same pipeline the painter renders with.
+   */
+  const openEquationEditor = useCallback((equation) => {
+    const view = editorRef.current?.getEditorRef?.()?.getView?.();
+    const host = hostRef.current;
+    if (!view || !host) return;
+
+    const node = mathNodeAt(view, equation.from);
+    if (!node) return;
+
+    const ommlXml = node.attrs.ommlXml || '';
+    const display = node.attrs.display === 'block' ? 'block' : 'inline';
+    const mathml = mathmlForOmml(ommlXml, display);
+    const latex = mathml ? mathmlToLatex(mathml) : '';
+
+    setEquationEditor({
+      mode: 'edit',
+      from: equation.from,
+      to: equation.to,
+      latex,
+      display,
+      // Word keeps a display equation's justification on the equation itself;
+      // regenerating the OMML without it would silently re-center one the
+      // author had aligned left.
+      justification: ommlParagraphJustification(ommlXml) ?? undefined,
+      anchorRect: rectWithin(equation.element, host),
+      hostSize: { width: host.clientWidth, height: host.clientHeight },
+    });
+  }, []);
+
+  /** Insert a new equation at the caret. */
+  const openEquationInsert = useCallback(() => {
+    const view = editorRef.current?.getEditorRef?.()?.getView?.();
+    const host = hostRef.current;
+    if (!view || !host) {
+      setStatus(t('docxEditor.equation.editorUnavailable', 'Open a DOCX before inserting an equation.'));
+      setTimeout(() => setStatus(''), 2500);
+      return;
+    }
+
+    const { from, to } = view.state.selection;
+    setEquationEditor({
+      mode: 'insert',
+      from,
+      to,
+      latex: '',
+      display: 'inline',
+      anchorRect: null,
+      hostSize: { width: host.clientWidth, height: host.clientHeight },
+    });
+  }, [t]);
+
+  /**
+   * Write the edited equation back into the document.
+   *
+   * Only the equation that was actually edited is regenerated: every other
+   * equation keeps the OMML Word wrote, with the properties MathML cannot
+   * carry (`m:ctrlPr`, alignment hints) intact.
+   */
+  const commitEquation = useCallback(
+    ({ mathml, latex, display }) => {
+      const view = editorRef.current?.getEditorRef?.()?.getView?.();
+      const target = equationEditor;
+      if (!view || !target) return;
+
+      // Applying an empty equation means "remove it", the way Word treats an
+      // equation you delete the contents of — not a conversion failure.
+      if (!String(latex || '').trim()) {
+        if (target.mode === 'edit') {
+          view.dispatch(view.state.tr.delete(target.from, target.to).scrollIntoView());
+        }
+        view.focus();
+        setEquationEditor(null);
+        return;
+      }
+
+      const mathType = view.state.schema.nodes.math;
+      if (!mathType) {
+        setStatus(t('docxEditor.equation.unsupported', 'This document editor has no equation node.'));
+        setTimeout(() => setStatus(''), 2500);
+        return;
+      }
+
+      const ommlXml = mathmlToOmml(mathml, {
+        display,
+        ...(target.justification ? { justification: target.justification } : {}),
+      });
+      if (!ommlXml) {
+        setStatus(t('docxEditor.equation.convertFailed', 'Could not convert the equation to Word format.'));
+        setTimeout(() => setStatus(''), 3000);
+        return;
+      }
+
+      const node = mathType.create({
+        display,
+        ommlXml,
+        plainText: mathmlPlainText(mathml),
+      });
+
+      try {
+        if (target.mode === 'edit') {
+          // The node's own range: replacing exactly it keeps every surrounding
+          // mark and paragraph property untouched.
+          const size = view.state.doc.content.size;
+          const from = Math.min(target.from, size);
+          const to = Math.min(Math.max(target.to, from), size);
+          view.dispatch(view.state.tr.replaceWith(from, to, node).scrollIntoView());
+        } else {
+          // Inserting goes through replaceSelectionWith, which knows how to fit
+          // an inline node into whatever the user had selected — a range across
+          // two paragraphs is not something replaceWith could take.
+          view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView());
+        }
+      } catch (error) {
+        setStatus(
+          t('docxEditor.equation.insertFailed', 'Could not place the equation: {{error}}', {
+            error: error instanceof Error ? error.message : String(error),
+          })
+        );
+        setTimeout(() => setStatus(''), 3000);
+        return;
+      }
+
+      view.focus();
+      setEquationEditor(null);
+    },
+    [equationEditor, t]
+  );
+
+  // Word opens an equation on double-click; so does this. The handler runs in
+  // the capture phase so the editor's own double-click (select the word under
+  // the pointer) never fires on an equation.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+
+    const handleDoubleClick = (event) => {
+      const equation = paintedEquationAt(event.target);
+      if (!equation) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openEquationEditor(equation);
+    };
+
+    host.addEventListener('dblclick', handleDoubleClick, true);
+    return () => host.removeEventListener('dblclick', handleDoubleClick, true);
+  }, [openEquationEditor, documentBuffer]);
 
   const openRefinePrompt = useCallback(() => {
     const selectionInfo = editorRef.current?.getSelectionInfo?.();
@@ -532,7 +729,18 @@ const DocxEditorPanel = forwardRef(function DocxEditorPanel({
   }
 
   return (
-    <div className="docx-editor-host">
+    <div className="docx-editor-host" ref={hostRef}>
+      {equationEditor && (
+        <MathEquationEditor
+          key={`${equationEditor.mode}-${equationEditor.from}`}
+          initialLatex={equationEditor.latex}
+          display={equationEditor.display}
+          anchorRect={equationEditor.anchorRect}
+          hostSize={equationEditor.hostSize}
+          onCommit={commitEquation}
+          onCancel={() => setEquationEditor(null)}
+        />
+      )}
       {inlinePrompt && (
         <InlinePromptOverlay
           inlinePrompt={inlinePrompt}
@@ -563,6 +771,14 @@ const DocxEditorPanel = forwardRef(function DocxEditorPanel({
         renderTitleBarRight={() => (
           <div className="docx-editor-actions">
             {status && <span className="docx-editor-status">{status}</span>}
+            <button
+              type="button"
+              className="vscode-button"
+              onClick={openEquationInsert}
+              title={t('docxEditor.equation.insert', 'Insert equation')}
+            >
+              <Sigma size={12} />
+            </button>
             <button
               type="button"
               className="vscode-button"

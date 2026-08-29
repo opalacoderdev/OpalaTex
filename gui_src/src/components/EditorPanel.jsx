@@ -68,6 +68,7 @@ export default function EditorPanel({
   onLatexCompileError,
   onLatexCompileSuccess,
   onFixLatexProblem,
+  onAskAboutPdf,
   isAgentRunning,
   onTextStatsChange,
 }) {
@@ -1581,6 +1582,8 @@ export default function EditorPanel({
               activeProject={activeProject}
               selectedFile={selectedFile}
               onSyncTexNavigate={handleSyncTexNavigate}
+              onAskAboutPdf={onAskAboutPdf}
+              isAgentRunning={isAgentRunning}
             />
           </div>
         ) : isDocxFile ? (
@@ -1647,6 +1650,7 @@ export default function EditorPanel({
               onCollapse={() => setIsPdfPreviewCollapsed(true)}
               latexCompileProblem={latexCompileProblem}
               onFixLatexProblem={onFixLatexProblem}
+              onAskAboutPdf={onAskAboutPdf}
               isAgentRunning={isAgentRunning}
             />
           </div>

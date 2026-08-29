@@ -32,6 +32,7 @@ import type {
   Run,
   TabRun,
   LineSegment,
+  MathRun,
 } from '../../pagination-model/types';
 import {
   fontMetricsFor,
@@ -214,7 +215,8 @@ type Token =
   | { kind: 'space'; pieces: Piece[]; width: number }
   | { kind: 'tab'; runIndex: number; style: FontStyle }
   | { kind: 'break'; runIndex: number }
-  | { kind: 'image'; runIndex: number; run: ImageRun; inFlow: boolean };
+  | { kind: 'image'; runIndex: number; run: ImageRun; inFlow: boolean }
+  | { kind: 'math'; runIndex: number; run: MathRun; width: number };
 
 /**
  * Flatten runs into break-opportunity units.
@@ -262,6 +264,13 @@ function tokenise(runs: Run[], defaults: Partial<FontStyle>): Token[] {
         // It still gets a zero-width token, so its document positions stay inside
         // a line's range and remain addressable by the caret.
         tokens.push({ kind: 'image', runIndex, run, inFlow: !isFloatingImageRun(run) });
+        break;
+
+      case 'math':
+        // An equation is one indivisible box. It never breaks internally, and
+        // its width came from measuring the rendered MathML, not from a font.
+        closeWord();
+        tokens.push({ kind: 'math', runIndex, run, width: run.width });
         break;
 
       case 'field': {
@@ -610,6 +619,21 @@ function fillLines(
         break;
       }
 
+      case 'math': {
+        const width = token.width;
+        makeRoom(width);
+        placeAtomic(line, token.runIndex, 0, 1, width);
+        line.atomAdvances[token.runIndex] = width;
+        // An equation is taller than the text around it. `imageHeight` is the
+        // floor `closeLine` puts under the line, and the descent is what it
+        // measures the baseline back from; the ascent is kept in step with how
+        // text runs maintain the same field.
+        line.imageHeight = Math.max(line.imageHeight, token.run.height);
+        line.maxAscent = Math.max(line.maxAscent, token.run.ascent);
+        line.maxDescent = Math.max(line.maxDescent, token.run.descent);
+        break;
+      }
+
       case 'image': {
         if (!token.inFlow) {
           // Out of flow: it occupies no width and contributes no height. It is
@@ -951,7 +975,7 @@ function blankLine(height: number): MeasuredLine {
 // ---------------------------------------------------------------------------
 
 function styleFor(run: Run, defaults: Partial<FontStyle>): FontStyle {
-  if (run.kind === 'image' || run.kind === 'lineBreak') {
+  if (run.kind === 'image' || run.kind === 'lineBreak' || run.kind === 'math') {
     return resolveFontStyle(undefined, defaults);
   }
   return resolveFontStyle(run, defaults);
@@ -986,6 +1010,12 @@ function followingContentWidth(
 
     if (token.kind === 'image') {
       width += token.run.width;
+      continue;
+    }
+    if (token.kind === 'math') {
+      // An equation occupies width but contributes no characters, so it cannot
+      // extend the decimal prefix — and it has no `pieces` to walk.
+      width += token.width;
       continue;
     }
     width += token.width;

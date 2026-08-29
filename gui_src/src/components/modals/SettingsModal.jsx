@@ -5,6 +5,23 @@ import { useCustomDialog } from './CustomDialogProvider';
 import i18n from '../../i18n/index.js';
 import { safeSetLocalStorage } from '../../utils/storage';
 
+// Target languages offered by the "Translate to" setting. The values are the
+// locale codes persisted by /api/settings/translation; "" follows the UI
+// language and TRANSLATE_CUSTOM switches the field to free-text entry.
+const TRANSLATE_LANGUAGES = [
+  { value: 'pt-BR', labelKey: 'settingsModal.translateLangPtBR', label: 'Portugu\u00eas (Brasil)' },
+  { value: 'en', labelKey: 'settingsModal.translateLangEn', label: 'English' },
+  { value: 'es', labelKey: 'settingsModal.translateLangEs', label: 'Espa\u00f1ol' },
+  { value: 'fr', labelKey: 'settingsModal.translateLangFr', label: 'Fran\u00e7ais' },
+  { value: 'de', labelKey: 'settingsModal.translateLangDe', label: 'Deutsch' },
+  { value: 'it', labelKey: 'settingsModal.translateLangIt', label: 'Italiano' },
+  { value: 'ja', labelKey: 'settingsModal.translateLangJa', label: '\u65e5\u672c\u8a9e' },
+  { value: 'zh', labelKey: 'settingsModal.translateLangZh', label: '\u4e2d\u6587' },
+  { value: 'ru', labelKey: 'settingsModal.translateLangRu', label: '\u0420\u0443\u0441\u0441\u043a\u0438\u0439' },
+];
+
+const TRANSLATE_CUSTOM = '__custom__';
+
 // IDE global settings modal (theme, font size, tab size, word wrap, minimap, optional deps).
 export default function SettingsModal({
   onClose,
@@ -40,6 +57,8 @@ export default function SettingsModal({
   const [pandocInstallMessage, setPandocInstallMessage] = React.useState('');
   const [promptEvolutionIterations, setPromptEvolutionIterations] = React.useState(1);
   const [promptEvolutionMaxTokens, setPromptEvolutionMaxTokens] = React.useState(4096);
+  const [translateTargetLang, setTranslateTargetLang] = React.useState('');
+  const [isCustomTranslateLang, setIsCustomTranslateLang] = React.useState(false);
   const [imageGen, setImageGen] = React.useState({ enabled: true, model: '', size: '1024x1024', output_dir: 'figures' });
   const [imageModels, setImageModels] = React.useState([]);
 
@@ -86,6 +105,16 @@ export default function SettingsModal({
       })
       .catch(() => { });
 
+    fetch('/api/settings/translation')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (!cfg) return;
+        const saved = String(cfg.translate_target_lang || '');
+        setTranslateTargetLang(saved);
+        setIsCustomTranslateLang(Boolean(saved) && !TRANSLATE_LANGUAGES.some(l => l.value === saved));
+      })
+      .catch(() => { });
+
     fetch('/api/settings/prompt-evolution')
       .then(r => r.ok ? r.json() : null)
       .then(cfg => {
@@ -113,6 +142,14 @@ export default function SettingsModal({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(next),
+    }).catch(() => { });
+  };
+
+  const saveTranslateTargetLang = (value) => {
+    fetch('/api/settings/translation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ translate_target_lang: value }),
     }).catch(() => { });
   };
 
@@ -254,6 +291,46 @@ export default function SettingsModal({
                   <option value="off">{t('settingsModal.minimapOff')}</option>
                 </select>
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('settingsModal.minimapHint')}</span>
+              </div>
+
+              {/* Translate to (PDF viewer translation target) */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.translateTo', 'Translate to')}</label>
+                <select
+                  value={isCustomTranslateLang ? TRANSLATE_CUSTOM : translateTargetLang}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === TRANSLATE_CUSTOM) {
+                      setIsCustomTranslateLang(true);
+                      return;
+                    }
+                    setIsCustomTranslateLang(false);
+                    setTranslateTargetLang(value);
+                    saveTranslateTargetLang(value);
+                  }}
+                  className="vscode-settings-input"
+                  style={{ width: '100%' }}
+                >
+                  <option value="">{t('settingsModal.translateToInterface', 'Same as interface language')}</option>
+                  {TRANSLATE_LANGUAGES.map(lang => (
+                    <option key={lang.value} value={lang.value}>{t(lang.labelKey, lang.label)}</option>
+                  ))}
+                  <option value={TRANSLATE_CUSTOM}>{t('settingsModal.translateToOther', 'Other (type a language)')}</option>
+                </select>
+                {isCustomTranslateLang && (
+                  <input
+                    type="text"
+                    value={translateTargetLang}
+                    placeholder={t('settingsModal.translateToOtherPlaceholder', 'e.g. Norwegian')}
+                    onChange={(e) => setTranslateTargetLang(e.target.value)}
+                    onBlur={(e) => saveTranslateTargetLang(e.target.value.trim())}
+                    className="vscode-settings-input"
+                    style={{ width: '100%' }}
+                  />
+                )}
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.translateToHint', 'Target language used by the PDF viewer\'s "Translate selection" action.')}
+                </span>
               </div>
 
               {/* Prompt Evolution Iterations */}

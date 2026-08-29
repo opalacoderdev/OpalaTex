@@ -154,3 +154,6 @@ venv.bak/
 # --- Snap packages (build artifacts) ---
 /*.snap
 .opalatex/
+
+# --- MathLive fonts, copied from node_modules at build time ---
+/gui_src/public/mathlive-fonts/

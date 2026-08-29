@@ -85,3 +85,13 @@ export {
   resolveParagraphFirstLineGeometry,
   resolveParagraphMarkerStart,
 } from './paragraphFirstLineGeometry';
+
+// Equation measurement
+export {
+  measureMathBox,
+  clearMathMeasureCache,
+  isMathFontReady,
+  whenMathFontReady,
+  onMathFontReady,
+  type MathBox,
+} from './mathMetrics';

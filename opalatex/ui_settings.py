@@ -20,6 +20,8 @@ _DEFAULTS: dict[str, Any] = {
     "show_hidden_workspace_files": False,
     "prompt_evolution_iterations": 1,
     "prompt_evolution_max_tokens": 4096,
+    # Target language for the PDF viewer "Translate" action. "" means follow the UI language.
+    "translate_target_lang": "",
 }
 
 

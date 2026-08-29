@@ -68,6 +68,7 @@ export default function ChatPanel({
   onTutorialTopic,
   chatMessages,
   chatInput,
+  chatInputFocusSignal = 0,
   setChatInput,
   isAgentRunning,
   isInterruptPending = false,
@@ -126,6 +127,22 @@ export default function ChatPanel({
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
   }, [chatInput]);
+
+  // Something outside the chat staged a prompt in the composer (the PDF
+  // viewer's "Ask about"): focus it and park the caret at the end so the user
+  // can finish the question straight away.
+  useEffect(() => {
+    if (!chatInputFocusSignal) return;
+    const el = inputRef.current;
+    if (!el) return;
+    const focusAtEnd = requestAnimationFrame(() => {
+      el.focus();
+      const end = el.value.length;
+      el.setSelectionRange(end, end);
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(focusAtEnd);
+  }, [chatInputFocusSignal]);
 
   // Auto-scroll follows the bottom of the history only while the user is
   // parked there. Scrolling up (to read something while the agent streams)

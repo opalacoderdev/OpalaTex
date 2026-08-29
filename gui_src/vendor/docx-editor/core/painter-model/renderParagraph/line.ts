@@ -12,6 +12,7 @@ import type {
   MeasuredLine,
   Run,
   ImageRun,
+  MathRun,
   LineBreakRun,
   TabMark,
 } from '../../pagination-model/types';
@@ -32,11 +33,13 @@ import {
   isImageRun,
   isLineBreakRun,
   isFieldRun,
+  isMathRun,
 } from './shared';
 import {
   paintTextRun,
   paintTabRun,
   paintImageRun,
+  paintMathRun,
   paintLineBreakRun,
   paintFieldRun,
   paintRun,
@@ -265,6 +268,8 @@ function measureFollowingContentWidth(
       // Floating images render at the page level — they contribute 0 inline
       // width, so don't count them in the right-edge clamp budget.
       width += run.width || 0;
+    } else if (isMathRun(run)) {
+      width += run.width || 0;
     }
   }
   return width;
@@ -319,6 +324,29 @@ export function paintLine(
   // Image-level alignment wins when present — it's the more specific signal
   // from OOXML, and it's the only signal Word writes for that kind of
   // anchored layout.
+  // A displayed equation (`m:oMathPara`) alone on its line is positioned by its
+  // OWN justification, which Word stores on the equation rather than on the
+  // paragraph — the paragraph's `jc` is usually left even when the equation is
+  // centered, so following it would left-align every display equation.
+  const displayMathOnlyLine =
+    runsForLine.length === 1 && isMathRun(runsForLine[0]) && runsForLine[0].display === 'block';
+  if (displayMathOnlyLine) {
+    const mathRun = runsForLine[0] as MathRun;
+    // `centerGroup` centers the group of equations as a block; with one
+    // equation on the line it renders the same as `center`.
+    const mathAlign = mathRun.justification === 'left' || mathRun.justification === 'right'
+      ? mathRun.justification
+      : 'center';
+    lineEl.style.display = 'flex';
+    lineEl.style.alignItems = 'baseline';
+    lineEl.style.justifyContent = alignToJustifyContent(mathAlign);
+    // Flex blockifies the run span, which would otherwise take the line's
+    // equation-inflated `line-height` as its own box height and push the
+    // equation off the baseline the line was measured around.
+    lineEl.style.lineHeight = 'normal';
+    lineEl.dataset.flexLine = 'true';
+  }
+
   const imageOnlyLine = runsForLine.length === 1 && isImageRun(runsForLine[0]);
   if (imageOnlyLine) {
     const imageRun = runsForLine[0] as ImageRun;
@@ -368,6 +396,27 @@ export function paintLine(
       // Set explicit width so browser knows how wide to justify to
       lineEl.style.width = `${config.availableWidth}px`;
     }
+  }
+
+  // An equation mixed into a text line stays in the normal inline flow: making
+  // the line a flex row would lay each run out as a flex item, and this
+  // painter justifies with `text-align: justify`, which a flex container
+  // ignores — every justified line holding an equation would silently lose its
+  // justification.
+  //
+  // What the equation does need is the baseline the line was measured around.
+  // With an explicit `line-height`, the browser places the baseline by the
+  // strut font's half-leading, which sits lower than a tall equation's measured
+  // ascent and drops several pixels of the equation onto the next line.
+  // `normal` hands the baseline back to the content — the equation — while the
+  // line keeps the explicit `height` the paginator gave it. This applies only
+  // when the equation is what made the line tall: a small inline equation in a
+  // widely-spaced paragraph must keep the paragraph's own line spacing.
+  if (!displayMathOnlyLine) {
+    const equationSetsLineHeight = runsForLine.some(
+      (run) => isMathRun(run) && run.height >= line.lineHeight - 0.5
+    );
+    if (equationSetsLineHeight) lineEl.style.lineHeight = 'normal';
   }
 
   // Use white-space: pre to prevent internal wrapping AND preserve consecutive spaces.
@@ -623,6 +672,10 @@ export function paintLine(
       if (run.displayMode !== 'block' && run.wrapType !== 'topAndBottom') {
         currentX += paintedWidth;
       }
+    } else if (isMathRun(run)) {
+      const runEl = paintMathRun(run, doc);
+      lineEl.appendChild(runEl);
+      currentX += line.atomAdvances?.[line.fromRun + i] ?? run.width;
     } else if (isLineBreakRun(run)) {
       const runEl = paintLineBreakRun(run, doc);
       lineEl.appendChild(runEl);

@@ -307,6 +307,9 @@ export default function App() {
       : null
   );
   const [chatInput, setChatInput] = useState('');
+  // Bumped when something outside the chat (e.g. the PDF viewer's "Ask about")
+  // drops text into the composer and the caret should land there.
+  const [chatInputFocusSignal, setChatInputFocusSignal] = useState(0);
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   const [isInterruptPending, setIsInterruptPending] = useState(false);
@@ -2924,6 +2927,45 @@ export default function App() {
     }
   };
 
+  const buildAskAboutPdfPrompt = ({ pdfPath, sourceFile, page, totalPages, selectedText }) => {
+    const location = totalPages
+      ? `${t('app.pdfPageLabel', 'Page')} ${page}/${totalPages}`
+      : `${t('app.pdfPageLabel', 'Page')} ${page}`;
+    return [
+      `${t('app.askAboutPdfPrompt', 'Consulting about')} ${pdfPath}`,
+      '',
+      `- ${t('app.projectPathLabel', 'Project path')}: ${activeProject?.project_path || ''}`,
+      sourceFile && sourceFile !== pdfPath
+        ? `- ${t('app.pdfSourceFileLabel', 'LaTeX source open in the editor')}: ${sourceFile}`
+        : '',
+      `- ${location}`,
+      '',
+      selectedText
+        ? [
+          `${t('app.pdfSelectedExcerptLabel', 'Excerpt selected in the PDF viewer')}:`,
+          '````text',
+          selectedText,
+          '````',
+          '',
+        ].join('\n')
+        : '',
+      // Left open on purpose: the composer is pre-filled, not sent, so the
+      // caret lands here for the user to finish the question and press Send.
+      t('app.askAboutPdfQuestionLabel', 'My question:') + ' ',
+    ].filter((part) => part !== '').join('\n');
+  };
+
+  // "Ask about" only stages the question: it opens the chat and pre-fills the
+  // composer so the user completes the prompt and sends it themselves. It never
+  // starts a turn, and it never replaces text the user has already typed.
+  const handleAskAboutPdf = (details) => {
+    if (!activeProject || !details?.pdfPath) return;
+    setIsChatVisible(true);
+    const prompt = buildAskAboutPdfPrompt(details);
+    setChatInput((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n\n${prompt}` : prompt));
+    setChatInputFocusSignal((prev) => prev + 1);
+  };
+
   const handleEditUserMessage = async (messageIndex, originalMessage, editedContent) => {
     if (!activeProject || isAgentRunning || !originalMessage || originalMessage.role !== 'user') return;
     const nextContent = (editedContent || '').trim();
@@ -3847,6 +3889,7 @@ export default function App() {
               onLatexCompileError={handleLatexCompileError}
               onLatexCompileSuccess={handleLatexCompileSuccess}
               onFixLatexProblem={handleFixLatexProblem}
+              onAskAboutPdf={handleAskAboutPdf}
               isAgentRunning={isAgentRunning}
               onTextStatsChange={setEditorTextStats}
             />
@@ -3861,6 +3904,7 @@ export default function App() {
               chatMessages={chatMessages}
               chatInput={chatInput}
               setChatInput={setChatInput}
+              chatInputFocusSignal={chatInputFocusSignal}
               isAgentRunning={isAgentRunning}
               isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}
@@ -3951,6 +3995,7 @@ export default function App() {
               chatMessages={chatMessages}
               chatInput={chatInput}
               setChatInput={setChatInput}
+              chatInputFocusSignal={chatInputFocusSignal}
               isAgentRunning={isAgentRunning}
               isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}

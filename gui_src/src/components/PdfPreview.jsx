@@ -4,6 +4,10 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare, Sparkles } from 'lucide-react';
+import PdfContextMenu, { ANNOTATION_COLORS } from './PdfContextMenu';
+import PdfTranslationPopup from './PdfTranslationPopup';
+import PdfAnnotationLayer from './PdfAnnotationLayer';
+import PdfNotePopup from './PdfNotePopup';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -14,8 +18,8 @@ const PDF_DOCUMENT_OPTIONS = {
   verbosity: pdfjs.VerbosityLevel.ERRORS,
 };
 
-const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, isAgentRunning = false }, ref) => {
-  const { t } = useTranslation();
+const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onAskAboutPdf, isAgentRunning = false }, ref) => {
+  const { t, i18n } = useTranslation();
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
   const [highlight, setHighlight] = useState(null);
@@ -29,7 +33,19 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const [pdfTextPages, setPdfTextPages] = useState([]);
   const [canGoBack, setCanGoBack] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(true);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [translation, setTranslation] = useState(null);
+  const [annotations, setAnnotations] = useState([]);
+  // Ids of annotations the *rendered* bytes do not contain yet. Everything else is
+  // already painted by pdf.js from its appearance stream, so drawing it again in
+  // the overlay would double the color. Reset whenever the document is reloaded.
+  const [freshAnnotationIds, setFreshAnnotationIds] = useState(() => new Set());
+  const [annotationColor, setAnnotationColor] = useState(ANNOTATION_COLORS[0]);
+  const [notePopup, setNotePopup] = useState(null);
+  const [annotationError, setAnnotationError] = useState('');
+  const [annotationTooltip, setAnnotationTooltip] = useState(null);
   const containerRef = useRef(null);
+  const translationRequestRef = useRef(0);
   const scrollPosRef = useRef(0);
   const restoreScrollPosRef = useRef(0);
   const isReloadingPdfRef = useRef(false);
@@ -169,6 +185,562 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     if (annotationLink) {
       pushNavigationHistory();
     }
+  };
+
+  // The compiled preview renders the PDF of the project's main file, so an
+  // included .tex file must not be reported as the document being viewed.
+  const resolvePdfDocumentPath = () => {
+    const normalize = (value) => String(value || '').replace(/\\/g, '/');
+    const selected = normalize(selectedFile);
+    if (selected.toLowerCase().endsWith('.pdf')) return selected;
+    const source = normalize(activeProject?.main_file) || selected;
+    if (!source) return '';
+    return `${source.replace(/\.[^./]*$/, '')}.pdf`;
+  };
+
+  // Text the user selected inside this viewer, or '' when the selection is
+  // empty or lives outside the PDF surface.
+  const readPdfSelection = () => {
+    const selection = window.getSelection?.();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return '';
+    const container = containerRef.current;
+    if (!container) return '';
+    const range = selection.getRangeAt(0);
+    if (!container.contains(range.commonAncestorContainer)) return '';
+    return selection.toString().trim();
+  };
+
+  // ── Annotations ────────────────────────────────────────────────────────
+  // Marks are stored inside the PDF itself (see opalatex/pdf_annotations.py), so
+  // they interoperate with Zotero, Acrobat and any other reader. That storage is
+  // only appropriate for a standalone PDF: the compiled LaTeX preview is
+  // regenerated on every build and would drop anything written into it.
+  const isStandalonePdf = Boolean(directUrl) && String(selectedFile || '').toLowerCase().endsWith('.pdf');
+  const canAnnotate = isStandalonePdf && Boolean(activeProject?.project_path);
+
+  const annotationQuery = () => (
+    `projectPath=${encodeURIComponent(activeProject?.project_path || '')}` +
+    `&filePath=${encodeURIComponent(selectedFile || '')}`
+  );
+
+  // The rendered page box, which is what normalized 0..1 coordinates are relative
+  // to. The canvas is used rather than the wrapper because the wrapper carries
+  // shadow and spacing that are not part of the page.
+  const pageBoxes = () => {
+    const container = containerRef.current;
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('[data-page-number]'))
+      .map((wrapper) => {
+        const canvas = wrapper.querySelector('canvas');
+        if (!canvas) return null;
+        const page = parseInt(wrapper.getAttribute('data-page-number'), 10);
+        if (Number.isNaN(page)) return null;
+        return { page, box: canvas.getBoundingClientRect() };
+      })
+      .filter(Boolean);
+  };
+
+  const pageAtPoint = (clientX, clientY) => (
+    pageBoxes().find(({ box }) => (
+      clientX >= box.left && clientX <= box.right && clientY >= box.top && clientY <= box.bottom
+    )) || null
+  );
+
+  const normalizePoint = (clientX, clientY, box) => [
+    (clientX - box.left) / box.width,
+    (clientY - box.top) / box.height,
+  ];
+
+  // Merge the client rects of a selection into one rect per visual line. The DOM
+  // returns a rect per text-node fragment, and overlapping fragments would stack
+  // into a darker band where the translucent marks overlap.
+  const mergeRectsByLine = (rects) => {
+    const lines = [];
+    rects.forEach((rect) => {
+      const line = lines.find((candidate) => (
+        Math.abs(candidate.top - rect.top) < rect.height * 0.5
+        && Math.abs(candidate.bottom - rect.bottom) < rect.height * 0.5
+      ));
+      if (line) {
+        line.left = Math.min(line.left, rect.left);
+        line.right = Math.max(line.right, rect.right);
+        line.top = Math.min(line.top, rect.top);
+        line.bottom = Math.max(line.bottom, rect.bottom);
+      } else {
+        lines.push({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom });
+      }
+    });
+    return lines;
+  };
+
+  // The current selection as normalized rects grouped by page. A selection that
+  // spans a page break yields one entry per page, because an annotation belongs
+  // to exactly one page.
+  const readSelectionRectsByPage = () => {
+    const selection = window.getSelection?.();
+    const container = containerRef.current;
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0 || !container) return [];
+    const range = selection.getRangeAt(0);
+    if (!container.contains(range.commonAncestorContainer)) return [];
+
+    const boxes = pageBoxes();
+    const byPage = new Map();
+    Array.from(range.getClientRects())
+      .filter((rect) => rect.width > 0.5 && rect.height > 0.5)
+      .forEach((rect) => {
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const hit = boxes.find(({ box }) => (
+          centerX >= box.left && centerX <= box.right && centerY >= box.top && centerY <= box.bottom
+        ));
+        if (!hit) return;
+        if (!byPage.has(hit.page)) byPage.set(hit.page, { box: hit.box, rects: [] });
+        byPage.get(hit.page).rects.push(rect);
+      });
+
+    return Array.from(byPage.entries()).map(([page, { box, rects }]) => ({
+      page,
+      rects: mergeRectsByLine(rects).map((line) => [
+        (line.left - box.left) / box.width,
+        (line.top - box.top) / box.height,
+        (line.right - box.left) / box.width,
+        (line.bottom - box.top) / box.height,
+      ]),
+    }));
+  };
+
+  const annotationAtPoint = (clientX, clientY) => {
+    const hit = pageAtPoint(clientX, clientY);
+    if (!hit) return null;
+    const [nx, ny] = normalizePoint(clientX, clientY, hit.box);
+    // Later annotations are drawn on top, so the last match is the one the user
+    // sees under the cursor.
+    return [...annotations]
+      .filter((annotation) => annotation.page === hit.page)
+      .reverse()
+      .find((annotation) => (annotation.rects || []).some(([x0, y0, x1, y1]) => (
+        nx >= x0 - 0.002 && nx <= x1 + 0.002 && ny >= y0 - 0.002 && ny <= y1 + 0.002
+      ))) || null;
+  };
+
+  // Hovering a mark reveals its note. The pointer is never intercepted for this —
+  // the overlay stays click-through so text selection keeps working — so the hover
+  // is resolved geometrically against the same normalized rects, throttled to one
+  // lookup per frame because the lookup measures page boxes from the DOM.
+  const hoverRafRef = useRef(null);
+  const handlePdfPointerMove = (event) => {
+    if (!canAnnotate || !showAnnotations || annotations.length === 0) {
+      if (annotationTooltip) setAnnotationTooltip(null);
+      return;
+    }
+    if (hoverRafRef.current) return;
+    const { clientX, clientY } = event;
+    hoverRafRef.current = requestAnimationFrame(() => {
+      hoverRafRef.current = null;
+      const found = annotationAtPoint(clientX, clientY);
+      if (found && (found.content || '').trim()) {
+        setAnnotationTooltip({ x: clientX, y: clientY, annotation: found });
+      } else {
+        setAnnotationTooltip((prev) => (prev ? null : prev));
+      }
+    });
+  };
+
+  useEffect(() => () => {
+    if (hoverRafRef.current) cancelAnimationFrame(hoverRafRef.current);
+  }, []);
+
+  const loadAnnotations = useCallback(async ({ markAsRendered = false } = {}) => {
+    if (!canAnnotate) {
+      setAnnotations([]);
+      setFreshAnnotationIds(new Set());
+      return;
+    }
+    try {
+      const res = await fetch(`/api/pdf/annotations?${annotationQuery()}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      const loaded = data.annotations || [];
+      setAnnotations(loaded);
+      // After a document (re)load, everything on disk is baked into the canvas.
+      if (markAsRendered) setFreshAnnotationIds(new Set());
+      setAnnotationError('');
+    } catch (err) {
+      // A PDF that cannot carry annotations is a normal thing to open; say so once
+      // and leave the rest of the viewer working.
+      setAnnotations([]);
+      setAnnotationError(String(err.message || err));
+    }
+  }, [canAnnotate, activeProject?.project_path, selectedFile]);
+
+  // Which bytes the viewer should render. Hiding annotations is a server-side
+  // strip rather than a client-side switch: pdf.js paints marks into the page
+  // canvas from their appearance streams and react-pdf hardcodes `annotationMode`
+  // to ENABLE, so nothing on this side can unpaint them. Stripping the bytes also
+  // hides annotation types this viewer does not draw itself — ink, stamps,
+  // polygons from other software — which an overlay-only approach would leave
+  // stuck on screen.
+  const renderedPdfUrl = (bust = Date.now()) => {
+    if (!canAnnotate || !directUrl) return directUrl;
+    if (!showAnnotations) {
+      return `/api/pdf/annotations/document?${annotationQuery()}&ts=${bust}`;
+    }
+    return `${directUrl}${directUrl.includes('?') ? '&' : '?'}annots=${bust}`;
+  };
+
+  // Refetch the rendered bytes so a change to an already-painted mark is visible.
+  // Only needed when the canvas is showing something stale — a brand new mark is
+  // covered by the overlay, which is instant and avoids the reload flash.
+  const reloadRenderedPdf = () => {
+    if (!directUrl) return;
+    if (containerRef.current) {
+      restoreScrollPosRef.current = containerRef.current.scrollTop;
+    }
+    isReloadingPdfRef.current = true;
+    setPdfUrl(renderedPdfUrl());
+  };
+
+  const createAnnotation = async ({ page, kind, rects, color, content = '' }) => {
+    try {
+      const res = await fetch('/api/pdf/annotations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectPath: activeProject?.project_path || '',
+          filePath: selectedFile || '',
+          page,
+          kind,
+          rects,
+          color,
+          content,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      const created = data.annotation;
+      setAnnotations((prev) => [...prev, created]);
+      // Not in the rendered bytes yet, so the overlay draws it until a reload.
+      setFreshAnnotationIds((prev) => new Set(prev).add(created.id));
+      setAnnotationError('');
+      window.getSelection?.()?.removeAllRanges();
+      return created;
+    } catch (err) {
+      setAnnotationError(String(err.message || err));
+      return null;
+    }
+  };
+
+  const handleAnnotateSelection = async (menu, kind, color) => {
+    const groups = menu.selectionRects || [];
+    if (groups.length === 0) {
+      // The menu only offers these actions when there is a selection, so an empty
+      // geometry means the capture failed rather than that the user chose nothing.
+      // Say so instead of doing nothing, which is indistinguishable from a bug.
+      setAnnotationError(t('pdfPreview.annotationSelectionLost', 'Could not read the selected area. Select the text again and retry.'));
+      return;
+    }
+    setAnnotationColor(color);
+    try {
+      localStorage.setItem('pdfAnnotationColor', color);
+    } catch {
+      // A browser refusing storage is not a reason to lose the mark.
+    }
+    // A selection crossing a page break becomes one annotation per page, since a
+    // PDF annotation belongs to a single page.
+    for (const group of groups) {
+      // Sequential on purpose: each write is an incremental save of the same file.
+      // eslint-disable-next-line no-await-in-loop
+      await createAnnotation({ page: group.page, kind, rects: group.rects, color });
+    }
+  };
+
+  // pdf.js builds its own popup for any markup annotation carrying text, but that
+  // popup is styled by pdf.js rather than the app, only exists for marks already
+  // in the loaded bytes (so a mark just created would behave differently), and for
+  // sticky notes it loads an icon from `imageResourcesPath`, which react-pdf does
+  // not configure — a broken image. The note marker and hover tooltip replace it,
+  // so markup annotations are kept out of the HTML layer. Links and form widgets
+  // stay: those are pdf.js behaviors worth having, and nothing here replaces them.
+  // This only filters the HTML layer; the canvas still paints every annotation.
+  const NATIVE_ANNOTATION_SUBTYPES = ['Link', 'Widget'];
+  const filterNativeAnnotations = useCallback(
+    ({ annotations: pageAnnotations }) => (
+      (pageAnnotations || []).filter((a) => NATIVE_ANNOTATION_SUBTYPES.includes(a.subtype))
+    ),
+    [],
+  );
+
+  const handleOpenNoteFromMarker = (annotation, event) => {
+    setAnnotationTooltip(null);
+    if (!annotation.editable) {
+      // A subtype this viewer cannot rewrite is readable, never editable.
+      setAnnotationError(t('pdfContextMenu.annotationNotEditable', 'This annotation was made by other software and cannot be edited here.'));
+      return;
+    }
+    setNotePopup({
+      x: event.clientX,
+      y: event.clientY,
+      value: annotation.content || '',
+      mode: 'edit',
+      annotationId: annotation.id,
+      title: t('pdfNote.editTitle', 'Edit note'),
+    });
+  };
+
+  // Persist a dragged marker. The mark itself is untouched: a highlight's quads
+  // say which words are highlighted, so moving them would re-target the annotation
+  // to different text. Only where the note sits changes.
+  const handleMoveNoteMarker = async (annotation, point) => {
+    setAnnotationTooltip(null);
+    // Optimistic, so the marker stays where it was dropped instead of snapping
+    // back while the write is in flight.
+    setAnnotations((prev) => prev.map((a) => (a.id === annotation.id ? { ...a, marker: point } : a)));
+    try {
+      const res = await fetch('/api/pdf/annotations/marker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectPath: activeProject?.project_path || '',
+          filePath: selectedFile || '',
+          id: annotation.id,
+          point,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      setAnnotations((prev) => prev.map((a) => (a.id === data.annotation.id ? data.annotation : a)));
+      setAnnotationError('');
+      // A sticky note's marker *is* its icon, and the canvas already painted that
+      // icon in the old spot, so the stale pixels have to be refetched. A markup
+      // mark's balloon is drawn by this overlay alone and needs no reload.
+      if (annotation.kind === 'note' && !freshAnnotationIds.has(annotation.id)) reloadRenderedPdf();
+    } catch (err) {
+      // Put it back where it was: pretending the move stuck would be a lie.
+      setAnnotations((prev) => prev.map((a) => (a.id === annotation.id ? annotation : a)));
+      setAnnotationError(String(err.message || err));
+    }
+  };
+
+  const handleOpenNote = (menu) => {
+    const target = menu.annotation;
+    if (target) {
+      setNotePopup({
+        x: menu.x,
+        y: menu.y,
+        value: target.content || '',
+        mode: 'edit',
+        annotationId: target.id,
+        title: t('pdfNote.editTitle', 'Edit note'),
+      });
+      return;
+    }
+    // A new sticky note is anchored where the user right-clicked.
+    const hit = pageAtPoint(menu.x, menu.y);
+    if (!hit) return;
+    const [nx, ny] = normalizePoint(menu.x, menu.y, hit.box);
+    setNotePopup({
+      x: menu.x,
+      y: menu.y,
+      value: '',
+      mode: 'create',
+      page: hit.page,
+      // The icon has a fixed size in every viewer; this is only its anchor.
+      rects: [[nx, ny, Math.min(1, nx + 0.03), Math.min(1, ny + 0.02)]],
+      title: t('pdfNote.addTitle', 'Add a note'),
+    });
+  };
+
+  const handleSaveNote = async (value) => {
+    if (!notePopup) return;
+    setNotePopup((prev) => (prev ? { ...prev, saving: true, error: '' } : prev));
+
+    if (notePopup.mode === 'create') {
+      const created = await createAnnotation({
+        page: notePopup.page,
+        kind: 'note',
+        rects: notePopup.rects,
+        color: annotationColor,
+        content: value,
+      });
+      setNotePopup(created ? null : (prev) => (prev ? { ...prev, saving: false, error: annotationError } : prev));
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/pdf/annotations/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectPath: activeProject?.project_path || '',
+          filePath: selectedFile || '',
+          id: notePopup.annotationId,
+          content: value,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      setAnnotations((prev) => prev.map((a) => (a.id === data.annotation.id ? data.annotation : a)));
+      setNotePopup(null);
+      setAnnotationError('');
+      // The note text lives in the mark's popup, which pdf.js renders from the
+      // file, so the canvas is now stale for an already-painted annotation.
+      if (!freshAnnotationIds.has(notePopup.annotationId)) reloadRenderedPdf();
+    } catch (err) {
+      setNotePopup((prev) => (prev ? { ...prev, saving: false, error: String(err.message || err) } : prev));
+    }
+  };
+
+  const handleRemoveAnnotation = async (menu) => {
+    const target = menu.annotation;
+    if (!target) return;
+    try {
+      const res = await fetch('/api/pdf/annotations/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectPath: activeProject?.project_path || '',
+          filePath: selectedFile || '',
+          id: target.id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      setAnnotations((prev) => prev.filter((a) => a.id !== target.id));
+      const wasFresh = freshAnnotationIds.has(target.id);
+      setFreshAnnotationIds((prev) => {
+        const next = new Set(prev);
+        next.delete(target.id);
+        return next;
+      });
+      setAnnotationError('');
+      // A mark the canvas already painted stays on screen until the bytes are
+      // refetched; one that only the overlay was drawing disappears on its own.
+      if (!wasFresh) reloadRenderedPdf();
+    } catch (err) {
+      setAnnotationError(String(err.message || err));
+    }
+  };
+
+  // Toggling annotation visibility swaps the bytes being rendered. Kept in its own
+  // effect rather than folded into the pdfUrl effect, which also resets the text
+  // cache, search results and navigation history — none of which the toggle should
+  // discard. The ref skips the initial run so mounting does not load twice.
+  const lastShowAnnotationsRef = useRef(showAnnotations);
+  useEffect(() => {
+    if (lastShowAnnotationsRef.current === showAnnotations) return;
+    lastShowAnnotationsRef.current = showAnnotations;
+    if (!canAnnotate) return;
+    if (containerRef.current) {
+      restoreScrollPosRef.current = containerRef.current.scrollTop;
+    }
+    isReloadingPdfRef.current = true;
+    setPdfUrl(renderedPdfUrl());
+  }, [showAnnotations, canAnnotate]);
+
+  // Restore the last highlighter color, so the choice carries across documents.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('pdfAnnotationColor');
+      if (saved && ANNOTATION_COLORS.includes(saved)) setAnnotationColor(saved);
+    } catch {
+      // Storage being unavailable just means the default color.
+    }
+  }, []);
+
+  const handlePdfContextMenu = (event) => {
+    event.preventDefault();
+    const pageEl = event.target?.closest?.('[data-page-number]');
+    const page = pageEl ? parseInt(pageEl.getAttribute('data-page-number'), 10) : currentPage;
+    setTranslation(null);
+    setNotePopup(null);
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      page: Number.isNaN(page) ? currentPage : page,
+      selectedText: readPdfSelection(),
+      // Captured here, not when the menu item is clicked: clicking an item (a
+      // color swatch especially, since a <button> takes focus) collapses the
+      // document selection, so reading it later finds nothing and the mark is
+      // never created. `selectedText` was always captured this way; the geometry
+      // has to be too.
+      selectionRects: canAnnotate ? readSelectionRectsByPage() : [],
+      annotation: canAnnotate ? annotationAtPoint(event.clientX, event.clientY) : null,
+    });
+  };
+
+  const handleAskAboutPdf = (menu) => {
+    if (!onAskAboutPdf) return;
+    onAskAboutPdf({
+      pdfPath: resolvePdfDocumentPath(),
+      sourceFile: selectedFile || '',
+      page: menu.page,
+      totalPages: numPages || 0,
+      selectedText: menu.selectedText || '',
+    });
+  };
+
+  const runTranslation = async (snippet, anchorPoint) => {
+    const requestId = translationRequestRef.current + 1;
+    translationRequestRef.current = requestId;
+
+    setTranslation({
+      x: anchorPoint.x,
+      y: anchorPoint.y,
+      sourceText: snippet,
+      status: 'loading',
+      targetLanguage: '',
+      translatedText: '',
+      error: '',
+    });
+
+    try {
+      // Read the configured target language at request time so a change in
+      // Settings takes effect without reopening the document.
+      const settings = await fetch('/api/settings/translation')
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      const targetLang = (settings?.translate_target_lang || '').trim() || i18n.language || 'en';
+
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: snippet,
+          target_lang: targetLang,
+          model: activeProject?.model || '',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (translationRequestRef.current !== requestId) return;
+      if (!res.ok) {
+        throw new Error(data.error || res.statusText || 'request failed');
+      }
+      setTranslation((prev) => (prev ? {
+        ...prev,
+        status: 'done',
+        targetLanguage: data.target_language || targetLang,
+        translatedText: data.translated_text || '',
+      } : prev));
+    } catch (err) {
+      if (translationRequestRef.current !== requestId) return;
+      setTranslation((prev) => (prev ? { ...prev, status: 'error', error: err.message } : prev));
+    }
+  };
+
+  const handleTranslateSelection = (menu) => {
+    const snippet = (menu.selectedText || '').trim();
+    if (!snippet) return;
+    runTranslation(snippet, { x: menu.x, y: menu.y });
+  };
+
+  const handleRetryTranslation = () => {
+    if (!translation?.sourceText) return;
+    runTranslation(translation.sourceText, { x: translation.x, y: translation.y });
+  };
+
+  const handleCopyTranslation = (text) => {
+    if (!text) return;
+    Promise.resolve(navigator.clipboard?.writeText?.(text)).catch(() => {});
   };
 
   const handleZoomIn = () => {
@@ -489,6 +1061,9 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
       updateCurrentPageFromScroll();
       if (onDocumentReady) onDocumentReady();
     }, 150);
+    // Everything the file holds is now painted into the canvas, so the overlay
+    // starts empty and only picks up marks made from here on.
+    loadAnnotations({ markAsRendered: true });
   }
   
   const scrollToPosition = (page, x, y, w, h, attempt = 0, rememberPosition = true) => {
@@ -1062,6 +1637,9 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         ref={containerRef}
         onScroll={handleScroll}
         onPointerDownCapture={handlePdfPointerDownCapture}
+        onContextMenu={handlePdfContextMenu}
+        onPointerMove={handlePdfPointerMove}
+        onPointerLeave={() => setAnnotationTooltip(null)}
         style={{ background: 'var(--pdf-viewer-bg, var(--vscode-editor-bg))' }}
       >
         {pdfUrl && (
@@ -1102,6 +1680,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
                   pageNumber={index + 1}
                   renderTextLayer={true}
                   renderAnnotationLayer={showAnnotations}
+                  filterAnnotations={filterNativeAnnotations}
                   scale={scale}
                 />
                 {/* Bounding-box search highlight overlay — drawn above the canvas,
@@ -1116,6 +1695,19 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
                   />
                 )}
                 
+                {/* Annotations the loaded bytes do not carry yet. Everything
+                    already in the file is painted by pdf.js from its appearance
+                    stream, so this layer stays empty until the user marks
+                    something. */}
+                {canAnnotate && showAnnotations && (
+                  <PdfAnnotationLayer
+                    annotations={annotations.filter((a) => a.page === index + 1)}
+                    pendingIds={freshAnnotationIds}
+                    onOpenNote={handleOpenNoteFromMarker}
+                    onMoveNote={handleMoveNoteMarker}
+                  />
+                )}
+
                 {/* Visual Highlight for Forward Search */}
                 {highlight && highlight.page === index + 1 && (
                   <div 
@@ -1140,6 +1732,59 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
           </Document>
         )}
       </div>
+
+      <PdfContextMenu
+        menu={contextMenu}
+        onClose={() => setContextMenu(null)}
+        onAskAbout={handleAskAboutPdf}
+        onTranslate={handleTranslateSelection}
+        canAsk={Boolean(onAskAboutPdf)}
+        canAnnotate={canAnnotate && showAnnotations}
+        annotationColor={annotationColor}
+        onAnnotate={handleAnnotateSelection}
+        onEditNote={handleOpenNote}
+        onRemoveAnnotation={handleRemoveAnnotation}
+      />
+
+      {/* Hover reading. The note editor takes over on click, so this stays a
+          read-only glance and never steals focus. */}
+      {annotationTooltip && !notePopup && (
+        <div
+          className="pdf-annotation-tooltip"
+          role="tooltip"
+          style={{
+            left: `${Math.min(annotationTooltip.x + 14, window.innerWidth - 300)}px`,
+            top: `${annotationTooltip.y + 16}px`,
+          }}
+        >
+          {annotationTooltip.annotation.author && (
+            <div className="pdf-annotation-tooltip-author">{annotationTooltip.annotation.author}</div>
+          )}
+          <div className="pdf-annotation-tooltip-body">{annotationTooltip.annotation.content}</div>
+        </div>
+      )}
+
+      <PdfNotePopup
+        state={notePopup}
+        onSave={handleSaveNote}
+        onCancel={() => setNotePopup(null)}
+      />
+
+      {canAnnotate && annotationError && (
+        <div className="pdf-annotation-error" role="status">
+          <span>{annotationError}</span>
+          <button type="button" onClick={() => setAnnotationError('')} aria-label={t('pdfNote.dismiss', 'Dismiss')}>
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
+      <PdfTranslationPopup
+        state={translation}
+        onClose={() => { translationRequestRef.current += 1; setTranslation(null); }}
+        onRetry={handleRetryTranslation}
+        onCopy={handleCopyTranslation}
+      />
     </div>
   );
 });

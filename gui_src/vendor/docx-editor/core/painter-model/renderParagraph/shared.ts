@@ -10,6 +10,7 @@ import type {
   ImageRun,
   LineBreakRun,
   FieldRun,
+  MathRun,
 } from '../../pagination-model/types';
 export {
   getImagePaintGeometry,
@@ -28,6 +29,7 @@ export const PARAGRAPH_CLASS_NAMES = {
   text: 'layout-run-text',
   tab: 'layout-run-tab',
   image: 'layout-run-image',
+  math: 'layout-run-math',
   imageWrapper: 'layout-run-image-wrapper',
   lineBreak: 'layout-run-linebreak',
 };
@@ -50,4 +52,8 @@ export function isLineBreakRun(run: Run): run is LineBreakRun {
 
 export function isFieldRun(run: Run): run is FieldRun {
   return run.kind === 'field';
+}
+
+export function isMathRun(run: Run): run is MathRun {
+  return run.kind === 'math';
 }

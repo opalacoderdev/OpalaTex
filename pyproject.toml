@@ -39,6 +39,11 @@ dependencies = [
     "python-docx>=1.1.2",
     "python-pptx>=0.6.23",
     "openpyxl>=3.1.0",
+    # Reads and writes PDF annotations for the standalone PDF viewer
+    # (opalatex/pdf_annotations.py). Pinned explicitly rather than relied on
+    # through pymupdf4llm: a user-facing feature should not hang off another
+    # package's transitive dependency.
+    "pymupdf>=1.24.0",
     "pymupdf4llm>=0.0.17",
     "duckduckgo-search>=6.4.0",
     "pytest-asyncio>=0.23.0",

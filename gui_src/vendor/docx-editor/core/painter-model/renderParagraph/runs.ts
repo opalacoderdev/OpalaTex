@@ -15,6 +15,7 @@ import type {
   ImageRun,
   LineBreakRun,
   FieldRun,
+  MathRun,
 } from '../../pagination-model/types';
 import type { RenderContext } from '../paintPage';
 import { isFloatingImageRun } from '../floatingImageFlow';
@@ -28,6 +29,7 @@ import { sanitizeHref } from '../../utils/sanitizeHref';
 import { sanitizeImageSrc } from '../../utils/sanitizeImageSrc';
 import { measureTextWidth, resolveFontStyle } from '../../flow-model/metrics/textMetrics';
 import { underlineStyleToCss } from '../../utils/underlineStyle';
+import { sanitizeMathml } from '../../utils/sanitizeMathml';
 import {
   PARAGRAPH_CLASS_NAMES,
   getImagePaintGeometry,
@@ -36,6 +38,7 @@ import {
   isImageRun,
   isLineBreakRun,
   isFieldRun,
+  isMathRun,
 } from './shared';
 
 /**
@@ -644,6 +647,42 @@ function applyImageRevisionStyle(el: HTMLElement, run: ImageRun): void {
 }
 
 /**
+ * Render an equation.
+ *
+ * The MathML goes in as markup because there is no other way to build MathML
+ * from a string, so it is sanitized on the way in. The box was measured in the
+ * same way it is painted here — plain inline MathML at the run's font size —
+ * so the width the line breaker reserved is the width this paints at.
+ *
+ * With no MathML (an equation whose OMML could not be converted) the run falls
+ * back to the plain-text form Word stores alongside it, which is what the
+ * editor showed for every equation before it could render them.
+ */
+export function paintMathRun(run: MathRun, doc: Document): HTMLElement {
+  const span = doc.createElement('span');
+  span.className = `${PARAGRAPH_CLASS_NAMES.run} ${PARAGRAPH_CLASS_NAMES.math}`;
+  span.dataset.mathDisplay = run.display;
+
+  // Always explicit, never inherited: `fontSizePx` is the size the box was
+  // measured at, and painting at any other size overflows the space the line
+  // reserved — which is how an equation ends up on top of the next paragraph.
+  span.style.fontSize = `${run.fontSizePx > 0 ? run.fontSizePx : (run.fontSize ?? 11) * (96 / 72)}px`;
+  if (run.color) span.style.color = run.color;
+
+  const mathml = sanitizeMathml(run.mathml);
+  if (mathml) {
+    span.innerHTML = mathml;
+  } else {
+    span.textContent = run.plainText || '[equation]';
+    span.style.fontFamily = 'Cambria Math, serif';
+    span.style.fontStyle = 'italic';
+  }
+
+  applyPmPositions(span, run.docFrom, run.docTo);
+  return span;
+}
+
+/**
  * Render a line break run
  */
 export function paintLineBreakRun(run: LineBreakRun, doc: Document): HTMLElement {
@@ -711,6 +750,9 @@ export function paintRun(run: Run, doc: Document, context?: RenderContext): HTML
   }
   if (isFieldRun(run) && context) {
     return paintFieldRun(run, doc, context);
+  }
+  if (isMathRun(run)) {
+    return paintMathRun(run, doc);
   }
 
   // Fallback for unknown run types

@@ -1337,3 +1337,52 @@
   outline-offset: 1px;
   opacity: 0.6;
 }
+
+
+/* ---------------------------------------------------------------------------
+ * Equations
+ *
+ * An equation paints as native MathML inside a positioned run span. The math
+ * font must carry an OpenType MATH table or the browser cannot build stretchy
+ * fences (a radical over a fraction, the brace of a piecewise definition), so
+ * the stack names one before falling back to a plain serif.
+ * ------------------------------------------------------------------------ */
+.layout-run-math {
+  white-space: nowrap;
+  cursor: pointer;
+  /* The line sets its own `line-height` to the height it measured, and a run
+   * span inheriting that gets a line box taller than the equation — which
+   * shifts the equation off the baseline the line was built around. The span
+   * has to hug its content. */
+  line-height: normal;
+}
+
+.layout-run-math math {
+  font-family: 'STIX Two Math', 'Cambria Math', 'Latin Modern Math', serif;
+  font-size: inherit;
+  /* `math[display=block]` is block-level by UA rule, which cannot live inside an
+   * inline run: it drops out of the line's inline formatting context, so the
+   * line box measures it as zero-width and the baseline strut lands on the
+   * wrong line. The line-level flex in `renderParagraph/line.ts` is what
+   * centers a display equation; the element itself stays inline. */
+  display: inline math;
+  margin: 0;
+}
+
+/* What `display=block` should actually change is the math style, not the box:
+ * displaystyle gives the large n-ary operators with limits above and below,
+ * which is how Word renders a displayed equation. */
+.layout-run-math[data-math-display='block'] math {
+  math-style: normal;
+}
+
+/* The equation the editor is open on, and the hover that advertises it. */
+.layout-run-math:hover {
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 2px;
+}
+
+.layout-run-math.docx-math-editing {
+  background: rgba(59, 130, 246, 0.16);
+  border-radius: 2px;
+}

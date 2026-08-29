@@ -17,7 +17,11 @@ import { DecorationLayer } from './overlays/DecorationLayer';
 import type { ScrollToParaIdOptions } from '@docx-editor.dev/core/utils';
 
 // Layout bridge
-import { DEFAULT_PAGE_HEIGHT_PX, getVisualScrollHeight } from '@docx-editor.dev/core/flow-model';
+import {
+  DEFAULT_PAGE_HEIGHT_PX,
+  getVisualScrollHeight,
+  onMathFontReady,
+} from '@docx-editor.dev/core/flow-model';
 
 // Visual line navigation hook
 import { useVisualLineNavigation } from '../../hooks/useVisualLineNavigation';
@@ -748,6 +752,20 @@ const PagedEditorComponent = forwardRef<PagedEditorRef, PagedEditorProps>(
       },
       [readOnly]
     );
+
+    // Equations are measured against the math font, which the host application
+    // loads with `font-display: swap`. A document opened before that font
+    // arrives measures its equations against a fallback face — which is 45%
+    // shorter for a displayed equation — and the painted equation then hangs
+    // over the paragraph below. The measurement code refuses to memoize such a
+    // box and signals here once the real font lands, so the layout runs again
+    // with the right one.
+    useEffect(() => {
+      return onMathFontReady(() => {
+        const state = hiddenPMRef.current?.getState();
+        if (state) runLayoutPipeline(state);
+      });
+    }, [runLayoutPipeline]);
 
     // =========================================================================
     // Initial Layout

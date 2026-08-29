@@ -229,6 +229,9 @@ function runKey(run: Run): string {
       return `f:${run.fieldType}:${run.fallback}:${fontKey(run)}`;
     case 'lineBreak':
       return 'n';
+    case 'math':
+      // The MathML is the equation's identity; the box is what layout uses.
+      return `m:${round(run.width)}x${round(run.height)}:${run.mathml}`;
     case 'image':
       return [
         'i',

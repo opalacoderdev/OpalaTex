@@ -332,11 +332,49 @@ export interface ImageRun extends DocRange, TrackedChangeMetadata {
 }
 
 /**
+ * An equation in the inline stream.
+ *
+ * The document model keeps the equation as OMML (that is what the .docx holds);
+ * the layout carries the MathML the painter renders natively, plus the box that
+ * MathML measured to. `plainText` is the fallback the painter shows when the
+ * equation cannot be rendered — never the primary representation.
+ *
+ * @public
+ */
+export interface MathRun extends RunFormatting, DocRange {
+  kind: 'math';
+  /** MathML converted from the document's OMML. */
+  mathml: string;
+  /** Accessible/fallback text, from the OMML's `m:t` literals. */
+  plainText: string;
+  /** `block` is Word's `m:oMathPara` — a displayed equation. */
+  display: 'inline' | 'block';
+  /**
+   * `m:oMathParaPr/m:jc` for a displayed equation. Word centers one by default,
+   * which is a paragraph-level decision MathML cannot carry.
+   */
+  justification?: 'left' | 'center' | 'right' | 'centerGroup';
+  /** Measured px extents of the rendered equation. */
+  width: number;
+  height: number;
+  /** Px from the box top to the text baseline it sits on. */
+  ascent: number;
+  /** Px below the baseline. */
+  descent: number;
+  /**
+   * The px font size the box was measured at. The painter applies exactly this
+   * — inheriting instead would let the painted equation come out at a different
+   * size from the one the line reserved space for.
+   */
+  fontSizePx: number;
+}
+
+/**
  * Any inline run.
  *
  * @public
  */
-export type Run = TextRun | TabRun | LineBreakRun | FieldRun | ImageRun;
+export type Run = TextRun | TabRun | LineBreakRun | FieldRun | ImageRun | MathRun;
 
 // ============================================================================
 // Content nodes — the document, geometry-free

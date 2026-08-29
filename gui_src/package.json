@@ -5,15 +5,17 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "predev": "npm run build:docx-css",
+    "predev": "npm run build:docx-css && npm run copy:mathlive-fonts",
     "dev": "vite",
-    "prebuild": "npm run build:docx-css",
+    "prebuild": "npm run build:docx-css && npm run copy:mathlive-fonts",
     "build:docx-css": "node scripts/build-docx-css.mjs",
     "build": "vite build",
     "test:wysiwyg": "node --test src/wysiwyg/__tests__/*.test.js src/utils/__tests__/*.test.js",
     "preview": "vite preview",
     "server": "node server.js",
-    "start": "node start.js"
+    "start": "node start.js",
+    "test:math": "vitest run --config vitest.docx-math.config.js",
+    "copy:mathlive-fonts": "node scripts/copy-mathlive-fonts.mjs"
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.2.6",
@@ -35,6 +37,7 @@
     "jszip": "^3.10.1",
     "katex": "^0.18.1",
     "lucide-react": "^0.378.0",
+    "mathlive": "^0.110.0",
     "mermaid": "^11.16.0",
     "mtx-decompressor": "^1.4.2",
     "pizzip": "^3.1.7",
@@ -70,9 +73,11 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react-swc": "^4.3.1",
+    "jsdom": "^30.0.1",
     "tailwindcss": "^3.4.19",
     "tailwindcss-animate": "^1.0.7",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^3.2.7"
   },
   "overrides": {
     "dompurify": "^3.4.12",

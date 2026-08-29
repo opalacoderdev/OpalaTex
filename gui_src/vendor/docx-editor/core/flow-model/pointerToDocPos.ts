@@ -381,6 +381,7 @@ function advanceWithin(
 
   if (run.kind === 'lineBreak') return 0;
   if (run.kind === 'image') return run.width;
+  if (run.kind === 'math') return run.width;
 
   if (run.kind === 'text') {
     const style = resolveFontStyle(run, documentDefaults(node));
