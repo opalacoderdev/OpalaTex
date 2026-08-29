@@ -2128,7 +2128,8 @@ def _truncate_to_context_budget(text: str, reserve_pct: int = 50) -> str:
     is_safe=True,
     description=(
         "Search the web for current information, documentation, news, or any topic. "
-        "Use this when you need information that may be recent, external, or not in your training data. "
+        "Use this when you need information that may be recent, external, or not in your training data, "
+        "including any term, concept or acronym you do not confidently recognize or that may be misspelled. "
         "Returns a list of results with titles, URLs and snippets. "
         "Requires web search to be enabled in OpalaTex settings."
     ),

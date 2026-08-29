@@ -183,6 +183,24 @@ def test_current_date_instruction_formats_english_date():
     assert "web_search" in instruction
 
 
+def test_current_date_instruction_triggers_on_epistemic_uncertainty():
+    """Unknown/misspelled terminology must trigger a search, not a guess or a refusal.
+
+    Small models were reading the old time-sensitivity-only wording as permission to
+    answer an unfamiliar concept from memory (e.g. "Random Destilation Network").
+    """
+    instruction = _current_date_instruction()
+    assert "not confidently recognize" in instruction
+    assert "misspelled" in instruction
+    assert "no information about a" in instruction
+
+
+def test_current_date_instruction_keeps_web_search_scoped():
+    instruction = _current_date_instruction()
+    assert "public/external knowledge only" in instruction
+    assert "ask_question" in instruction
+
+
 def test_build_chat_orchestrator_uses_light_prompt_profile_for_light_model(tmp_path, monkeypatch):
     """A model catalog entry with prompt_profile="light" must render the
     condensed chat-orchestrator body/mode-instructions, not the full ones."""

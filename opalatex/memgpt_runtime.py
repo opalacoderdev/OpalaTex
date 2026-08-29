@@ -308,12 +308,25 @@ def _current_date_instruction(now: datetime | None = None) -> str:
     today = now or datetime.now()
     date_text = f"{today.strftime('%B')} {today.day}, {today.year}"
     return (
-        f"Today is {date_text}. For any user request involving recent events, "
-        "current facts, latest/last occurrences, schedules, public facts that may "
-        "have changed, or dates that could be after your training data, you MUST "
-        "use the web_search tool before answering, refusing, or delegating. Never "
-        "claim that a current or future-dated event did not happen without first "
-        "checking the web."
+        f"Today is {date_text}.\n"
+        "TOOL USE - web_search: whenever ANY of the conditions below holds, you MUST "
+        "use the web_search tool before answering, refusing, or delegating.\n"
+        "1. Unknown or low-confidence terms: the request names a concept, entity, "
+        "algorithm, framework, acronym, paper, product, or piece of jargon that you do "
+        "not confidently recognize, or that looks misspelled or non-standard. Search it, "
+        "including the likely corrected spelling.\n"
+        "2. Time-sensitive facts: recent events, current facts, latest/last occurrences, "
+        "schedules, releases, versions, public facts that may have changed, or dates that "
+        "could be after your training data.\n"
+        "3. Verification: precise external data you cannot recall exactly, such as API or "
+        "library behavior, benchmark numbers, paper or documentation details, and quotes.\n"
+        "Never guess, never invent, and never answer that you have no information about a "
+        "topic because it is missing from your training data without searching first. Never "
+        "claim that a current, recent, or future-dated event did not happen without first "
+        "checking the web.\n"
+        "Scope: search public/external knowledge only. Questions about this workspace go to "
+        "the project read tools, and anything that depends on the user's preference goes to "
+        "ask_question. Stop at the first results good enough to answer."
     )
 
 
@@ -1061,11 +1074,11 @@ def _chat_orchestrator_body(project_path: str, profile: str = "full", policy: st
         )
     return (
         "Execute actions only through native tool calls.\n"
-        "1. The runtime prepends today's date to this prompt. If the user asks for recent, latest, current, future-dated, or otherwise time-sensitive information, you MUST use web_search before answering, refusing, or delegating. You MUST NOT hallucinate dates or assume something did not happen without first searching the web.\n"
+        "1. The runtime prepends today's date to this prompt. You MUST use web_search before answering, refusing, or delegating whenever (a) the request is time-sensitive (recent, latest, current, future-dated), (b) it names a concept, entity, acronym, paper or product you do not confidently recognize or that looks misspelled, or (c) it needs exact external data you cannot recall verbatim. You MUST NOT hallucinate dates or assume something did not happen without first searching the web.\n"
         "2. Return the final user-facing answer as normal text. JSON and Markdown in text are answers, never tool calls; use native tool calls only when executing an action.\n"
         + tools_rule +
-        "4. If the user asks for something that you don't know, you can use web_search to find relevant information. If the user asks for something in the project, you can use get_project_overview to explore the project structure and read_file to read files.\n"
-        "5. Whenever the user asks a question involving dates, time, recent events, latest events, sports, news, public figures, APIs, or potentially anachronistic information, you must search the web for updated information.\n"
+        "4. If the user asks about something you do not know, search for it with web_search instead of guessing or replying that you have no information about it - a term missing from your training data is a reason to search, not a reason to refuse. If the user asks for something in the project, use get_project_overview to explore the project structure and read_file to read files.\n"
+        "5. Whenever the user asks a question involving dates, time, recent events, latest events, sports, news, public figures, APIs, niche terminology, or potentially anachronistic information, you must search the web for updated information. Search public/external knowledge only: workspace questions go to the project read tools, and anything depending on the user's preference goes to ask_question.\n"
         "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', 'edit_file', or 'run_cmd'. "
         + (
             "To list, search or read directly, use get_project_overview, search_code, read_file or read_content_pos; every edit goes to a worker.\n"
