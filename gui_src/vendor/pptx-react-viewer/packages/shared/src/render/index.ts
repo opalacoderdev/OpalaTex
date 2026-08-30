@@ -592,6 +592,14 @@ export * from './text-3d-presets';
 // string codec (binary-safe) for round-tripping elements through the system
 // clipboard. Each binding's cut/copy/paste handlers are thin wrappers on this.
 export * from './element-clipboard';
+// System clipboard bridge: carries the element-clipboard payload through the
+// OS clipboard inside the `text/html` flavour, and converts foreign clipboard
+// content (an image or text copied from another application) into elements.
+export * from './system-clipboard';
+// Text-body vs run/paragraph scope of a TextStyle patch: `a:bodyPr` keys (the
+// vertical anchor, insets, columns) belong to the shape, not to a range of
+// text, so a binding applying a patch to a selection must not route them there.
+export * from './text-body-style';
 export * from './template-editing';
 // Insert > Shape picker catalogue: preset geometry types + labels/i18n keys +
 // framework-neutral glyph descriptors; each binding maps glyphs to its icons.

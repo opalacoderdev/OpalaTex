@@ -1,8 +1,26 @@
-import type { TablePptxElement } from 'pptx-viewer-core';
+import type { TablePptxElement, TextStyle } from 'pptx-viewer-core';
+import { hasTextProperties } from 'pptx-viewer-core';
 import type React from 'react';
 import { useTranslation } from 'react-i18next';
 
+import type { ElementContextMenuAction } from '../types';
 import type { ContextMenuProps } from './context-menu-types';
+
+/**
+ * The "Align Text" entries, mirroring PowerPoint's right-click submenu. Only
+ * the vertical anchor is offered here: horizontal alignment is per-paragraph
+ * and belongs with the paragraph controls on the ribbon, while the anchor is a
+ * property of the shape the user just right-clicked.
+ */
+const ALIGN_TEXT_ITEMS: Array<{
+	action: ElementContextMenuAction;
+	value: NonNullable<TextStyle['vAlign']>;
+	labelKey: string;
+}> = [
+	{ action: 'alignTextTop', value: 'top', labelKey: 'pptx.ribbon.alignTextTop' },
+	{ action: 'alignTextMiddle', value: 'middle', labelKey: 'pptx.ribbon.alignTextMiddle' },
+	{ action: 'alignTextBottom', value: 'bottom', labelKey: 'pptx.ribbon.alignTextBottom' },
+];
 
 export function ContextMenu({
 	contextMenuState,
@@ -23,8 +41,53 @@ export function ContextMenu({
 }: ContextMenuProps): React.ReactElement | null {
 	const { t } = useTranslation();
 
+	/**
+	 * Every entry closes the menu once its action has been dispatched. An entry
+	 * whose action leaves no mark on the slide — copy above all — otherwise reads
+	 * as a dead click, since the menu staying open is the only thing the user can
+	 * see, and it then covers the element the next action would apply to.
+	 */
+	const runAction = (action: ElementContextMenuAction) => {
+		onAction(action);
+		onClose();
+	};
+
 	if (!contextMenuState || mode !== 'edit') {
 		return null;
+	}
+
+	// Right-click on the empty slide background: every other entry acts on an
+	// element, so the menu narrows to the one action that does not need one.
+	if (contextMenuState.elementId === null) {
+		return (
+			<>
+				{/* Invisible backdrop to close menu on outside click */}
+				<div
+					className='fixed inset-0 z-[119]'
+					onClick={onClose}
+					onContextMenu={(e) => {
+						e.preventDefault();
+						onClose();
+					}}
+				/>
+				<div
+					data-pptx-context-menu='true'
+					className='fixed z-[120] min-w-[180px] rounded border border-border bg-popover shadow-2xl py-1.5 text-xs text-foreground'
+					style={{
+						left: Math.max(contextMenuState.x, 8),
+						top: Math.max(contextMenuState.y, 8),
+					}}
+				>
+					<button
+						type='button'
+						className='w-full px-3 py-1.5 text-left hover:bg-muted'
+						onClick={() => runAction('paste')}
+					>
+						{t('pptx.contextMenu.paste')}
+					</button>
+				</div>
+			</>
+		);
 	}
 
 	const isTable = selectedElement?.type === 'table' && tableEditorState !== null;
@@ -74,28 +137,28 @@ export function ContextMenu({
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left hover:bg-muted'
-					onClick={() => onAction('copy')}
+					onClick={() => runAction('copy')}
 				>
 					{t('pptx.contextMenu.copy')}
 				</button>
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left hover:bg-muted'
-					onClick={() => onAction('cut')}
+					onClick={() => runAction('cut')}
 				>
 					{t('pptx.contextMenu.cut')}
 				</button>
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left hover:bg-muted'
-					onClick={() => onAction('paste')}
+					onClick={() => runAction('paste')}
 				>
 					{t('pptx.contextMenu.paste')}
 				</button>
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left hover:bg-muted'
-					onClick={() => onAction('duplicate')}
+					onClick={() => runAction('duplicate')}
 				>
 					{t('pptx.contextMenu.duplicate')}
 				</button>
@@ -103,46 +166,65 @@ export function ContextMenu({
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left hover:bg-muted'
-					onClick={() => onAction('bring-forward')}
+					onClick={() => runAction('bring-forward')}
 				>
 					{t('pptx.contextMenu.bringForward')}
 				</button>
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left hover:bg-muted'
-					onClick={() => onAction('send-backward')}
+					onClick={() => runAction('send-backward')}
 				>
 					{t('pptx.contextMenu.sendBackward')}
 				</button>
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left hover:bg-muted'
-					onClick={() => onAction('bring-front')}
+					onClick={() => runAction('bring-front')}
 				>
 					{t('pptx.contextMenu.bringToFront')}
 				</button>
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left hover:bg-muted'
-					onClick={() => onAction('send-back')}
+					onClick={() => runAction('send-back')}
 				>
 					{t('pptx.contextMenu.sendToBack')}
 				</button>
 				<div className='my-1 border-t border-border' />
+				{selectedElement && hasTextProperties(selectedElement) && (
+					<>
+						<div className='my-1 border-t border-border' />
+						<div className='px-3 py-1 text-[10px] uppercase tracking-wide text-muted-foreground'>
+							{t('pptx.contextMenu.alignText')}
+						</div>
+						{ALIGN_TEXT_ITEMS.map((item) => (
+							<button
+								key={item.action}
+								type='button'
+								className='w-full px-3 py-1.5 text-left hover:bg-muted flex items-center justify-between gap-3'
+								onClick={() => runAction(item.action)}
+							>
+								<span>{t(item.labelKey)}</span>
+								{(selectedElement?.textStyle?.vAlign ?? 'top') === item.value && (
+									<span aria-hidden='true'>✓</span>
+								)}
+							</button>
+						))}
+						<div className='my-1 border-t border-border' />
+					</>
+				)}
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left hover:bg-muted'
-					onClick={() => onAction('comment')}
+					onClick={() => runAction('comment')}
 				>
 					{t('pptx.contextMenu.addComment')}
 				</button>
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left hover:bg-muted'
-					onClick={() => {
-						onAction('editHyperlink');
-						onClose();
-					}}
+					onClick={() => runAction('editHyperlink')}
 				>
 					{t('pptx.contextMenu.editHyperlink')}
 				</button>
@@ -266,10 +348,7 @@ export function ContextMenu({
 					<button
 						type='button'
 						className='w-full px-3 py-1.5 text-left hover:bg-muted'
-						onClick={() => {
-							onAction('group');
-							onClose();
-						}}
+						onClick={() => runAction('group')}
 					>
 						{t('pptx.contextMenu.group')}
 					</button>
@@ -278,10 +357,7 @@ export function ContextMenu({
 					<button
 						type='button'
 						className='w-full px-3 py-1.5 text-left hover:bg-muted'
-						onClick={() => {
-							onAction('ungroup');
-							onClose();
-						}}
+						onClick={() => runAction('ungroup')}
 					>
 						{t('pptx.contextMenu.ungroup')}
 					</button>
@@ -289,7 +365,7 @@ export function ContextMenu({
 				<button
 					type='button'
 					className='w-full px-3 py-1.5 text-left text-red-300 hover:bg-red-900/40'
-					onClick={() => onAction('delete')}
+					onClick={() => runAction('delete')}
 				>
 					{t('pptx.contextMenu.delete')}
 				</button>

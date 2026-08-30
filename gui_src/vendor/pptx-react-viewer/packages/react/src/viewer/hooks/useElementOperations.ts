@@ -1,5 +1,6 @@
 import { hasShapeProperties, hasTextProperties } from 'pptx-viewer-core';
 import type { PptxElement, PptxSlide, ShapeStyle, TextStyle } from 'pptx-viewer-core';
+import { splitTextBodyStyle } from 'pptx-viewer-shared';
 /**
  * useElementOperations: Element update callbacks for PowerPointViewer.
  *
@@ -172,29 +173,49 @@ export function useElementOperations(input: UseElementOperationsInput): ElementO
 				return;
 			}
 
+			// `a:bodyPr` keys (vertical anchor, insets, columns, text direction)
+			// describe the shape's whole text body; writing them into a selected
+			// run is a silent no-op, since the save path reads them from
+			// `textStyle` only. They therefore skip the selection branch below
+			// and always land on the element.
+			const { body: bodyStyle, run: runStyle } = splitTextBodyStyle(updates);
+
 			// Check if there's an active text selection in the inline editor
 			const inlineSel = getInlineEditorSelection(selectedElement.textSegments);
 			if (inlineSel && selectedElement.textSegments) {
-				// Apply formatting only to the selected segment range
-				const { newSegments, newSelection } = applyStyleToSelectedSegments(
-					selectedElement.textSegments,
-					inlineSel,
-					updates,
-				);
-				// Store restore info so InlineTextEditor can restore the cursor
-				setPendingSelectionRestore(newSelection);
-				updateSelectedElement({
-					textSegments: newSegments,
-				} as Partial<PptxElement>);
+				const elementUpdates: Partial<PptxElement> = {};
+				if (Object.keys(runStyle).length > 0) {
+					// Apply run/paragraph formatting only to the selected segment range
+					const { newSegments, newSelection } = applyStyleToSelectedSegments(
+						selectedElement.textSegments,
+						inlineSel,
+						runStyle,
+					);
+					// Store restore info so InlineTextEditor can restore the cursor
+					setPendingSelectionRestore(newSelection);
+					(elementUpdates as { textSegments?: unknown }).textSegments = newSegments;
+				}
+				if (Object.keys(bodyStyle).length > 0) {
+					(elementUpdates as { textStyle?: unknown }).textStyle = {
+						...selectedElement.textStyle,
+						...bodyStyle,
+					};
+				}
+				if (Object.keys(elementUpdates).length > 0) {
+					updateSelectedElement(elementUpdates);
+				}
 				return;
 			}
 
 			// No inline selection: apply to the entire element (existing behavior)
 			const newTextStyle = { ...selectedElement.textStyle, ...updates };
-			const newSegments = selectedElement.textSegments?.map((seg: { style: TextStyle }) => ({
-				...seg,
-				style: { ...seg.style, ...updates },
-			}));
+			const newSegments =
+				Object.keys(runStyle).length > 0
+					? selectedElement.textSegments?.map((seg: { style: TextStyle }) => ({
+							...seg,
+							style: { ...seg.style, ...runStyle },
+						}))
+					: selectedElement.textSegments;
 			updateSelectedElement({
 				textStyle: newTextStyle,
 				textSegments: newSegments,

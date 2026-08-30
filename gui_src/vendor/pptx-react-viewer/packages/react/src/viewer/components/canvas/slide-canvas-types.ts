@@ -59,7 +59,7 @@ export interface SlideCanvasProps {
 	onClick: (elementId: string, e: React.MouseEvent) => void;
 	onDoubleClick: (elementId: string, e: React.MouseEvent) => void;
 	onMouseDown: (elementId: string, e: React.MouseEvent) => void;
-	onContextMenu: (elementId: string, e: React.MouseEvent) => void;
+	onContextMenu: (elementId: string | null, e: React.MouseEvent) => void;
 	onCanvasMouseDown?: (e: React.MouseEvent) => void;
 	onResizePointerDown: (elementId: string, e: React.MouseEvent, handle: string) => void;
 	onAdjustmentPointerDown: (elementId: string, e: React.MouseEvent) => void;

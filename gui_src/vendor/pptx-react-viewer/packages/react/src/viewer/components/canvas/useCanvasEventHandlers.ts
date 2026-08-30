@@ -92,7 +92,7 @@ export function useCanvasEventHandlers({
 			onClick: (elementId: string, e: React.MouseEvent) => void;
 			onDoubleClick: (elementId: string, e: React.MouseEvent) => void;
 			onMouseDown: (elementId: string, e: React.MouseEvent) => void;
-			onContextMenu: (elementId: string, e: React.MouseEvent) => void;
+			onContextMenu: (elementId: string | null, e: React.MouseEvent) => void;
 		};
 	};
 	onCanvasMouseDown?: (e: React.MouseEvent) => void;
@@ -235,10 +235,9 @@ export function useCanvasEventHandlers({
 
 	const handleStageContextMenu = useCallback(
 		(e: React.MouseEvent) => {
-			const id = getElementIdFromEvent(e);
-			if (id) {
-				cbRef.current.onContextMenu(id, e);
-			}
+			// A null id means the right-click landed on the slide background rather
+			// than on an element; the menu still opens, with slide-level actions.
+			cbRef.current.onContextMenu(getElementIdFromEvent(e), e);
 		},
 		[cbRef],
 	);

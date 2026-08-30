@@ -104,6 +104,25 @@ vi.mock<typeof import('react-i18next')>(import('react-i18next'), () => ({
 				'pptx.ribbon.tab.review': 'Review',
 				'pptx.ribbon.tab.view': 'View',
 				'pptx.ribbon.tab.help': 'Help',
+				// Ribbon group captions
+				'pptx.ribbon.group.font': 'Font',
+				'pptx.ribbon.group.paragraph': 'Paragraph',
+				'pptx.ribbon.group.slides': 'Slides',
+				'pptx.ribbon.group.editing': 'Editing',
+				'pptx.ribbon.group.drawing': 'Drawing',
+				'pptx.ribbon.group.table': 'Tables',
+				'pptx.ribbon.group.images': 'Images',
+				'pptx.ribbon.group.illustrations': 'Illustrations',
+				'pptx.ribbon.group.text': 'Text',
+				'pptx.ribbon.group.symbols': 'Symbols',
+				'pptx.ribbon.group.links': 'Links',
+				'pptx.ribbon.group.align': 'Align',
+				'pptx.ribbon.group.order': 'Order',
+				'pptx.ribbon.group.rotate': 'Rotate',
+				'pptx.ribbon.group.element': 'Element',
+				'pptx.ribbon.alignTextTop': 'Align text top',
+				'pptx.ribbon.alignTextMiddle': 'Align text middle',
+				'pptx.ribbon.alignTextBottom': 'Align text bottom',
 				'pptx.ribbon.collapseRibbon': 'Collapse the ribbon',
 				'pptx.ribbon.expandRibbon': 'Expand the ribbon',
 				// DrawSection
@@ -1792,12 +1811,16 @@ describe('toolbar - section content rendering', () => {
 		expect(html).toContain('Slide Master');
 	});
 
-	it('home section also renders TextSection content (B/I/U/S)', () => {
+	it('home section leaves text formatting to the Text tab', () => {
+		// Home used to render TextSection and ArrangeSection as well, which put
+		// seven groups in one ribbon row and overflowed it. Each now has its own
+		// tab; Home keeps clipboard, slides and editing.
 		const html = render(
 			React.createElement(Toolbar, createMockToolbarProps({ toolbarSection: 'home' })),
 		);
-		expect(html).toContain('title="Bold"');
-		expect(html).toContain('title="Italic"');
+		expect(html).not.toContain('title="Bold"');
+		expect(html).not.toContain('title="Italic"');
+		expect(html).toContain('Clipboard');
 	});
 
 	it('text section renders TextSection content', () => {

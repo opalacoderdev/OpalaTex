@@ -5,6 +5,9 @@ import {
 	LuAlignJustify,
 	LuAlignLeft,
 	LuAlignRight,
+	LuAlignVerticalJustifyCenter,
+	LuAlignVerticalJustifyEnd,
+	LuAlignVerticalJustifyStart,
 	LuAlignVerticalSpaceAround,
 	LuBold,
 	LuCheck,
@@ -34,6 +37,8 @@ import {
 	LuVideo,
 } from 'react-icons/lu';
 
+import type { TextStyle } from 'pptx-viewer-core';
+
 import type { DrawingTool, ViewerMode } from '../../types';
 
 /* Style tokens: touch-friendly variants use min-h/min-w of 44px (WCAG 2.5.8)
@@ -44,9 +49,14 @@ export const _b =
 	'inline-flex items-center justify-center px-2.5 py-1.5 max-md:min-h-[44px] max-md:min-w-[44px] active:scale-95 active:opacity-80';
 export const gB = `${_b} border-r border-border hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed`;
 export const gL = `${_b} hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed`;
-export const grp = 'inline-flex items-center rounded bg-muted text-xs overflow-hidden';
+/* Both control shells carry a hairline border: `bg-muted` alone is nearly
+ * invisible against the ribbon's own background in the light theme, which made
+ * a row of buttons read as one continuous strip of text rather than as separate
+ * controls. */
+export const grp =
+	'inline-flex items-center rounded border border-border/60 bg-muted text-xs overflow-hidden';
 export const pill =
-	'inline-flex items-center gap-1.5 px-2.5 py-1.5 max-md:min-h-[44px] rounded bg-muted hover:bg-accent text-xs transition-colors active:scale-95 active:opacity-80';
+	'inline-flex items-center gap-1.5 px-2.5 py-1.5 max-md:min-h-[44px] rounded border border-border/60 bg-muted hover:bg-accent text-xs transition-colors active:scale-95 active:opacity-80';
 export const sep = <div className='w-px self-stretch bg-border/40 mx-0.5 max-md:hidden' />;
 export const ic = 'w-4 h-4';
 export const ics = 'w-3.5 h-3.5';
@@ -214,4 +224,34 @@ export const ATXT = [
 	{ id: 'center', i: <LuAlignCenter className={ic} />, labelKey: 'pptx.ribbon.alignCenter' },
 	{ id: 'right', i: <LuAlignRight className={ic} />, labelKey: 'pptx.ribbon.alignRight' },
 	{ id: 'justify', i: <LuAlignJustify className={ic} />, labelKey: 'pptx.ribbon.justify' },
+];
+
+/**
+ * Vertical text anchor inside the shape's text body (`TextStyle.vAlign`, OOXML
+ * `a:bodyPr/@anchor`) — PowerPoint's "Align Text" command.
+ *
+ * Distinct from {@link ATXT}, which is paragraph alignment *within* the text
+ * body: horizontal alignment cannot move a single line of text off the top of
+ * a box, so centring a caption inside a rectangle needs this one.
+ */
+export const VTXT: Array<{
+	id: NonNullable<TextStyle['vAlign']>;
+	i: React.ReactNode;
+	labelKey: string;
+}> = [
+	{
+		id: 'top',
+		i: <LuAlignVerticalJustifyStart className={ic} />,
+		labelKey: 'pptx.ribbon.alignTextTop',
+	},
+	{
+		id: 'middle',
+		i: <LuAlignVerticalJustifyCenter className={ic} />,
+		labelKey: 'pptx.ribbon.alignTextMiddle',
+	},
+	{
+		id: 'bottom',
+		i: <LuAlignVerticalJustifyEnd className={ic} />,
+		labelKey: 'pptx.ribbon.alignTextBottom',
+	},
 ];

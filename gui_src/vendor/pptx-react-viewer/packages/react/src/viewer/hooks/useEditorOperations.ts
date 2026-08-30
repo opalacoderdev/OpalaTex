@@ -190,6 +190,7 @@ export function useEditorOperations(input: UseEditorOperationsInput): EditorOper
 	const manipulation = useElementManipulation({
 		activeSlide,
 		activeSlideIndex,
+		canvasSize,
 		selectedElement,
 		effectiveSelectedIds: state.effectiveSelectedIds,
 		selectedElements: state.selectedElements,

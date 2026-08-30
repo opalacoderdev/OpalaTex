@@ -112,6 +112,9 @@ export type { UseContentLifecycleInput, ContentLifecycleResult } from './useCont
 export { useKeyboardShortcutWiring } from './useKeyboardShortcutWiring';
 export type { UseKeyboardShortcutWiringInput } from './useKeyboardShortcutWiring';
 
+export { useSystemPasteEvent } from './useSystemPasteEvent';
+export type { UseSystemPasteEventInput } from './useSystemPasteEvent';
+
 export { useViewerIntegration } from './useViewerIntegration';
 export type { UseViewerIntegrationInput, ViewerIntegrationResult } from './useViewerIntegration';
 

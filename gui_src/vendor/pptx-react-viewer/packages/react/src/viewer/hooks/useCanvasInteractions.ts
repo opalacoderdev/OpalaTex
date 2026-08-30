@@ -237,9 +237,17 @@ export function useCanvasInteractions(
 		setSnapLines([]);
 	};
 
-	const handleElementContextMenu = (elementId: string, e: React.MouseEvent) => {
+	const handleElementContextMenu = (elementId: string | null, e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
+		// A right-click on the empty slide background still opens the menu, with
+		// no element target: paste is a slide-level action, and requiring an
+		// existing element to reach it makes it unreachable on an empty slide.
+		if (elementId === null) {
+			ops.clearSelection();
+			setContextMenuState({ x: e.clientX, y: e.clientY, elementId: null });
+			return;
+		}
 		if (!selectedElementIdSet.has(elementId)) {
 			ops.applySelection(elementId);
 		}

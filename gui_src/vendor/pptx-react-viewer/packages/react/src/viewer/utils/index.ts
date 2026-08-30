@@ -33,3 +33,4 @@ export * from './connector-reroute';
 export * from './hyperlink-security';
 export * from './chart-map';
 export * from './artistic-effects';
+export * from './system-clipboard';

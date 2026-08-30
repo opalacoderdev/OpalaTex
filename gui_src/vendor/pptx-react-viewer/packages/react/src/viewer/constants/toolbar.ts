@@ -8,6 +8,8 @@ export const TOOLBAR_SECTIONS: Array<{ id: ToolbarSection; labelKey: string }> =
 	{ id: 'file', labelKey: 'pptx.ribbon.tab.file' },
 	{ id: 'home', labelKey: 'pptx.ribbon.tab.home' },
 	{ id: 'insert', labelKey: 'pptx.ribbon.tab.insert' },
+	{ id: 'text', labelKey: 'pptx.ribbon.tab.text' },
+	{ id: 'arrange', labelKey: 'pptx.ribbon.tab.arrange' },
 	{ id: 'draw', labelKey: 'pptx.ribbon.tab.draw' },
 	{ id: 'design', labelKey: 'pptx.ribbon.tab.design' },
 	{ id: 'transitions', labelKey: 'pptx.ribbon.tab.transitions' },

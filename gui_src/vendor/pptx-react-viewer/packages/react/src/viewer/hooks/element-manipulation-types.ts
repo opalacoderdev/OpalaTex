@@ -3,13 +3,15 @@
  */
 import type { PptxElement, PptxSlide, MergeShapeOperation } from 'pptx-viewer-core';
 
-import type { ElementContextMenuAction } from '../types';
+import type { CanvasSize, ElementContextMenuAction } from '../types';
 import type { EditorHistoryResult } from './useEditorHistory';
 import type { ElementOperations } from './useElementOperations';
 
 export interface UseElementManipulationInput {
 	activeSlide: PptxSlide | undefined;
 	activeSlideIndex: number;
+	/** Slide canvas size, used to centre elements pasted from the system clipboard. */
+	canvasSize: CanvasSize;
 	selectedElement: PptxElement | null;
 	effectiveSelectedIds: string[];
 	selectedElements: PptxElement[];
@@ -32,6 +34,8 @@ export interface ElementManipulationHandlers {
 	handleCopy: () => void;
 	handleCut: () => void;
 	handlePaste: () => void;
+	/** Paste the content of a native `paste` event (Ctrl+V). @see ClipboardHandlers */
+	handlePasteDataTransfer: (dataTransfer: DataTransfer | null) => void;
 	handleDuplicate: () => void;
 	handleGroupElements: () => void;
 	handleUngroupElement: () => void;
@@ -50,7 +54,18 @@ export interface ElementManipulationHandlers {
 export interface ClipboardHandlers {
 	handleCopy: () => void;
 	handleCut: () => void;
+	/**
+	 * Paste from a command with no event behind it (toolbar button, context
+	 * menu): reads the system clipboard through the async Clipboard API, and
+	 * falls back to the in-app payload when that is unavailable or empty.
+	 */
 	handlePaste: () => void;
+	/**
+	 * Paste the content of a native `paste` event. Ctrl+V goes through this
+	 * path because the event carries the clipboard data directly, so it works
+	 * without the clipboard-read permission the async API needs.
+	 */
+	handlePasteDataTransfer: (dataTransfer: DataTransfer | null) => void;
 	handleDuplicate: () => void;
 	handleDelete: () => void;
 }

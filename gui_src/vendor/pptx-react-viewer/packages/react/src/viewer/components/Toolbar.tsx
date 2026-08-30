@@ -41,8 +41,11 @@ export function Toolbar(p: ToolbarProps): React.ReactElement {
 	const sFil = toolbarSection === 'file';
 	const sHome = toolbarSection === 'home';
 	const sIns = toolbarSection === 'insert';
-	const sTxt = sHome || toolbarSection === 'text';
-	const sArr = sHome || toolbarSection === 'arrange';
+	// Text (font + paragraph) and Arrange (align/flip/layer) are their own tabs.
+	// They used to be rendered by Home as well, which is what made that one row
+	// unusable: seven groups competing for a width that fits about four.
+	const sTxt = toolbarSection === 'text';
+	const sArr = toolbarSection === 'arrange';
 	const sDrw = toolbarSection === 'draw';
 	const sDes = toolbarSection === 'design';
 	const sTrn = toolbarSection === 'transitions';
@@ -122,7 +125,10 @@ export function Toolbar(p: ToolbarProps): React.ReactElement {
 			{showRibbon && (
 				<div
 					className={cn(
-						'flex min-h-[82px] flex-wrap content-start items-start gap-x-2 gap-y-1.5 overflow-visible px-1.5 py-1 max-md:min-h-0 max-md:px-1 max-md:py-0.5',
+						// Groups supply their own padding and separator border, so the
+						// row itself adds almost no gap; a wide gap on top of them made
+						// the boundaries read as arbitrary whitespace.
+						'flex min-h-[82px] flex-wrap content-start items-stretch gap-y-1.5 overflow-visible px-1.5 py-1 max-md:min-h-0 max-md:px-1 max-md:py-0.5',
 						isNarrowViewport && !isCompactToolbarOpen && 'hidden',
 					)}
 				>
@@ -204,7 +210,7 @@ export function Toolbar(p: ToolbarProps): React.ReactElement {
 
 					{sHome && <EditingSection onToggleFindReplace={p.onToggleFindReplace} />}
 
-					{sHome && (
+					{sArr && (
 						<DrawingGroup
 							canEdit={p.canEdit}
 							selectedElement={p.selectedElement}

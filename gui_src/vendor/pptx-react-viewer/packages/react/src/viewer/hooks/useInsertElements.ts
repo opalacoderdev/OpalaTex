@@ -12,10 +12,20 @@ import type {
 	InkPptxElement,
 	SmartArtLayout,
 } from 'pptx-viewer-core';
-import { createDefaultChartElement, newTableElement } from 'pptx-viewer-shared';
+import {
+	createDefaultChartElement,
+	newTableElement,
+	shapePresetInsertDefaults,
+} from 'pptx-viewer-shared';
 
 import type { HyperlinkEditData } from '../components/hyperlink-edit-types';
-import { DEFAULT_TABLE_ROWS, DEFAULT_TABLE_COLUMNS, DEFAULT_TEXT_FONT_SIZE } from '../constants';
+import {
+	DEFAULT_SHAPE_HEIGHT,
+	DEFAULT_SHAPE_WIDTH,
+	DEFAULT_TABLE_ROWS,
+	DEFAULT_TABLE_COLUMNS,
+	DEFAULT_TEXT_FONT_SIZE,
+} from '../constants';
 import type { CanvasSize, SupportedShapeType } from '../types';
 import { generateElementId } from '../utils/generate-id';
 import { createFileHandlers } from './insert-file-handlers';
@@ -92,18 +102,27 @@ export function useInsertElements(input: UseInsertElementsInput): InsertElementH
 		if (!activeSlide) {
 			return;
 		}
+		// The picked entry may be a geometry *plus* a style — "Line Arrow" is a
+		// `line` with a `tailEnd` arrowhead, not a geometry of its own — and the
+		// line family wants a flat, unfilled box rather than the default 200x150
+		// blue rectangle. The catalogue resolves all of that.
+		const defaults = shapePresetInsertDefaults(newShapeType, {
+			width: DEFAULT_SHAPE_WIDTH,
+			height: DEFAULT_SHAPE_HEIGHT,
+		});
 		addElement({
 			id: generateElementId(),
 			type: 'shape',
 			x: 150,
 			y: 150,
-			width: 200,
-			height: 150,
-			shapeType: newShapeType,
+			width: defaults.width,
+			height: defaults.height,
+			shapeType: defaults.shapeType,
 			shapeStyle: {
 				fillColor: '#3b82f6',
 				strokeColor: '#1f2937',
 				strokeWidth: 2,
+				...defaults.style,
 			},
 		} as ShapePptxElement);
 	};

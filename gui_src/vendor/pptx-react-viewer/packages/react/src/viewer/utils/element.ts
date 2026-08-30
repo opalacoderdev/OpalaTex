@@ -3,14 +3,10 @@
  *
  * The framework-agnostic helpers (template detection, inline-text eligibility,
  * labels, comment timestamp/marker, connection sites) live in
- * `pptx-viewer-shared` and are re-exported here. `isConnectorOrLineElement`
- * stays local because it depends on this binding's shape-type classifier
- * (`getShapeType`), which is not a core export.
+ * `pptx-viewer-shared` and are re-exported here.
  */
 import type { PptxElement } from 'pptx-viewer-core';
-import { hasShapeProperties } from 'pptx-viewer-core';
-
-import { getShapeType } from './shape-types';
+import { isLineLikeElement } from 'pptx-viewer-shared';
 
 export {
 	isTemplateElement,
@@ -26,14 +22,10 @@ export {
  * Returns true if the element is a connector or line, i.e. it renders
  * as an SVG path rather than a filled rectangular box.  These elements
  * need special hit-testing and selection treatment.
+ *
+ * Delegates to the shared rule so the renderer, the inspector and the insert
+ * path cannot drift apart on what counts as a line.
  */
 export function isConnectorOrLineElement(element: PptxElement): boolean {
-	if (element.type === 'connector') {
-		return true;
-	}
-	if (!hasShapeProperties(element)) {
-		return false;
-	}
-	const st = getShapeType(element.shapeType);
-	return st === 'connector' || st === 'line' || element.shapeType === 'line';
+	return isLineLikeElement(element);
 }

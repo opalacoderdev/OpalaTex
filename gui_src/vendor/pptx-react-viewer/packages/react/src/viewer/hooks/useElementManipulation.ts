@@ -5,6 +5,8 @@
  * Handler logic is split across sub-hooks; this module composes them and
  * provides the context-menu dispatch.
  */
+import type { TextStyle } from 'pptx-viewer-core';
+
 import type { ElementContextMenuAction } from '../types';
 import type {
 	UseElementManipulationInput,
@@ -18,13 +20,29 @@ export type {
 	ElementManipulationHandlers,
 } from './element-manipulation-types';
 
+/** Context-menu action id → the vertical anchor it applies. */
+const CONTEXT_MENU_VALIGN: Record<
+	'alignTextTop' | 'alignTextMiddle' | 'alignTextBottom',
+	NonNullable<TextStyle['vAlign']>
+> = {
+	alignTextTop: 'top',
+	alignTextMiddle: 'middle',
+	alignTextBottom: 'bottom',
+};
+
 export function useElementManipulation(
 	input: UseElementManipulationInput,
 ): ElementManipulationHandlers {
 	const { setIsInspectorPaneOpen, setSidebarPanelMode, onOpenHyperlinkDialog } = input;
 
-	const { handleCopy, handleCut, handlePaste, handleDuplicate, handleDelete } =
-		useClipboardHandlers(input);
+	const {
+		handleCopy,
+		handleCut,
+		handlePaste,
+		handlePasteDataTransfer,
+		handleDuplicate,
+		handleDelete,
+	} = useClipboardHandlers(input);
 
 	const {
 		handleGroupElements,
@@ -86,6 +104,12 @@ export function useElementManipulation(
 			case 'editHyperlink':
 				onOpenHyperlinkDialog();
 				break;
+			case 'alignTextTop':
+			case 'alignTextMiddle':
+			case 'alignTextBottom':
+				input.ops.updateSelectedTextStyle({ vAlign: CONTEXT_MENU_VALIGN[action] });
+				input.history.markDirty();
+				break;
 		}
 	};
 
@@ -93,6 +117,7 @@ export function useElementManipulation(
 		handleCopy,
 		handleCut,
 		handlePaste,
+		handlePasteDataTransfer,
 		handleDuplicate,
 		handleGroupElements,
 		handleUngroupElement,

@@ -2,6 +2,7 @@ import type { PptxSlide } from 'pptx-viewer-core';
 import { useEffect } from 'react';
 import type React from 'react';
 
+import { matchesLetterKey, matchesNamedKey } from '../../hooks/shortcut-keys';
 import { MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from './types';
 import type { SorterContextMenuState } from './types';
 
@@ -57,7 +58,7 @@ export function useKeyboardShortcuts(params: UseKeyboardShortcutsParams): void {
 			}
 			const isCtrl = e.ctrlKey || e.metaKey;
 
-			if (e.key === 'Escape') {
+			if (matchesNamedKey(e, 'Escape')) {
 				e.stopPropagation();
 				if (selectedSlideIds.length > 1) {
 					const activeSlide = slides[activeSlideIndex];
@@ -67,29 +68,29 @@ export function useKeyboardShortcuts(params: UseKeyboardShortcutsParams): void {
 				}
 				return;
 			}
-			if ((e.key === 'Delete' || e.key === 'Backspace') && canEdit) {
+			if ((matchesNamedKey(e, 'Delete') || matchesNamedKey(e, 'Backspace')) && canEdit) {
 				e.preventDefault();
 				if (selectedIndexes.length > 0) {
 					handleDeleteSelected();
 				}
 				return;
 			}
-			if (isCtrl && e.key === 'c') {
+			if (isCtrl && matchesLetterKey(e, 'c')) {
 				e.preventDefault();
 				handleCopySelected();
 				return;
 			}
-			if (isCtrl && e.key === 'v' && canEdit) {
+			if (isCtrl && matchesLetterKey(e, 'v') && canEdit) {
 				e.preventDefault();
 				handlePaste();
 				return;
 			}
-			if (isCtrl && e.key === 'd' && canEdit) {
+			if (isCtrl && matchesLetterKey(e, 'd') && canEdit) {
 				e.preventDefault();
 				handleDuplicateSelected();
 				return;
 			}
-			if (isCtrl && e.key === 'a') {
+			if (isCtrl && matchesLetterKey(e, 'a')) {
 				e.preventDefault();
 				handleSelectAll();
 				return;

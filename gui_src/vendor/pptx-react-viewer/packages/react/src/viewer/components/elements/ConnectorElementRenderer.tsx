@@ -105,11 +105,24 @@ export const ConnectorElementRenderer: React.FC<ConnectorRendererProps> = React.
 					...(lineGlow ? { filter: lineGlow } : {}),
 				}}
 			>
+				{/* The container is clamped to MIN_ELEMENT_SIZE so a flat line stays
+				    grabbable, but the drawing keeps the line's real geometry and is
+				    centred inside it. Stretching a zero-height line to 12px — which
+				    `w-full h-full` did — turned every horizontal line, in this
+				    editor and in decks authored elsewhere, into a visible slant. */}
 				<svg
 					viewBox={`0 0 ${viewWidth} ${viewHeight}`}
-					className='w-full h-full'
 					preserveAspectRatio='none'
-					style={{ overflow: 'visible', pointerEvents: 'none' }}
+					style={{
+						overflow: 'visible',
+						pointerEvents: 'none',
+						position: 'absolute',
+						left: '50%',
+						top: '50%',
+						width: viewWidth,
+						height: viewHeight,
+						transform: 'translate(-50%, -50%)',
+					}}
 				>
 					<defs>
 						{renderConnectorMarker(

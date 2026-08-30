@@ -161,6 +161,8 @@ export const translations = {
 	'pptx.shapePresets.hexagon': 'Hexágono',
 	'pptx.shapePresets.leftArrow': 'Flecha izquierda',
 	'pptx.shapePresets.line': 'Línea',
+	'pptx.shapePresets.lineArrow': 'Linea con flecha',
+	'pptx.shapePresets.lineDoubleArrow': 'Linea con doble flecha',
 	'pptx.shapePresets.moon': 'Luna',
 	'pptx.shapePresets.octagon': 'Octágono',
 	'pptx.shapePresets.parallelogram': 'Paralelogramo',

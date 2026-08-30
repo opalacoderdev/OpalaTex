@@ -6,8 +6,9 @@ import { LuChevronDown, LuClipboardPaste, LuCopy, LuPaintbrush, LuScissors } fro
 
 import type { ElementClipboardPayload } from '../../types';
 import { cn } from '../../utils';
+import { RibbonGroup } from './PowerPointRibbonControls';
 import { SlidesGroup } from './SlidesGroup';
-import { gB, gL, grp, ic, sep } from './toolbar-constants';
+import { gB, gL, grp, ic } from './toolbar-constants';
 
 export interface HomeSectionProps {
 	canEdit: boolean;
@@ -108,13 +109,15 @@ export function HomeSection(p: HomeSectionProps): React.ReactElement {
 
 	return (
 		<>
-			{/* Clipboard group */}
-			<div className='flex flex-col items-center gap-0.5'>
+			<RibbonGroup label={t('pptx.ribbon.clipboard')}>
 				<div className={grp}>
+					{/* Paste stays enabled whenever editing is allowed: the system
+					    clipboard may hold a pasteable image or text that no in-app
+					    state can see, and it can only be inspected by reading it. */}
 					<button
 						type='button'
 						onClick={p.onPaste}
-						disabled={!p.clipboardPayload || !p.canEdit}
+						disabled={!p.canEdit}
 						className={gB}
 						title={t('pptx.arrange.paste')}
 					>
@@ -164,12 +167,7 @@ export function HomeSection(p: HomeSectionProps): React.ReactElement {
 						</button>
 					)}
 				</div>
-				<span className='text-[9px] text-muted-foreground leading-none'>
-					{t('pptx.ribbon.clipboard')}
-				</span>
-			</div>
-
-			{sep}
+			</RibbonGroup>
 
 			<SlidesGroup
 				canEdit={p.canEdit}
@@ -182,73 +180,67 @@ export function HomeSection(p: HomeSectionProps): React.ReactElement {
 				onAddSection={p.onAddSection}
 			/>
 
-			{/* Font group */}
-			<div className='flex flex-col items-center gap-0.5'>
-				<div className='flex items-center gap-1'>
-					<div className='relative' ref={fontMenuRef}>
-						<button
-							type='button'
-							onClick={() => setFontMenuOpen((v) => !v)}
-							className='inline-flex items-center justify-between px-2 py-1 rounded-sm border border-border/60 bg-background/60 text-[11px] text-foreground min-w-[120px] truncate hover:bg-accent/40 transition-colors cursor-pointer'
-						>
-							<span className='truncate'>{fontFamily}</span>
-							<LuChevronDown className='w-3 h-3 ml-1 shrink-0 text-muted-foreground' />
-						</button>
-						{fontMenuOpen && (
-							<div className='absolute left-0 top-full z-50 flex flex-col w-48 pt-1'>
-								<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1 max-h-60 overflow-y-auto'>
-									{COMMON_FONTS.map((f) => (
-										<button
-											key={f}
-											type='button'
-											className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-											style={{ fontFamily: f }}
-											onClick={() => {
-												p.onUpdateTextStyle?.({ fontFamily: f });
-												setFontMenuOpen(false);
-											}}
-										>
-											{f}
-										</button>
-									))}
-								</div>
-							</div>
-						)}
+			<RibbonGroup label={t('pptx.ribbon.group.font')}>
+			<div className='relative' ref={fontMenuRef}>
+				<button
+					type='button'
+					onClick={() => setFontMenuOpen((v) => !v)}
+					className='inline-flex items-center justify-between px-2 py-1 rounded-sm border border-border/60 bg-background/60 text-[11px] text-foreground min-w-[120px] truncate hover:bg-accent/40 transition-colors cursor-pointer'
+				>
+					<span className='truncate'>{fontFamily}</span>
+					<LuChevronDown className='w-3 h-3 ml-1 shrink-0 text-muted-foreground' />
+				</button>
+				{fontMenuOpen && (
+					<div className='absolute left-0 top-full z-50 flex flex-col w-48 pt-1'>
+						<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1 max-h-60 overflow-y-auto'>
+							{COMMON_FONTS.map((f) => (
+								<button
+									key={f}
+									type='button'
+									className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+									style={{ fontFamily: f }}
+									onClick={() => {
+										p.onUpdateTextStyle?.({ fontFamily: f });
+										setFontMenuOpen(false);
+									}}
+								>
+									{f}
+								</button>
+							))}
+						</div>
 					</div>
-					<div className='relative' ref={sizeMenuRef}>
-						<button
-							type='button'
-							onClick={() => setSizeMenuOpen((v) => !v)}
-							className='inline-flex items-center justify-between px-2 py-1 rounded-sm border border-border/60 bg-background/60 text-[11px] text-foreground min-w-[50px] text-center hover:bg-accent/40 transition-colors cursor-pointer'
-						>
-							<span className='truncate'>{fontSize}</span>
-							<LuChevronDown className='w-3 h-3 ml-1 shrink-0 text-muted-foreground' />
-						</button>
-						{sizeMenuOpen && (
-							<div className='absolute left-0 top-full z-50 flex flex-col w-48 pt-1'>
-								<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1 max-h-60 overflow-y-auto'>
-									{COMMON_SIZES.map((s) => (
-										<button
-											key={s}
-											type='button'
-											className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-											onClick={() => {
-												p.onUpdateTextStyle?.({ fontSize: s });
-												setSizeMenuOpen(false);
-											}}
-										>
-											{s}
-										</button>
-									))}
-								</div>
-							</div>
-						)}
-					</div>
+				)}
 				</div>
-				<span className='text-[9px] text-muted-foreground leading-none'>Font</span>
-			</div>
-
-			{sep}
+				<div className='relative' ref={sizeMenuRef}>
+				<button
+					type='button'
+					onClick={() => setSizeMenuOpen((v) => !v)}
+					className='inline-flex items-center justify-between px-2 py-1 rounded-sm border border-border/60 bg-background/60 text-[11px] text-foreground min-w-[50px] text-center hover:bg-accent/40 transition-colors cursor-pointer'
+				>
+					<span className='truncate'>{fontSize}</span>
+					<LuChevronDown className='w-3 h-3 ml-1 shrink-0 text-muted-foreground' />
+				</button>
+				{sizeMenuOpen && (
+					<div className='absolute left-0 top-full z-50 flex flex-col w-48 pt-1'>
+						<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1 max-h-60 overflow-y-auto'>
+							{COMMON_SIZES.map((s) => (
+								<button
+									key={s}
+									type='button'
+									className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+									onClick={() => {
+										p.onUpdateTextStyle?.({ fontSize: s });
+										setSizeMenuOpen(false);
+									}}
+								>
+									{s}
+								</button>
+							))}
+						</div>
+					</div>
+				)}
+				</div>
+			</RibbonGroup>
 		</>
 	);
 }

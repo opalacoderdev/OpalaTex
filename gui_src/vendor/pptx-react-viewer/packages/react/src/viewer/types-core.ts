@@ -55,6 +55,10 @@ export type SupportedShapeType =
 	| 'plaque'
 	| 'teardrop'
 	| 'line'
+	// Picker ids, not OOXML geometry: both insert a `line` carrying arrowheads
+	// (see `shapePresetInsertDefaults`), so no element ever stores them.
+	| 'lineArrow'
+	| 'lineDoubleArrow'
 	| 'rtArrow'
 	| 'leftArrow'
 	| 'upArrow'

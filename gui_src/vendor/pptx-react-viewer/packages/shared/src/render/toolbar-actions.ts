@@ -37,6 +37,8 @@ export type ToolbarTabId =
 	| 'file'
 	| 'home'
 	| 'insert'
+	| 'text'
+	| 'arrange'
 	| 'draw'
 	| 'design'
 	| 'transitions'
@@ -58,6 +60,12 @@ export const TOOLBAR_TABS: ToolbarTabDefinition[] = [
 	{ id: 'file', labelKey: 'pptx.ribbon.tab.file' },
 	{ id: 'home', labelKey: 'pptx.ribbon.tab.home' },
 	{ id: 'insert', labelKey: 'pptx.ribbon.tab.insert' },
+	// Text and Arrange are their own tabs. They used to render inside Home,
+	// which put five groups (clipboard, slides, font, paragraph, editing,
+	// drawing, arrange) in one ribbon row — more than fits any realistic panel
+	// width, so the row overflowed and controls were clipped at both ends.
+	{ id: 'text', labelKey: 'pptx.ribbon.tab.text' },
+	{ id: 'arrange', labelKey: 'pptx.ribbon.tab.arrange' },
 	{ id: 'draw', labelKey: 'pptx.ribbon.tab.draw' },
 	{ id: 'design', labelKey: 'pptx.ribbon.tab.design' },
 	{ id: 'transitions', labelKey: 'pptx.ribbon.tab.transitions' },

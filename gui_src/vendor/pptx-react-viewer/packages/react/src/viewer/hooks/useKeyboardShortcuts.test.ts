@@ -6,6 +6,8 @@
  */
 import { describe, it, expect } from 'vitest';
 
+import { type ShortcutKeyEvent, matchesLetterKey, matchesNamedKey } from './shortcut-keys';
+
 // ---------------------------------------------------------------------------
 // Constants (mirror the hook)
 // ---------------------------------------------------------------------------
@@ -51,13 +53,18 @@ interface DispatchResult {
 /**
  * Determine which action a keyboard event should trigger.
  * Returns null if the event should be ignored.
+ *
+ * A bare string stands for an event whose character the platform resolved; the
+ * object form also names the physical key, which is what the hook falls back to
+ * when it did not (see `shortcut-keys`).
  */
 function resolveShortcutAction(
-	key: string,
+	key: string | ShortcutKeyEvent,
 	ctrlKey: boolean,
 	shiftKey: boolean,
 	input: ShortcutInput,
 ): DispatchResult {
+	const event: ShortcutKeyEvent = typeof key === 'string' ? { key, code: '' } : key;
 	const {
 		mode,
 		canEdit,
@@ -74,7 +81,7 @@ function resolveShortcutAction(
 	}
 
 	// Escape: always handled
-	if (key === 'Escape') {
+	if (matchesNamedKey(event, 'Escape')) {
 		return { action: 'escape' };
 	}
 
@@ -91,58 +98,59 @@ function resolveShortcutAction(
 	const isMod = ctrlKey;
 
 	// Delete / Backspace
-	if ((key === 'Delete' || key === 'Backspace') && hasSelection) {
+	if ((matchesNamedKey(event, 'Delete') || matchesNamedKey(event, 'Backspace')) && hasSelection) {
 		return { action: 'delete' };
 	}
 
-	// Ctrl/Cmd combos
+	// Ctrl/Cmd combos. Ctrl/Cmd+V is not among them: the native `paste` event
+	// owns it, so that the default is never prevented and the event still fires.
 	if (isMod) {
-		switch (key.toLowerCase()) {
-			case 'z':
-				return { action: shiftKey ? 'redo' : 'undo' };
-			case 'y':
-				return { action: 'redo' };
-			case 'c':
-				return hasSelection ? { action: 'copy' } : { action: null };
-			case 'x':
-				return hasSelection ? { action: 'cut' } : { action: null };
-			case 'v':
-				return { action: 'paste' };
-			case 'd':
-				return hasSelection ? { action: 'duplicate' } : { action: null };
-			case 'a':
-				return { action: 'selectAll' };
+		if (matchesLetterKey(event, 'z')) {
+			return { action: shiftKey ? 'redo' : 'undo' };
+		}
+		if (matchesLetterKey(event, 'y')) {
+			return { action: 'redo' };
+		}
+		if (matchesLetterKey(event, 'c')) {
+			return hasSelection ? { action: 'copy' } : { action: null };
+		}
+		if (matchesLetterKey(event, 'x')) {
+			return hasSelection ? { action: 'cut' } : { action: null };
+		}
+		if (matchesLetterKey(event, 'd')) {
+			return hasSelection ? { action: 'duplicate' } : { action: null };
+		}
+		if (matchesLetterKey(event, 'a')) {
+			return { action: 'selectAll' };
 		}
 	}
 
 	// Arrow key nudge
 	if (
 		hasSelection &&
-		(key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight')
+		(matchesNamedKey(event, 'ArrowUp') ||
+			matchesNamedKey(event, 'ArrowDown') ||
+			matchesNamedKey(event, 'ArrowLeft') ||
+			matchesNamedKey(event, 'ArrowRight'))
 	) {
 		const step = shiftKey ? NUDGE_LARGE : NUDGE_SMALL;
 		let dx = 0;
 		let dy = 0;
-		switch (key) {
-			case 'ArrowUp':
-				dy = -step;
-				break;
-			case 'ArrowDown':
-				dy = step;
-				break;
-			case 'ArrowLeft':
-				dx = -step;
-				break;
-			case 'ArrowRight':
-				dx = step;
-				break;
+		if (matchesNamedKey(event, 'ArrowUp')) {
+			dy = -step;
+		} else if (matchesNamedKey(event, 'ArrowDown')) {
+			dy = step;
+		} else if (matchesNamedKey(event, 'ArrowLeft')) {
+			dx = -step;
+		} else {
+			dx = step;
 		}
 		return { action: 'nudge', dx, dy };
 	}
 
 	// Slide navigation (no selection)
-	if (!hasSelection && (key === 'ArrowLeft' || key === 'ArrowRight')) {
-		return { action: key === 'ArrowLeft' ? 'prevSlide' : 'nextSlide' };
+	if (!hasSelection && (matchesNamedKey(event, 'ArrowLeft') || matchesNamedKey(event, 'ArrowRight'))) {
+		return { action: matchesNamedKey(event, 'ArrowLeft') ? 'prevSlide' : 'nextSlide' };
 	}
 
 	return { action: null };
@@ -170,6 +178,59 @@ function defaultInput(overrides: Partial<ShortcutInput> = {}): ShortcutInput {
 // ---------------------------------------------------------------------------
 
 describe('useKeyboardShortcuts: shortcut dispatch logic', () => {
+
+	// ── Physical key fallback ─────────────────────────────────────────
+	// Runtimes that leave `key` unresolved under a modifier used to lose every
+	// combo below; the hook falls back to the physical key there.
+	describe('unresolved characters fall back to the physical key', () => {
+		it('should copy for Ctrl + physical C when the character is Dead', () => {
+			const result = resolveShortcutAction({ key: 'Dead', code: 'KeyC' }, true, false, defaultInput());
+			expect(result.action).toBe('copy');
+		});
+
+		it('should cut for Ctrl + physical X when the character is Unidentified', () => {
+			const result = resolveShortcutAction(
+				{ key: 'Unidentified', code: 'KeyX' },
+				true,
+				false,
+				defaultInput(),
+			);
+			expect(result.action).toBe('cut');
+		});
+
+		it('should undo for Ctrl + physical Z when the character is empty', () => {
+			const result = resolveShortcutAction({ key: '', code: 'KeyZ' }, true, false, defaultInput());
+			expect(result.action).toBe('undo');
+		});
+
+		it('should copy for a non-Latin character on the physical C key', () => {
+			// Cyrillic layout: Ctrl+C reports 'с' (U+0441), not 'c'.
+			const result = resolveShortcutAction({ key: '\u0441', code: 'KeyC' }, true, false, defaultInput());
+			expect(result.action).toBe('copy');
+		});
+
+		it('should delete for an unresolved Delete key', () => {
+			const result = resolveShortcutAction(
+				{ key: 'Unidentified', code: 'Delete' },
+				false,
+				false,
+				defaultInput(),
+			);
+			expect(result.action).toBe('delete');
+		});
+
+		it('should follow the resolved character, not the physical key, on a remapped layout', () => {
+			// AZERTY: the physical Z key types 'w', and Ctrl+W is not a shortcut
+			// here — the character the layout resolved has to win.
+			const result = resolveShortcutAction({ key: 'w', code: 'KeyZ' }, true, false, defaultInput());
+			expect(result.action).toBeNull();
+		});
+
+		it('should undo for the key labelled Z wherever it sits physically', () => {
+			const result = resolveShortcutAction({ key: 'z', code: 'KeyW' }, true, false, defaultInput());
+			expect(result.action).toBe('undo');
+		});
+	});
 	// ── Guard conditions ──────────────────────────────────────────────
 	describe('guard conditions', () => {
 		it('should return null in present mode', () => {
@@ -295,10 +356,10 @@ describe('useKeyboardShortcuts: shortcut dispatch logic', () => {
 			expect(resolveShortcutAction('x', true, false, defaultInput()).action).toBe('cut');
 		});
 
-		it('ctrl+V should trigger paste (selection not required)', () => {
+		it('ctrl+V is left unhandled so the native paste event can fire', () => {
 			expect(
 				resolveShortcutAction('v', true, false, defaultInput({ hasSelection: false })).action,
-			).toBe('paste');
+			).toBeNull();
 		});
 
 		it('ctrl+D should trigger duplicate with selection', () => {

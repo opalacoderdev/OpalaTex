@@ -163,6 +163,8 @@ export const translations = {
 	'pptx.shapePresets.hexagon': 'Hexagon',
 	'pptx.shapePresets.leftArrow': 'Pfeil nach links',
 	'pptx.shapePresets.line': 'Linie',
+	'pptx.shapePresets.lineArrow': 'Linie mit Pfeil',
+	'pptx.shapePresets.lineDoubleArrow': 'Linie mit Doppelpfeil',
 	'pptx.shapePresets.moon': 'Mond',
 	'pptx.shapePresets.octagon': 'Achteck',
 	'pptx.shapePresets.parallelogram': 'Parallelogramm',

@@ -1,6 +1,9 @@
 /**
  * useKeyboardShortcutWiring: Wires the composed editor results into the
- * generic `useKeyboardShortcuts` hook.  Keeps the orchestrator lean.
+ * generic `useKeyboardShortcuts` hook, and into `useSystemPasteEvent` — which
+ * owns Ctrl+V, because paste has to come from the native `paste` event to read
+ * the system clipboard without a permission prompt. Keeps the orchestrator
+ * lean.
  */
 import type { PptxSlide } from 'pptx-viewer-core';
 
@@ -9,6 +12,7 @@ import type { EditorHistoryResult } from './useEditorHistory';
 import type { ElementManipulationHandlers } from './useElementManipulation';
 import type { ElementOperations } from './useElementOperations';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
+import { useSystemPasteEvent } from './useSystemPasteEvent';
 import type { ViewerState } from './useViewerState';
 
 // ---------------------------------------------------------------------------
@@ -45,7 +49,6 @@ export function useKeyboardShortcutWiring(input: UseKeyboardShortcutWiringInput)
 		onDelete: manipulation.handleDelete,
 		onCopy: manipulation.handleCopy,
 		onCut: manipulation.handleCut,
-		onPaste: manipulation.handlePaste,
 		onDuplicate: manipulation.handleDuplicate,
 		onUndo: history.handleUndo,
 		onRedo: history.handleRedo,
@@ -98,5 +101,15 @@ export function useKeyboardShortcutWiring(input: UseKeyboardShortcutWiringInput)
 			}
 			state.setActiveSlideIndex((prev) => Math.min(slides.length - 1, prev + 1));
 		},
+	});
+
+	useSystemPasteEvent({
+		containerRef: state.containerRef,
+		mode,
+		canEdit,
+		inlineEditingElementId: state.inlineEditingElementId,
+		tableEditorState: state.tableEditorState,
+		onPaste: manipulation.handlePasteDataTransfer,
+		onPasteWithoutEvent: manipulation.handlePaste,
 	});
 }

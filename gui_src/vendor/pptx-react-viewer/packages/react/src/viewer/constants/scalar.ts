@@ -27,6 +27,10 @@ export const DEFAULT_PRESENTATION_STEP_DURATION_MS = 450;
 export const SHAPE_ADJUSTMENT_MIN = 0;
 export const SHAPE_ADJUSTMENT_MAX = 50000;
 export const DEFAULT_ROUND_RECT_ADJUSTMENT = 16667;
+/** Box a filled shape gets when inserted by a click rather than a drag. */
+export const DEFAULT_SHAPE_WIDTH = 200;
+/** @see DEFAULT_SHAPE_WIDTH */
+export const DEFAULT_SHAPE_HEIGHT = 150;
 export const MINIMAP_WIDTH = 180;
 export const MIN_ZOOM_SCALE = 0.2;
 export const MAX_ZOOM_SCALE = 5;

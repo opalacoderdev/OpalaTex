@@ -6,6 +6,7 @@ import {
 	buildCalloutLeaderLineSvgPath,
 	getCalloutViewBoxBounds,
 } from 'pptx-viewer-core';
+import { isLineLikeElement } from 'pptx-viewer-shared';
 import React from 'react';
 
 import { colorWithOpacity } from './color';
@@ -15,7 +16,6 @@ import {
 	getCompoundLineOffsets,
 	getCompoundLineWidths,
 } from './connector-path';
-import { getShapeType } from './shape-types';
 import { normalizeStrokeDashType, getSvgStrokeDasharray } from './style';
 
 export function renderVectorShape(
@@ -170,11 +170,7 @@ export function renderVectorShape(
 		}
 	}
 
-	if (
-		element.type === 'connector' ||
-		getShapeType(element.shapeType) === 'connector' ||
-		element.shapeType === 'line'
-	) {
+	if (isLineLikeElement(element)) {
 		const viewWidth = Math.max(element.width, 1);
 		const viewHeight = Math.max(element.height, 1);
 		const { pathData } = getConnectorPathGeometry(element);
@@ -194,11 +190,22 @@ export function renderVectorShape(
 		const widths = getCompoundLineWidths(compoundLine, strokeWidth);
 
 		return (
+			// Sized to the line's own geometry and centred, not stretched to the
+			// container: the container is clamped to a minimum so a flat line stays
+			// grabbable, and stretching would slant it. @see ConnectorElementRenderer
 			<svg
 				viewBox={`0 0 ${viewWidth} ${viewHeight}`}
-				className='w-full h-full'
 				preserveAspectRatio='none'
-				style={{ overflow: 'visible', pointerEvents: 'none' }}
+				style={{
+					overflow: 'visible',
+					pointerEvents: 'none',
+					position: 'absolute',
+					left: '50%',
+					top: '50%',
+					width: viewWidth,
+					height: viewHeight,
+					transform: 'translate(-50%, -50%)',
+				}}
 			>
 				<defs>
 					{renderConnectorMarker(startMarkerId, startArrow, strokePaint, startArrowW, startArrowL)}

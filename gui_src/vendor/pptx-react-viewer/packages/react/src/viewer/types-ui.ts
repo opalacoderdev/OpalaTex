@@ -49,7 +49,11 @@ export interface ShapePreset {
 export interface ElementContextMenuState {
 	x: number;
 	y: number;
-	elementId: string;
+	/**
+	 * The right-clicked element, or `null` when the menu was opened on the empty
+	 * slide background — where the only meaningful action is paste.
+	 */
+	elementId: string | null;
 }
 
 /** Identifies an action triggered from the element right-click context menu. */
@@ -72,7 +76,12 @@ export type ElementContextMenuAction =
 	| 'group'
 	| 'ungroup'
 	| 'editPoints'
-	| 'editHyperlink';
+	| 'editHyperlink'
+	// Vertical anchor of the shape's text body — PowerPoint's right-click
+	// "Align Text" submenu. Horizontal alignment lives on the ribbon only.
+	| 'alignTextTop'
+	| 'alignTextMiddle'
+	| 'alignTextBottom';
 
 // ---------------------------------------------------------------------------
 // Marquee selection

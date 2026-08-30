@@ -15,6 +15,7 @@
     "server": "node server.js",
     "start": "node start.js",
     "test:math": "vitest run --config vitest.docx-math.config.js",
+    "test:pptx": "vitest run --config vitest.pptx.config.js",
     "copy:mathlive-fonts": "node scripts/copy-mathlive-fonts.mjs"
   },
   "dependencies": {

@@ -115,3 +115,28 @@ export function connectorKind(shapeType: string | undefined): ConnectorKind {
 export function connectorNeedsPath(shapeType: string | undefined): boolean {
 	return connectorKind(shapeType) !== 'straight';
 }
+
+/**
+ * True when a `shapeType` renders as a stroked path — the line/connector
+ * family — rather than as a filled shape.
+ *
+ * The renderer, the inspector and the insert path all have to agree on this:
+ * a `line` shape draws arrowheads and takes no fill, and an inspector that
+ * decided otherwise would hide the arrow controls on exactly the elements that
+ * have them.
+ */
+export function isLineLikeShapeType(shapeType: string | undefined): boolean {
+	const t = (shapeType ?? '').toLowerCase();
+	return t === 'line' || t.includes('connector');
+}
+
+/**
+ * True when an element renders as a line: a connector element, or a shape
+ * whose geometry is line-like. @see isLineLikeShapeType
+ */
+export function isLineLikeElement(element: {
+	type?: string;
+	shapeType?: string;
+}): boolean {
+	return element.type === 'connector' || isLineLikeShapeType(element.shapeType);
+}

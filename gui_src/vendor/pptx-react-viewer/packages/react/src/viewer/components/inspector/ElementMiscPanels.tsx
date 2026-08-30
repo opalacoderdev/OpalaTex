@@ -1,5 +1,6 @@
 import type { PptxElement, ShapeStyle, OlePptxElement, GroupPptxElement } from 'pptx-viewer-core';
-import { getOleObjectTypeLabel } from 'pptx-viewer-core';
+import { getOleObjectTypeLabel, hasShapeProperties } from 'pptx-viewer-core';
+import { isLineLikeElement } from 'pptx-viewer-shared';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -22,7 +23,13 @@ export function ConnectorPanel({
 	onUpdateElementStyle,
 }: ConnectorPanelProps): React.ReactElement | null {
 	const { t } = useTranslation();
-	if (selectedElement.type !== 'connector') {
+	// Not just `type === 'connector'`: the shape gallery inserts lines and
+	// connectors as `shape` elements with line-like geometry, and the renderer
+	// already draws arrowheads on those. Gating on the element type alone hid
+	// the arrow controls on every line the picker can produce.
+	// `hasShapeProperties` also narrows the element so `shapeStyle` is readable;
+	// a line-like element always carries it, so the pair never rejects one.
+	if (!isLineLikeElement(selectedElement) || !hasShapeProperties(selectedElement)) {
 		return null;
 	}
 	return (

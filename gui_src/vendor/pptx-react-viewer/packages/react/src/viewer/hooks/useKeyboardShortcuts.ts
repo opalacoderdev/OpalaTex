@@ -2,15 +2,23 @@
  * useKeyboardShortcuts: Global keyboard shortcut handler for the PowerPoint editor.
  *
  * Listens for keydown on the container element and dispatches to the
- * appropriate handler (delete, copy, paste, undo, redo, nudge, etc.).
+ * appropriate handler (delete, copy, cut, undo, redo, nudge, etc.). Paste is
+ * not here: it is driven by the native `paste` event (`useSystemPasteEvent`),
+ * so that Ctrl+V can read the system clipboard without a permission prompt.
  *
  * Shortcuts are only active in "edit" mode and are suppressed when an
  * inline text edit, table cell edit, or drawing tool is active.
+ *
+ * Keys are matched through `shortcut-keys`, which falls back to the physical
+ * key when the runtime does not resolve a character for the event: an embedded
+ * web view that leaves `event.key` unresolved under a modifier would otherwise
+ * lose every combo here.
  */
 import { useEffect, useCallback, useRef } from 'react';
 
 import type { TableCellEditorState, DrawingTool } from '../types';
 import type { ViewerMode } from '../types-core';
+import { matchesLetterKey, matchesNamedKey } from './shortcut-keys';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                         */
@@ -48,7 +56,6 @@ export interface UseKeyboardShortcutsInput {
 	onDelete: () => void;
 	onCopy: () => void;
 	onCut: () => void;
-	onPaste: () => void;
 	onDuplicate: () => void;
 	onUndo: () => void;
 	onRedo: () => void;
@@ -83,7 +90,6 @@ export function useKeyboardShortcuts(input: UseKeyboardShortcutsInput): void {
 			onDelete,
 			onCopy,
 			onCut,
-			onPaste,
 			onDuplicate,
 			onUndo,
 			onRedo,
@@ -107,7 +113,7 @@ export function useKeyboardShortcuts(input: UseKeyboardShortcutsInput): void {
 			target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
 
 		// ── Escape: always handled ─────────────────────────────────
-		if (e.key === 'Escape') {
+		if (matchesNamedKey(e, 'Escape')) {
 			e.preventDefault();
 			onEscape();
 			return;
@@ -127,90 +133,89 @@ export function useKeyboardShortcuts(input: UseKeyboardShortcutsInput): void {
 		const isMod = e.metaKey || e.ctrlKey;
 
 		// ── Delete / Backspace ──────────────────────────────────────
-		if ((e.key === 'Delete' || e.key === 'Backspace') && hasSelection) {
+		if ((matchesNamedKey(e, 'Delete') || matchesNamedKey(e, 'Backspace')) && hasSelection) {
 			e.preventDefault();
 			onDelete();
 			return;
 		}
 
 		// ── Ctrl/Cmd combos ─────────────────────────────────────────
+		// Ctrl/Cmd+V is intentionally absent: preventing the default here would
+		// also suppress the native `paste` event, which is the only way to read
+		// the clipboard without the `clipboard-read` permission.
+		// `useSystemPasteEvent` owns paste.
 		if (isMod) {
-			switch (e.key.toLowerCase()) {
-				case 'z':
-					e.preventDefault();
-					if (e.shiftKey) {
-						onRedo();
-					} else {
-						onUndo();
-					}
-					return;
-				case 'y':
-					e.preventDefault();
+			if (matchesLetterKey(e, 'z')) {
+				e.preventDefault();
+				if (e.shiftKey) {
 					onRedo();
-					return;
-				case 'c':
-					if (hasSelection) {
-						e.preventDefault();
-						onCopy();
-					}
-					return;
-				case 'x':
-					if (hasSelection) {
-						e.preventDefault();
-						onCut();
-					}
-					return;
-				case 'v':
+				} else {
+					onUndo();
+				}
+				return;
+			}
+			if (matchesLetterKey(e, 'y')) {
+				e.preventDefault();
+				onRedo();
+				return;
+			}
+			if (matchesLetterKey(e, 'c')) {
+				if (hasSelection) {
 					e.preventDefault();
-					onPaste();
-					return;
-				case 'd':
-					if (hasSelection) {
-						e.preventDefault();
-						onDuplicate();
-					}
-					return;
-				case 'a':
+					onCopy();
+				}
+				return;
+			}
+			if (matchesLetterKey(e, 'x')) {
+				if (hasSelection) {
 					e.preventDefault();
-					onSelectAll();
-					return;
+					onCut();
+				}
+				return;
+			}
+			if (matchesLetterKey(e, 'd')) {
+				if (hasSelection) {
+					e.preventDefault();
+					onDuplicate();
+				}
+				return;
+			}
+			if (matchesLetterKey(e, 'a')) {
+				e.preventDefault();
+				onSelectAll();
+				return;
 			}
 		}
 
 		// ── Arrow key nudge ─────────────────────────────────────────
 		if (
 			hasSelection &&
-			(e.key === 'ArrowUp' ||
-				e.key === 'ArrowDown' ||
-				e.key === 'ArrowLeft' ||
-				e.key === 'ArrowRight')
+			(matchesNamedKey(e, 'ArrowUp') ||
+				matchesNamedKey(e, 'ArrowDown') ||
+				matchesNamedKey(e, 'ArrowLeft') ||
+				matchesNamedKey(e, 'ArrowRight'))
 		) {
 			e.preventDefault();
 			const step = e.shiftKey ? NUDGE_LARGE : NUDGE_SMALL;
 			let dx = 0;
 			let dy = 0;
-			switch (e.key) {
-				case 'ArrowUp':
-					dy = -step;
-					break;
-				case 'ArrowDown':
-					dy = step;
-					break;
-				case 'ArrowLeft':
-					dx = -step;
-					break;
-				case 'ArrowRight':
-					dx = step;
-					break;
+			if (matchesNamedKey(e, 'ArrowUp')) {
+				dy = -step;
+			} else if (matchesNamedKey(e, 'ArrowDown')) {
+				dy = step;
+			} else if (matchesNamedKey(e, 'ArrowLeft')) {
+				dx = -step;
+			} else {
+				dx = step;
 			}
 			onNudge(dx, dy);
 			return;
 		}
 
 		// No element selection: use left/right arrows to navigate slides.
-		if (!hasSelection && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+		if (!hasSelection && (matchesNamedKey(e, 'ArrowLeft') || matchesNamedKey(e, 'ArrowRight'))) {
 			e.preventDefault();
-			if (e.key === 'ArrowLeft') {
+			if (matchesNamedKey(e, 'ArrowLeft')) {
 				onPrevSlide?.();
 			} else {
 				onNextSlide?.();

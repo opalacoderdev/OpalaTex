@@ -6,7 +6,8 @@ import { LuLayers, LuPaintBucket, LuPenLine, LuShapes, LuSparkles } from 'react-
 import { SHAPE_PRESETS } from '../../constants';
 import type { SupportedShapeType } from '../../types-core';
 import { cn } from '../../utils';
-import { ic, pill, sep } from './toolbar-constants';
+import { RibbonGroup } from './PowerPointRibbonControls';
+import { ic, pill } from './toolbar-constants';
 
 export interface DrawingGroupProps {
 	canEdit: boolean;
@@ -33,8 +34,6 @@ const FILL_COLORS = [
 	'#008888',
 	'#888888',
 ];
-
-const TOP_SHAPES = SHAPE_PRESETS.slice(0, 12);
 
 export function DrawingGroup(p: DrawingGroupProps): React.ReactElement {
 	const { t } = useTranslation();
@@ -100,187 +99,183 @@ export function DrawingGroup(p: DrawingGroupProps): React.ReactElement {
 	}, [outlineOpen]);
 
 	return (
-		<>
-			<div className='flex flex-col items-center gap-0.5'>
-				<div className='flex items-center gap-1'>
-					{/* Shapes dropdown */}
-					<div className='relative' ref={shapesRef}>
-						<button
-							type='button'
-							disabled={!p.canEdit}
-							className={pill}
-							title={t('pptx.drawing.shapes')}
-							onClick={() => setShapesOpen((v) => !v)}
-						>
-							<LuShapes className={ic} />
-							{t('pptx.drawing.shapes')}
-						</button>
-						{shapesOpen && (
-							<div className='absolute left-0 top-full z-50 flex flex-col w-52 pt-1'>
-								<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1 max-h-60 overflow-y-auto'>
-									{TOP_SHAPES.map((s) => (
-										<button
-											key={s.type}
-											type='button'
-											className={cn(
-												'flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors',
-												p.newShapeType === s.type && 'bg-accent',
-											)}
-											onClick={() => {
-												p.onSetNewShapeType(s.type);
-												p.onAddShape();
-												setShapesOpen(false);
-											}}
-										>
-											{s.icon}
-											{t(s.i18nKey)}
-										</button>
-									))}
-								</div>
-							</div>
-						)}
+		<RibbonGroup label={t('pptx.ribbon.group.drawing')}>
+			{/* Shapes dropdown */}
+			<div className='relative' ref={shapesRef}>
+				<button
+					type='button'
+					disabled={!p.canEdit}
+					className={pill}
+					title={t('pptx.drawing.shapes')}
+					onClick={() => setShapesOpen((v) => !v)}
+				>
+					<LuShapes className={ic} />
+					{t('pptx.drawing.shapes')}
+				</button>
+				{shapesOpen && (
+					<div className='absolute left-0 top-full z-50 flex flex-col w-52 pt-1'>
+						<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1 max-h-60 overflow-y-auto'>
+							{/* The whole catalogue, not the first twelve: this list already
+							    scrolls, and the twelve-entry cut hid the line family — the
+							    arrow lines included — behind no other affordance. */}
+							{SHAPE_PRESETS.map((s) => (
+								<button
+									key={s.type}
+									type='button'
+									className={cn(
+										'flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors',
+										p.newShapeType === s.type && 'bg-accent',
+									)}
+									onClick={() => {
+										p.onSetNewShapeType(s.type);
+										p.onAddShape();
+										setShapesOpen(false);
+									}}
+								>
+									{s.icon}
+									{t(s.i18nKey)}
+								</button>
+							))}
+						</div>
 					</div>
-
-					{/* Arrange dropdown */}
-					<div className='relative' ref={arrangeRef}>
-						<button
-							type='button'
-							disabled={!p.canEdit || !p.selectedElement}
-							className={pill}
-							title={t('pptx.ribbon.arrange')}
-							onClick={() => setArrangeOpen((v) => !v)}
-						>
-							<LuLayers className={ic} />
-							{t('pptx.ribbon.arrange')}
-						</button>
-						{arrangeOpen && (
-							<div className='absolute left-0 top-full z-50 flex flex-col w-44 pt-1'>
-								<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1'>
-									<button
-										type='button'
-										className='flex items-center w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-										onClick={() => {
-											p.onMoveLayer('forward');
-											setArrangeOpen(false);
-										}}
-									>
-										{t('pptx.contextMenu.bringForward')}
-									</button>
-									<button
-										type='button'
-										className='flex items-center w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-										onClick={() => {
-											p.onMoveLayer('backward');
-											setArrangeOpen(false);
-										}}
-									>
-										{t('pptx.contextMenu.sendBackward')}
-									</button>
-									<button
-										type='button'
-										className='flex items-center w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-										onClick={() => {
-											p.onMoveLayerToEdge('front');
-											setArrangeOpen(false);
-										}}
-									>
-										{t('pptx.contextMenu.bringToFront')}
-									</button>
-									<button
-										type='button'
-										className='flex items-center w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-										onClick={() => {
-											p.onMoveLayerToEdge('back');
-											setArrangeOpen(false);
-										}}
-									>
-										{t('pptx.contextMenu.sendToBack')}
-									</button>
-								</div>
-							</div>
-						)}
-					</div>
-
-					{/* Shape Fill */}
-					<div className='relative' ref={fillRef}>
-						<button
-							type='button'
-							disabled={!p.canEdit || !p.selectedElement}
-							className={pill}
-							title={t('pptx.drawing.shapeFill')}
-							onClick={() => setFillOpen((v) => !v)}
-						>
-							<LuPaintBucket className={ic} />
-						</button>
-						{fillOpen && (
-							<div className='absolute left-0 top-full z-50 pt-1'>
-								<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl p-2 grid grid-cols-6 gap-1'>
-									{FILL_COLORS.map((c) => (
-										<button
-											key={c}
-											type='button'
-											aria-label={`Fill colour ${c}`}
-											className='w-5 h-5 rounded border border-border/60 hover:scale-110 transition-transform'
-											style={{ backgroundColor: c }}
-											title={c}
-											onClick={() => {
-												p.onUpdateElementStyle?.({ fill: c });
-												setFillOpen(false);
-											}}
-										/>
-									))}
-								</div>
-							</div>
-						)}
-					</div>
-
-					{/* Shape Outline */}
-					<div className='relative' ref={outlineRef}>
-						<button
-							type='button'
-							disabled={!p.canEdit || !p.selectedElement}
-							className={pill}
-							title={t('pptx.drawing.shapeOutline')}
-							onClick={() => setOutlineOpen((v) => !v)}
-						>
-							<LuPenLine className={ic} />
-						</button>
-						{outlineOpen && (
-							<div className='absolute left-0 top-full z-50 pt-1'>
-								<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl p-2 grid grid-cols-6 gap-1'>
-									{FILL_COLORS.map((c) => (
-										<button
-											key={c}
-											type='button'
-											aria-label={`Outline colour ${c}`}
-											className='w-5 h-5 rounded border border-border/60 hover:scale-110 transition-transform'
-											style={{ backgroundColor: c }}
-											title={c}
-											onClick={() => {
-												p.onUpdateElementStyle?.({ outlineColor: c });
-												setOutlineOpen(false);
-											}}
-										/>
-									))}
-								</div>
-							</div>
-						)}
-					</div>
-
-					{/* Shape Effects (placeholder) */}
-					<button
-						type='button'
-						disabled
-						className={cn(pill, 'opacity-50 cursor-not-allowed')}
-						title={t('pptx.drawing.shapeEffectsUnavailable')}
-					>
-						<LuSparkles className={ic} />
-					</button>
-				</div>
-				<span className='text-[9px] text-muted-foreground leading-none'>Drawing</span>
+				)}
 			</div>
 
-			{sep}
-		</>
+			{/* Arrange dropdown */}
+			<div className='relative' ref={arrangeRef}>
+				<button
+					type='button'
+					disabled={!p.canEdit || !p.selectedElement}
+					className={pill}
+					title={t('pptx.ribbon.arrange')}
+					onClick={() => setArrangeOpen((v) => !v)}
+				>
+					<LuLayers className={ic} />
+					{t('pptx.ribbon.arrange')}
+				</button>
+				{arrangeOpen && (
+					<div className='absolute left-0 top-full z-50 flex flex-col w-44 pt-1'>
+						<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1'>
+							<button
+								type='button'
+								className='flex items-center w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+								onClick={() => {
+									p.onMoveLayer('forward');
+									setArrangeOpen(false);
+								}}
+							>
+								{t('pptx.contextMenu.bringForward')}
+							</button>
+							<button
+								type='button'
+								className='flex items-center w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+								onClick={() => {
+									p.onMoveLayer('backward');
+									setArrangeOpen(false);
+								}}
+							>
+								{t('pptx.contextMenu.sendBackward')}
+							</button>
+							<button
+								type='button'
+								className='flex items-center w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+								onClick={() => {
+									p.onMoveLayerToEdge('front');
+									setArrangeOpen(false);
+								}}
+							>
+								{t('pptx.contextMenu.bringToFront')}
+							</button>
+							<button
+								type='button'
+								className='flex items-center w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+								onClick={() => {
+									p.onMoveLayerToEdge('back');
+									setArrangeOpen(false);
+								}}
+							>
+								{t('pptx.contextMenu.sendToBack')}
+							</button>
+						</div>
+					</div>
+				)}
+			</div>
+
+			{/* Shape Fill */}
+			<div className='relative' ref={fillRef}>
+				<button
+					type='button'
+					disabled={!p.canEdit || !p.selectedElement}
+					className={pill}
+					title={t('pptx.drawing.shapeFill')}
+					onClick={() => setFillOpen((v) => !v)}
+				>
+					<LuPaintBucket className={ic} />
+				</button>
+				{fillOpen && (
+					<div className='absolute left-0 top-full z-50 pt-1'>
+						<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl p-2 grid grid-cols-6 gap-1'>
+							{FILL_COLORS.map((c) => (
+								<button
+									key={c}
+									type='button'
+									aria-label={`Fill colour ${c}`}
+									className='w-5 h-5 rounded border border-border/60 hover:scale-110 transition-transform'
+									style={{ backgroundColor: c }}
+									title={c}
+									onClick={() => {
+										p.onUpdateElementStyle?.({ fill: c });
+										setFillOpen(false);
+									}}
+								/>
+							))}
+						</div>
+					</div>
+				)}
+			</div>
+
+			{/* Shape Outline */}
+			<div className='relative' ref={outlineRef}>
+				<button
+					type='button'
+					disabled={!p.canEdit || !p.selectedElement}
+					className={pill}
+					title={t('pptx.drawing.shapeOutline')}
+					onClick={() => setOutlineOpen((v) => !v)}
+				>
+					<LuPenLine className={ic} />
+				</button>
+				{outlineOpen && (
+					<div className='absolute left-0 top-full z-50 pt-1'>
+						<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl p-2 grid grid-cols-6 gap-1'>
+							{FILL_COLORS.map((c) => (
+								<button
+									key={c}
+									type='button'
+									aria-label={`Outline colour ${c}`}
+									className='w-5 h-5 rounded border border-border/60 hover:scale-110 transition-transform'
+									style={{ backgroundColor: c }}
+									title={c}
+									onClick={() => {
+										p.onUpdateElementStyle?.({ outlineColor: c });
+										setOutlineOpen(false);
+									}}
+								/>
+							))}
+						</div>
+					</div>
+				)}
+			</div>
+
+			{/* Shape Effects (placeholder) */}
+			<button
+				type='button'
+				disabled
+				className={cn(pill, 'opacity-50 cursor-not-allowed')}
+				title={t('pptx.drawing.shapeEffectsUnavailable')}
+			>
+				<LuSparkles className={ic} />
+			</button>
+		</RibbonGroup>
 	);
 }

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
 	connectorKind,
 	connectorNeedsPath,
+	isLineLikeElement,
+	isLineLikeShapeType,
 	getCompoundLineOffsets,
 	getCompoundLineWidths,
 	svgLineCap,
@@ -127,5 +129,27 @@ describe('svgLineCap', () => {
 
 	it('falls back to round for an unset cap', () => {
 		expect(svgLineCap(undefined)).toBe('round');
+	});
+});
+
+describe('isLineLikeShapeType / isLineLikeElement', () => {
+	it('recognises the line and connector family', () => {
+		expect(isLineLikeShapeType('line')).toBe(true);
+		expect(isLineLikeShapeType('straightConnector1')).toBe(true);
+		expect(isLineLikeShapeType('bentConnector3')).toBe(true);
+		expect(isLineLikeShapeType('curvedConnector5')).toBe(true);
+		expect(isLineLikeShapeType('connector')).toBe(true);
+	});
+
+	it('rejects filled shapes, block arrows included', () => {
+		expect(isLineLikeShapeType('rect')).toBe(false);
+		expect(isLineLikeShapeType('rtArrow')).toBe(false);
+		expect(isLineLikeShapeType(undefined)).toBe(false);
+	});
+
+	it('treats a connector element as line-like whatever its geometry', () => {
+		expect(isLineLikeElement({ type: 'connector' })).toBe(true);
+		expect(isLineLikeElement({ type: 'shape', shapeType: 'line' })).toBe(true);
+		expect(isLineLikeElement({ type: 'shape', shapeType: 'rect' })).toBe(false);
 	});
 });

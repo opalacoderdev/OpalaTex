@@ -14,6 +14,7 @@ import {
 
 import { SHAPE_PRESETS, ACTION_BUTTON_PRESETS } from '../../constants';
 import type { SupportedShapeType } from '../../types';
+import { RibbonGroup } from './PowerPointRibbonControls';
 import { grp, ic, pill } from './toolbar-constants';
 
 export interface InsertSectionProps {
@@ -107,140 +108,195 @@ export function InsertSection(p: InsertSectionProps): React.ReactElement {
 
 	return (
 		<>
-			<button
-				onClick={p.onAddTextBox}
-				disabled={!canEdit}
-				className={pill}
-				title={t('pptx.insert.addTextBox')}
-			>
-				<LuType className={ic} />
-				{t('pptx.ribbon.textBox')}
-			</button>
-			<div className={grp}>
-				<select
-					value={p.newShapeType}
-					onChange={(e) => p.onSetNewShapeType(e.target.value as SupportedShapeType)}
-					className='bg-transparent py-1.5 pl-2 pr-1 outline-none text-xs'
-					title={t('pptx.insert.shapeType')}
-				>
-					{SHAPE_PRESETS.map((sp) => (
-						<option key={sp.type} value={sp.type} className='bg-background'>
-							{t(sp.i18nKey)}
-						</option>
-					))}
-				</select>
+			<RibbonGroup label={t('pptx.ribbon.group.table')}>
 				<button
-					onClick={p.onAddShape}
+					onClick={p.onAddTable}
 					disabled={!canEdit}
-					className='inline-flex items-center gap-1.5 px-2.5 py-1.5 border-l border-border hover:bg-accent transition-colors text-xs'
-					title={t('pptx.insert.addShape')}
+					className={pill}
+					title={t('pptx.insert.insertTable')}
 				>
-					{SHAPE_PRESETS.find((sp) => sp.type === p.newShapeType)?.icon || (
-						<LuSquare className={ic} />
-					)}
-					{t('pptx.insert.shape')}
+					<LuDatabase className={ic} />
+					{t('pptx.ribbon.table')}
 				</button>
-			</div>
-			<button
-				onClick={p.onOpenImagePicker}
-				disabled={!canEdit}
-				className={pill}
-				title={t('pptx.ribbon.insertImage')}
-			>
-				<LuImage className={ic} />
-				{t('pptx.ribbon.image')}
-			</button>
-			<button
-				onClick={p.onOpenMediaPicker}
-				disabled={!canEdit}
-				className={pill}
-				title={t('pptx.ribbon.insertMedia')}
-			>
-				<LuVideo className={ic} />
-				{t('pptx.ribbon.media')}
-			</button>
-			<button
-				onClick={p.onAddTable}
-				disabled={!canEdit}
-				className={pill}
-				title={t('pptx.insert.insertTable')}
-			>
-				<LuDatabase className={ic} />
-				{t('pptx.ribbon.table')}
-			</button>
-			{p.onAddChart && (
+			</RibbonGroup>
+			<RibbonGroup label={t('pptx.ribbon.group.images')}>
+				<button
+					onClick={p.onOpenImagePicker}
+					disabled={!canEdit}
+					className={pill}
+					title={t('pptx.ribbon.insertImage')}
+				>
+					<LuImage className={ic} />
+					{t('pptx.ribbon.image')}
+				</button>
+				<button
+					onClick={p.onOpenMediaPicker}
+					disabled={!canEdit}
+					className={pill}
+					title={t('pptx.ribbon.insertMedia')}
+				>
+					<LuVideo className={ic} />
+					{t('pptx.ribbon.media')}
+				</button>
+			</RibbonGroup>
+			<RibbonGroup label={t('pptx.ribbon.group.illustrations')}>
 				<div className={grp}>
 					<select
-						value={newChartType}
-						onChange={(e) => setNewChartType(e.target.value as PptxChartType)}
+						value={p.newShapeType}
+						onChange={(e) => p.onSetNewShapeType(e.target.value as SupportedShapeType)}
 						className='bg-transparent py-1.5 pl-2 pr-1 outline-none text-xs'
-						title={t('pptx.ribbon.chartType')}
+						title={t('pptx.insert.shapeType')}
 					>
-						{INSERT_CHART_TYPES.map((ct) => (
-							<option key={ct.type} value={ct.type} className='bg-background'>
-								{ct.label}
+						{SHAPE_PRESETS.map((sp) => (
+							<option key={sp.type} value={sp.type} className='bg-background'>
+								{t(sp.i18nKey)}
 							</option>
 						))}
 					</select>
 					<button
-						onClick={() => p.onAddChart!(newChartType)}
+						onClick={p.onAddShape}
 						disabled={!canEdit}
 						className='inline-flex items-center gap-1.5 px-2.5 py-1.5 border-l border-border hover:bg-accent transition-colors text-xs'
-						title={t('pptx.ribbon.insertChart')}
+						title={t('pptx.insert.addShape')}
 					>
-						<svg
-							className={ic}
-							viewBox='0 0 24 24'
-							fill='none'
-							stroke='currentColor'
-							strokeWidth='2'
-							strokeLinecap='round'
-							strokeLinejoin='round'
-						>
-							<path d='M3 3v18h18' />
-							<rect x='7' y='11' width='3' height='6' />
-							<rect x='12' y='7' width='3' height='10' />
-							<rect x='17' y='13' width='3' height='4' />
-						</svg>
-						{t('pptx.ribbon.chart')}
+						{SHAPE_PRESETS.find((sp) => sp.type === p.newShapeType)?.icon || (
+							<LuSquare className={ic} />
+						)}
+						{t('pptx.insert.shape')}
 					</button>
 				</div>
-			)}
-			<button
-				onClick={p.onAddSmartArt}
-				disabled={!canEdit}
-				className={pill}
-				title={t('pptx.insert.insertSmartArt')}
-			>
-				<LuLayers className={ic} />
-				{t('pptx.ribbon.smartArt')}
-			</button>
-			<button
-				onClick={p.onAddEquation}
-				disabled={!canEdit}
-				className={pill}
-				title={t('pptx.insert.insertEquation')}
-			>
-				<svg
-					className={ic}
-					viewBox='0 0 24 24'
-					fill='none'
-					stroke='currentColor'
-					strokeWidth='2'
-					strokeLinecap='round'
-					strokeLinejoin='round'
-				>
-					<path d='M4 17h6M7 14v6M14 7l4.5 10M15.5 14h5' />
-				</svg>
-				{t('pptx.ribbon.equation')}
-			</button>
-			{/* Action Buttons dropdown */}
-			<div className='relative group'>
 				<button
-					type='button'
+					onClick={p.onAddSmartArt}
 					disabled={!canEdit}
 					className={pill}
-					title={t('pptx.ribbon.insertActionButton')}
+					title={t('pptx.insert.insertSmartArt')}
+				>
+					<LuLayers className={ic} />
+					{t('pptx.ribbon.smartArt')}
+				</button>
+				{p.onAddChart && (
+					<div className={grp}>
+						<select
+							value={newChartType}
+							onChange={(e) => setNewChartType(e.target.value as PptxChartType)}
+							className='bg-transparent py-1.5 pl-2 pr-1 outline-none text-xs'
+							title={t('pptx.ribbon.chartType')}
+						>
+							{INSERT_CHART_TYPES.map((ct) => (
+								<option key={ct.type} value={ct.type} className='bg-background'>
+									{ct.label}
+								</option>
+							))}
+						</select>
+						<button
+							onClick={() => p.onAddChart!(newChartType)}
+							disabled={!canEdit}
+							className='inline-flex items-center gap-1.5 px-2.5 py-1.5 border-l border-border hover:bg-accent transition-colors text-xs'
+							title={t('pptx.ribbon.insertChart')}
+						>
+							<svg
+								className={ic}
+								viewBox='0 0 24 24'
+								fill='none'
+								stroke='currentColor'
+								strokeWidth='2'
+								strokeLinecap='round'
+								strokeLinejoin='round'
+							>
+								<path d='M3 3v18h18' />
+								<rect x='7' y='11' width='3' height='6' />
+								<rect x='12' y='7' width='3' height='10' />
+								<rect x='17' y='13' width='3' height='4' />
+							</svg>
+							{t('pptx.ribbon.chart')}
+						</button>
+					</div>
+				)}
+			</RibbonGroup>
+			<RibbonGroup label={t('pptx.ribbon.group.text')}>
+				<button
+					onClick={p.onAddTextBox}
+					disabled={!canEdit}
+					className={pill}
+					title={t('pptx.insert.addTextBox')}
+				>
+					<LuType className={ic} />
+					{t('pptx.ribbon.textBox')}
+				</button>
+				{p.onOpenHeaderFooter && (
+					<button type='button' disabled={!canEdit} className={pill} onClick={p.onOpenHeaderFooter}>
+						{t('pptx.headerFooter.title')}
+					</button>
+				)}
+				{/* Insert Field dropdown */}
+				{p.onInsertField && (
+					<div className='relative group'>
+						<button
+							type='button'
+							disabled={!canEdit}
+							className={pill}
+							title={t('pptx.field.insertField')}
+						>
+							<svg
+								className={ic}
+								viewBox='0 0 24 24'
+								fill='none'
+								stroke='currentColor'
+								strokeWidth='2'
+								strokeLinecap='round'
+								strokeLinejoin='round'
+							>
+								<path d='M4 7h16M4 12h10M4 17h12' />
+								<circle cx='19' cy='15' r='3' />
+							</svg>
+							{t('pptx.field.field')}
+							<LuChevronDown className='w-3 h-3' />
+						</button>
+						<div className='absolute left-0 top-full z-50 hidden group-hover:flex flex-col w-44 pt-1'>
+							<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1'>
+								<button
+									type='button'
+									disabled={!canEdit}
+									className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+									onClick={() => p.onInsertField!('slidenum')}
+								>
+									{t('pptx.field.slideNumber')}
+								</button>
+								<button
+									type='button'
+									disabled={!canEdit}
+									className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+									onClick={openDatePicker}
+								>
+									{t('pptx.field.dateTime')}
+								</button>
+								<button
+									type='button'
+									disabled={!canEdit}
+									className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+									onClick={() => p.onInsertField!('header')}
+								>
+									{t('pptx.field.header')}
+								</button>
+								<button
+									type='button'
+									disabled={!canEdit}
+									className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+									onClick={() => p.onInsertField!('footer')}
+								>
+									{t('pptx.field.footer')}
+								</button>
+							</div>
+						</div>
+					</div>
+				)}
+			</RibbonGroup>
+			<RibbonGroup label={t('pptx.ribbon.group.symbols')}>
+				<button
+					onClick={p.onAddEquation}
+					disabled={!canEdit}
+					className={pill}
+					title={t('pptx.insert.insertEquation')}
 				>
 					<svg
 						className={ic}
@@ -251,47 +307,19 @@ export function InsertSection(p: InsertSectionProps): React.ReactElement {
 						strokeLinecap='round'
 						strokeLinejoin='round'
 					>
-						<rect x='3' y='3' width='18' height='18' rx='2' />
-						<path d='M13 7l4 5-4 5' />
+						<path d='M4 17h6M7 14v6M14 7l4.5 10M15.5 14h5' />
 					</svg>
-					{t('pptx.ribbon.action')}
-					<LuChevronDown className='w-3 h-3' />
+					{t('pptx.ribbon.equation')}
 				</button>
-				<div className='absolute left-0 top-full z-50 hidden group-hover:flex flex-col w-40 pt-1'>
-					<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1'>
-						{ACTION_BUTTON_PRESETS.map((preset) => (
-							<button
-								key={preset.shapeType}
-								type='button'
-								disabled={!canEdit}
-								className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-								onClick={() => p.onAddActionButton(preset.shapeType)}
-							>
-								<svg
-									className='w-4 h-4 flex-shrink-0'
-									viewBox='0 0 24 24'
-									fill='none'
-									stroke='currentColor'
-									strokeWidth='2'
-									strokeLinecap='round'
-									strokeLinejoin='round'
-								>
-									<path d={preset.iconPath} />
-								</svg>
-								{preset.label}
-							</button>
-						))}
-					</div>
-				</div>
-			</div>
-			{/* Insert Field dropdown */}
-			{p.onInsertField && (
+			</RibbonGroup>
+			<RibbonGroup label={t('pptx.ribbon.group.links')}>
+				{/* Action Buttons dropdown */}
 				<div className='relative group'>
 					<button
 						type='button'
 						disabled={!canEdit}
 						className={pill}
-						title={t('pptx.field.insertField')}
+						title={t('pptx.ribbon.insertActionButton')}
 					>
 						<svg
 							className={ic}
@@ -302,55 +330,40 @@ export function InsertSection(p: InsertSectionProps): React.ReactElement {
 							strokeLinecap='round'
 							strokeLinejoin='round'
 						>
-							<path d='M4 7h16M4 12h10M4 17h12' />
-							<circle cx='19' cy='15' r='3' />
+							<rect x='3' y='3' width='18' height='18' rx='2' />
+							<path d='M13 7l4 5-4 5' />
 						</svg>
-						{t('pptx.field.field')}
+						{t('pptx.ribbon.action')}
 						<LuChevronDown className='w-3 h-3' />
 					</button>
-					<div className='absolute left-0 top-full z-50 hidden group-hover:flex flex-col w-44 pt-1'>
+					<div className='absolute left-0 top-full z-50 hidden group-hover:flex flex-col w-40 pt-1'>
 						<div className='rounded-lg border border-border bg-popover backdrop-blur-lg shadow-2xl py-1'>
-							<button
-								type='button'
-								disabled={!canEdit}
-								className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-								onClick={() => p.onInsertField!('slidenum')}
-							>
-								{t('pptx.field.slideNumber')}
-							</button>
-							<button
-								type='button'
-								disabled={!canEdit}
-								className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-								onClick={openDatePicker}
-							>
-								{t('pptx.field.dateTime')}
-							</button>
-							<button
-								type='button'
-								disabled={!canEdit}
-								className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-								onClick={() => p.onInsertField!('header')}
-							>
-								{t('pptx.field.header')}
-							</button>
-							<button
-								type='button'
-								disabled={!canEdit}
-								className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
-								onClick={() => p.onInsertField!('footer')}
-							>
-								{t('pptx.field.footer')}
-							</button>
+							{ACTION_BUTTON_PRESETS.map((preset) => (
+								<button
+									key={preset.shapeType}
+									type='button'
+									disabled={!canEdit}
+									className='flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors'
+									onClick={() => p.onAddActionButton(preset.shapeType)}
+								>
+									<svg
+										className='w-4 h-4 flex-shrink-0'
+										viewBox='0 0 24 24'
+										fill='none'
+										stroke='currentColor'
+										strokeWidth='2'
+										strokeLinecap='round'
+										strokeLinejoin='round'
+									>
+										<path d={preset.iconPath} />
+									</svg>
+									{preset.label}
+								</button>
+							))}
 						</div>
 					</div>
 				</div>
-			)}
-			{p.onOpenHeaderFooter && (
-				<button type='button' disabled={!canEdit} className={pill} onClick={p.onOpenHeaderFooter}>
-					{t('pptx.headerFooter.title')}
-				</button>
-			)}
+			</RibbonGroup>
 			{/* Date/Time picker popover */}
 			{datePickerOpen && (
 				<div

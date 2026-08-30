@@ -17,6 +17,8 @@ import { SHAPE_PRESET_DEFS } from 'pptx-viewer-shared';
 import type { ShapePresetGlyph } from 'pptx-viewer-shared';
 import React from 'react';
 import {
+	LuArrowLeftRight,
+	LuArrowRight,
 	LuCircle,
 	LuDatabase,
 	LuDiamond,
@@ -30,6 +32,8 @@ import {
 import type { ShapePreset } from '../types';
 
 const GLYPH_COMPONENTS: Record<ShapePresetGlyph, React.ElementType> = {
+	arrowRight: LuArrowRight,
+	arrowLeftRight: LuArrowLeftRight,
 	square: LuSquare,
 	circle: LuCircle,
 	database: LuDatabase,
