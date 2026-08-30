@@ -1,6 +1,6 @@
-import { Suspense, lazy, useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { Suspense, lazy, useRef, useEffect, useState, useCallback, useDeferredValue, useMemo } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, Trash2, FileText, HelpCircle, MoreHorizontal, Zap, PenLine } from 'lucide-react';
+import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, Trash2, FileText, HelpCircle, MoreHorizontal, Zap, PenLine, Columns2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { getLanguage } from '../utils/language';
@@ -76,6 +76,11 @@ export default function EditorPanel({
   const { showAlert } = useCustomDialog();
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  // Side-by-side source + rendered preview for Markdown/HTML, the counterpart
+  // of the .tex editor's PDF split. Like isPdfPreviewCollapsed (and unlike
+  // isPreviewMode, which replaces the editor), it is a layout choice rather
+  // than a per-file mode, so it survives switching tabs.
+  const [isSplitPreview, setIsSplitPreview] = useState(false);
   // Rich Text mode is per-file (a Set of file paths currently in Rich Text
   // mode), so switching tabs never turns it off for a tab the user didn't
   // explicitly exit — only the toggle button (or an explicit action like
@@ -112,6 +117,13 @@ export default function EditorPanel({
   const isDocxFile = selectedFile && selectedFile.toLowerCase().endsWith('.docx');
   const isPptxFile = selectedFile && selectedFile.toLowerCase().endsWith('.pptx');
   const isHtmlFile = selectedFile && /\.(html|htm)$/i.test(selectedFile);
+  const isMarkdownFile = !!selectedFile && selectedFile.toLowerCase().endsWith('.md');
+  // Files that have a rendered preview at all — the only ones the preview
+  // buttons are offered for, in either full or side-by-side layout.
+  const isPreviewableFile = isMarkdownFile || !!isHtmlFile;
+  const isSplitPreviewActive = isPreviewableFile && isSplitPreview && !isPreviewMode;
+  // Zoom, print and the Ctrl+= shortcuts apply to whichever preview is on screen.
+  const isPreviewVisible = (isPreviewableFile && isPreviewMode) || isSplitPreviewActive;
   const isTexRelatedFile = (filename) => {
     if (!filename) return false;
     const ext = filename.split('.').pop().toLowerCase();
@@ -560,6 +572,55 @@ export default function EditorPanel({
   const pendingEditorFileRef = useRef(null);
   const pendingEditorChangeTimerRef = useRef(null);
 
+  // ── Side-by-side preview scrolling ──────────────────────────────────────
+  // The two panes are linked proportionally: the Markdown renderer produces no
+  // source-line anchors, so there is nothing to map a source line onto, and a
+  // scroll-height ratio is the only honest correspondence available. Only the
+  // pane the pointer is over drives the other, which is what keeps the link
+  // from feeding back on itself — mirroring a scroll offset triggers the other
+  // pane's own scroll event, and two handlers echoing each other would fight.
+  // Typing in the source pane commits a new buffer every 250 ms, and each
+  // commit re-parses the whole document through Markdown + KaTeX. Deferring the
+  // preview lets React drop intermediate buffers while the user is still
+  // typing, so keystrokes are never blocked waiting on the render.
+  const deferredPreviewContent = useDeferredValue(fileContent);
+
+  const previewScrollRef = useRef(null);
+  const scrollSourcePaneRef = useRef(null);
+  const isSplitPreviewActiveRef = useRef(false);
+
+  const syncPreviewScrollFromEditor = useCallback(() => {
+    if (!isSplitPreviewActiveRef.current) return;
+    if (scrollSourcePaneRef.current !== 'editor') return;
+    const editor = localEditorRef.current;
+    const preview = previewScrollRef.current;
+    if (!editor || !preview) return;
+    const editorRange = editor.getScrollHeight() - (editor.getLayoutInfo?.()?.height || 0);
+    const previewRange = preview.scrollHeight - preview.clientHeight;
+    if (editorRange <= 0 || previewRange <= 0) return;
+    const ratio = Math.min(1, Math.max(0, editor.getScrollTop() / editorRange));
+    preview.scrollTop = ratio * previewRange;
+  }, []);
+
+  const syncEditorScrollFromPreview = useCallback(() => {
+    if (!isSplitPreviewActiveRef.current) return;
+    if (scrollSourcePaneRef.current !== 'preview') return;
+    const editor = localEditorRef.current;
+    const preview = previewScrollRef.current;
+    if (!editor || !preview) return;
+    const editorRange = editor.getScrollHeight() - (editor.getLayoutInfo?.()?.height || 0);
+    const previewRange = preview.scrollHeight - preview.clientHeight;
+    if (editorRange <= 0 || previewRange <= 0) return;
+    const ratio = Math.min(1, Math.max(0, preview.scrollTop / previewRange));
+    editor.setScrollTop(ratio * editorRange);
+  }, []);
+
+  // Monaco commands and the sync callbacks are registered once, at mount, so
+  // they read the current layout through refs instead of a stale closure.
+  isSplitPreviewActiveRef.current = isSplitPreviewActive;
+  const isPreviewVisibleRef = useRef(false);
+  isPreviewVisibleRef.current = isPreviewVisible;
+
   const flushPendingEditorContent = useCallback(() => {
     if (pendingEditorChangeTimerRef.current) {
       clearTimeout(pendingEditorChangeTimerRef.current);
@@ -896,6 +957,19 @@ export default function EditorPanel({
       scheduleSelectionStats(actualEditor);
     });
 
+    actualEditor.onDidScrollChange?.(() => {
+      syncPreviewScrollFromEditor();
+    });
+
+    // Typing is an editor-driven scroll even when the pointer is resting over
+    // the preview, so it claims the link the same way a wheel or click does.
+    actualEditor.onDidChangeModelContent?.(() => {
+      scrollSourcePaneRef.current = 'editor';
+    });
+    actualEditor.onDidFocusEditorText?.(() => {
+      scrollSourcePaneRef.current = 'editor';
+    });
+
     // ── Forward Search (Ctrl+Click or Alt+Click on editor) ───────────────────────────────
     actualEditor.onMouseUp(async (e) => {
       // Check if Ctrl, Meta (Cmd on Mac), or Alt is pressed
@@ -964,7 +1038,7 @@ export default function EditorPanel({
     actualEditor.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.Equal,
       () => {
-        if (isPreviewMode) {
+        if (isPreviewVisibleRef.current) {
           setMarkdownZoomLevel(prev => Math.min(2.0, prev + 0.1));
         }
       }
@@ -972,7 +1046,7 @@ export default function EditorPanel({
     actualEditor.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.Minus,
       () => {
-        if (isPreviewMode) {
+        if (isPreviewVisibleRef.current) {
           setMarkdownZoomLevel(prev => Math.max(0.5, prev - 0.1));
         }
       }
@@ -980,7 +1054,7 @@ export default function EditorPanel({
     actualEditor.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyNumpad0,
       () => {
-        if (isPreviewMode) {
+        if (isPreviewVisibleRef.current) {
           setMarkdownZoomLevel(1.0);
         }
       }
@@ -1082,6 +1156,86 @@ export default function EditorPanel({
   }
 
   const minimapEnabled = editorMinimap !== 'off';
+
+  // Monaco (or its diff variant) for every file that is not handled by a
+  // dedicated panel. Shared by the plain editor layout and by the left pane of
+  // the Markdown/HTML side-by-side layout, so the two can never drift apart.
+  const renderPlainEditorSurface = () => (
+    isDiffMode ? (
+      <DiffEditor
+        height="100%"
+        language={getLanguage(selectedFile)}
+        theme={theme === 'light' ? 'light' : 'vs-dark'}
+        original={originalFileContents ? (originalFileContents[selectedFile] || '') : ''}
+        modified={fileContent}
+        originalModelPath={`original-${selectedFile}`}
+        modifiedModelPath={`modified-${selectedFile}`}
+        keepCurrentOriginalModel
+        keepCurrentModifiedModel
+        beforeMount={handleBeforeMount}
+        onMount={handleMount}
+        options={{
+          contextmenu: false,
+          minimap: { enabled: minimapEnabled },
+          fontSize: editorFontSize,
+          lineNumbers: 'on',
+          tabSize: editorTabSize,
+          wordWrap: editorWordWrap,
+          automaticLayout: true,
+          renderSideBySide: true,
+          readOnly: false,
+          originalEditable: false,
+          fixedOverflowWidgets: true,
+        }}
+      />
+    ) : (
+      <Editor
+        height="100%"
+        path={selectedFile}
+        language={getLanguage(selectedFile)}
+        theme={theme === 'light' ? 'light' : 'vs-dark'}
+        defaultValue={initialEditorContentRef.current}
+        beforeMount={handleBeforeMount}
+        onChange={scheduleEditorContentCommit}
+        onMount={handleMount}
+        options={{
+          contextmenu: false,
+          minimap: { enabled: minimapEnabled },
+          fontSize: editorFontSize,
+          lineNumbers: 'on',
+          tabSize: editorTabSize,
+          wordWrap: editorWordWrap,
+          automaticLayout: true,
+          fixedOverflowWidgets: true,
+        }}
+      />
+    )
+  );
+
+  // Rendered preview of a Markdown or HTML file. `linked` wires the scroller
+  // into the side-by-side scroll sync; the HTML preview is a sandboxed iframe
+  // with an opaque origin, so its scroll offset is unreachable from here and it
+  // is deliberately left unlinked rather than faked.
+  const renderRenderedPreview = (linked = false) => (
+    isHtmlFile ? (
+      <HtmlPreview
+        html={fileContent}
+        activeProjectPath={activeProject?.project_path}
+        selectedFile={selectedFile}
+        title={t('editorPanel.previewHtml')}
+        zoomLevel={markdownZoomLevel}
+      />
+    ) : (
+      <div
+        ref={linked ? previewScrollRef : undefined}
+        onScroll={linked ? syncEditorScrollFromPreview : undefined}
+        style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }}
+        className="markdown-preview-container"
+      >
+        <FormattedMessage content={linked ? deferredPreviewContent : fileContent} projectPath={activeProject?.project_path} zoomLevel={markdownZoomLevel} />
+      </div>
+    )
+  );
 
   const renderTexEditorSurface = () => (
     <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
@@ -1497,16 +1651,17 @@ export default function EditorPanel({
             </>
           )}
 
-          {selectedFile && (selectedFile.toLowerCase().endsWith('.md') || isHtmlFile) && (
+          {isPreviewableFile && (
             <>
-              {isPreviewMode && (
+              {isPreviewVisible && (
                 <>
                   {!isHtmlFile && (
                     <button
                       onClick={handlePrintPDF}
                       className="vscode-bottom-panel-clear-btn"
                       style={{ padding: '6px' }}
-                      title="Imprimir / Exportar PDF"
+                      title={t('editorPanel.printPreview')}
+                      aria-label={t('editorPanel.printPreview')}
                     >
                       <Printer size={12} />
                     </button>
@@ -1516,7 +1671,7 @@ export default function EditorPanel({
                       onClick={() => setMarkdownZoomLevel(prev => Math.max(0.5, prev - 0.1))}
                       className="vscode-bottom-panel-clear-btn"
                       style={{ padding: '6px' }}
-                      title="Diminuir zoom"
+                      title={t('editorPanel.zoomOut')}
                     >
                       <ZoomOut size={12} />
                     </button>
@@ -1527,7 +1682,7 @@ export default function EditorPanel({
                       onClick={() => setMarkdownZoomLevel(prev => Math.min(2.0, prev + 0.1))}
                       className="vscode-bottom-panel-clear-btn"
                       style={{ padding: '6px' }}
-                      title="Aumentar zoom"
+                      title={t('editorPanel.zoomIn')}
                     >
                       <ZoomIn size={12} />
                     </button>
@@ -1535,10 +1690,39 @@ export default function EditorPanel({
                 </>
               )}
               <button
-                onClick={() => setIsPreviewMode(!isPreviewMode)}
+                onClick={() => {
+                  // The two preview layouts are alternatives, not stackable:
+                  // the full preview hides the very editor the split pairs
+                  // the preview with.
+                  setIsSplitPreview(prev => !prev);
+                  setIsPreviewMode(false);
+                }}
                 className="vscode-bottom-panel-clear-btn"
                 style={{ padding: '6px' }}
-                title={isHtmlFile ? (isPreviewMode ? t('editorPanel.editHtml') : t('editorPanel.previewHtml')) : (isPreviewMode ? "Editar Markdown" : "Visualizar Renderizado")}
+                title={isSplitPreviewActive
+                  ? t('editorPanel.closeSplitPreview')
+                  : t('editorPanel.showSplitPreview')}
+                aria-label={isSplitPreviewActive
+                  ? t('editorPanel.closeSplitPreview')
+                  : t('editorPanel.showSplitPreview')}
+                aria-pressed={isSplitPreviewActive}
+              >
+                <Columns2 size={12} style={{ color: isSplitPreviewActive ? '#4daafc' : 'inherit' }} />
+              </button>
+              <button
+                onClick={() => {
+                  setIsPreviewMode(prev => !prev);
+                  setIsSplitPreview(false);
+                }}
+                className="vscode-bottom-panel-clear-btn"
+                style={{ padding: '6px' }}
+                title={isHtmlFile
+                  ? (isPreviewMode ? t('editorPanel.editHtml') : t('editorPanel.previewHtml'))
+                  : (isPreviewMode ? t('editorPanel.editMarkdown') : t('editorPanel.previewMarkdown'))}
+                aria-label={isHtmlFile
+                  ? (isPreviewMode ? t('editorPanel.editHtml') : t('editorPanel.previewHtml'))
+                  : (isPreviewMode ? t('editorPanel.editMarkdown') : t('editorPanel.previewMarkdown'))}
+                aria-pressed={isPreviewMode}
               >
                 {isPreviewMode ? <EyeOff size={12} style={{ color: '#4daafc' }} /> : <Eye size={12} />}
               </button>
@@ -1655,69 +1839,42 @@ export default function EditorPanel({
             />
           </div>
           </Split>
+        ) : isSplitPreviewActive ? (
+          <Split
+            sizes={[50, 50]}
+            minSize={200}
+            expandToMin={false}
+            gutterSize={4}
+            gutterAlign="center"
+            snapOffset={30}
+            dragInterval={1}
+            direction="horizontal"
+            cursor="col-resize"
+            className="editor-split"
+            style={{ display: 'flex', height: '100%', width: '100%' }}
+          >
+            <div
+              className="vscode-editor-container editor-split-source"
+              style={{ position: 'relative', height: '100%' }}
+              onMouseEnter={() => { scrollSourcePaneRef.current = 'editor'; }}
+              onWheel={() => { scrollSourcePaneRef.current = 'editor'; }}
+              onPointerDown={() => { scrollSourcePaneRef.current = 'editor'; }}
+            >
+              {renderPlainEditorSurface()}
+            </div>
+            <div
+              className="editor-split-preview"
+              style={{ position: 'relative', height: '100%', background: 'var(--vscode-editor-bg)', borderLeft: '1px solid var(--vscode-border)' }}
+              onMouseEnter={() => { scrollSourcePaneRef.current = 'preview'; }}
+              onWheel={() => { scrollSourcePaneRef.current = 'preview'; }}
+              onPointerDown={() => { scrollSourcePaneRef.current = 'preview'; }}
+            >
+              {renderRenderedPreview(true)}
+            </div>
+          </Split>
         ) : (
           <div className="vscode-editor-container" style={{ position: 'relative', height: '100%' }}>
-            {isPreviewMode && isHtmlFile ? (
-              <HtmlPreview
-                html={fileContent}
-                activeProjectPath={activeProject?.project_path}
-                selectedFile={selectedFile}
-                title={t('editorPanel.previewHtml')}
-                zoomLevel={markdownZoomLevel}
-              />
-            ) : isPreviewMode ? (
-              <div style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }} className="markdown-preview-container">
-                <FormattedMessage content={fileContent} projectPath={activeProject?.project_path} zoomLevel={markdownZoomLevel} />
-              </div>
-            ) : isDiffMode ? (
-              <DiffEditor
-                height="100%"
-                language={getLanguage(selectedFile)}
-                theme={theme === 'light' ? 'light' : 'vs-dark'}
-                original={originalFileContents ? (originalFileContents[selectedFile] || '') : ''}
-                modified={fileContent}
-                originalModelPath={`original-${selectedFile}`}
-                modifiedModelPath={`modified-${selectedFile}`}
-                keepCurrentOriginalModel
-                keepCurrentModifiedModel
-                beforeMount={handleBeforeMount}
-                onMount={handleMount}
-                options={{
-                  contextmenu: false,
-                  minimap: { enabled: minimapEnabled },
-                  fontSize: editorFontSize,
-                  lineNumbers: 'on',
-                  tabSize: editorTabSize,
-                  wordWrap: editorWordWrap,
-                  automaticLayout: true,
-                  renderSideBySide: true,
-                  readOnly: false,
-                  originalEditable: false,
-                  fixedOverflowWidgets: true,
-                }}
-              />
-            ) : (
-              <Editor
-                height="100%"
-                path={selectedFile}
-                language={getLanguage(selectedFile)}
-                theme={theme === 'light' ? 'light' : 'vs-dark'}
-                defaultValue={initialEditorContentRef.current}
-                beforeMount={handleBeforeMount}
-                onChange={scheduleEditorContentCommit}
-                onMount={handleMount}
-                options={{
-                  contextmenu: false,
-                  minimap: { enabled: minimapEnabled },
-                  fontSize: editorFontSize,
-                  lineNumbers: 'on',
-                  tabSize: editorTabSize,
-                  wordWrap: editorWordWrap,
-                  automaticLayout: true,
-                  fixedOverflowWidgets: true,
-                }}
-              />
-            )}
+            {isPreviewMode && isPreviewableFile ? renderRenderedPreview() : renderPlainEditorSurface()}
           </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { useTranslation } from 'react-i18next';
@@ -49,6 +49,11 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
   const isCollapsedRef = useRef(isTerminalCollapsed);
   isCollapsedRef.current = isTerminalCollapsed;
   const lastSizeRef = useRef({ cols: 0, rows: 0 });
+  // Whether the viewport is parked above the live output. Mirrored in a ref so
+  // the xterm listeners (created once per terminal) only call setState when the
+  // value actually flips, instead of on every written chunk.
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const isScrolledUpRef = useRef(false);
 
   // Update terminal theme dynamically when theme changes
   useEffect(() => {
@@ -78,6 +83,8 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
 
     // Reset the prompt-drawn flag whenever the terminal is (re)created.
     promptDrawnRef.current = false;
+    isScrolledUpRef.current = false;
+    setIsScrolledUp(false);
 
     const isLight = document.body.classList.contains('light-theme');
     const termTheme = isLight ? LIGHT_TERMINAL_THEME : DARK_TERMINAL_THEME;
@@ -98,6 +105,19 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
 
     terminalInstanceRef.current = term;
     fitAddonRef.current = fitAddon;
+
+    // Track whether the user has scrolled away from the live output, so the UI
+    // can offer a way back to the prompt. `onWriteParsed` covers the case where
+    // new output arrives while the viewport is parked in the scrollback.
+    const syncScrollState = () => {
+      const buffer = term.buffer.active;
+      const scrolledUp = buffer.viewportY < buffer.baseY;
+      if (scrolledUp === isScrolledUpRef.current) return;
+      isScrolledUpRef.current = scrolledUp;
+      setIsScrolledUp(scrolledUp);
+    };
+    term.onScroll(syncScrollState);
+    term.onWriteParsed(syncScrollState);
 
     // Connect to SSE terminal stream. The backend replays the session
     // scrollback on connect, so a remount restores what was on screen.
@@ -197,4 +217,15 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
       }, 50);
     }
   }, [activeBottomTab, bottomPanelHeight, projectPath, isTerminalCollapsed, isActive]);
+
+  const scrollToBottom = useCallback(() => {
+    const term = terminalInstanceRef.current;
+    if (!term) return;
+    term.scrollToBottom();
+    term.focus();
+    isScrolledUpRef.current = false;
+    setIsScrolledUp(false);
+  }, [terminalInstanceRef]);
+
+  return { isScrolledUp, scrollToBottom };
 }

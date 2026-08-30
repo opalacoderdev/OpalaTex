@@ -255,6 +255,11 @@
     "showPdfPreview": "Mostrar preview PDF",
     "editHtml": "Editar HTML",
     "previewHtml": "Visualizar HTML",
+    "editMarkdown": "Editar fonte Markdown",
+    "previewMarkdown": "Visualizar Markdown renderizado",
+    "showSplitPreview": "Mostrar preview lado a lado",
+    "closeSplitPreview": "Fechar preview lado a lado",
+    "printPreview": "Imprimir / Exportar PDF",
     "latexHelpTitle": "Ajuda do editor LaTeX",
     "latexHelpClose": "Fechar ajuda",
     "latexHelpShortcutsTitle": "Atalhos",
@@ -550,7 +555,8 @@
     "fixWithAiBusy": "Aguarde o agente atual terminar antes de corrigir este erro",
     "noThinking": "Nenhum pensamento gerado ainda. Execute uma instrução para ver o raciocínio do agente...",
     "setProjectForTerminal": "Defina um projeto/workspace para habilitar o terminal.",
-    "terminalConnectionLost": "Conexão com o terminal perdida. Reconectando..."
+    "terminalConnectionLost": "Conexão com o terminal perdida. Reconectando...",
+    "terminalScrollToPrompt": "Voltar ao prompt"
   },
   "contextMenu": {
     "newFile": "Novo Arquivo...",

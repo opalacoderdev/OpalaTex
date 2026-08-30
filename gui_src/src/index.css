@@ -2446,6 +2446,23 @@ select {
     color: #0056b3 !important;
   }
 
+  /* Side-by-side Markdown preview: print the rendered pane only, full width.
+     react-split writes the pane widths inline, so these have to override. */
+  body.printing-editor .editor-split {
+    display: block !important;
+    height: auto !important;
+  }
+  body.printing-editor .editor-split-source,
+  body.printing-editor .editor-split .gutter {
+    display: none !important;
+  }
+  body.printing-editor .editor-split-preview {
+    width: 100% !important;
+    height: auto !important;
+    position: static !important;
+    border: none !important;
+  }
+
   .thinking-indicator {
     display: none !important;
   }

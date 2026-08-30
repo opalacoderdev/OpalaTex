@@ -255,6 +255,11 @@
     "showPdfPreview": "Show PDF preview",
     "editHtml": "Edit HTML",
     "previewHtml": "Preview HTML",
+    "editMarkdown": "Edit Markdown source",
+    "previewMarkdown": "Preview rendered Markdown",
+    "showSplitPreview": "Show preview side by side",
+    "closeSplitPreview": "Close side-by-side preview",
+    "printPreview": "Print / Export PDF",
     "latexHelpTitle": "LaTeX editor help",
     "latexHelpClose": "Close help",
     "latexHelpShortcutsTitle": "Shortcuts",
@@ -550,7 +555,8 @@
     "fixWithAiBusy": "Wait for the current agent run to finish before fixing this error",
     "noThinking": "No thoughts generated yet. Run a prompt to see agent reasoning...",
     "setProjectForTerminal": "Set a project/workspace to enable the terminal.",
-    "terminalConnectionLost": "Terminal connection lost. Reconnecting..."
+    "terminalConnectionLost": "Terminal connection lost. Reconnecting...",
+    "terminalScrollToPrompt": "Back to the prompt"
   },
   "contextMenu": {
     "newFile": "New File...",

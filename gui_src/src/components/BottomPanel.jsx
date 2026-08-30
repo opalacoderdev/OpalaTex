@@ -319,7 +319,7 @@ export default function BottomPanel({
                 </div>
               ) : (
                 <>
-                  <div style={{ display: 'flex', alignItems: 'center', padding: '2px 8px', background: 'var(--vscode-editor-bg)', borderBottom: '1px solid var(--vscode-border)', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '2px 8px', background: 'var(--vscode-editor-bg)', borderBottom: '1px solid var(--vscode-border)', gap: '8px', flexShrink: 0 }}>
                     <select
                       value={activeTermId}
                       onChange={e => setActiveTermId(e.target.value)}
@@ -369,7 +369,13 @@ export default function BottomPanel({
                       </button>
                     )}
                   </div>
-                  <div style={{ flex: 1, position: 'relative' }}>
+                  {/* `minHeight: 0` is load-bearing: without it this flex item keeps its
+                      default `min-height: auto`, so it can never shrink below the pixel
+                      height xterm gives its own screen element. FitAddon measures this
+                      box, so the terminal would keep proposing the row count it already
+                      had, overflow the panel, and hide the prompt below the clipped edge
+                      with no scrollbar to reach it. */}
+                  <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
                     {terminals.map(id => (
                       <TerminalInstance
                         key={id}

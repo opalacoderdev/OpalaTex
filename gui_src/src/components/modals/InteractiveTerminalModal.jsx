@@ -154,9 +154,11 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
         </div>
 
         {/* Terminal Container */}
+        {/* `minHeight: 0` keeps this flex item from being pinned to the xterm
+            screen's own height, which is the box FitAddon measures to pick rows. */}
         <div 
           ref={terminalRef} 
-          style={{ flex: 1, background: '#1e1e2e', borderRadius: '8px', overflow: 'hidden', padding: '8px', border: '1px solid #3c3c5c' }} 
+          style={{ flex: 1, minHeight: 0, background: '#1e1e2e', borderRadius: '8px', overflow: 'hidden', padding: '8px', border: '1px solid #3c3c5c' }} 
         />
 
         {/* Footer */}
