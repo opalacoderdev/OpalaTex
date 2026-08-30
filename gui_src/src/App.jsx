@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useTransition } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useTransition } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import { useTranslation } from 'react-i18next';
 import i18n from './i18n/index.js';
@@ -34,6 +34,7 @@ import InteractiveTerminalModal from './components/modals/InteractiveTerminalMod
 import AskModal from './components/modals/AskModal';
 import HardwareModal from './components/modals/HardwareModal';
 import AssetStoreModal from './components/modals/AssetStoreModal';
+import CloudSyncModal from './components/modals/CloudSyncModal';
 import OnboardingModal from './components/modals/OnboardingModal';
 import DirPickerModal from './components/modals/DirPickerModal';
 import DeleteProjectModal from './components/modals/DeleteProjectModal';
@@ -415,6 +416,12 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
   const [isAssetStoreOpen, setIsAssetStoreOpen] = useState(false);
+  const [isCloudSyncOpen, setIsCloudSyncOpen] = useState(false);
+  // Mirrors the project's cloud status so the activity bar and status bar can
+  // show it without either of them polling the backend on its own.
+  const [cloudStatus, setCloudStatus] = useState(null);
+  // rel path -> synced | pending | syncing | conflict, for the tree badges.
+  const [cloudFileStates, setCloudFileStates] = useState(null);
   const [webSearchConfig, setWebSearchConfig] = useState({ enabled: true, mcp_url: '', mcp_tool: 'web_search' });
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -1589,6 +1596,55 @@ export default function App() {
   const refreshWorkspaceFiles = async () => {
     await Promise.all([fetchFiles(), fetchGitStatus()]);
   };
+
+  // Cloud sync status for the active project. Fetching it is also what
+  // registers the project with the backend's sync scheduler, so this runs
+  // whenever a project becomes active — not only when the panel is open.
+  const refreshCloudStatus = useCallback(async () => {
+    if (!activeProject?.project_path) { setCloudStatus(null); return; }
+    try {
+      const params = new URLSearchParams({
+        projectPath: activeProject.project_path,
+        project: activeProject.name || '',
+      });
+      const res = await fetch(`/api/cloud/status?${params}`);
+      const payload = await res.json();
+      setCloudStatus(payload.error ? null : payload);
+    } catch (_) {
+      setCloudStatus(null);
+    }
+  }, [activeProject?.project_path, activeProject?.name]);
+
+  // Which files are synced, waiting, moving or conflicted — the explorer marks
+  // each one, the way a desktop Drive client does.
+  const refreshCloudFileStates = useCallback(async () => {
+    if (!activeProject?.project_path) { setCloudFileStates(null); return; }
+    try {
+      const params = new URLSearchParams({ projectPath: activeProject.project_path });
+      const res = await fetch(`/api/cloud/file-states?${params}`);
+      const payload = await res.json();
+      setCloudFileStates(payload?.enabled ? payload.states : null);
+    } catch (_) {
+      setCloudFileStates(null);
+    }
+  }, [activeProject?.project_path]);
+
+  useEffect(() => { refreshCloudStatus(); }, [refreshCloudStatus]);
+
+  const cloudPassRunning = !!cloudStatus?.syncing || !!cloudStatus?.progress?.active;
+
+  useEffect(() => {
+    // A background pass finishes without telling the front-end, so the status
+    // line is refreshed on a tick. Polling only while sync is on keeps a
+    // project that never uses the feature from paying for it. While a pass is
+    // actually running the tick speeds up: that is when the footer is showing
+    // which file is moving, and a 20 s refresh would make it a slideshow.
+    if (!cloudStatus?.settings?.enabled) { setCloudFileStates(null); return undefined; }
+    const tick = () => { refreshCloudStatus(); refreshCloudFileStates(); };
+    tick();
+    const timer = setInterval(tick, cloudPassRunning ? 1000 : 20000);
+    return () => clearInterval(timer);
+  }, [cloudStatus?.settings?.enabled, cloudPassRunning, refreshCloudStatus, refreshCloudFileStates]);
 
   const handleSelectProject = (proj) => {
     if (proj.exists === false) {
@@ -3670,6 +3726,8 @@ export default function App() {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenHardware={() => setIsHardwareModalOpen(true)}
           onOpenAssetStore={() => setIsAssetStoreOpen(true)}
+          onOpenCloudSync={() => setIsCloudSyncOpen(true)}
+          cloudEnabled={!!cloudStatus?.settings?.enabled}
           onOpenTutorial={handleOpenTutorial}
           layoutMode={layoutMode}
           setLayoutMode={setLayoutMode}
@@ -3711,6 +3769,7 @@ export default function App() {
                 renamingNodePath={renamingNodePath}
                 setRenamingNodePath={setRenamingNodePath}
                 executeRenameNode={executeRenameNode}
+                cloudFileStates={cloudFileStates}
               />
             ) : (
               <GitSidebar
@@ -3787,6 +3846,7 @@ export default function App() {
                 renamingNodePath={renamingNodePath}
                 setRenamingNodePath={setRenamingNodePath}
                 executeRenameNode={executeRenameNode}
+                cloudFileStates={cloudFileStates}
               />
             </div>
           </aside>
@@ -4061,6 +4121,8 @@ export default function App() {
         activeProject={activeProject}
         isAgentRunning={isAgentRunning}
         textStats={editorTextStats}
+        cloudStatus={cloudStatus}
+        onOpenCloudSync={() => setIsCloudSyncOpen(true)}
       />
 
       {/* ── Overlays / Modals ── */}
@@ -4146,6 +4208,14 @@ export default function App() {
         <AssetStoreModal
           onClose={() => setIsAssetStoreOpen(false)}
           projectPath={activeProject?.project_path}
+          onWorkspaceChanged={refreshWorkspaceFiles}
+        />
+      )}
+
+      {isCloudSyncOpen && (
+        <CloudSyncModal
+          activeProject={activeProject}
+          onClose={() => { setIsCloudSyncOpen(false); refreshCloudStatus(); }}
           onWorkspaceChanged={refreshWorkspaceFiles}
         />
       )}

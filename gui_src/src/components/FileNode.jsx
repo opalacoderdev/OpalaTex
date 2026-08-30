@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Folder, File, ChevronRight, ChevronDown } from 'lucide-react';
+import CloudFileBadge from './CloudFileBadge';
 
 // Recursive file/directory tree node with drag-and-drop & inline rename support.
 export default function FileNode({
@@ -19,8 +20,12 @@ export default function FileNode({
   renamingNodePath,
   setRenamingNodePath,
   executeRenameNode,
+  cloudFileStates,
 }) {
   const isDir = node.isDirectory;
+  // The tree carries OS-separated relative paths; the sync state is keyed by
+  // POSIX ones, which is the only place the two representations meet.
+  const cloudState = cloudFileStates?.[String(node.path).replace(/\\/g, '/')];
   const [isOpen, setIsOpen] = useState(false);
   const isRenaming = renamingNodePath === node.path;
   const [editName, setEditName] = useState(node.name);
@@ -167,6 +172,7 @@ export default function FileNode({
           {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           <Folder size={14} className="text-white" style={{ color: '#e8a838', flexShrink: 0 }} />
           {isRenaming ? renderRenameInput() : <span className="truncate">{node.name}</span>}
+          <CloudFileBadge state={cloudState} />
         </div>
         {isOpen && (
           <div style={{ paddingLeft: '12px', borderLeft: '1px solid #3c3c3c', marginLeft: '14px' }}>
@@ -189,6 +195,7 @@ export default function FileNode({
                 renamingNodePath={renamingNodePath}
                 setRenamingNodePath={setRenamingNodePath}
                 executeRenameNode={executeRenameNode}
+                cloudFileStates={cloudFileStates}
               />
             ))}
           </div>
@@ -213,6 +220,7 @@ export default function FileNode({
     >
       <File size={14} className="text-white" style={{ color: '#808080', flexShrink: 0 }} />
       {isRenaming ? renderRenameInput() : <span className="truncate">{node.name}{isDirty ? ' *' : ''}</span>}
+      <CloudFileBadge state={cloudState} />
     </div>
   );
 }

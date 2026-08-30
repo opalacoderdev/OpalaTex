@@ -1,5 +1,5 @@
 import React from 'react';
-import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, PanelBottom, Terminal, History, Columns2, Store, GraduationCap } from 'lucide-react';
+import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, PanelBottom, Terminal, History, Columns2, Store, GraduationCap, Cloud, CloudOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Left-side vertical activity bar (VSCode-style icon strip).
@@ -12,6 +12,8 @@ export default function ActivityBar({
   onOpenSettings,
   onOpenHardware,
   onOpenAssetStore,
+  onOpenCloudSync,
+  cloudEnabled,
   onOpenTutorial,
   layoutMode,
   setLayoutMode,
@@ -135,6 +137,16 @@ export default function ActivityBar({
           title={t('activityBar.assetStore', 'Asset Store')}
         >
           <Store size={20} />
+        </button>
+
+        <button
+          onClick={onOpenCloudSync}
+          className="vscode-activitybar-btn"
+          title={cloudEnabled
+            ? t('activityBar.cloudSyncOn', 'Cloud sync (on)')
+            : t('activityBar.cloudSync', 'Cloud sync')}
+        >
+          {cloudEnabled ? <Cloud size={20} /> : <CloudOff size={20} />}
         </button>
 
         <button

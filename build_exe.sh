@@ -79,9 +79,22 @@ else
 fi
 chmod +x bin/pandoc
 
+echo -e "\n[3.7/4] Injetando o cliente OAuth do Google (opcional)..."
+# Com OPALATEX_GDRIVE_CLIENT_ID definido, o build embute o cliente e a
+# sincronizacao na nuvem passa a conectar em um clique. Sem ele, o app continua
+# funcionando: o usuario cadastra o proprio cliente OAuth nas configuracoes.
+GOOGLE_CLIENT_DATA=""
+if [ -n "$OPALATEX_GDRIVE_CLIENT_ID" ]; then
+    python scripts/embed_google_client.py --from-env
+    GOOGLE_CLIENT_DATA="--add-data=opalatex/cloud/providers/bundled_google_client.json:opalatex/cloud/providers"
+else
+    echo "OPALATEX_GDRIVE_CLIENT_ID nao definido - build sem cliente OAuth embutido."
+fi
+
 echo -e "\n[4/4] Empacotando com PyInstaller..."
 # A sintaxe de --add-data no Linux/macOS usa dois pontos (:)
 pyinstaller --name "OpalaTex" \
+            $GOOGLE_CLIENT_DATA \
             --windowed \
             --icon="AppIcons/OpalaTex.ico" \
             --add-data="opalatex/gui:opalatex/gui" \

@@ -42,10 +42,18 @@ jobs:
 
       - name: Build Windows
         if: matrix.os == 'windows-latest'
+        # The Google OAuth client is optional: without these secrets the build
+        # still works, and Cloud sync asks the user for their own client.
+        env:
+          OPALATEX_GDRIVE_CLIENT_ID: ${{ secrets.OPALATEX_GDRIVE_CLIENT_ID }}
+          OPALATEX_GDRIVE_CLIENT_SECRET: ${{ secrets.OPALATEX_GDRIVE_CLIENT_SECRET }}
         run: .\build_exe.ps1
 
       - name: Build Linux/macOS
         if: matrix.os != 'windows-latest'
+        env:
+          OPALATEX_GDRIVE_CLIENT_ID: ${{ secrets.OPALATEX_GDRIVE_CLIENT_ID }}
+          OPALATEX_GDRIVE_CLIENT_SECRET: ${{ secrets.OPALATEX_GDRIVE_CLIENT_SECRET }}
         run: |
           chmod +x build_exe.sh
           ./build_exe.sh

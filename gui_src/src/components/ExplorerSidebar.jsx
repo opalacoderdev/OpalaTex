@@ -34,6 +34,7 @@ export default function ExplorerSidebar({
   renamingNodePath,
   setRenamingNodePath,
   executeRenameNode,
+  cloudFileStates,
 }) {
   const { t } = useTranslation();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -349,6 +350,7 @@ export default function ExplorerSidebar({
                 renamingNodePath={renamingNodePath}
                 setRenamingNodePath={setRenamingNodePath}
                 executeRenameNode={executeRenameNode}
+                cloudFileStates={cloudFileStates}
               />
             ))}
           </div>

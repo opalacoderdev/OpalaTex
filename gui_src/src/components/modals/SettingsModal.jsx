@@ -48,7 +48,7 @@ export default function SettingsModal({
   setPanelMaxLines,
 }) {
   const { t } = useTranslation();
-  const { showAlert } = useCustomDialog();
+  const { showAlert, showConfirm } = useCustomDialog();
   const [selectedLang, setSelectedLang] = React.useState('');
   const [opalatexHome, setOpalaTexHome] = React.useState('');
   const [draftSynctexEnabled, setDraftSynctexEnabled] = React.useState(false);
@@ -61,6 +61,7 @@ export default function SettingsModal({
   const [isCustomTranslateLang, setIsCustomTranslateLang] = React.useState(false);
   const [imageGen, setImageGen] = React.useState({ enabled: true, model: '', size: '1024x1024', output_dir: 'figures' });
   const [imageModels, setImageModels] = React.useState([]);
+  const [isRestarting, setIsRestarting] = React.useState(false);
 
   const activeTab = (settingsTab === 'preferences' || !['general', 'dependencies', 'about'].includes(settingsTab))
     ? 'general'
@@ -161,6 +162,53 @@ export default function SettingsModal({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt_evolution_iterations: numIterations, prompt_evolution_max_tokens: numMaxTokens }),
     }).catch(() => { });
+  };
+
+  // Saving OPALATEX_HOME only takes effect on the next launch, so the user is
+  // asked right away whether to restart; declining leaves the saved value in
+  // place with a reminder that it is still pending.
+  const saveOpalaTexHome = async () => {
+    let data;
+    try {
+      const res = await fetch('/api/settings/opalatexhome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: opalatexHome })
+      });
+      data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error) {
+        await showAlert(t('settingsModal.globalDataDirError') + (data?.error || res.status));
+        return;
+      }
+    } catch (err) {
+      await showAlert(t('settingsModal.globalDataDirError') + err);
+      return;
+    }
+
+    if (!data?.requiresRestart) {
+      await showAlert(t('settingsModal.globalDataDirSaved'));
+      return;
+    }
+
+    const shouldRestart = await showConfirm(t('settingsModal.globalDataDirRestartConfirm'));
+    if (!shouldRestart) {
+      await showAlert(t('settingsModal.globalDataDirRestartAlert'));
+      return;
+    }
+
+    setIsRestarting(true);
+    try {
+      const res = await fetch('/api/app/restart', { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.error) {
+        setIsRestarting(false);
+        await showAlert(t('settingsModal.restartError') + (body?.error || res.status));
+      }
+      // On success the server exits and relaunches; this window closes with it.
+    } catch (err) {
+      setIsRestarting(false);
+      await showAlert(t('settingsModal.restartError') + err);
+    }
   };
 
   const updateEphemeralParam = (key, val) => {
@@ -491,23 +539,11 @@ export default function SettingsModal({
                     placeholder={t('settingsModal.globalDataDirPlaceholder')}
                   />
                   <button
-                    onClick={() => {
-                      fetch('/api/settings/opalatexhome', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ path: opalatexHome })
-                      })
-                        .then(async res => {
-                          if (res.requiresRestart) {
-                            await showAlert(t('settingsModal.globalDataDirRestartAlert'));
-                          } else if (res.error) {
-                            await showAlert(t('settingsModal.globalDataDirError') + res.error);
-                          }
-                        });
-                    }}
+                    onClick={saveOpalaTexHome}
+                    disabled={isRestarting}
                     className="vscode-button"
                   >
-                    {t('settingsModal.save')}
+                    {isRestarting ? t('settingsModal.restarting') : t('settingsModal.save')}
                   </button>
                 </div>
                 <span style={{ fontSize: '11px', color: '#888888' }}>{t('settingsModal.globalDataDirHint')}</span>

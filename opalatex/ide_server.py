@@ -799,6 +799,23 @@ class AsyncHTTPServer:
             except:
                 pass
 
+    def _notify_cloud_change(self, project_path):
+        """Tell the cloud sync manager that this project's files changed.
+
+        The backend has no filesystem watcher, so every endpoint that writes
+        into a project announces it here. The call is deliberately cheap and
+        never raises: it only sets an event, and a project without cloud sync
+        enabled is not even registered. Mirroring must never be able to break an
+        editor save.
+        """
+        if not project_path:
+            return
+        try:
+            from opalatex.cloud.service import MANAGER
+            MANAGER.notify_local_change(project_path)
+        except Exception:
+            pass
+
     def send_response(self, writer, status_code, body, content_type="text/plain"):
         status_msg = "OK" if status_code == 200 else ("Not Found" if status_code == 404 else "Error")
         if (content_type.startswith("text/") or 
@@ -1540,6 +1557,7 @@ class AsyncHTTPServer:
                     except Exception as ex:
                         print(f"Error converting SVG to PDF: {ex}")
                 
+                self._notify_cloud_change(project_path)
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
@@ -1565,6 +1583,7 @@ class AsyncHTTPServer:
                 with open(full_path, "wb") as f:
                     f.write(upload.get("content") or b"")
 
+                self._notify_cloud_change(project_path)
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
@@ -1582,6 +1601,7 @@ class AsyncHTTPServer:
                 return
             try:
                 os.makedirs(full_path, exist_ok=True)
+                self._notify_cloud_change(project_path)
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
@@ -1616,6 +1636,7 @@ class AsyncHTTPServer:
                     shutil.copytree(full_source, full_target)
                 else:
                     shutil.copy2(full_source, full_target)
+                self._notify_cloud_change(project_path)
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
@@ -1667,6 +1688,7 @@ class AsyncHTTPServer:
                     f.write(upload.get('content', b''))
 
                 imported_path = _normalize_rel_path(os.path.relpath(full_target, project_abs))
+                self._notify_cloud_change(project_abs)
                 self.send_response(
                     writer,
                     200,
@@ -1694,6 +1716,7 @@ class AsyncHTTPServer:
                         shutil.rmtree(full_path)
                     else:
                         os.remove(full_path)
+                    self._notify_cloud_change(project_path)
                     self.send_response(writer, 200, b'{"success":true}', "application/json")
                 else:
                     self.send_response(writer, 404, b'{"error":"File not found"}', "application/json")
@@ -1717,6 +1740,7 @@ class AsyncHTTPServer:
                 if os.path.exists(full_old_path):
                     os.makedirs(os.path.dirname(full_new_path), exist_ok=True)
                     os.rename(full_old_path, full_new_path)
+                    self._notify_cloud_change(project_path)
                     self.send_response(writer, 200, b'{"success":true}', "application/json")
                 else:
                     self.send_response(writer, 404, b'{"error":"Source file not found"}', "application/json")
@@ -1876,6 +1900,12 @@ class AsyncHTTPServer:
             try:
                 import pathlib
                 pointer_file = pathlib.Path.home() / ".opalatexhome"
+                previous_path = ""
+                if pointer_file.exists():
+                    try:
+                        previous_path = pointer_file.read_text(encoding="utf-8").strip()
+                    except OSError:
+                        previous_path = ""
                 if new_path:
                     # Validate path
                     os.makedirs(new_path, exist_ok=True)
@@ -1884,7 +1914,26 @@ class AsyncHTTPServer:
                     # Remove custom pointer if empty
                     if pointer_file.exists():
                         pointer_file.unlink()
-                self.send_response(writer, 200, json.dumps({"success": True, "requiresRestart": True}).encode('utf-8'), "application/json")
+                # The directory is only read at startup, so a restart is needed
+                # exactly when the stored value actually changed.
+                requires_restart = new_path != previous_path
+                self.send_response(writer, 200, json.dumps({"success": True, "requiresRestart": requires_restart}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/app/restart' and method == 'POST':
+            # Settings such as OPALATEX_HOME are read at startup, so the UI offers
+            # a restart right after saving them. Respond first, then relaunch:
+            # the exit is deferred inside schedule_app_restart so this response
+            # reaches the browser before the process goes away.
+            try:
+                command = schedule_app_restart()
+                self.send_response(
+                    writer,
+                    200,
+                    json.dumps({"success": True, "command": command}).encode('utf-8'),
+                    "application/json",
+                )
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
@@ -3093,6 +3142,11 @@ class AsyncHTTPServer:
                     self.active_agent_event_queue = None
                 if event_queue in self.active_queues:
                     self.active_queues.remove(event_queue)
+                # An agent turn writes through its own file tools rather than
+                # the endpoints above, so the end of the turn is the one place
+                # that covers every file it touched — including a turn that was
+                # interrupted, which still leaves its edits on disk.
+                self._notify_cloud_change(data.get('projectPath') or data.get('project_path'))
                 # Close the HTTP chunked stream so the frontend reader unblocks.
                 try:
                     writer.write(b"0\r\n\r\n")
@@ -4155,6 +4209,293 @@ class AsyncHTTPServer:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
 
+        # 7i2. Cloud sync — status for one project (providers, connection, last pass)
+        elif path == '/api/cloud/status' and method == 'GET':
+            from opalatex.cloud.service import MANAGER, status_for
+            project_path = query.get('projectPath', [None])[0]
+            project_name = query.get('project', [''])[0]
+            if not project_path:
+                self.send_response(writer, 400, b'{"error":"projectPath parameter is required"}', "application/json")
+                return
+            try:
+                status = status_for(project_path, project_name)
+                # Opening a project is what starts (or stops) its background
+                # sync task: the front-end polls this endpoint when a project
+                # becomes active, so no separate lifecycle hook is needed.
+                if project_name:
+                    MANAGER.activate(project_name, project_path)
+                status["syncing"] = MANAGER.is_running(project_path)
+                last = MANAGER.last_outcome(project_path)
+                status["last_outcome"] = last.to_dict() if last else None
+                self.send_response(writer, 200, json.dumps(status).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i2b. Cloud sync — per-file state for the explorer's badges
+        elif path == '/api/cloud/file-states' and method == 'GET':
+            from opalatex.cloud.service import MANAGER, file_states
+            project_path = query.get('projectPath', [None])[0]
+            if not project_path:
+                self.send_response(writer, 400, b'{"error":"projectPath parameter is required"}', "application/json")
+                return
+            try:
+                last = MANAGER.last_outcome(project_path)
+                conflicts = [
+                    conflict.rel_path
+                    for conflict in ((last.report.conflicts if last and last.report else []) or [])
+                ]
+                # Scanning the tree is disk work, so it stays off the event loop.
+                payload = await asyncio.get_running_loop().run_in_executor(
+                    None, lambda: file_states(project_path, conflicts)
+                )
+                self.send_response(writer, 200, json.dumps(payload).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i3. Cloud sync — update a project's settings
+        elif path == '/api/cloud/settings' and method == 'POST':
+            from opalatex.cloud.service import MANAGER, status_for, update_settings
+            project_path = data.get('projectPath')
+            project_name = data.get('project', '')
+            if not project_path:
+                self.send_response(writer, 400, b'{"error":"projectPath is required"}', "application/json")
+                return
+            try:
+                update_settings(project_path, data.get('settings') or {})
+                if project_name:
+                    MANAGER.activate(project_name, project_path)
+                else:
+                    MANAGER.deactivate(project_path)
+                self.send_response(writer, 200, json.dumps(status_for(project_path, project_name)).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i4. Cloud sync — list backends
+        elif path == '/api/cloud/providers' and method == 'GET':
+            from opalatex.cloud.registry import list_providers
+            try:
+                payload = [
+                    {
+                        "id": info.id,
+                        "display_name": info.display_name,
+                        "requires_authorization": info.requires_authorization,
+                        "available": info.available,
+                        "unavailable_reason": info.unavailable_reason,
+                    }
+                    for info in list_providers()
+                ]
+                self.send_response(writer, 200, json.dumps({"providers": payload}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i5. Cloud sync — which Google OAuth client this installation connects
+        # with. Normally the one shipped with the build, so the user only ever
+        # presses Connect; the custom fields are the advanced override.
+        elif path == '/api/cloud/google-client' and method == 'GET':
+            from opalatex.cloud.providers.google_drive import (
+                describe_client_config,
+                load_bundled_client_config,
+                load_user_client_config,
+            )
+            try:
+                effective = describe_client_config()
+                custom = load_user_client_config()
+                # No secret is ever returned. They are write-only from the UI's
+                # point of view: showing one back would put a credential in the
+                # DOM of every settings screen for no benefit.
+                self.send_response(writer, 200, json.dumps({
+                    "client_id": effective.get("client_id", ""),
+                    "has_client_secret": bool(effective.get("client_secret")),
+                    "source": effective.get("source", "none"),
+                    "configured": bool(effective.get("client_id")),
+                    "bundled_available": bool(load_bundled_client_config().get("client_id")),
+                    "custom_client_id": custom.get("client_id", ""),
+                    "has_custom_client_secret": bool(custom.get("client_secret")),
+                }).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/cloud/google-client' and method == 'POST':
+            from opalatex.cloud.providers.google_drive import (
+                load_user_client_config,
+                save_client_config,
+            )
+            try:
+                client_id = str(data.get('client_id', '') or '').strip()
+                if not client_id:
+                    self.send_response(writer, 400, json.dumps({
+                        "error": "client_id is required. Use DELETE to go back to the client shipped with OpalaTex."
+                    }).encode('utf-8'), "application/json")
+                    return
+                # An empty secret keeps whatever is stored, so the user can
+                # correct the client id without re-entering the secret they
+                # cannot read back.
+                client_secret = str(data.get('client_secret', '') or '')
+                if not client_secret:
+                    client_secret = load_user_client_config().get('client_secret', '')
+                save_client_config(client_id, client_secret)
+                self.send_response(writer, 200, b'{"success":true}', "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # Drop the override and go back to the client the build ships with.
+        elif path == '/api/cloud/google-client' and method == 'DELETE':
+            from opalatex.cloud.providers.google_drive import clear_client_config
+            try:
+                clear_client_config()
+                self.send_response(writer, 200, b'{"success":true}', "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i6. Cloud sync — start an authorization (opens the system browser)
+        elif path == '/api/cloud/connect' and method == 'POST':
+            from opalatex.cloud.base import CloudError
+            from opalatex.cloud.registry import get_cloud_provider
+            provider_id = str(data.get('provider', '') or '')
+            if not provider_id:
+                self.send_response(writer, 400, b'{"error":"provider is required"}', "application/json")
+                return
+            try:
+                provider = get_cloud_provider(provider_id, data.get('config') or {})
+                challenge = provider.begin_authorization()
+                self.send_response(writer, 200, json.dumps({
+                    "authorization_url": challenge.authorization_url,
+                    "session": challenge.session,
+                    "instructions": challenge.instructions,
+                }).encode('utf-8'), "application/json")
+            except CloudError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i7. Cloud sync — wait for the redirect and exchange the code
+        elif path == '/api/cloud/connect/complete' and method == 'POST':
+            from opalatex.cloud.base import CloudError
+            from opalatex.cloud.registry import get_cloud_provider
+            provider_id = str(data.get('provider', '') or '')
+            session = data.get('session') or {}
+            if not provider_id or not session:
+                self.send_response(writer, 400, b'{"error":"provider and session are required"}', "application/json")
+                return
+            try:
+                provider = get_cloud_provider(provider_id, data.get('config') or {})
+                # The exchange blocks until the user finishes in the browser, so
+                # it runs off the event loop: everything else in the IDE — the
+                # editor, the compiler, a running agent — has to stay responsive
+                # while that tab is open.
+                auth = await asyncio.get_running_loop().run_in_executor(
+                    None, lambda: provider.complete_authorization(session, data.get('response') or None)
+                )
+                self.send_response(writer, 200, json.dumps({
+                    "connected": auth.connected,
+                    "account": auth.account,
+                    "error": auth.error,
+                }).encode('utf-8'), "application/json")
+            except CloudError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i8. Cloud sync — abandon a pending authorization
+        elif path == '/api/cloud/connect/cancel' and method == 'POST':
+            from opalatex.cloud import oauth as cloud_oauth
+            try:
+                cloud_oauth.cancel_authorization(data.get('session') or {})
+                self.send_response(writer, 200, b'{"success":true}', "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i9. Cloud sync — forget stored credentials
+        elif path == '/api/cloud/disconnect' and method == 'POST':
+            from opalatex.cloud.registry import get_cloud_provider
+            provider_id = str(data.get('provider', '') or '')
+            if not provider_id:
+                self.send_response(writer, 400, b'{"error":"provider is required"}', "application/json")
+                return
+            try:
+                get_cloud_provider(provider_id, data.get('config') or {}).revoke()
+                self.send_response(writer, 200, b'{"success":true}', "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i9b. Cloud sync — settle one conflicted file the way the user chose
+        elif path == '/api/cloud/resolve-conflict' and method == 'POST':
+            from opalatex.cloud.base import CloudError
+            from opalatex.cloud.service import MANAGER, resolve_conflict, status_for
+            project_path = data.get('projectPath')
+            project_name = data.get('project', '')
+            rel_path = str(data.get('path', '') or '')
+            resolution = str(data.get('resolution', '') or '')
+            if not project_path or not rel_path:
+                self.send_response(writer, 400, b'{"error":"projectPath and path are required"}', "application/json")
+                return
+            try:
+                # Provider I/O blocks, so it stays off the event loop like a pass.
+                result = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    lambda: resolve_conflict(
+                        project_path,
+                        rel_path,
+                        resolution,
+                        conflict_copy=str(data.get('conflict_copy', '') or ''),
+                    ),
+                )
+                status = status_for(project_path, project_name)
+                status["syncing"] = MANAGER.is_running(project_path)
+                self.send_response(writer, 200, json.dumps({
+                    "success": True,
+                    "resolved": result,
+                    "status": status,
+                }).encode('utf-8'), "application/json")
+            except CloudError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            except OSError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i10. Cloud sync — run a pass now
+        elif path == '/api/cloud/sync' and method == 'POST':
+            from opalatex.cloud.engine import PULL, PUSH, TWO_WAY
+            from opalatex.cloud.service import MANAGER
+            project_path = data.get('projectPath')
+            project_name = data.get('project', '')
+            if not project_path or not project_name:
+                self.send_response(writer, 400, b'{"error":"projectPath and project are required"}', "application/json")
+                return
+            direction = str(data.get('direction', TWO_WAY) or TWO_WAY)
+            if direction not in (TWO_WAY, PUSH, PULL):
+                self.send_response(writer, 400, json.dumps({
+                    "error": f"Unknown direction {direction!r}. Use one of: {TWO_WAY}, {PUSH}, {PULL}."
+                }).encode('utf-8'), "application/json")
+                return
+            try:
+                outcome = await MANAGER.sync_now(
+                    project_name,
+                    project_path,
+                    direction=direction,
+                    dry_run=bool(data.get('dryRun')),
+                    # Deleting a large share of the working copy needs an
+                    # explicit confirmation from the user, relayed here.
+                    allow_bulk_delete=bool(data.get('allowBulkDelete')),
+                )
+                self.send_response(writer, 200, json.dumps(outcome.to_dict()).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i11. Cloud sync — drop the baseline and reconcile from scratch
+        elif path == '/api/cloud/reset' and method == 'POST':
+            from opalatex.cloud.state import reset_baseline
+            project_path = data.get('projectPath')
+            if not project_path:
+                self.send_response(writer, 400, b'{"error":"projectPath is required"}', "application/json")
+                return
+            try:
+                reset_baseline(project_path)
+                self.send_response(writer, 200, b'{"success":true}', "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
         # 7j. Web search config — GET
         elif path == '/api/settings/web-search' and method == 'GET':
             from opalatex.web_search_config import load_config
@@ -4503,6 +4844,72 @@ class AsyncHTTPServer:
 
         else:
             self.send_response(writer, 404, b'{"error":"Not Found"}', "application/json")
+
+def build_relaunch_command():
+    """Build the argv that re-launches this OpalaTex instance.
+
+    Frozen builds (PyInstaller) expose the app itself as ``sys.executable`` and
+    must not be re-run through an interpreter. Source checkouts are re-launched
+    with the same interpreter and entry script; when the entry script is not a
+    real path (``-m`` / ``-c`` launches) we fall back to invoking the CLI entry
+    point directly.
+    """
+    import sys
+
+    extra_args = list(sys.argv[1:])
+    if getattr(sys, "frozen", False):
+        return [sys.executable] + extra_args
+
+    script = sys.argv[0] if sys.argv else ""
+    if script and os.path.isfile(script):
+        return [sys.executable, os.path.abspath(script)] + extra_args
+    return [sys.executable, "-c", "from opalatex.cli import main; main()"] + extra_args
+
+
+def spawn_detached(command, cwd=None):
+    """Start ``command`` fully detached from this process and return the Popen."""
+    import subprocess
+    import sys
+
+    kwargs = {"cwd": cwd or os.getcwd(), "close_fds": True}
+    if sys.platform == "win32":
+        # DETACHED_PROCESS keeps the child alive after we exit; CREATE_NEW_PROCESS_GROUP
+        # stops it from inheriting Ctrl+C delivered to the old console.
+        kwargs["creationflags"] = (
+            getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        )
+    else:
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(command, **kwargs)
+
+
+def schedule_app_restart(delay=0.6):
+    """Relaunch OpalaTex and terminate this process shortly after.
+
+    The work is deferred to a timer thread so the HTTP response that triggered
+    the restart can be flushed to the browser first. The replacement process is
+    spawned immediately before ``os._exit`` so that this process has released
+    its listening port by the time the child boots and picks one.
+    """
+    import threading
+
+    command = build_relaunch_command()
+    cwd = os.getcwd()
+
+    def _restart():
+        try:
+            spawn_detached(command, cwd=cwd)
+        except Exception as e:  # pragma: no cover - depends on the host OS
+            print(f"[OpalaTex] restart failed to spawn a new instance: {e}")
+            return
+        os._exit(0)
+
+    timer = threading.Timer(delay, _restart)
+    timer.daemon = True
+    timer.start()
+    return command
+
 
 def find_available_port(host, start_port, max_port=3050):
     import socket

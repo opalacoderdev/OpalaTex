@@ -157,3 +157,6 @@ venv.bak/
 
 # --- MathLive fonts, copied from node_modules at build time ---
 /gui_src/public/mathlive-fonts/
+
+# --- OAuth client injected at build time (see scripts/embed_google_client.py) ---
+/opalatex/cloud/providers/bundled_google_client.json

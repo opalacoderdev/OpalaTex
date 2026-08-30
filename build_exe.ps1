@@ -54,12 +54,26 @@ if ($pandocExe) {
 Remove-Item -Force $pandocZip
 Remove-Item -Recurse -Force $pandocExtractDir
 
+Write-Host "`n[3.7/4] Injetando o cliente OAuth do Google (opcional)..."
+# Com OPALATEX_GDRIVE_CLIENT_ID definido, o build embute o cliente e a
+# sincronizacao na nuvem passa a conectar em um clique. Sem ele, o app continua
+# funcionando: o usuario cadastra o proprio cliente OAuth nas configuracoes.
+# O array vazio some no splat, entao nenhum argumento vazio chega ao PyInstaller.
+$googleClientArgs = @()
+if ($env:OPALATEX_GDRIVE_CLIENT_ID) {
+    python scripts/embed_google_client.py --from-env
+    $googleClientArgs = @("--add-data=opalatex/cloud/providers/bundled_google_client.json;opalatex/cloud/providers")
+} else {
+    Write-Host "OPALATEX_GDRIVE_CLIENT_ID nao definido - build sem cliente OAuth embutido."
+}
+
 Write-Host "`n[4/4] Empacotando com PyInstaller..."
 # Find winpty-agent.exe dynamically to avoid hardcoding .venv path
 $winptyAgentPath = python -c "import winpty, os; print(os.path.join(os.path.dirname(winpty.__file__), 'winpty-agent.exe'))"
 
 # A sintaxe de --add-data no Windows usa ponto-e-virgula (;)
 pyinstaller --name "OpalaTex" `
+            @googleClientArgs `
             --windowed `
             --icon="AppIcons/OpalaTex.ico" `
             --add-data="opalatex/gui;opalatex/gui" `
