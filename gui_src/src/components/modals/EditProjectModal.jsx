@@ -379,9 +379,9 @@ export default function EditProjectModal({
                   className=""
                   style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
-                {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
-                {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
-                {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
+                {modelStatus === 'green' && <span style={{ fontSize: '11px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
+                {modelStatus === 'yellow' && <span style={{ fontSize: '11px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                {modelStatus === 'red' && <span style={{ fontSize: '11px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
               </div>
 
               {/* Advanced params (collapsible) */}
@@ -566,11 +566,11 @@ export default function EditProjectModal({
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                   {workerHardware ? (
-                    <span style={{ fontSize: '10px', color: '#888888' }}>
+                    <span style={{ fontSize: '11px', color: '#888888' }}>
                       HW: {workerHardware.gpu_vram_gb}GB VRAM | {workerHardware.ram_gb}GB RAM
                     </span>
                   ) : (
-                    <span style={{ fontSize: '10px', color: '#888888' }}>{t('editProjectModal.detectingHardware')}</span>
+                    <span style={{ fontSize: '11px', color: '#888888' }}>{t('editProjectModal.detectingHardware')}</span>
                   )}
                 </div>
               </div>

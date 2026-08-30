@@ -7,6 +7,9 @@
      though background-color is set via CSS, because the native widget skin
      is drawn on top. */
   color-scheme: dark;
+  /* Accessibility interface scale; see .vscode-app. Overridden at runtime
+     on the document element from the value stored in ui_settings.json. */
+  --ui-scale: 1;
   --vscode-bg: #1e1e1e;
   --vscode-sidebar-bg: #252526;
   --vscode-activitybar-bg: #333333;
@@ -656,7 +659,27 @@ input:focus, select:focus, textarea:focus {
 .vscode-app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* ── Accessibility interface scale ──────────────────────────────────────
+     `zoom` rather than a transform, so the tree actually reflows at the new
+     size. It also scales the pixel values that are written directly into
+     component inline styles, which no amount of CSS variables could reach.
+
+     Viewport units are the one length `zoom` does not compensate for: `100vh`
+     resolves against the real viewport and is *then* multiplied by the zoom,
+     overflowing the screen. Dividing cancels that out, and --ui-vh / --ui-vw
+     give the rest of the app a viewport unit that stays correct inside the
+     zoomed subtree — use those instead of vh/vw anywhere under .vscode-app.
+
+     Percentages and `width: auto` need no such treatment: Chromium 128+
+     compensates them at the zoom boundary. The division above is correct
+     under both that behaviour and the older non-compensating one, so the
+     layout holds on the Qt/Chromium and the WebKitGTK webview backend
+     alike. */
+  zoom: var(--ui-scale, 1);
+  --ui-vh: calc(1vh / var(--ui-scale, 1));
+  --ui-vw: calc(1vw / var(--ui-scale, 1));
+  height: calc(100 * var(--ui-vh));
+  width: calc(100 * var(--ui-vw));
   overflow: hidden;
 }
 
@@ -743,7 +766,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .vscode-sidebar-section-title {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: bold;
   color: #808080;
   text-transform: uppercase;
@@ -1087,7 +1110,7 @@ input:focus, select:focus, textarea:focus {
   border: none;
   border-right: 1px solid var(--vscode-border);
   color: #a0a0a0;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: bold;
   padding: 6px 0;
   cursor: pointer;
@@ -1117,8 +1140,12 @@ input:focus, select:focus, textarea:focus {
   background-color: var(--vscode-sidebar-bg);
 }
 
+/* --chat-font-scale is the text-scaling path for the comparison panel, which
+   has no zoom of its own. The main chat history scales with `zoom` instead and
+   must NOT also set the variable: the two compound, and a control reading 150%
+   would render text at 225%. */
 .vscode-chat-msg-header {
-  font-size: calc(10px * var(--chat-font-scale, 1));
+  font-size: calc(11px * var(--chat-font-scale, 1));
   font-weight: bold;
   text-transform: uppercase;
   margin-bottom: 4px;
@@ -1288,7 +1315,7 @@ input:focus, select:focus, textarea:focus {
   color: var(--vscode-statusbar-fg);
   font-weight: 700;
   left: 50%;
-  max-width: min(220px, 32vw);
+  max-width: min(220px, calc(32 * var(--ui-vw)));
   overflow: hidden;
   padding: 1px 8px;
   position: absolute;
@@ -1320,8 +1347,8 @@ input:focus, select:focus, textarea:focus {
   background-color: var(--vscode-sidebar-bg);
   border: 1px solid var(--vscode-border);
   width: 100%;
-  max-width: 95vw;
-  max-height: 85vh;
+  max-width: calc(95 * var(--ui-vw));
+  max-height: calc(85 * var(--ui-vh));
   box-shadow: 0 4px 20px rgba(0,0,0,0.5);
   display: flex;
   flex-direction: column;
@@ -1456,7 +1483,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .skill-card-note {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
   color: var(--vscode-text-subtle);
   font-style: italic;
@@ -1662,7 +1689,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .pdf-annotation-tooltip-author {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--vscode-descriptionForeground);
   margin-bottom: 3px;
 }
@@ -1700,7 +1727,7 @@ input:focus, select:focus, textarea:focus {
   position: fixed;
   z-index: 1100;
   width: 280px;
-  max-width: calc(100vw - 24px);
+  max-width: calc(100 * var(--ui-vw) - 24px);
   background-color: var(--vscode-sidebar-bg);
   border: 1px solid var(--vscode-border);
   border-radius: 4px;
@@ -1753,7 +1780,7 @@ input:focus, select:focus, textarea:focus {
 
 .pdf-note-popup-hint {
   flex: 1;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--vscode-descriptionForeground);
 }
 
@@ -1783,7 +1810,7 @@ input:focus, select:focus, textarea:focus {
   position: fixed;
   z-index: 1100;
   width: 380px;
-  max-width: calc(100vw - 24px);
+  max-width: calc(100 * var(--ui-vw) - 24px);
   display: flex;
   flex-direction: column;
   background-color: var(--vscode-sidebar-bg);
@@ -1853,7 +1880,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .pdf-translate-popup-zoom-level {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 400;
   min-width: 34px;
   text-align: center;
@@ -1876,7 +1903,7 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 46vh;
+  max-height: calc(46 * var(--ui-vh));
   overflow-y: auto;
 }
 
@@ -2044,8 +2071,8 @@ input:focus, select:focus, textarea:focus {
 }
 
 .latex-help-modal {
-  width: min(420px, calc(100vw - 36px));
-  max-height: calc(100vh - 72px);
+  width: min(420px, calc(100 * var(--ui-vw) - 36px));
+  max-height: calc(100 * var(--ui-vh) - 72px);
   overflow-y: auto;
   background: var(--vscode-sidebar-bg);
   border: 1px solid var(--vscode-border);
@@ -2067,7 +2094,7 @@ input:focus, select:focus, textarea:focus {
 
 .latex-help-section-title {
   color: var(--vscode-descriptionForeground);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   margin: 10px 0 6px;
   text-transform: uppercase;
@@ -2170,7 +2197,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .pdf-page-divider span {
-  max-width: min(220px, 48vw);
+  max-width: min(220px, calc(48 * var(--ui-vw)));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2203,7 +2230,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .pdf-preview-compile-panel {
-  width: min(320px, calc(100vw - 48px));
+  width: min(320px, calc(100 * var(--ui-vw) - 48px));
   display: grid;
   grid-template-columns: 52px 1fr;
   grid-template-rows: auto auto;
@@ -2889,7 +2916,7 @@ select {
 
 .math-equation-editor__hint {
   flex: 1;
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.7;
 }
 

@@ -22,7 +22,33 @@ _DEFAULTS: dict[str, Any] = {
     "prompt_evolution_max_tokens": 4096,
     # Target language for the PDF viewer "Translate" action. "" means follow the UI language.
     "translate_target_lang": "",
+    # Accessibility: global interface scale. 1.0 is the unscaled ("Medium")
+    # size; the front-end applies it as a CSS zoom over the whole app. Stored
+    # as the raw factor rather than a preset name so the preset ladder can be
+    # changed later without migrating saved settings, and so a custom value
+    # picked with the fine-tuning control is representable in the same field.
+    "ui_scale": 1.0,
 }
+
+# Bounds for "ui_scale". The upper bound keeps the app usable on a 1080p
+# screen (at 2.0 the layout has ~960x540 of usable space left).
+UI_SCALE_MIN = 0.8
+UI_SCALE_MAX = 2.0
+
+
+def clamp_ui_scale(value: Any) -> float:
+    """Coerce an arbitrary value into a valid ui_scale factor.
+
+    Falls back to 1.0 for anything non-numeric so a corrupted settings file
+    cannot render the interface unusable.
+    """
+    try:
+        scale = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if scale != scale or scale in (float("inf"), float("-inf")):  # NaN / inf
+        return 1.0
+    return max(UI_SCALE_MIN, min(UI_SCALE_MAX, scale))
 
 
 def load_ui_settings() -> dict[str, Any]:

@@ -37,6 +37,7 @@ export default function EditorPanel({
   originalFileContents,
   isSaving,
   theme,
+  uiScale = 1,
   editorFontSize,
   setEditorFontSize,
   editorTabSize,
@@ -1388,7 +1389,7 @@ export default function EditorPanel({
               aria-pressed={!isPdfPreviewCollapsed}
             >
               <FileText size={14} />
-              <span style={{ fontSize: '9px', fontWeight: 700, lineHeight: 1 }}>PDF</span>
+              <span style={{ fontSize: '11px', fontWeight: 700, lineHeight: 1 }}>PDF</span>
             </button>
           )}
           {isTexFile && isTectonicAvailable && (
@@ -1768,6 +1769,7 @@ export default function EditorPanel({
               onSyncTexNavigate={handleSyncTexNavigate}
               onAskAboutPdf={onAskAboutPdf}
               isAgentRunning={isAgentRunning}
+              uiScale={uiScale}
             />
           </div>
         ) : isDocxFile ? (
@@ -1836,6 +1838,7 @@ export default function EditorPanel({
               onFixLatexProblem={onFixLatexProblem}
               onAskAboutPdf={onAskAboutPdf}
               isAgentRunning={isAgentRunning}
+              uiScale={uiScale}
             />
           </div>
           </Split>

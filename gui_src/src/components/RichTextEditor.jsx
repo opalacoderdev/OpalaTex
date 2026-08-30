@@ -784,7 +784,7 @@ export function TitlePageBlock({ block, onJumpToSource }) {
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--vscode-text-light, #ffffff)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--vscode-accent, #007acc)'; }}
     >
-      <div style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '16px' }}>
+      <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '16px' }}>
         {t('richTextEditor.block.titlepage', { defaultValue: 'Title Page' })}
       </div>
       {hasAny ? (
@@ -963,14 +963,14 @@ function FrameContainerBlock({
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-        <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--vscode-descriptionForeground, #888)' }}>
+        <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--vscode-descriptionForeground, #888)' }}>
           {t(labelInfo.key, { defaultValue: labelInfo.defaultValue })}
         </span>
         <button
           type="button"
           onClick={() => onJumpToSource(block)}
           title="Click to jump to source"
-          style={{ fontSize: '9px', color: 'var(--vscode-descriptionForeground, #888)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
         >
           {t('richTextEditor.block.jumpToSource', { defaultValue: 'source' })}
         </button>
@@ -1090,14 +1090,14 @@ function EnvBlock({
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-        <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--vscode-descriptionForeground, #888)' }}>
+        <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--vscode-descriptionForeground, #888)' }}>
           {block.envName}
         </span>
         <button
           type="button"
           onClick={() => onJumpToSource(block)}
           title="Click to jump to source"
-          style={{ fontSize: '9px', color: 'var(--vscode-descriptionForeground, #888)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
         >
           {t('richTextEditor.block.jumpToSource', { defaultValue: 'source' })}
         </button>
@@ -2127,12 +2127,12 @@ export function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-        <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)' }}>
+        <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)' }}>
           {block.graphicEngine === 'tikz' ? 'TikZ / PGFPlots' : 'graphic'}
         </div>
         <div
           onClick={(e) => { e.stopPropagation(); onJumpToSource(block); }}
-          style={{ fontSize: '10px', color: 'var(--vscode-accent, #007acc)', cursor: 'pointer' }}
+          style={{ fontSize: '11px', color: 'var(--vscode-accent, #007acc)', cursor: 'pointer' }}
           title="Jump to source line"
         >
           jump to source →
@@ -2159,7 +2159,7 @@ export function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
           <pre
             style={{
               margin: 0,
-              fontSize: '10px',
+              fontSize: '11px',
               color: 'var(--vscode-errorForeground, #f48771)',
               maxHeight: '120px',
               overflow: 'auto',
@@ -2212,7 +2212,7 @@ function NonEditableWrapper({ block, onJumpToSource, children }) {
     >
       <div style={{ position: 'absolute', top: '4px', right: '6px', display: 'flex', gap: '4px', alignItems: 'center' }}>
         <Lock size={10} style={{ color: 'var(--vscode-descriptionForeground, #888)' }} />
-        <span style={{ fontSize: '9px', color: 'var(--vscode-descriptionForeground, #888)' }}>
+        <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)' }}>
           {t('richTextEditor.block.readOnly', { defaultValue: 'read-only' })}
         </span>
       </div>
@@ -2468,7 +2468,7 @@ export function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTe
           <div
             style={{
               padding: '8px',
-              fontSize: '10px',
+              fontSize: '11px',
               color: 'var(--vscode-errorForeground, #f48771)',
               textAlign: 'left',
             }}
@@ -2486,7 +2486,7 @@ export function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTe
           </figcaption>
         )}
         {block.label && (
-          <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)' }}>
+          <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)' }}>
             [label:{block.label}]
           </div>
         )}
@@ -2537,7 +2537,7 @@ export function TableBlock({ block, onJumpToSource }) {
             </tbody>
           </table>
           {block.label && (
-            <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginTop: '6px', textAlign: 'right' }}>
+            <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', marginTop: '6px', textAlign: 'right' }}>
               [label:{block.label}]
             </div>
           )}
@@ -2900,7 +2900,7 @@ export function CodeBlock({ block, onJumpToSource }) {
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
       {block.lang && (
-        <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '4px' }}>
+        <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '4px' }}>
           {block.lang}
         </div>
       )}
@@ -2917,7 +2917,7 @@ export function EnvironmentBlock({ block, onJumpToSource }) {
   const { t } = useTranslation();
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
-      <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '4px' }}>
+      <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '4px' }}>
         {t('richTextEditor.block.environment', {
           name: block.envName,
           defaultValue: 'environment: {{name}}',
@@ -2947,7 +2947,7 @@ export function PreambleBlock({ block, onJumpToSource }) {
   if (block.postamble) {
     return (
       <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
-        <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '4px' }}>
+        <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: '4px' }}>
           {t('richTextEditor.block.preamble', { defaultValue: 'preamble' })}
         </div>
         <pre style={{ margin: 0, padding: '8px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', fontSize: '11px', overflowX: 'auto', borderRadius: '3px', maxHeight: '120px', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
@@ -2960,7 +2960,7 @@ export function PreambleBlock({ block, onJumpToSource }) {
   const visibleSource = (block.visibleSource || '').trim();
   return (
     <NonEditableWrapper block={block} onJumpToSource={onJumpToSource}>
-      <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: visibleSource ? '4px' : 0 }}>
+      <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', marginBottom: visibleSource ? '4px' : 0 }}>
         {block.documentClass
           ? t('richTextEditor.block.preambleSummary', {
               documentClass: block.documentClass,

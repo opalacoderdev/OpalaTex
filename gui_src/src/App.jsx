@@ -5,6 +5,7 @@ import i18n from './i18n/index.js';
 
 // Utils
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
+import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale } from './utils/uiScale';
 
 // Hooks
 import { useResizing } from './hooks/useResizing';
@@ -461,11 +462,55 @@ export default function App() {
   const [tutorialChatId, setTutorialChatId] = useState('');
   const [tutorialTopics, setTutorialTopics] = useState([]);
   const [theme, setTheme] = useState(() => safeGetLocalStorage('theme', 'dark'));
+  // Accessibility interface scale. Unlike the other appearance settings this
+  // one lives in ui_settings.json rather than localStorage: it is the setting a
+  // user with low vision cannot work around if it silently resets, and the
+  // backend store is the one whose stated purpose is surviving restarts.
+  const [uiScale, setUiScale] = useState(UI_SCALE_DEFAULT);
   const [editorFontSize, setEditorFontSize] = useState(() => Number(safeGetLocalStorage('editorFontSize', 13)));
   const [editorTabSize, setEditorTabSize] = useState(() => Number(safeGetLocalStorage('editorTabSize', 4)));
   const [editorWordWrap, setEditorWordWrap] = useState(() => safeGetLocalStorage('editorWordWrap', 'on'));
   const [editorMinimap, setEditorMinimap] = useState(() => safeGetLocalStorage('editorMinimap', 'on'));
   const [showHiddenWorkspaceFiles, setShowHiddenWorkspaceFiles] = useState(false);
+
+  // ── Accessibility interface scale ───────────────────────────────────────
+  // The factor is published as a CSS custom property on the document element;
+  // `.vscode-app` turns it into a `zoom` over the whole interface. Monaco
+  // (automaticLayout) and xterm (a ResizeObserver on its container) both see
+  // their container change size in the zoomed coordinate space and re-fit on
+  // their own, so no manual relayout is needed here.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--ui-scale', String(uiScale));
+  }, [uiScale]);
+
+  // Restore the stored scale on startup (localStorage is not reliable in the
+  // webview, so this setting is owned by the backend).
+  useEffect(() => {
+    fetch('/api/settings/appearance')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => { if (cfg) setUiScale(clampUiScale(cfg.ui_scale)); })
+      .catch(() => { });
+  }, []);
+
+  // The scale is applied immediately but written back on a trailing delay:
+  // dragging the settings slider walks through every step in between, and each
+  // one would otherwise rewrite ui_settings.json.
+  const uiScaleSaveTimerRef = useRef(null);
+  useEffect(() => () => clearTimeout(uiScaleSaveTimerRef.current), []);
+
+  const applyUiScale = useCallback((value) => {
+    const next = roundUiScale(value);
+    setUiScale(next);
+    clearTimeout(uiScaleSaveTimerRef.current);
+    uiScaleSaveTimerRef.current = setTimeout(() => {
+      fetch('/api/settings/appearance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ui_scale: next }),
+      }).catch(() => { });
+    }, 300);
+    return next;
+  }, []);
 
   useEffect(() => {
     fetch('/api/settings/workspace')
@@ -1020,10 +1065,26 @@ export default function App() {
           setIsTerminalCollapsed(true);
         }
       }
+      // Interface scale — Shift distinguishes these from the editor's own
+      // Ctrl +/- font size, which stays bound to the focused editor. With Shift
+      // held, `e.key` reports the shifted character ('+', '_', ')'), so the
+      // physical `e.code` is matched alongside it.
+      else if (isCtrl && e.shiftKey && (e.key === '+' || e.key === '=' || e.code === 'Equal' || e.code === 'NumpadAdd')) {
+        e.preventDefault();
+        applyUiScale(uiScale + UI_SCALE_KEY_STEP);
+      }
+      else if (isCtrl && e.shiftKey && (e.key === '_' || e.key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract')) {
+        e.preventDefault();
+        applyUiScale(uiScale - UI_SCALE_KEY_STEP);
+      }
+      else if (isCtrl && e.shiftKey && (e.key === ')' || e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0')) {
+        e.preventDefault();
+        applyUiScale(UI_SCALE_DEFAULT);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isBottomMaximized, isTerminalCollapsed]);
+  }, [isBottomMaximized, isTerminalCollapsed, uiScale, applyUiScale]);
 
   useEffect(() => {
     safeSetLocalStorage('theme', theme);
@@ -3904,6 +3965,7 @@ export default function App() {
               originalFileContents={originalFileContents}
               isSaving={isSaving}
               theme={theme}
+              uiScale={uiScale}
               editorFontSize={editorFontSize}
               setEditorFontSize={setEditorFontSize}
               editorTabSize={editorTabSize}
@@ -4192,6 +4254,7 @@ export default function App() {
           settingsTab={settingsTab}
           setSettingsTab={setSettingsTab}
           theme={theme} setTheme={setTheme}
+          uiScale={uiScale} applyUiScale={applyUiScale}
           editorFontSize={editorFontSize} setEditorFontSize={setEditorFontSize}
           editorTabSize={editorTabSize} setEditorTabSize={setEditorTabSize}
           editorWordWrap={editorWordWrap} setEditorWordWrap={setEditorWordWrap}

@@ -556,7 +556,10 @@
     "noThinking": "Nenhum pensamento gerado ainda. Execute uma instrução para ver o raciocínio do agente...",
     "setProjectForTerminal": "Defina um projeto/workspace para habilitar o terminal.",
     "terminalConnectionLost": "Conexão com o terminal perdida. Reconectando...",
-    "terminalScrollToPrompt": "Voltar ao prompt"
+    "terminalScrollToPrompt": "Voltar ao prompt",
+    "terminalZoomIn": "Aumentar a fonte do terminal (Ctrl++)",
+    "terminalZoomOut": "Diminuir a fonte do terminal (Ctrl+-)",
+    "terminalZoomReset": "Restaurar a fonte do terminal (Ctrl+0)"
   },
   "contextMenu": {
     "newFile": "Novo Arquivo...",
@@ -812,7 +815,13 @@
     "translateLangIt": "Italiano",
     "translateLangJa": "Japonês",
     "translateLangZh": "Chinês",
-    "translateLangRu": "Russo"
+    "translateLangRu": "Russo",
+    "interfaceSize": "Tamanho da Interface",
+    "interfaceSize_small": "Pequeno",
+    "interfaceSize_medium": "Médio",
+    "interfaceSize_large": "Grande",
+    "interfaceSize_extraLarge": "Extra Grande",
+    "interfaceSizeHint": "Amplia toda a interface, não apenas o texto. Também disponível em qualquer lugar com Ctrl+Shift+Mais, Ctrl+Shift+Menos e Ctrl+Shift+0."
   },
   "hardwareModal": {
     "title": "Configuração de Hardware",

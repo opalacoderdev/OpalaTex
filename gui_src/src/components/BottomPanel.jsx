@@ -1,9 +1,17 @@
-import { useRef, useState, useEffect } from 'react';
-import { AlertCircle, Trash, Maximize2, Minimize2, ChevronUp, ChevronDown, Plus, X } from 'lucide-react';
+import { useCallback, useRef, useState, useEffect } from 'react';
+import { AlertCircle, Trash, Maximize2, Minimize2, ChevronUp, ChevronDown, Plus, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import TerminalInstance from './TerminalInstance.jsx';
+import { safeGetLocalStorage, safeSetLocalStorage } from '../utils/storage';
+import {
+  TERMINAL_FONT_SIZE_DEFAULT,
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+  TERMINAL_FONT_SIZE_STORAGE_KEY,
+  clampTerminalFontSize,
+} from '../hooks/useTerminal';
 
 // Bottom panel with Output / Problems / Thinking / Terminal tabs.
 export default function BottomPanel({
@@ -36,6 +44,24 @@ export default function BottomPanel({
   const [termCounter, setTermCounter] = useState(1);
   const { menu, onContextMenu, handleCopy, handlePaste, handleSelectAll } = useTextContextMenu();
   const [autoScroll, setAutoScroll] = useState(true);
+  // One font size shared by every terminal in the panel: a per-instance size
+  // would leave the hidden tabs behind and change under the user on switching.
+  // This tunes the terminal on top of the global interface scale rather than
+  // replacing it — see utils/uiScale.js.
+  const [terminalFontSize, setTerminalFontSize] = useState(() =>
+    clampTerminalFontSize(safeGetLocalStorage(TERMINAL_FONT_SIZE_STORAGE_KEY, TERMINAL_FONT_SIZE_DEFAULT)));
+
+  const changeTerminalFontSize = useCallback((next) => {
+    setTerminalFontSize((prev) => {
+      const clamped = clampTerminalFontSize(typeof next === 'function' ? next(prev) : next);
+      safeSetLocalStorage(TERMINAL_FONT_SIZE_STORAGE_KEY, clamped);
+      return clamped;
+    });
+  }, []);
+
+  const zoomTerminalIn = useCallback(() => changeTerminalFontSize((prev) => prev + 1), [changeTerminalFontSize]);
+  const zoomTerminalOut = useCallback(() => changeTerminalFontSize((prev) => prev - 1), [changeTerminalFontSize]);
+  const resetTerminalZoom = useCallback(() => changeTerminalFontSize(TERMINAL_FONT_SIZE_DEFAULT), [changeTerminalFontSize]);
 
   const handleScroll = (e) => {
     const { scrollTop, scrollHeight, clientHeight } = e.target;
@@ -115,7 +141,7 @@ export default function BottomPanel({
                   <>
                     {t('bottomPanel.problemsTab')}{' '}
                     {problems.length > 0 && (
-                      <span style={{ marginLeft: '4px', background: '#f48771', color: '#1e1e1e', borderRadius: '10px', padding: '0 6px', fontSize: '10px', fontWeight: 'bold' }}>
+                      <span style={{ marginLeft: '4px', background: '#f48771', color: '#1e1e1e', borderRadius: '10px', padding: '0 6px', fontSize: '11px', fontWeight: 'bold' }}>
                         {problems.length}
                       </span>
                     )}
@@ -145,6 +171,36 @@ export default function BottomPanel({
                 <Trash size={12} />
                 <span>{t('bottomPanel.clear')}</span>
               </button>
+            )}
+            {activeBottomTab === 'terminal' && !isTerminalCollapsed && (
+              <div className="flex items-center" style={{ gap: '2px' }}>
+                <button
+                  onClick={zoomTerminalOut}
+                  disabled={terminalFontSize <= TERMINAL_FONT_SIZE_MIN}
+                  className="vscode-bottom-panel-clear-btn"
+                  title={t('bottomPanel.terminalZoomOut', 'Decrease terminal font size (Ctrl+-)')}
+                  style={{ opacity: terminalFontSize <= TERMINAL_FONT_SIZE_MIN ? 0.4 : 1 }}
+                >
+                  <ZoomOut size={12} />
+                </button>
+                <button
+                  onClick={resetTerminalZoom}
+                  className="vscode-bottom-panel-clear-btn"
+                  title={t('bottomPanel.terminalZoomReset', 'Reset terminal font size (Ctrl+0)')}
+                  style={{ minWidth: '34px', justifyContent: 'center' }}
+                >
+                  {terminalFontSize}px
+                </button>
+                <button
+                  onClick={zoomTerminalIn}
+                  disabled={terminalFontSize >= TERMINAL_FONT_SIZE_MAX}
+                  className="vscode-bottom-panel-clear-btn"
+                  title={t('bottomPanel.terminalZoomIn', 'Increase terminal font size (Ctrl++)')}
+                  style={{ opacity: terminalFontSize >= TERMINAL_FONT_SIZE_MAX ? 0.4 : 1 }}
+                >
+                  <ZoomIn size={12} />
+                </button>
+              </div>
             )}
             <button
               onClick={() => {
@@ -387,6 +443,10 @@ export default function BottomPanel({
                         theme={theme}
                         isActive={id === activeTermId}
                         onMount={(term) => terminalInstancesRef.current[id] = term}
+                        fontSize={terminalFontSize}
+                        onZoomIn={zoomTerminalIn}
+                        onZoomOut={zoomTerminalOut}
+                        onZoomReset={resetTerminalZoom}
                       />
                     ))}
                   </div>

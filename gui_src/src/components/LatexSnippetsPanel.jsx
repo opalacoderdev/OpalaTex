@@ -338,7 +338,7 @@ export default function LatexSnippetsPanel({ onInsert, onClose }) {
                   {snip.label}
                 </span>
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #888)', marginLeft: '16px', marginTop: '2px', fontFamily: 'monospace' }}>
+              <div style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', marginLeft: '16px', marginTop: '2px', fontFamily: 'monospace' }}>
                 {snip.description}
               </div>
             </button>

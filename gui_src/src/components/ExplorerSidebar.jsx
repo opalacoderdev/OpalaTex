@@ -170,7 +170,7 @@ export default function ExplorerSidebar({
                           {isMissing && <AlertTriangle size={11} color="#e2c08d" style={{ flexShrink: 0 }} />}
                           {p.project_name || p.name}
                         </div>
-                        <div style={{ fontSize: '10px', color: isMissing ? '#e2c08d' : (isActive ? 'rgba(255,255,255,0.7)' : '#808080') }} className="truncate">
+                        <div style={{ fontSize: '11px', color: isMissing ? '#e2c08d' : (isActive ? 'rgba(255,255,255,0.7)' : '#808080') }} className="truncate">
                           {isMissing ? t('explorerSidebar.projectPathMissing', 'Not found: {{path}}', { path: p.project_path }) : p.project_path}
                         </div>
                       </div>

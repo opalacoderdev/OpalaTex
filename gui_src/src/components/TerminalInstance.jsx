@@ -11,7 +11,11 @@ export default function TerminalInstance({
   isTerminalCollapsed,
   theme,
   isActive,
-  onMount
+  onMount,
+  fontSize,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset
 }) {
   const { t } = useTranslation();
   const terminalRef = useRef(null);
@@ -30,7 +34,11 @@ export default function TerminalInstance({
     isTerminalCollapsed,
     theme,
     termId,
-    isActive
+    isActive,
+    fontSize,
+    onZoomIn,
+    onZoomOut,
+    onZoomReset
   });
 
   useEffect(() => {

@@ -168,9 +168,9 @@ export default function NewProjectModal({
                   placeholder={t('newProjectModal.modelPlaceholder')}
                   style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
-                {modelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
-                {modelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
-                {modelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
+                {modelStatus === 'green' && <span style={{ fontSize: '11px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
+                {modelStatus === 'yellow' && <span style={{ fontSize: '11px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                {modelStatus === 'red' && <span style={{ fontSize: '11px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
               </div>
 
               {/* Advanced params for Orchestrator */}
@@ -230,9 +230,9 @@ export default function NewProjectModal({
                   placeholder={t('newProjectModal.workerModelPlaceholder')}
                   style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
-                {workerModelStatus === 'green' && <span style={{ fontSize: '10px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
-                {workerModelStatus === 'yellow' && <span style={{ fontSize: '10px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
-                {workerModelStatus === 'red' && <span style={{ fontSize: '10px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
+                {workerModelStatus === 'green' && <span style={{ fontSize: '11px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
+                {workerModelStatus === 'yellow' && <span style={{ fontSize: '11px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                {workerModelStatus === 'red' && <span style={{ fontSize: '11px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
               </div>
 
               {/* Advanced params for Worker */}

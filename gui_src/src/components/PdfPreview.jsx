@@ -18,7 +18,7 @@ const PDF_DOCUMENT_OPTIONS = {
   verbosity: pdfjs.VerbosityLevel.ERRORS,
 };
 
-const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onAskAboutPdf, isAgentRunning = false }, ref) => {
+const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onAskAboutPdf, isAgentRunning = false, uiScale = 1 }, ref) => {
   const { t, i18n } = useTranslation();
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
@@ -1682,6 +1682,13 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
                   renderAnnotationLayer={showAnnotations}
                   filterAnnotations={filterNativeAnnotations}
                   scale={scale}
+                  /* The page is painted into a canvas, so the interface `zoom`
+                     would merely stretch a bitmap and blur it. Folding the
+                     scale into the device pixel ratio instead renders the
+                     backing store at the size it is actually displayed at,
+                     leaving `scale` — and the zoom percentage shown in the
+                     toolbar — to mean what they meant before. */
+                  devicePixelRatio={(window.devicePixelRatio || 1) * uiScale}
                 />
                 {/* Bounding-box search highlight overlay — drawn above the canvas,
                     does NOT touch the text layer so there is no double-text glitch */}

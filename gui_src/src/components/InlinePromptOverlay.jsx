@@ -157,7 +157,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
             <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-text-fg, #cccccc)', letterSpacing: 0 }}>
               {modeLabel}
             </span>
-            <span style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #858585)', marginLeft: '4px' }}>
+            <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #858585)', marginLeft: '4px' }}>
               {lineInfo}
             </span>
           </div>
@@ -185,7 +185,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
         {hasSelection && (
           <div
             style={{
-              fontSize: '10px',
+              fontSize: '11px',
               color: 'var(--vscode-descriptionForeground, #858585)',
               background: 'var(--vscode-input-bg, rgba(255,255,255,0.04))',
               borderRadius: '4px',
@@ -289,7 +289,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
         </div>
 
         {/* Hint */}
-        <span style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #858585)', userSelect: 'none', display: 'flex', alignItems: 'center' }}>
+        <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #858585)', userSelect: 'none', display: 'flex', alignItems: 'center' }}>
           {isRunning
             ? <><span className="opc-spinner" />{`OpalaTex is working${animatedDots}`}</>
             : `Enter ${t('editorPanel.inlinePromptSend').toLowerCase()} · Esc ${t('editorPanel.inlinePromptCancel').toLowerCase()}`

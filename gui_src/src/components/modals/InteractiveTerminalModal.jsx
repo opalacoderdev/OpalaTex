@@ -4,14 +4,27 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { X, Check } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
+import { safeGetLocalStorage, safeSetLocalStorage } from '../../utils/storage';
+import {
+  TERMINAL_FONT_SIZE_DEFAULT,
+  TERMINAL_FONT_SIZE_STORAGE_KEY,
+  clampTerminalFontSize,
+} from '../../hooks/useTerminal';
 
 export default function InteractiveTerminalModal({ request, onConfirm, activeProject }) {
   const { t } = useTranslation();
   const terminalRef = useRef(null);
   const eventSourceRef = useRef(null);
   const termInstanceRef = useRef(null);
+  const fitAddonRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  // Shares the panel terminal's font size preference, so the two do not
+  // disagree about how big terminal text should be.
+  const [fontSize, setFontSize] = useState(() =>
+    clampTerminalFontSize(safeGetLocalStorage(TERMINAL_FONT_SIZE_STORAGE_KEY, TERMINAL_FONT_SIZE_DEFAULT)));
+  const fontSizeRef = useRef(fontSize);
+  fontSizeRef.current = fontSize;
 
   useEffect(() => {
     if (!request || !request.term_id || !request.command || !activeProject) return;
@@ -39,6 +52,27 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
     
   }, [request, activeProject, hasStarted]);
 
+  // Re-style the live terminal when the font size changes. Fewer/more columns
+  // fit at the new size, so the PTY has to be told about the new geometry.
+  useEffect(() => {
+    const term = termInstanceRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!term || !fitAddon || !request || !activeProject) return;
+    term.options.fontSize = fontSize;
+    try {
+      fitAddon.fit();
+      const { cols, rows } = term;
+      fetch('/api/terminal/input', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          term_id: request.term_id, action: 'resize', cols, rows,
+          projectPath: activeProject.project_path,
+        }),
+      }).catch(() => {});
+    } catch (e) {}
+  }, [fontSize, request, activeProject]);
+
   useEffect(() => {
     if (!isReady || !terminalRef.current || !request) return;
 
@@ -47,11 +81,30 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
 
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: fontSizeRef.current,
       fontFamily: 'Consolas, "Courier New", monospace',
       theme: { background: '#1e1e2e', foreground: '#cccccc', selectionBackground: '#264f78', selectionInactiveBackground: '#3a3d41' },
     });
     
+    // Ctrl +/- adjusts the terminal font here too, writing back to the same
+    // stored preference the bottom panel uses. Ctrl+Shift+/- is left alone so
+    // the interface-wide scale still reaches the window handler.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== 'keydown') return true;
+      const isCtrl = ev.ctrlKey || ev.metaKey;
+      if (!isCtrl || ev.shiftKey || ev.altKey) return true;
+      let next = null;
+      if (ev.key === '+' || ev.key === '=' || ev.code === 'Equal' || ev.code === 'NumpadAdd') next = fontSizeRef.current + 1;
+      else if (ev.key === '-' || ev.code === 'Minus' || ev.code === 'NumpadSubtract') next = fontSizeRef.current - 1;
+      else if (ev.key === '0' || ev.code === 'Digit0' || ev.code === 'Numpad0') next = TERMINAL_FONT_SIZE_DEFAULT;
+      if (next === null) return true;
+      ev.preventDefault();
+      const clamped = clampTerminalFontSize(next);
+      safeSetLocalStorage(TERMINAL_FONT_SIZE_STORAGE_KEY, clamped);
+      setFontSize(clamped);
+      return false;
+    });
+
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     
@@ -59,6 +112,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
     term.open(terminalRef.current);
     try { fitAddon.fit(); } catch (e) { }
     termInstanceRef.current = term;
+    fitAddonRef.current = fitAddon;
 
     // Connect SSE
     const evs = new EventSource(`/api/terminal/stream?term_id=${term_id}&projectPath=${encodeURIComponent(projectPath)}`);
@@ -132,7 +186,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
         padding: '16px',
         width: '80%',
         maxWidth: '800px',
-        height: '60vh',
+        height: 'calc(60 * var(--ui-vh))',
         boxShadow: '0 24px 64px rgba(0,0,0,0.6)',
         display: 'flex',
         flexDirection: 'column',

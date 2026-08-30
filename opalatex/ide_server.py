@@ -4598,6 +4598,26 @@ class AsyncHTTPServer:
                 "hidden_file_extensions": get_workspace_hidden_file_extensions(),
             }).encode('utf-8'), "application/json")
 
+        # 7r. Appearance (accessibility interface scale) — GET
+        elif path == '/api/settings/appearance' and method == 'GET':
+            from opalatex.ui_settings import UI_SCALE_MAX, UI_SCALE_MIN, clamp_ui_scale, load_ui_settings
+            cfg = load_ui_settings()
+            self.send_response(writer, 200, json.dumps({
+                "ui_scale": clamp_ui_scale(cfg.get("ui_scale", 1.0)),
+                "ui_scale_min": UI_SCALE_MIN,
+                "ui_scale_max": UI_SCALE_MAX,
+            }).encode('utf-8'), "application/json")
+
+        # 7s. Appearance — POST (set)
+        elif path == '/api/settings/appearance' and method == 'POST':
+            from opalatex.ui_settings import clamp_ui_scale, save_ui_settings
+            ui_scale = clamp_ui_scale(data.get("ui_scale", 1.0))
+            save_ui_settings({"ui_scale": ui_scale})
+            self.send_response(writer, 200, json.dumps({
+                "success": True,
+                "ui_scale": ui_scale,
+            }).encode('utf-8'), "application/json")
+
         # 7l. Web search MCP test
         elif path == '/api/settings/web-search/test' and method == 'POST':
             from opalatex.web_search_config import test_mcp

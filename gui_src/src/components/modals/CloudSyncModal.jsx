@@ -312,7 +312,7 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
 
   return (
     <div className="vscode-modal-overlay">
-      <div className="vscode-modal flex flex-col" style={{ width: '640px', maxHeight: '85vh', padding: 0 }}>
+      <div className="vscode-modal flex flex-col" style={{ width: '640px', maxHeight: 'calc(85 * var(--ui-vh))', padding: 0 }}>
         <div
           className="flex items-center justify-between px-4 py-3"
           style={{ borderBottom: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-titlebar-bg)' }}

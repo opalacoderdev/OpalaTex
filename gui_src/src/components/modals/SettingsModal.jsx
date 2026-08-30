@@ -1,6 +1,13 @@
 import React from 'react';
 import { X, Settings } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import {
+  UI_SCALE_MAX,
+  UI_SCALE_MIN,
+  UI_SCALE_PRESETS,
+  UI_SCALE_STEP,
+  presetForScale,
+} from '../../utils/uiScale';
 import { useCustomDialog } from './CustomDialogProvider';
 import i18n from '../../i18n/index.js';
 import { safeSetLocalStorage } from '../../utils/storage';
@@ -29,6 +36,8 @@ export default function SettingsModal({
   setSettingsTab,
   theme,
   setTheme,
+  uiScale,
+  applyUiScale,
   editorFontSize,
   setEditorFontSize,
   editorTabSize,
@@ -221,7 +230,7 @@ export default function SettingsModal({
 
   return (
     <div className="vscode-modal-overlay">
-      <div className="vscode-modal flex flex-col" style={{ width: '640px', maxHeight: '85vh', padding: 0 }}>
+      <div className="vscode-modal flex flex-col" style={{ width: '640px', maxHeight: 'calc(85 * var(--ui-vh))', padding: 0 }}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-titlebar-bg)' }}>
           <div className="flex items-center" style={{ gap: '8px' }}>
@@ -299,6 +308,58 @@ export default function SettingsModal({
                   <option value="dark">{t('settingsModal.themeDark')}</option>
                   <option value="light">{t('settingsModal.themeLight')}</option>
                 </select>
+              </div>
+
+              {/* Interface size (accessibility) — scales the whole interface,
+                  not just text, so icons, padding and click targets grow with
+                  it. The named steps cover the common case; the slider below
+                  reaches further for those who need it. */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>
+                  {t('settingsModal.interfaceSize', 'Interface size')}
+                </label>
+                <div className="flex" style={{ gap: '6px' }}>
+                  {UI_SCALE_PRESETS.map((preset) => {
+                    const isActive = presetForScale(uiScale)?.id === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => applyUiScale(preset.scale)}
+                        aria-pressed={isActive}
+                        className="vscode-settings-input"
+                        style={{
+                          flex: 1,
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          borderColor: isActive ? 'var(--vscode-accent)' : 'var(--vscode-input-border)',
+                          background: isActive ? 'var(--vscode-list-activeSelectionBg)' : 'var(--vscode-input-bg)',
+                          color: isActive ? 'var(--vscode-list-activeSelectionFg)' : 'var(--vscode-input-fg)',
+                        }}
+                      >
+                        {t(`settingsModal.interfaceSize_${preset.id}`, preset.id)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center" style={{ gap: '8px' }}>
+                  <input
+                    type="range"
+                    min={UI_SCALE_MIN}
+                    max={UI_SCALE_MAX}
+                    step={UI_SCALE_STEP}
+                    value={uiScale}
+                    onChange={(e) => applyUiScale(Number(e.target.value))}
+                    aria-label={t('settingsModal.interfaceSize', 'Interface size')}
+                    style={{ flex: 1, accentColor: 'var(--vscode-accent)' }}
+                  />
+                  <span style={{ minWidth: '48px', textAlign: 'right', color: 'var(--vscode-text-fg)' }}>
+                    {Math.round(uiScale * 100)}%
+                  </span>
+                </div>
+                <span style={{ color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.interfaceSizeHint', 'Scales the whole interface, not just text. Also available anywhere with Ctrl+Shift+Plus, Ctrl+Shift+Minus and Ctrl+Shift+0.')}
+                </span>
               </div>
 
               {/* Font size */}
@@ -750,7 +811,7 @@ export default function SettingsModal({
                     alt={t('settingsModal.donationQrAlt')}
                     style={{ width: '132px', height: '132px', objectFit: 'contain', padding: '6px', backgroundColor: '#ffffff', borderRadius: '6px' }}
                   />
-                  <span style={{ fontSize: '10px', color: 'var(--vscode-description-fg, #aaaaaa)' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--vscode-description-fg, #aaaaaa)' }}>
                     {t('settingsModal.donationScan')}
                   </span>
                 </div>

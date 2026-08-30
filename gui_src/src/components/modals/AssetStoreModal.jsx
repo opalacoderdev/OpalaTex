@@ -202,7 +202,7 @@ export default function AssetStoreModal({ onClose, projectPath, onWorkspaceChang
 
   return (
     <div className="vscode-modal-overlay">
-      <div className="vscode-modal flex flex-col" style={{ width: '760px', maxHeight: '85vh', padding: 0 }}>
+      <div className="vscode-modal flex flex-col" style={{ width: '760px', maxHeight: 'calc(85 * var(--ui-vh))', padding: 0 }}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-titlebar-bg)' }}>
           <div className="flex items-center" style={{ gap: '8px' }}>

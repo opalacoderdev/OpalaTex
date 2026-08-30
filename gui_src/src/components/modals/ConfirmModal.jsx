@@ -93,7 +93,7 @@ export default function ConfirmModal({ confirmRequest, onConfirm }) {
       <div className="vscode-modal" style={{
         maxWidth: hasMarkdown ? '800px' : '420px',
         width: '90%',
-        maxHeight: '90vh',
+        maxHeight: 'calc(90 * var(--ui-vh))',
         display: 'flex',
         flexDirection: 'column',
       }}>

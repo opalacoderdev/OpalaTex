@@ -71,7 +71,7 @@ export default function MoveToModal({ moveModal, files, isFileInsidePath, onConf
     >
       <div
         className="vscode-modal"
-        style={{ borderRadius: '6px', padding: '16px', width: '480px', maxHeight: '60vh', display: 'flex', flexDirection: 'column', gap: '10px' }}
+        style={{ borderRadius: '6px', padding: '16px', width: '480px', maxHeight: 'calc(60 * var(--ui-vh))', display: 'flex', flexDirection: 'column', gap: '10px' }}
         onClick={e => e.stopPropagation()}
       >
         <div style={{ color: 'var(--vscode-text-fg, #cccccc)', fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>

@@ -137,7 +137,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
   return (
     <div className="vscode-modal-overlay" style={{ zIndex: 9999 }}>
-      <div className="vscode-modal" style={{ maxWidth: '600px', width: '90%', maxHeight: '90vh', overflowY: 'auto', padding: '32px', borderRadius: '12px', position: 'relative' }}>
+      <div className="vscode-modal" style={{ maxWidth: '600px', width: '90%', maxHeight: 'calc(90 * var(--ui-vh))', overflowY: 'auto', padding: '32px', borderRadius: '12px', position: 'relative' }}>
 
         <button
           onClick={handleClose}

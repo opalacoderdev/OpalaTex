@@ -16,7 +16,7 @@ export default function DirPickerModal({ dirPicker, onNavigate, onConfirm, onClo
     >
       <div
         className="vscode-modal"
-        style={{ borderRadius: '6px', padding: '16px', width: '480px', maxHeight: '60vh', display: 'flex', flexDirection: 'column', gap: '10px' }}
+        style={{ borderRadius: '6px', padding: '16px', width: '480px', maxHeight: 'calc(60 * var(--ui-vh))', display: 'flex', flexDirection: 'column', gap: '10px' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Title */}

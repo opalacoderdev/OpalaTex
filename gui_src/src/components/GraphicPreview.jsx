@@ -116,7 +116,7 @@ export default function GraphicPreview({
         style={{
           background: 'var(--titlebar-bg, #1a1a1a)',
           padding: '2px 10px',
-          fontSize: '10px',
+          fontSize: '11px',
           color: 'var(--vscode-descriptionForeground, #888)',
           borderBottom: '1px solid var(--border-color, #3c3c3c)',
           display: 'flex',
@@ -146,7 +146,7 @@ export default function GraphicPreview({
           <pre
             style={{
               margin: 0,
-              fontSize: '10px',
+              fontSize: '11px',
               color: 'var(--vscode-errorForeground, #f48771)',
               maxHeight: '120px',
               overflow: 'auto',

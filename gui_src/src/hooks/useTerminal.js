@@ -3,6 +3,20 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { useTranslation } from 'react-i18next';
 
+// Terminal font size, adjustable per panel on top of the global interface
+// scale (see utils/uiScale.js): the global scale sets a comfortable baseline
+// for the whole app, this tunes the terminal relative to it.
+export const TERMINAL_FONT_SIZE_MIN = 8;
+export const TERMINAL_FONT_SIZE_MAX = 28;
+export const TERMINAL_FONT_SIZE_DEFAULT = 13;
+export const TERMINAL_FONT_SIZE_STORAGE_KEY = 'terminalFontSize';
+
+export const clampTerminalFontSize = (value) => {
+  const size = Number(value);
+  if (!Number.isFinite(size)) return TERMINAL_FONT_SIZE_DEFAULT;
+  return Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(size)));
+};
+
 const LIGHT_TERMINAL_THEME = {
   background: '#ffffff',
   foreground: '#1e1e1e',
@@ -37,7 +51,7 @@ const DARK_TERMINAL_THEME = {
 };
 
 // Hook that initialises an xterm.js terminal and connects it to the backend SSE stream.
-export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, fitAddonRef, eventSourceRef, activeBottomTab, bottomPanelHeight, isTerminalCollapsed, theme, termId = 'main', isActive = true }) {
+export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, fitAddonRef, eventSourceRef, activeBottomTab, bottomPanelHeight, isTerminalCollapsed, theme, termId = 'main', isActive = true, fontSize = TERMINAL_FONT_SIZE_DEFAULT, onZoomIn, onZoomOut, onZoomReset }) {
   const { t } = useTranslation();
   // The terminal effect must not be torn down just because the language changed,
   // so `t` is read through a ref instead of being an effect dependency.
@@ -54,6 +68,15 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
   // value actually flips, instead of on every written chunk.
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const isScrolledUpRef = useRef(false);
+  // Read at terminal construction time. Kept in a ref so changing the size
+  // re-styles the live terminal instead of tearing it down and losing the
+  // visible scrollback, which depending on `fontSize` in the mount effect would.
+  const fontSizeRef = useRef(fontSize);
+  fontSizeRef.current = fontSize;
+  // The key handler is installed once with the terminal; reading the callbacks
+  // through a ref keeps it from going stale when the panel re-renders.
+  const zoomHandlersRef = useRef({});
+  zoomHandlersRef.current = { onZoomIn, onZoomOut, onZoomReset };
 
   // Update terminal theme dynamically when theme changes
   useEffect(() => {
@@ -68,6 +91,37 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
   // project settings), and depending on the object itself would dispose the
   // xterm instance and wipe the visible scrollback every time.
   const projectPath = activeProject ? activeProject.project_path : null;
+
+  // Re-measure the terminal and tell the backend PTY about the new geometry.
+  // The shell wraps its own output, so a resize that is not reported leaves it
+  // wrapping at the old width. Callers apply their own visibility guards first.
+  const syncTerminalSize = useCallback(() => {
+    const term = terminalInstanceRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!term || !fitAddon || !terminalRef.current) return;
+    try {
+      if (terminalRef.current.clientWidth === 0 || terminalRef.current.clientHeight === 0) return;
+      fitAddon.fit();
+      const { cols, rows } = term;
+      if (cols > 0 && rows > 0 && (cols !== lastSizeRef.current.cols || rows !== lastSizeRef.current.rows)) {
+        lastSizeRef.current = { cols, rows };
+        fetch('/api/terminal/input', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ term_id: termId, action: 'resize', cols, rows, projectPath }),
+        }).catch(err => console.error('Failed to send terminal resize', err));
+      }
+    } catch (e) { /* ignore */ }
+  }, [termId, projectPath, terminalInstanceRef, fitAddonRef, terminalRef]);
+
+  // Apply a font-size change to the live terminal. Fewer/more columns fit at the
+  // new size, so the fit and the PTY resize have to follow it.
+  useEffect(() => {
+    const term = terminalInstanceRef.current;
+    if (!term) return;
+    term.options.fontSize = fontSize;
+    syncTerminalSize();
+  }, [fontSize, syncTerminalSize, terminalInstanceRef]);
 
   // Initialise / tear-down terminal when the active project changes.
   useEffect(() => {
@@ -91,9 +145,28 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
 
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: fontSizeRef.current,
       fontFamily: 'Consolas, "Courier New", monospace',
       theme: termTheme,
+    });
+
+    // Ctrl +/- resizes the terminal font, matching the editor's own shortcut.
+    // xterm would otherwise swallow these, so they are claimed through its
+    // documented interception hook. The interface-wide scale is Ctrl+Shift+/-,
+    // which is deliberately let through to the window handler.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== 'keydown') return true;
+      const isCtrl = ev.ctrlKey || ev.metaKey;
+      if (!isCtrl || ev.shiftKey || ev.altKey) return true;
+      const { onZoomIn, onZoomOut, onZoomReset } = zoomHandlersRef.current;
+      let handler = null;
+      if (ev.key === '+' || ev.key === '=' || ev.code === 'Equal' || ev.code === 'NumpadAdd') handler = onZoomIn;
+      else if (ev.key === '-' || ev.code === 'Minus' || ev.code === 'NumpadSubtract') handler = onZoomOut;
+      else if (ev.key === '0' || ev.code === 'Digit0' || ev.code === 'Numpad0') handler = onZoomReset;
+      if (!handler) return true;
+      ev.preventDefault();
+      handler();
+      return false;
     });
 
     const fitAddon = new FitAddon();
@@ -155,19 +228,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
       resizeTimeout = setTimeout(() => {
         resizeTimeout = null;
         if (fitAddon && !isCollapsedRef.current && isActive && terminalRef.current) {
-          try {
-            if (terminalRef.current.clientWidth === 0 || terminalRef.current.clientHeight === 0) return;
-            fitAddon.fit();
-            const { cols, rows } = term;
-            if (cols > 0 && rows > 0 && (cols !== lastSizeRef.current.cols || rows !== lastSizeRef.current.rows)) {
-              lastSizeRef.current = { cols, rows };
-              fetch('/api/terminal/input', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ term_id: termId, action: 'resize', cols, rows, projectPath }),
-              }).catch(err => console.error('Failed to send terminal resize', err));
-            }
-          } catch (e) { /* ignore */ }
+          syncTerminalSize();
         }
       }, 100); // 100ms debounce
     });
@@ -180,7 +241,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
       terminalInstanceRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [projectPath, termId]);
+  }, [projectPath, termId, syncTerminalSize]);
 
   // Re-fit the terminal when the terminal tab becomes visible, the panel is expanded, or resized.
   useEffect(() => {
@@ -188,16 +249,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
       setTimeout(() => {
         try {
           if (terminalRef.current && (terminalRef.current.clientWidth === 0 || terminalRef.current.clientHeight === 0)) return;
-          fitAddonRef.current.fit();
-          const { cols, rows } = terminalInstanceRef.current;
-          if (cols > 0 && rows > 0 && (cols !== lastSizeRef.current.cols || rows !== lastSizeRef.current.rows)) {
-            lastSizeRef.current = { cols, rows };
-            fetch('/api/terminal/input', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ term_id: termId, action: 'resize', cols, rows, projectPath }),
-            }).catch(err => console.error('Failed to send terminal resize', err));
-          }
+          syncTerminalSize();
 
           terminalInstanceRef.current.focus();
 
@@ -216,7 +268,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
         } catch (e) { /* ignore */ }
       }, 50);
     }
-  }, [activeBottomTab, bottomPanelHeight, projectPath, isTerminalCollapsed, isActive]);
+  }, [activeBottomTab, bottomPanelHeight, projectPath, isTerminalCollapsed, isActive, syncTerminalSize]);
 
   const scrollToBottom = useCallback(() => {
     const term = terminalInstanceRef.current;

@@ -1094,7 +1094,7 @@ export default function ChatPanel({
               marginRight: '8px', cursor: 'help',
               opacity: 0.9,
               flexShrink: 0,
-              fontSize: '10px',
+              fontSize: '11px',
               color: batteryColor
             }}
           >
@@ -1158,7 +1158,7 @@ export default function ChatPanel({
             style={{
               background: 'transparent', border: '1px solid var(--vscode-border, #3c3c3c)',
               borderRadius: '3px', cursor: 'pointer', color: 'var(--vscode-text-fg)',
-              fontSize: '10px', lineHeight: 1, padding: '2px 5px', minWidth: '34px',
+              fontSize: '11px', lineHeight: 1, padding: '2px 5px', minWidth: '34px',
             }}
             title={t('chatPanel.zoomReset', 'Restaurar Zoom')}
           >
@@ -1367,7 +1367,7 @@ export default function ChatPanel({
           <span style={{ fontSize: '11px', color: searchEnabled ? 'var(--vscode-text-fg)' : '#888', userSelect: 'none' }}>
             {t('chatPanel.webSearch')}
             {hasMcp && searchEnabled && (
-              <span style={{ marginLeft: '4px', fontSize: '10px', color: '#888' }}>{t('chatPanel.mcpIndicator')}</span>
+              <span style={{ marginLeft: '4px', fontSize: '11px', color: '#888' }}>{t('chatPanel.mcpIndicator')}</span>
             )}
           </span>
         </div>
@@ -1454,7 +1454,7 @@ export default function ChatPanel({
             </label>
           </div>
 
-          <label style={{ fontSize: '10px', color: useMcpDraft ? '#aaa' : '#555' }}>{t('chatPanel.serverUrl')}</label>
+          <label style={{ fontSize: '11px', color: useMcpDraft ? '#aaa' : '#555' }}>{t('chatPanel.serverUrl')}</label>
           <input
             id="mcp-url-input"
             type="text"
@@ -1469,7 +1469,7 @@ export default function ChatPanel({
             }}
           />
 
-          <label style={{ fontSize: '10px', color: useMcpDraft ? '#aaa' : '#555' }}>{t('chatPanel.toolName')}</label>
+          <label style={{ fontSize: '11px', color: useMcpDraft ? '#aaa' : '#555' }}>{t('chatPanel.toolName')}</label>
           <input
             id="mcp-tool-input"
             type="text"
@@ -1484,7 +1484,7 @@ export default function ChatPanel({
             }}
           />
 
-          <label style={{ fontSize: '10px', color: useMcpDraft ? '#aaa' : '#555' }}>{t('chatPanel.apiKeyOptional')}</label>
+          <label style={{ fontSize: '11px', color: useMcpDraft ? '#aaa' : '#555' }}>{t('chatPanel.apiKeyOptional')}</label>
           <input
             id="mcp-api-key-input"
             type="password"
@@ -1506,7 +1506,7 @@ export default function ChatPanel({
               disabled={!useMcpDraft || !mcpUrlDraft.trim() || mcpTestStatus === 'testing'}
               className="vscode-button"
               style={{
-                fontSize: '10px',
+                fontSize: '11px',
                 padding: '3px 8px',
                 background: 'transparent',
                 border: '1px solid var(--vscode-border)',
@@ -1520,7 +1520,7 @@ export default function ChatPanel({
               onClick={handleSaveMcp}
               className="vscode-button"
               style={{
-                fontSize: '10px',
+                fontSize: '11px',
                 padding: '3px 8px',
               }}
             >
@@ -1530,7 +1530,7 @@ export default function ChatPanel({
               onClick={() => { setShowMcpPanel(false); setMcpTestStatus(''); }}
               className="vscode-button"
               style={{
-                fontSize: '10px',
+                fontSize: '11px',
                 padding: '3px 6px',
                 background: 'transparent',
                 border: 'none',
@@ -1545,7 +1545,7 @@ export default function ChatPanel({
           {mcpTestStatus && mcpTestStatus !== 'testing' && (
             <div
               style={{
-                fontSize: '10px',
+                fontSize: '11px',
                 color: mcpTestStatus === 'ok' ? '#4ec9b0' : '#f48771',
                 marginTop: '2px',
               }}
@@ -1559,7 +1559,7 @@ export default function ChatPanel({
       )}
 
       {/* Message history */}
-      <div className="vscode-chat-history" ref={historyRef} onScroll={handleHistoryScroll} onContextMenu={onContextMenu} style={{ zoom: chatZoom, ['--chat-font-scale']: chatZoom }}>
+      <div className="vscode-chat-history" ref={historyRef} onScroll={handleHistoryScroll} onContextMenu={onContextMenu} style={{ zoom: chatZoom }}>
         {chatMessages.map((msg, i) => {
           if (isHiddenChatSystemMessage(msg)) {
             return null;
@@ -1682,7 +1682,7 @@ export default function ChatPanel({
                     {isUser ? t('chatPanel.you') : t('chatPanel.opalatex')}
                   </span>
                   {msg.timestamp && (
-                    <span style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground, #717171)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #717171)' }}>
                       {new Date(msg.timestamp).toLocaleString()}
                     </span>
                   )}
@@ -2013,7 +2013,7 @@ export default function ChatPanel({
             </div>
             {!evolutionProgress.complete && (
               <div className="flex items-center" style={{ gap: '8px' }}>
-                <div style={{ fontSize: '10px', opacity: 0.85, background: 'rgba(0,0,0,0.25)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(78, 201, 176, 0.3)' }}>
+                <div style={{ fontSize: '11px', opacity: 0.85, background: 'rgba(0,0,0,0.25)', padding: '2px 6px', borderRadius: '4px', border: '1px solid rgba(78, 201, 176, 0.3)' }}>
                   {Math.round((((evolutionProgress.iteration || 1) - 1) / (evolutionProgress.total || 1)) * 100)}%
                 </div>
                 <button

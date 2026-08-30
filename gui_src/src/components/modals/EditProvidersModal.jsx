@@ -39,7 +39,7 @@ export default function EditProvidersModal({
 
   return (
     <div className="vscode-modal-overlay" onClick={onClose}>
-      <div className="vscode-modal" style={{ width: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+      <div className="vscode-modal" style={{ width: '600px', maxHeight: 'calc(80 * var(--ui-vh))', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div className="vscode-modal-header">
           <h2>{t('editProvidersModal.title')}</h2>
           <button onClick={onClose} className="vscode-modal-close"><X size={16} /></button>
