@@ -160,24 +160,26 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 		// An omitted level inherits a:defPPr. It is distinct from an explicit
 		// lvl="0", which inherits a:lvl1pPr.
 		const level = pPr?.['@_lvl'] === undefined ? -1 : Number.parseInt(String(pPr['@_lvl']), 10);
+		const normalizedLevel = Number.isFinite(level) && level >= 0 ? Math.min(level + 1, 9) : 1;
 		const levelKey =
 			level === -1
 				? 'a:defPPr'
-				: `a:lvl${Number.isFinite(level) ? Math.min(Math.max(level + 1, 1), 9) : 1}pPr`;
+				: `a:lvl${normalizedLevel}pPr`;
+
+		const bodyLstStyle = ctx.txBody?.['a:lstStyle'] as XmlObject | undefined;
+		const inheritedLstStyle = ctx.inheritedTxBody?.['a:lstStyle'] as XmlObject | undefined;
+
+		const bodyLevelNode = (bodyLstStyle?.[levelKey] ?? bodyLstStyle?.['a:defPPr']) as XmlObject | undefined;
+		const inheritedLevelNode = (inheritedLstStyle?.[levelKey] ?? inheritedLstStyle?.['a:defPPr']) as XmlObject | undefined;
+
 		const inheritedLevelStyle = this.extractTextRunStyle(
-			(
-				(ctx.inheritedTxBody?.['a:lstStyle'] as XmlObject | undefined)?.[levelKey] as
-					| XmlObject
-					| undefined
-			)?.['a:defRPr'] as XmlObject | undefined,
+			inheritedLevelNode?.['a:defRPr'] as XmlObject | undefined,
 			paraAlign,
 			ctx.slideRelationshipMap,
 			false,
 		);
 		const bodyLevelStyle = this.extractTextRunStyle(
-			(
-				(ctx.txBody?.['a:lstStyle'] as XmlObject | undefined)?.[levelKey] as XmlObject | undefined
-			)?.['a:defRPr'] as XmlObject | undefined,
+			bodyLevelNode?.['a:defRPr'] as XmlObject | undefined,
 			paraAlign,
 			ctx.slideRelationshipMap,
 			false,
@@ -198,12 +200,12 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 
 		// Apply placeholder level-specific defaults as fallback
 		if (ctx.effectiveLevelStyles) {
-			const normalizedLevel =
+			const normalizedLevelIdx =
 				level === -1 ? -1 : Number.isFinite(level) ? Math.min(Math.max(level, 0), 8) : 0;
 			const phLevel =
-				ctx.effectiveLevelStyles[normalizedLevel] ??
+				ctx.effectiveLevelStyles[normalizedLevelIdx] ??
 				ctx.effectiveLevelStyles[-1] ??
-				(normalizedLevel === -1 ? ctx.effectiveLevelStyles[0] : undefined);
+				(normalizedLevelIdx === -1 ? ctx.effectiveLevelStyles[0] : undefined);
 			if (phLevel) {
 				this.applyPlaceholderLevelDefaults(mergedDefaultRunStyle, phLevel);
 				this.applyPlaceholderLevelDefaults(textStyle, phLevel);
@@ -213,24 +215,58 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 			paraAlign = textStyle.align;
 		}
 
-		// Per-paragraph indentation (also checking placeholder level defaults)
-		const parMarginLeft =
-			pPr?.['@_marL'] !== undefined
-				? Number.parseInt(String(pPr['@_marL']), 10) / PptxHandlerRuntime.EMU_PER_PX
-				: undefined;
-		const parIndent =
-			pPr?.['@_indent'] !== undefined
-				? Number.parseInt(String(pPr['@_indent']), 10) / PptxHandlerRuntime.EMU_PER_PX
-				: undefined;
+		// Per-paragraph indentation (checking pPr, body lstStyle, inherited lstStyle, defPPr, and placeholder defaults)
+		const indentCandidates = [
+			pPr,
+			bodyLevelNode,
+			inheritedLevelNode,
+			bodyLstStyle?.['a:defPPr'] as XmlObject | undefined,
+			inheritedLstStyle?.['a:defPPr'] as XmlObject | undefined,
+		];
+
+		let parMarginLeft: number | undefined;
+		for (const candidate of indentCandidates) {
+			if (candidate?.['@_marL'] !== undefined) {
+				const val = Number.parseInt(String(candidate['@_marL']), 10);
+				if (Number.isFinite(val)) {
+					parMarginLeft = val / PptxHandlerRuntime.EMU_PER_PX;
+					break;
+				}
+			}
+		}
+
+		let parMarginRight: number | undefined;
+		for (const candidate of indentCandidates) {
+			if (candidate?.['@_marR'] !== undefined) {
+				const val = Number.parseInt(String(candidate['@_marR']), 10);
+				if (Number.isFinite(val)) {
+					parMarginRight = val / PptxHandlerRuntime.EMU_PER_PX;
+					break;
+				}
+			}
+		}
+
+		let parIndent: number | undefined;
+		for (const candidate of indentCandidates) {
+			if (candidate?.['@_indent'] !== undefined) {
+				const val = Number.parseInt(String(candidate['@_indent']), 10);
+				if (Number.isFinite(val)) {
+					parIndent = val / PptxHandlerRuntime.EMU_PER_PX;
+					break;
+				}
+			}
+		}
+
 		let effectiveMarginLeft = parMarginLeft;
+		let effectiveMarginRight = parMarginRight;
 		let effectiveIndent = parIndent;
 		if (ctx.effectiveLevelStyles) {
-			const normalizedLevel =
+			const normalizedLevelIdx =
 				level === -1 ? -1 : Number.isFinite(level) ? Math.min(Math.max(level, 0), 8) : 0;
 			const phLevel =
-				ctx.effectiveLevelStyles[normalizedLevel] ??
+				ctx.effectiveLevelStyles[normalizedLevelIdx] ??
 				ctx.effectiveLevelStyles[-1] ??
-				(normalizedLevel === -1 ? ctx.effectiveLevelStyles[0] : undefined);
+				(normalizedLevelIdx === -1 ? ctx.effectiveLevelStyles[0] : undefined);
 			if (phLevel) {
 				if (effectiveMarginLeft === undefined && phLevel.marginLeft !== undefined) {
 					effectiveMarginLeft = phLevel.marginLeft;
@@ -239,6 +275,27 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 					effectiveIndent = phLevel.indent;
 				}
 			}
+		}
+
+		// When a negative indent (hanging indent) is present, PowerPoint ensures
+		// the paragraph's effective left margin is at least equal to |indent| so the
+		// first line (e.g. bullet or numbered marker) is not pulled into negative
+		// space to the left of the shape boundary.
+		if (effectiveIndent !== undefined && effectiveIndent < 0) {
+			const minMargin = Math.abs(effectiveIndent);
+			if (effectiveMarginLeft === undefined || effectiveMarginLeft < minMargin) {
+				effectiveMarginLeft = minMargin;
+			}
+		}
+
+		if (textStyle.paragraphMarginLeft === undefined && effectiveMarginLeft !== undefined) {
+			textStyle.paragraphMarginLeft = effectiveMarginLeft;
+		}
+		if (textStyle.paragraphMarginRight === undefined && effectiveMarginRight !== undefined) {
+			textStyle.paragraphMarginRight = effectiveMarginRight;
+		}
+		if (textStyle.paragraphIndent === undefined && effectiveIndent !== undefined) {
+			textStyle.paragraphIndent = effectiveIndent;
 		}
 
 		return {

@@ -456,4 +456,30 @@ describe('omml DrawingML colour', () => {
 
 		expect(result).toContain('mathsize="162pt"');
 	});
+
+	it('renders f(I_T) with subscript inside the delimiter parenthesis in MathML', () => {
+		const omml = {
+			'm:oMath': [
+				{ 'm:r': { 'm:t': 'f' } },
+				{
+					'm:d': {
+						'm:e': {
+							'm:sSub': {
+								'm:e': { 'm:r': { 'm:t': 'I' } },
+								'm:sub': { 'm:r': { 'm:t': 'T' } },
+							},
+						},
+					},
+				},
+			],
+		};
+		const mathml = convertOmmlToMathMl(omml as unknown as OmmlNode);
+		expect(mathml).toContain('<mi>f</mi>');
+		expect(mathml).toContain('<mo>(</mo>');
+		expect(mathml).toContain('<msub>');
+		expect(mathml).toContain('<mo>)</mo>');
+		// Ensure <msub> occurs before closing </mo>
+		expect(mathml.indexOf('<msub>')).toBeLessThan(mathml.indexOf(')</mo>'));
+		expect(mathml.indexOf('(<mo>')).toBeLessThan(mathml.indexOf('<msub>'));
+	});
 });

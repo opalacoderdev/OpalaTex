@@ -57,6 +57,8 @@ export interface UseKeyboardShortcutsInput {
 	onCopy: () => void;
 	onCut: () => void;
 	onDuplicate: () => void;
+	/** Duplicate the active slide (edit mode, when no element selection or Ctrl+Shift+D). */
+	onDuplicateSlide?: () => void;
 	onUndo: () => void;
 	onRedo: () => void;
 	onSelectAll: () => void;
@@ -80,6 +82,10 @@ export function useKeyboardShortcuts(input: UseKeyboardShortcutsInput): void {
 	inputRef.current = input;
 
 	const handleKeyDown = useCallback((e: KeyboardEvent) => {
+		if (e.defaultPrevented) {
+			return;
+		}
+
 		const {
 			mode,
 			canEdit,
@@ -91,6 +97,7 @@ export function useKeyboardShortcuts(input: UseKeyboardShortcutsInput): void {
 			onCopy,
 			onCut,
 			onDuplicate,
+			onDuplicateSlide,
 			onUndo,
 			onRedo,
 			onSelectAll,
@@ -174,9 +181,19 @@ export function useKeyboardShortcuts(input: UseKeyboardShortcutsInput): void {
 				return;
 			}
 			if (matchesLetterKey(e, 'd')) {
+				if (e.shiftKey) {
+					if (onDuplicateSlide) {
+						e.preventDefault();
+						onDuplicateSlide();
+					}
+					return;
+				}
 				if (hasSelection) {
 					e.preventDefault();
 					onDuplicate();
+				} else if (onDuplicateSlide) {
+					e.preventDefault();
+					onDuplicateSlide();
 				}
 				return;
 			}
@@ -224,23 +241,10 @@ export function useKeyboardShortcuts(input: UseKeyboardShortcutsInput): void {
 	}, []);
 
 	useEffect(() => {
-		const container = input.containerRef.current;
-
-		// Attach to the container so keydown events from the viewer
-		// are captured.  We also listen on window as a fallback so
-		// that shortcuts work even when the container itself doesn't
-		// have focus.
-		if (container) {
-			container.addEventListener('keydown', handleKeyDown);
-		}
+		// Listen on window so shortcuts work consistently across the entire editor.
 		window.addEventListener('keydown', handleKeyDown);
 		return () => {
-			if (container) {
-				container.removeEventListener('keydown', handleKeyDown);
-			}
 			window.removeEventListener('keydown', handleKeyDown);
 		};
-		// Re-attach only if the container ref changes (essentially once).
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [input.containerRef, handleKeyDown]);
+	}, [handleKeyDown]);
 }

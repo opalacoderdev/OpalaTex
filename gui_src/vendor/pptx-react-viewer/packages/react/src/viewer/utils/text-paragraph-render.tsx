@@ -139,10 +139,19 @@ export function renderTextSegments(
 		const paraAlign = resolveParagraphAlign(paraSegments, elementAlign);
 		const cssTextAlign = resolveCssTextAlign(paraAlign, isRtlParagraph);
 
+		let resolvedMarginLeft = rawMarginLeft;
+		// Hanging indent guard: negative textIndent requires marginLeft >= |textIndent|
+		if (rawTextIndent !== undefined && rawTextIndent < 0) {
+			const minMargin = Math.abs(rawTextIndent);
+			if (resolvedMarginLeft === undefined || resolvedMarginLeft < minMargin) {
+				resolvedMarginLeft = minMargin;
+			}
+		}
+
 		// For RTL paragraphs, swap marginLeft/textIndent to marginRight
 		// so bullets and indentation appear on the correct (right) side.
-		const paraMarginLeft = isRtlParagraph ? undefined : rawMarginLeft;
-		const paraMarginRight = isRtlParagraph ? rawMarginLeft : undefined;
+		const paraMarginLeft = isRtlParagraph ? undefined : resolvedMarginLeft;
+		const paraMarginRight = isRtlParagraph ? resolvedMarginLeft : undefined;
 		const paraTextIndent = rawTextIndent;
 
 		// Per-paragraph kinsoku line-breaking styles from the first segment's style.

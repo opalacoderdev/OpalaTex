@@ -418,6 +418,10 @@ export function useViewerIntegration(input: UseViewerIntegrationInput): ViewerIn
 		ops: editorOps.ops,
 		manipulation: editorOps.manipulation,
 		history,
+		onDuplicateSlide: () => {
+			editorOps.slideOps.handleDuplicateSlides([state.activeSlideIndex]);
+			state.setActiveSlideIndex(state.activeSlideIndex + 1);
+		},
 	});
 
 	return {

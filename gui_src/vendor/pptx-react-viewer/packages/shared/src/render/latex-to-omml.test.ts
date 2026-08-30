@@ -633,4 +633,27 @@ describe('convertOmmlToLatex', () => {
 	it('reverses a superscript', () => {
 		expect(convertOmmlToLatex(convertLatexToOmml('x^{2}'))).toBe('x^{2}');
 	});
+
+	it('preserves parentheses content order for f(I_t) and f(I_T)', () => {
+		const omml = convertLatexToOmml('f(I_T)');
+		const latex = convertOmmlToLatex(omml);
+		expect(latex).toContain('f');
+		expect(latex).toMatch(/f.*\(.*I.*T.*\)/);
+		expect(latex).not.toContain('f()');
+	});
+
+	it('preserves sequential order of terms in a^2+b^2=c^2', () => {
+		const omml = convertLatexToOmml('a^{2}+b^{2}=c^{2}');
+		const latex = convertOmmlToLatex(omml);
+		expect(latex.indexOf('a^{2}')).toBeLessThan(latex.indexOf('+'));
+		expect(latex.indexOf('+')).toBeLessThan(latex.indexOf('b^{2}'));
+		expect(latex.indexOf('b^{2}')).toBeLessThan(latex.indexOf('='));
+		expect(latex.indexOf('=')).toBeLessThan(latex.indexOf('c^{2}'));
+	});
+
+	it('preserves sequential order of terms inside square root \\sqrt{x^2+y^2}', () => {
+		const omml = convertLatexToOmml('\\sqrt{x^{2}+y^{2}}');
+		const latex = convertOmmlToLatex(omml);
+		expect(latex).toContain('\\sqrt{x^{2}+y^{2}}');
+	});
 });

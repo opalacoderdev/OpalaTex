@@ -334,3 +334,44 @@ describe('computeLevelKey', () => {
 		expect(computeLevelKey('abc')).toBe('a:lvl1pPr');
 	});
 });
+
+// ---------------------------------------------------------------------------
+// resolveParagraphIndents with hanging indent clamping
+// ---------------------------------------------------------------------------
+describe('resolveParagraphIndents with hanging indent clamping', () => {
+	function resolveIndents(
+		marL: string | undefined,
+		indent: string | undefined,
+	): { marginLeft?: number; indent?: number } {
+		const parsedMarL = parseParagraphMarginLeft(marL);
+		const parsedIndent = parseParagraphIndent(indent);
+		let effectiveMarginLeft = parsedMarL;
+		const effectiveIndent = parsedIndent;
+
+		if (effectiveIndent !== undefined && effectiveIndent < 0) {
+			const minMargin = Math.abs(effectiveIndent);
+			if (effectiveMarginLeft === undefined || effectiveMarginLeft < minMargin) {
+				effectiveMarginLeft = minMargin;
+			}
+		}
+		return { marginLeft: effectiveMarginLeft, indent: effectiveIndent };
+	}
+
+	it('should clamp marginLeft to Math.abs(indent) when indent is negative and marL is missing', () => {
+		const res = resolveIndents(undefined, '-228600'); // -24px in EMU
+		expect(res.marginLeft).toBeCloseTo(24, 1);
+		expect(res.indent).toBeCloseTo(-24, 1);
+	});
+
+	it('should preserve explicit marL when larger than |indent|', () => {
+		const res = resolveIndents('457200', '-228600'); // 48px, -24px
+		expect(res.marginLeft).toBeCloseTo(48, 1);
+		expect(res.indent).toBeCloseTo(-24, 1);
+	});
+
+	it('should clamp explicit marL when smaller than |indent|', () => {
+		const res = resolveIndents('95250', '-228600'); // 10px, -24px
+		expect(res.marginLeft).toBeCloseTo(24, 1);
+		expect(res.indent).toBeCloseTo(-24, 1);
+	});
+});

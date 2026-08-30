@@ -23,6 +23,7 @@ export interface HomeSectionProps {
 	onInsertSlideFromLayout: (path: string, name?: string) => void;
 	onApplyLayout?: (path: string) => void;
 	onResetSlide?: () => void;
+	onDuplicateActiveSlide?: () => void;
 	onDeleteActiveSlide?: () => void;
 	canDeleteActiveSlide?: boolean;
 	onAddSection?: () => void;
@@ -175,6 +176,7 @@ export function HomeSection(p: HomeSectionProps): React.ReactElement {
 				onInsertSlideFromLayout={p.onInsertSlideFromLayout}
 				onApplyLayout={p.onApplyLayout}
 				onResetSlide={p.onResetSlide}
+				onDuplicateActiveSlide={p.onDuplicateActiveSlide}
 				onDeleteActiveSlide={p.onDeleteActiveSlide}
 				canDeleteActiveSlide={p.canDeleteActiveSlide}
 				onAddSection={p.onAddSection}

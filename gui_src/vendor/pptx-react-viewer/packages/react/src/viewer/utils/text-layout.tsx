@@ -72,7 +72,7 @@ export function getTextLayoutStyle(element: PptxElement): React.CSSProperties {
 		hasTextProperties(element) && element.paragraphIndents && element.paragraphIndents.length > 0;
 	const paragraphMarginLeft = element.textStyle?.paragraphMarginLeft;
 	const paragraphIndent = element.textStyle?.paragraphIndent;
-	const marginLeft =
+	let marginLeft =
 		!hasParagraphIndents && typeof paragraphMarginLeft === 'number' && paragraphMarginLeft !== 0
 			? paragraphMarginLeft
 			: undefined;
@@ -80,6 +80,13 @@ export function getTextLayoutStyle(element: PptxElement): React.CSSProperties {
 		!hasParagraphIndents && typeof paragraphIndent === 'number' && paragraphIndent !== 0
 			? paragraphIndent
 			: undefined;
+
+	if (textIndent !== undefined && textIndent < 0) {
+		const minMargin = Math.abs(textIndent);
+		if (marginLeft === undefined || marginLeft < minMargin) {
+			marginLeft = minMargin;
+		}
+	}
 
 	const bodyTop = element.textStyle?.bodyInsetTop ?? DEFAULT_BODY_INSET_TB_PX;
 	const bodyBottom = element.textStyle?.bodyInsetBottom ?? DEFAULT_BODY_INSET_TB_PX;

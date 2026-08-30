@@ -517,6 +517,10 @@ export function ViewerToolbarSection(props: ViewerToolbarSectionProps) {
 				onSetOverflowMenuOpen={s.setIsOverflowMenuOpen}
 				layoutOptions={scopedLayoutOptions}
 				onInsertSlideFromLayout={slideOps.handleInsertSlideFromLayout}
+				onDuplicateActiveSlide={() => {
+					slideOps.handleDuplicateSlides([activeSlideIndex]);
+					s.setActiveSlideIndex(activeSlideIndex + 1);
+				}}
 				onDeleteActiveSlide={() => slideOps.handleDeleteSlides([activeSlideIndex])}
 				canDeleteActiveSlide={slideCount > 1}
 				customShows={s.customShows}

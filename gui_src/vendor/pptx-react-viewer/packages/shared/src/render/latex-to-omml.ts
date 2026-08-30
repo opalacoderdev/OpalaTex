@@ -330,12 +330,13 @@ function parseDelimiter(ctx: LatexParserContext): OmmlNode {
 		dPr['m:endChr'] = { '@_val': closeChar } as unknown as OmmlNode;
 	}
 
-	return {
+	const delim: OmmlNode = {
 		'm:d': {
 			'm:dPr': Object.keys(dPr).length > 0 ? dPr : undefined,
 			'm:e': ctx.wrapE(inner),
 		} as unknown as OmmlNode,
 	};
+	return tryParseScripts(ctx, delim);
 }
 
 /** Parse a function application like \sin{x} or \lim_{x \to 0}. */
@@ -413,35 +414,28 @@ class LatexParser implements LatexParserContext {
 	}
 
 	public wrapE(nodes: OmmlNode[]): OmmlNode {
-		if (nodes.length === 1) {
-			return {
-				'm:r': nodes[0]!['m:r'],
-				'm:f': nodes[0]!['m:f'],
-				'm:rad': nodes[0]!['m:rad'],
-				'm:sSup': nodes[0]!['m:sSup'],
-				'm:sSub': nodes[0]!['m:sSub'],
-				'm:sSubSup': nodes[0]!['m:sSubSup'],
-				'm:nary': nodes[0]!['m:nary'],
-				'm:d': nodes[0]!['m:d'],
-				'm:func': nodes[0]!['m:func'],
-			};
+		if (nodes.length === 0) {
+			return {};
 		}
-		const result: OmmlNode = {};
-		for (const n of nodes) {
-			for (const key of Object.keys(n)) {
-				if (result[key]) {
-					const existing = result[key];
-					if (Array.isArray(existing)) {
-						(existing as OmmlNode[]).push(n[key] as OmmlNode);
-					} else {
-						result[key] = [existing as OmmlNode, n[key] as OmmlNode];
-					}
-				} else {
-					result[key] = n[key];
+		if (nodes.length === 1) {
+			return nodes[0]!;
+		}
+		const allRuns = nodes.every(
+			(n) => n && typeof n === 'object' && Object.keys(n).length === 1 && 'm:r' in n,
+		);
+		if (allRuns) {
+			const runs: OmmlNode[] = [];
+			for (const n of nodes) {
+				const r = n['m:r'];
+				if (Array.isArray(r)) {
+					runs.push(...(r as OmmlNode[]));
+				} else if (r) {
+					runs.push(r as OmmlNode);
 				}
 			}
+			return { 'm:r': runs as unknown as OmmlNode };
 		}
-		return result;
+		return nodes as unknown as OmmlNode;
 	}
 
 	public makeRun(text: string, normal = false): OmmlNode {
@@ -463,6 +457,50 @@ class LatexParser implements LatexParserContext {
 			return this.parseAtom();
 		}
 
+		if (tok.type === 'text' && tok.value === '(') {
+			this.next();
+			const inner: OmmlNode[] = [];
+			while (this.peek() && !(this.peek()!.type === 'text' && this.peek()!.value === ')')) {
+				const node = this.parseAtom();
+				if (node) {
+					inner.push(node);
+				}
+			}
+			if (this.peek()?.type === 'text' && this.peek()?.value === ')') {
+				this.next();
+			}
+			const delim: OmmlNode = {
+				'm:d': {
+					'm:e': this.wrapE(inner),
+				} as unknown as OmmlNode,
+			};
+			return tryParseScripts(this, delim);
+		}
+
+		if (tok.type === 'text' && tok.value === '[') {
+			this.next();
+			const inner: OmmlNode[] = [];
+			while (this.peek() && !(this.peek()!.type === 'text' && this.peek()!.value === ']')) {
+				const node = this.parseAtom();
+				if (node) {
+					inner.push(node);
+				}
+			}
+			if (this.peek()?.type === 'text' && this.peek()?.value === ']') {
+				this.next();
+			}
+			const delim: OmmlNode = {
+				'm:d': {
+					'm:dPr': {
+						'm:begChr': { '@_val': '[' },
+						'm:endChr': { '@_val': ']' },
+					} as unknown as OmmlNode,
+					'm:e': this.wrapE(inner),
+				} as unknown as OmmlNode,
+			};
+			return tryParseScripts(this, delim);
+		}
+
 		if (tok.type === 'text') {
 			this.next();
 			const base = this.makeRun(tok.value);
@@ -481,6 +519,29 @@ class LatexParser implements LatexParserContext {
 		if (tok.type === 'command') {
 			this.next();
 			const cmd = tok.value;
+
+			if (cmd === '\\{') {
+				const inner: OmmlNode[] = [];
+				while (this.peek() && !(this.peek()!.type === 'command' && this.peek()!.value === '\\}')) {
+					const node = this.parseAtom();
+					if (node) {
+						inner.push(node);
+					}
+				}
+				if (this.peek()?.type === 'command' && this.peek()?.value === '\\}') {
+					this.next();
+				}
+				const delim: OmmlNode = {
+					'm:d': {
+						'm:dPr': {
+							'm:begChr': { '@_val': '{' },
+							'm:endChr': { '@_val': '}' },
+						} as unknown as OmmlNode,
+						'm:e': this.wrapE(inner),
+					} as unknown as OmmlNode,
+				};
+				return tryParseScripts(this, delim);
+			}
 
 			if (GREEK_MAP[cmd]) {
 				const base = this.makeRun(GREEK_MAP[cmd]);
@@ -620,19 +681,26 @@ export function convertLatexToOmml(latex: string): Record<string, unknown> {
 		return {};
 	}
 
-	const oMath: OmmlNode = {};
-	for (const node of nodes) {
-		for (const key of Object.keys(node)) {
-			if (oMath[key]) {
-				const existing = oMath[key];
-				if (Array.isArray(existing)) {
-					(existing as OmmlNode[]).push(node[key] as OmmlNode);
-				} else {
-					oMath[key] = [existing as OmmlNode, node[key] as OmmlNode];
+	let oMath: OmmlNode;
+	if (nodes.length === 1) {
+		oMath = nodes[0]!;
+	} else {
+		const allRuns = nodes.every(
+			(n) => n && typeof n === 'object' && Object.keys(n).length === 1 && 'm:r' in n,
+		);
+		if (allRuns) {
+			const runs: OmmlNode[] = [];
+			for (const n of nodes) {
+				const r = n['m:r'];
+				if (Array.isArray(r)) {
+					runs.push(...(r as OmmlNode[]));
+				} else if (r) {
+					runs.push(r as OmmlNode);
 				}
-			} else {
-				oMath[key] = node[key];
 			}
+			oMath = { 'm:r': runs as unknown as OmmlNode };
+		} else {
+			oMath = nodes as unknown as OmmlNode;
 		}
 	}
 
@@ -678,21 +746,24 @@ function ensureArr(val: unknown): Array<Record<string, unknown>> {
 }
 
 function childNode(
-	node: Record<string, unknown> | undefined,
+	node: Record<string, unknown> | Array<Record<string, unknown>> | undefined,
 	key: string,
-): Record<string, unknown> {
-	if (!node) {
+): Record<string, unknown> | Array<Record<string, unknown>> {
+	if (!node || typeof node !== 'object') {
+		return {};
+	}
+	if (Array.isArray(node)) {
 		return {};
 	}
 	const v = node[key];
-	if (v && typeof v === 'object' && !Array.isArray(v)) {
-		return v as Record<string, unknown>;
+	if (v && typeof v === 'object') {
+		return v as Record<string, unknown> | Array<Record<string, unknown>>;
 	}
 	return {};
 }
 
-function attrVal(node: Record<string, unknown> | undefined): string {
-	if (!node) {
+function attrVal(node: Record<string, unknown> | Array<Record<string, unknown>> | undefined): string {
+	if (!node || Array.isArray(node) || typeof node !== 'object') {
 		return '';
 	}
 	const v = node['@_val'];
@@ -702,14 +773,17 @@ function attrVal(node: Record<string, unknown> | undefined): string {
 	return v !== undefined ? String(v) : '';
 }
 
-function ommlChildrenToLatex(node: Record<string, unknown> | undefined): string {
+function ommlChildrenToLatex(node: Record<string, unknown> | Array<Record<string, unknown>> | undefined): string {
 	if (!node || typeof node !== 'object') {
 		return '';
+	}
+	if (Array.isArray(node)) {
+		return node.map((item) => ommlChildrenToLatex(item)).join('');
 	}
 	const parts: string[] = [];
 
 	for (const key of Object.keys(node)) {
-		if (key.startsWith('@_')) {
+		if (key.startsWith('@_') || key === 'm:oMathPara') {
 			continue;
 		}
 		const items = ensureArr(node[key]);
@@ -830,12 +904,12 @@ export function convertOmmlToLatex(omml: Record<string, unknown>): string {
 		return '';
 	}
 
-	let oMath: Record<string, unknown> | undefined;
+	let oMath: Record<string, unknown> | Array<Record<string, unknown>> | undefined;
 	const para = omml['m:oMathPara'] as Record<string, unknown> | undefined;
 	if (para?.['m:oMath']) {
-		oMath = para['m:oMath'] as Record<string, unknown>;
+		oMath = para['m:oMath'] as Record<string, unknown> | Array<Record<string, unknown>>;
 	} else if (omml['m:oMath']) {
-		oMath = omml['m:oMath'] as Record<string, unknown>;
+		oMath = omml['m:oMath'] as Record<string, unknown> | Array<Record<string, unknown>>;
 	} else {
 		oMath = omml;
 	}

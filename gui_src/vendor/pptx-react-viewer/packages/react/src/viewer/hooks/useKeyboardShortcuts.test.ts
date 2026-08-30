@@ -38,6 +38,7 @@ type ActionName =
 	| 'cut'
 	| 'paste'
 	| 'duplicate'
+	| 'duplicateSlide'
 	| 'selectAll'
 	| 'nudge'
 	| 'prevSlide'
@@ -118,7 +119,10 @@ function resolveShortcutAction(
 			return hasSelection ? { action: 'cut' } : { action: null };
 		}
 		if (matchesLetterKey(event, 'd')) {
-			return hasSelection ? { action: 'duplicate' } : { action: null };
+			if (shiftKey) {
+				return { action: 'duplicateSlide' };
+			}
+			return hasSelection ? { action: 'duplicate' } : { action: 'duplicateSlide' };
 		}
 		if (matchesLetterKey(event, 'a')) {
 			return { action: 'selectAll' };
@@ -364,6 +368,16 @@ describe('useKeyboardShortcuts: shortcut dispatch logic', () => {
 
 		it('ctrl+D should trigger duplicate with selection', () => {
 			expect(resolveShortcutAction('d', true, false, defaultInput()).action).toBe('duplicate');
+		});
+
+		it('ctrl+D should trigger duplicateSlide without selection', () => {
+			expect(
+				resolveShortcutAction('d', true, false, defaultInput({ hasSelection: false })).action,
+			).toBe('duplicateSlide');
+		});
+
+		it('ctrl+Shift+D should trigger duplicateSlide even with selection', () => {
+			expect(resolveShortcutAction('d', true, true, defaultInput()).action).toBe('duplicateSlide');
 		});
 
 		it('ctrl+A should trigger selectAll', () => {

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
 	LuChevronDown,
+	LuCopyPlus,
 	LuFolderPlus,
 	LuLayoutGrid,
 	LuPlus,
@@ -19,6 +20,7 @@ export interface SlidesGroupProps {
 	onInsertSlideFromLayout: (path: string, name?: string) => void;
 	onApplyLayout?: (path: string) => void;
 	onResetSlide?: () => void;
+	onDuplicateActiveSlide?: () => void;
 	onDeleteActiveSlide?: () => void;
 	canDeleteActiveSlide?: boolean;
 	onAddSection?: () => void;
@@ -146,6 +148,18 @@ export function SlidesGroup(p: SlidesGroupProps): React.ReactElement {
 					</div>
 				)}
 			</div>
+
+			{/* Duplicate active slide */}
+			<button
+				type='button'
+				disabled={!p.canEdit || !p.onDuplicateActiveSlide}
+				className={pill}
+				title={t('pptx.ribbon.duplicateSlide')}
+				onClick={p.onDuplicateActiveSlide}
+			>
+				<LuCopyPlus className={ic} />
+				{t('pptx.ribbon.duplicateSlide')}
+			</button>
 
 			{/* Reset button */}
 			<button

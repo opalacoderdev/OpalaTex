@@ -40,6 +40,7 @@ export function SlidesPaneSidebar({
 	onSelectSlide,
 	onSlideContextMenu,
 	onMoveSlide,
+	onDuplicateSlides,
 	onDeleteSlides,
 	onAddSlide,
 	onCollapse: _onCollapse,
@@ -157,6 +158,17 @@ export function SlidesPaneSidebar({
 			}
 		},
 		[],
+	);
+
+	const handleDuplicateSlide = useCallback(
+		(index: number) => {
+			if (!canEdit) {
+				return;
+			}
+			onDuplicateSlides?.([index]);
+			onSelectSlide(index + 1);
+		},
+		[canEdit, onDuplicateSlides, onSelectSlide],
 	);
 
 	const handleDeleteSlide = useCallback(
@@ -368,6 +380,8 @@ export function SlidesPaneSidebar({
 				<SlideContextMenu
 					state={slideCtxMenu}
 					onAddSection={onAddSection}
+					onDuplicateSlide={handleDuplicateSlide}
+					onDeleteSlide={slides.length > 1 ? handleDeleteSlide : undefined}
 					onClose={closeSlideCtxMenu}
 				/>
 			)}

@@ -178,9 +178,18 @@ export function getTextStyleForElement(
 		lineHeight: resolveLineHeight(element.textStyle, hasItalicRuns),
 		paddingTop: bodyTop + (hasItalicRuns ? 1 : 0),
 		paddingBottom: bodyBottom + (hasItalicRuns ? 1 : 0),
-		paddingLeft: bodyLeft + (element.textStyle?.paragraphMarginLeft || 0),
-		paddingRight: bodyRight + (element.textStyle?.paragraphMarginRight || 0),
-		textIndent: element.textStyle?.paragraphIndent || 0,
+		paddingLeft: ((): number => {
+			const hasParaIndents = (element.paragraphIndents?.length ?? 0) > 0;
+			const pMarginLeft = hasParaIndents ? 0 : (element.textStyle?.paragraphMarginLeft || 0);
+			const pIndent = hasParaIndents ? 0 : (element.textStyle?.paragraphIndent || 0);
+			let effectiveMargin = pMarginLeft;
+			if (pIndent < 0) {
+				effectiveMargin = Math.max(effectiveMargin, Math.abs(pIndent));
+			}
+			return bodyLeft + effectiveMargin;
+		})(),
+		paddingRight: bodyRight + ((element.paragraphIndents?.length ?? 0) > 0 ? 0 : (element.textStyle?.paragraphMarginRight || 0)),
+		textIndent: (element.paragraphIndents?.length ?? 0) > 0 ? undefined : (element.textStyle?.paragraphIndent || 0),
 		overflow: 'visible',
 		writingMode,
 		textOrientation,

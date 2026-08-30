@@ -18,6 +18,7 @@ export interface SlidesPaneSidebarProps {
 	onSelectSlide: (index: number) => void;
 	onSlideContextMenu: (e: React.MouseEvent, index: number) => void;
 	onMoveSlide: (fromIndex: number, toIndex: number) => void;
+	onDuplicateSlides?: (indexes: number[]) => void;
 	onDeleteSlides: (indexes: number[]) => void;
 	onAddSlide: () => void;
 	onCollapse: () => void;

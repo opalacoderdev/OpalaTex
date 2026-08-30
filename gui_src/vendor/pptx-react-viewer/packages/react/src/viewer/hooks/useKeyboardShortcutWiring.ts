@@ -28,6 +28,7 @@ export interface UseKeyboardShortcutWiringInput {
 	ops: ElementOperations;
 	manipulation: ElementManipulationHandlers;
 	history: EditorHistoryResult;
+	onDuplicateSlide?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -35,7 +36,7 @@ export interface UseKeyboardShortcutWiringInput {
 // ---------------------------------------------------------------------------
 
 export function useKeyboardShortcutWiring(input: UseKeyboardShortcutWiringInput): void {
-	const { state, mode, canEdit, slides, activeSlide, ops, manipulation, history } = input;
+	const { state, mode, canEdit, slides, activeSlide, ops, manipulation, history, onDuplicateSlide } = input;
 
 	useKeyboardShortcuts({
 		containerRef: state.containerRef,
@@ -50,6 +51,7 @@ export function useKeyboardShortcutWiring(input: UseKeyboardShortcutWiringInput)
 		onCopy: manipulation.handleCopy,
 		onCut: manipulation.handleCut,
 		onDuplicate: manipulation.handleDuplicate,
+		onDuplicateSlide,
 		onUndo: history.handleUndo,
 		onRedo: history.handleRedo,
 		onSelectAll: () => {

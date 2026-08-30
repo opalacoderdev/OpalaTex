@@ -162,14 +162,27 @@ export function resolveParagraphIndent(
 	paraIndent: ParagraphIndent | undefined,
 	paragraphLevel: number | undefined,
 ): ParagraphIndentLayout {
-	const marginLeft =
-		typeof paraIndent?.marginLeft === 'number' && paraIndent.marginLeft !== 0
+	const rawMarginLeft =
+		typeof paraIndent?.marginLeft === 'number' && Number.isFinite(paraIndent.marginLeft)
 			? paraIndent.marginLeft
 			: undefined;
-	const textIndent =
-		typeof paraIndent?.indent === 'number' && paraIndent.indent !== 0
+	const rawTextIndent =
+		typeof paraIndent?.indent === 'number' && Number.isFinite(paraIndent.indent)
 			? paraIndent.indent
 			: undefined;
+
+	let marginLeft = rawMarginLeft !== 0 ? rawMarginLeft : undefined;
+	const textIndent = rawTextIndent !== 0 ? rawTextIndent : undefined;
+
+	// Clamp: negative textIndent (hanging indent) requires marginLeft >= |textIndent|
+	// so the first line (bullet/number) never spills into negative coordinate space
+	// outside the element left boundary.
+	if (textIndent !== undefined && textIndent < 0) {
+		const minMargin = Math.abs(textIndent);
+		if (marginLeft === undefined || marginLeft < minMargin) {
+			marginLeft = minMargin;
+		}
+	}
 
 	if (marginLeft === undefined && textIndent === undefined) {
 		const levelPx = bulletIndentPx(paragraphLevel);

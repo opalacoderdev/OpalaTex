@@ -113,4 +113,19 @@ describe('resolveParagraphIndent', () => {
 		expect(resolveParagraphIndent(undefined, 2)).toStrictEqual({ marginLeftPx: 36 });
 		expect(resolveParagraphIndent(undefined, 0)).toStrictEqual({});
 	});
+
+	it('clamps marginLeft to at least |indent| when indent is negative (hanging indent)', () => {
+		expect(resolveParagraphIndent({ indent: -24 }, 0)).toStrictEqual({
+			marginLeftPx: 24,
+			textIndentPx: -24,
+		});
+		expect(resolveParagraphIndent({ marginLeft: 10, indent: -24 }, 0)).toStrictEqual({
+			marginLeftPx: 24,
+			textIndentPx: -24,
+		});
+		expect(resolveParagraphIndent({ marginLeft: 30, indent: -24 }, 0)).toStrictEqual({
+			marginLeftPx: 30,
+			textIndentPx: -24,
+		});
+	});
 });

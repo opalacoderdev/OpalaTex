@@ -31,13 +31,13 @@ type ChildrenConverter = (node: OmmlNode) => string;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/** Safely retrieve a child node, always returning an object (never undefined). */
+/** Safely retrieve a child node, always returning an object or array (never undefined). */
 function child(node: OmmlNode | undefined, key: string): OmmlNode {
 	if (!node) {
 		return {};
 	}
 	const v = node[key];
-	if (v && typeof v === 'object' && !Array.isArray(v)) {
+	if (v && typeof v === 'object') {
 		return v as OmmlNode;
 	}
 	return {};
@@ -475,8 +475,14 @@ function convertFunc(node: OmmlNode, cc: ChildrenConverter): string {
 // ── Dispatch ────────────────────────────────────────────────────────────────
 
 /** Convert all child elements of an OMML container to MathML. */
-function convertChildren(node: OmmlNode): string {
-	if (!node || typeof node !== 'object') {
+function convertChildren(node: OmmlNode | OmmlNode[]): string {
+	if (!node) {
+		return '';
+	}
+	if (Array.isArray(node)) {
+		return node.map((item) => convertChildren(item)).join('');
+	}
+	if (typeof node !== 'object') {
 		return '';
 	}
 	const parts: string[] = [];
@@ -553,17 +559,72 @@ function convertElement(tag: string, node: OmmlNode): string {
 
 /** Locate all `m:oMath` root elements inside an OMML wrapper node. */
 function findOmathRoots(node: OmmlNode): OmmlNode[] {
+	if (Array.isArray(node)) {
+		return [node as unknown as OmmlNode];
+	}
 	if (node['m:oMath']) {
-		return ensureArray(node['m:oMath']);
+		const om = node['m:oMath'];
+		if (Array.isArray(om)) {
+			const isChildList = om.some(
+				(item) =>
+					item &&
+					typeof item === 'object' &&
+					('m:r' in item ||
+						'm:f' in item ||
+						'm:sSup' in item ||
+						'm:sSub' in item ||
+						'm:sSubSup' in item ||
+						'm:d' in item ||
+						'm:rad' in item ||
+						'm:nary' in item ||
+						'm:func' in item),
+			);
+			if (isChildList) {
+				return [om as unknown as OmmlNode];
+			}
+			return om as OmmlNode[];
+		}
+		return [om as OmmlNode];
 	}
 	const para = node['m:oMathPara'];
 	if (para) {
 		const paraNode = Array.isArray(para) ? (para[0] as OmmlNode) : (para as OmmlNode);
 		if (paraNode['m:oMath']) {
-			return ensureArray(paraNode['m:oMath']);
+			const om = paraNode['m:oMath'];
+			if (Array.isArray(om)) {
+				const isChildList = om.some(
+					(item) =>
+						item &&
+						typeof item === 'object' &&
+						('m:r' in item ||
+							'm:f' in item ||
+							'm:sSup' in item ||
+							'm:sSub' in item ||
+							'm:sSubSup' in item ||
+							'm:d' in item ||
+							'm:rad' in item ||
+							'm:nary' in item ||
+							'm:func' in item),
+				);
+				if (isChildList) {
+					return [om as unknown as OmmlNode];
+				}
+				return om as OmmlNode[];
+			}
+			return [om as OmmlNode];
 		}
 	}
-	if (node['m:r'] || node['m:f'] || node['m:rad'] || node['m:sSup'] || node['m:sSub']) {
+	if (
+		node['m:r'] ||
+		node['m:f'] ||
+		node['m:rad'] ||
+		node['m:sSup'] ||
+		node['m:sSub'] ||
+		node['m:sSubSup'] ||
+		node['m:d'] ||
+		node['m:nary'] ||
+		node['m:func']
+	) {
 		return [node];
 	}
 	return [];

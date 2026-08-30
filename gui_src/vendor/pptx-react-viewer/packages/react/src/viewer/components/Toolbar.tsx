@@ -172,6 +172,7 @@ export function Toolbar(p: ToolbarProps): React.ReactElement {
 							onToggleFormatPainter={p.onToggleFormatPainter}
 							layoutOptions={p.layoutOptions}
 							onInsertSlideFromLayout={p.onInsertSlideFromLayout}
+							onDuplicateActiveSlide={p.onDuplicateActiveSlide}
 							onDeleteActiveSlide={p.onDeleteActiveSlide}
 							canDeleteActiveSlide={p.canDeleteActiveSlide}
 							selectedElement={p.selectedElement}

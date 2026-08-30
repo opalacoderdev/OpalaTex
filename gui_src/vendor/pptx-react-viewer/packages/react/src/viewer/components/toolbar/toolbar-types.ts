@@ -123,6 +123,7 @@ export interface ToolbarProps {
 	onSetOverflowMenuOpen: (open: boolean) => void;
 	layoutOptions: Array<{ path: string; name: string }>;
 	onInsertSlideFromLayout: (path: string, name?: string) => void;
+	onDuplicateActiveSlide?: () => void;
 	onDeleteActiveSlide?: () => void;
 	canDeleteActiveSlide?: boolean;
 	customShows: PptxCustomShow[];
