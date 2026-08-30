@@ -30,6 +30,18 @@ export interface UseAutosaveInput {
 	enabled?: boolean;
 	/** Optional host callback for persisting serialized autosave bytes. */
 	onAutosaveContent?: (content: Uint8Array) => void | Promise<void>;
+	/**
+	 * Reads the owner's monotonic change counter. Captured before
+	 * serialisation so `markClean` can tell whether an edit landed while the
+	 * save was in flight.
+	 */
+	readChangeToken?: () => number;
+	/**
+	 * Invoked after the content was persisted, with the change token captured
+	 * before serialisation. Owners clear their dirty flag from here; without
+	 * it the document stays dirty and is written again on every tick.
+	 */
+	markClean?: (savedChangeToken: number | undefined) => void;
 }
 
 export interface UseAutosaveResult {
@@ -51,6 +63,8 @@ export function useAutosave(input: UseAutosaveInput): UseAutosaveResult {
 		intervalSeconds = DEFAULT_AUTOSAVE_INTERVAL_SECONDS,
 		enabled = true,
 		onAutosaveContent,
+		readChangeToken,
+		markClean,
 	} = input;
 
 	const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>({
@@ -62,6 +76,11 @@ export function useAutosave(input: UseAutosaveInput): UseAutosaveResult {
 	const filePathRef = useRef(filePath);
 	const serializeRef = useRef(serializeSlides);
 	const isSavingRef = useRef(false);
+	// Host callbacks live in refs too: a host that re-creates them on every
+	// render (an inline prop is the norm) must not restart the countdown.
+	const onAutosaveContentRef = useRef(onAutosaveContent);
+	const readChangeTokenRef = useRef(readChangeToken);
+	const markCleanRef = useRef(markClean);
 
 	useEffect(() => {
 		isDirtyRef.current = isDirty;
@@ -72,6 +91,15 @@ export function useAutosave(input: UseAutosaveInput): UseAutosaveResult {
 	useEffect(() => {
 		serializeRef.current = serializeSlides;
 	}, [serializeSlides]);
+	useEffect(() => {
+		onAutosaveContentRef.current = onAutosaveContent;
+	}, [onAutosaveContent]);
+	useEffect(() => {
+		readChangeTokenRef.current = readChangeToken;
+	}, [readChangeToken]);
+	useEffect(() => {
+		markCleanRef.current = markClean;
+	}, [markClean]);
 
 	// ── Core save logic ─────────────────────────────────────────────
 	const doAutosave = useCallback(async () => {
@@ -89,6 +117,7 @@ export function useAutosave(input: UseAutosaveInput): UseAutosaveResult {
 		setAutosaveStatus({ state: 'saving' });
 
 		try {
+			const changeToken = readChangeTokenRef.current?.();
 			const data = await serializeRef.current();
 			if (!data) {
 				setAutosaveStatus({ state: 'idle' });
@@ -96,10 +125,24 @@ export function useAutosave(input: UseAutosaveInput): UseAutosaveResult {
 				return;
 			}
 
-			await saveAutosaveSnapshot(filePathRef.current, data);
-			if (onAutosaveContent) {
-				await onAutosaveContent(data);
+			const persistContent = onAutosaveContentRef.current;
+			// The IndexedDB snapshot is a crash-recovery cache. When the host
+			// persists the bytes itself, a cache write that fails (quota, a
+			// runtime with IndexedDB disabled) must not take the real save down
+			// with it; with no host callback it *is* the save, so there its
+			// failure is the autosave's failure.
+			try {
+				await saveAutosaveSnapshot(filePathRef.current, data);
+			} catch (err) {
+				if (!persistContent) {
+					throw err;
+				}
+				console.warn('[pptx-viewer] autosave recovery snapshot failed:', err);
 			}
+			if (persistContent) {
+				await persistContent(data);
+			}
+			markCleanRef.current?.(changeToken);
 			setAutosaveStatus({ state: 'saved', timestamp: Date.now() });
 		} catch (err) {
 			setAutosaveStatus({
@@ -109,7 +152,7 @@ export function useAutosave(input: UseAutosaveInput): UseAutosaveResult {
 		} finally {
 			isSavingRef.current = false;
 		}
-	}, [onAutosaveContent]);
+	}, []);
 
 	// ── Interval timer ──────────────────────────────────────────────
 	useEffect(() => {

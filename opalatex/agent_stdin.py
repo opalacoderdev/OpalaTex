@@ -152,6 +152,7 @@ except Exception:
 
 from agenticblocks.blocks.llm.tokens import count_message_tokens
 from opalatex.chat_meta_params import parse_meta_params, apply_meta_params
+from opalatex.think_stream import InlineReasoningStreamSplitter
 from opalatex.token_usage import (
     CONTEXT_AGENTS as TOKEN_CONTEXT_AGENTS,
     attach_usage_tracking,
@@ -387,21 +388,17 @@ def _strip_empty_think_blocks(content: str) -> str:
 
 
 def _split_think_tags(content: str) -> tuple[str, list[str]]:
-    """Extract non-empty <think> blocks from visible model output."""
-    thoughts: list[str] = []
+    """Extract inline reasoning from visible model output.
 
-    def _collect(match: re.Match) -> str:
-        thought = match.group(1).strip()
-        if thought:
-            thoughts.append(thought)
-        return "\n"
+    Covers both non-empty ``<think>…</think>`` blocks and the orphan-close shape
+    (reasoning terminated by ``</think>`` with no opening tag), which is what a
+    thinking-capable model emits through the content channel when the provider is
+    not parsing the reasoning channel for us — see
+    ``agenticblocks.utils.parsers.split_inline_reasoning_parts``.
+    """
+    from agenticblocks.utils.parsers import split_inline_reasoning_parts
 
-    visible = re.sub(
-        r"<think>([\s\S]*?)</think>",
-        _collect,
-        str(content or ""),
-        flags=re.IGNORECASE,
-    )
+    thoughts, visible = split_inline_reasoning_parts(content)
     visible = _strip_empty_think_blocks(visible).strip()
     return visible, thoughts
 
@@ -1522,6 +1519,18 @@ async def handle_run(data: dict):
         stage_editor_state(current_project.project_path, data)
     
 
+    # Whether the model's reasoning is published at all (thought events, Thinking
+    # panel). The provider is always asked to isolate the reasoning channel for a
+    # thinking-capable model -- see config.resolve_think_request -- so this is the
+    # display preference alone, never the wire flag.
+    publish_reasoning = bool(
+        (
+            data.get("model_params")
+            or getattr(current_project, "model_params", None)
+            or {}
+        ).get("think", False)
+    )
+
     # Build agent
     agent = None
     if agent_type == "chat_orchestrator":
@@ -1594,10 +1603,13 @@ async def handle_run(data: dict):
         if model_params.get("reasoning_effort"):
             model_kwargs["reasoning_effort"] = model_params["reasoning_effort"]
         
-        # Thinking defaults off for inline agents; orchestrator/memgpt get think=True
-        # from _CORE_AGENT_DEFAULTS in config.py. Workers stay False unless the user
-        # explicitly enables thinking in project settings.
-        model_kwargs["think"] = bool(model_params.get("think", False))
+        # The provider is always asked to separate the reasoning channel for a
+        # thinking-capable model (config.resolve_think_request): `think` decides
+        # whether the provider *parses* the reasoning out, not whether the user
+        # sees it. `_apply_model_thinking_capability` drops the param for a model
+        # that does not support it. The project setting below stays a display
+        # preference and only gates `on_thinking`.
+        model_kwargs["think"] = True
         # Inline editing applies a single final replacement. It must never expose
         # partial model output, regardless of a global streaming default.
         model_kwargs["stream"] = False if agent_type == "inline_editor" else bool(model_params.get("stream", True))
@@ -1660,8 +1672,6 @@ async def handle_run(data: dict):
     _ACTIVE_THOUGHT_CHUNKS = thought_chunks
     _ACTIVE_THOUGHT_CHARS = 0
     _ACTIVE_THOUGHT_SUPPRESSED = False
-    in_think_block = [False]
-    think_buffer = [""]
     stream_probe_pending = [""]
     stream_probe_decided = [False]
     suppress_plain_tool_json_stream = [False]
@@ -1696,51 +1706,31 @@ async def handle_run(data: dict):
 
     def _on_thinking(chunk: str) -> None:
         _log_chunk_timing("thinking", chunk)
+        # Thinking turned off in project settings means the reasoning is not
+        # published anywhere -- not that the provider stops isolating it. The
+        # callback stays wired either way, so an agent can always call it.
+        if not publish_reasoning:
+            return
         if _record_turn_thought(chunk):
             print_event("thought", {"content": chunk, "agent": agent_type, "_thought_recorded": True})
 
+    def _emit_visible_stream(text: str) -> None:
+        print_event("stream_chunk", {"content": text, "agent": agent_type})
+
+    def _retract_visible_stream(text: str) -> None:
+        # An orphan </think> proved this text was reasoning after it had already
+        # been published. Tell the UI to drop it from the tail of the live
+        # response; the splitter re-publishes it through _on_thinking next.
+        print_event("stream_retract", {"content": text, "agent": agent_type})
+
+    _think_splitter = InlineReasoningStreamSplitter(
+        on_visible=_emit_visible_stream,
+        on_thinking=_on_thinking,
+        on_retract=_retract_visible_stream,
+    )
+
     def _process_visible_chunk(chunk: str) -> None:
-        think_buffer[0] += chunk
-        
-        while True:
-            if not in_think_block[0]:
-                if "<think>" in think_buffer[0]:
-                    before, rest = think_buffer[0].split("<think>", 1)
-                    if before:
-                        print_event("stream_chunk", {"content": before, "agent": agent_type})
-                    in_think_block[0] = True
-                    think_buffer[0] = rest
-                else:
-                    idx = think_buffer[0].rfind("<")
-                    if idx != -1 and "<think>".startswith(think_buffer[0][idx:]):
-                        before = think_buffer[0][:idx]
-                        if before:
-                            print_event("stream_chunk", {"content": before, "agent": agent_type})
-                        think_buffer[0] = think_buffer[0][idx:]
-                    else:
-                        if think_buffer[0]:
-                            print_event("stream_chunk", {"content": think_buffer[0], "agent": agent_type})
-                            think_buffer[0] = ""
-                    break
-            else:
-                if "</think>" in think_buffer[0]:
-                    inside, rest = think_buffer[0].split("</think>", 1)
-                    if inside:
-                        _on_thinking(inside)
-                    in_think_block[0] = False
-                    think_buffer[0] = rest
-                else:
-                    idx = think_buffer[0].rfind("<")
-                    if idx != -1 and "</think>".startswith(think_buffer[0][idx:]):
-                        before = think_buffer[0][:idx]
-                        if before:
-                            _on_thinking(before)
-                        think_buffer[0] = think_buffer[0][idx:]
-                    else:
-                        if think_buffer[0]:
-                            _on_thinking(think_buffer[0])
-                            think_buffer[0] = ""
-                    break
+        _think_splitter.feed(chunk)
 
     def _on_chunk(chunk: str) -> None:
         _log_chunk_timing("content", chunk)
@@ -1769,6 +1759,11 @@ async def handle_run(data: dict):
         _process_visible_chunk(chunk)
 
     def _on_iteration(_step: int, messages: list) -> None:
+        # Bound the retraction window to this response: an orphan </think> in the
+        # answer that follows must never take back text streamed by an earlier
+        # heartbeat.
+        _think_splitter.begin_response()
+
         # Fires just before each LLM call, so the request assembled here already
         # carries the tool results produced since the previous call. Counting it
         # now is what makes the context indicator move while the agent is still

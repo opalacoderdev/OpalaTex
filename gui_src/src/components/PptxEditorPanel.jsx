@@ -127,6 +127,9 @@ const PptxEditorPanel = forwardRef(function PptxEditorPanel({
       if (!buffer) throw new Error('The presentation viewer did not return file content.');
       await saveBuffer(buffer);
 
+      // Tell the viewer the deck reached disk, so autosave does not write the
+      // very same bytes again on its next tick.
+      viewerRef.current?.markSaved?.();
       setStatus(t('pptxEditor.saved', 'Presentation saved.'));
       setTimeout(() => setStatus(''), 2000);
       onSaved?.(selectedFile);
@@ -138,8 +141,10 @@ const PptxEditorPanel = forwardRef(function PptxEditorPanel({
     }
   }, [activeProject?.project_path, selectedFile, onSaved, saveBuffer, t]);
 
+  // Invoked by the viewer's autosave timer, which the viewer itself already
+  // gates on `autosaveEnabled`: a second check here could only swallow bytes
+  // the viewer has serialised and is about to consider written.
   const handleAutosaveContent = useCallback(async (buffer) => {
-    if (!autosaveEnabled) return;
     setStatus(t('pptxEditor.saving', 'Saving presentation...'));
     try {
       await saveBuffer(buffer);
@@ -151,7 +156,7 @@ const PptxEditorPanel = forwardRef(function PptxEditorPanel({
       setStatus(t('pptxEditor.saveFailed', 'Could not save presentation: {{error}}', { error: message }));
       throw error;
     }
-  }, [autosaveEnabled, onSaved, saveBuffer, selectedFile, t]);
+  }, [onSaved, saveBuffer, selectedFile, t]);
 
   useImperativeHandle(ref, () => ({
     save: () => handleSave(),

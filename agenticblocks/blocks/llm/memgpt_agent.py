@@ -17,6 +17,7 @@ from agenticblocks.tools.a2a_bridge import block_to_tool_schema
 from agenticblocks.core.block import Block
 from agenticblocks.core.function_block import as_tool
 from agenticblocks.runtime.state import TokenUsage, _current_ctx
+from agenticblocks.utils.parsers import split_inline_reasoning
 
 
 DEFAULT_RECURSIVE_SUMMARY = "No history has been evicted yet."
@@ -520,11 +521,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             content = message.content or ""
             reasoning = getattr(message, "reasoning_content", None)
             if not reasoning and content:
-                import re
-                match = re.search(r"<think>(.*?)</think>", content, re.DOTALL)
-                if match:
-                    reasoning = match.group(1).strip()
-                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                reasoning, content = split_inline_reasoning(content)
 
             if not kwargs.get("stream", False):
                 await self._invoke_on_thinking(reasoning or "")

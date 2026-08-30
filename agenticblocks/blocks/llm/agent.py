@@ -12,6 +12,7 @@ from agenticblocks.core.agent import AgentBlock
 from agenticblocks.core.block import Block
 from agenticblocks.tools.a2a_bridge import block_to_tool_schema
 from agenticblocks.runtime.state import TokenUsage, _current_ctx
+from agenticblocks.utils.parsers import split_inline_reasoning
 
 
 class _DummyFunction(BaseModel):
@@ -509,11 +510,10 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                     final_content = content
                     final_reasoning = getattr(final_resp.choices[0].message, "reasoning_content", None)
                     if not final_reasoning and final_content:
-                        import re
-                        match = re.search(r"<think>(.*?)</think>", final_content, re.DOTALL)
-                        if match:
-                            final_reasoning = match.group(1).strip()
-                            final_content = re.sub(r"<think>.*?</think>", "", final_content, flags=re.DOTALL).strip()
+                        inline_reasoning, visible_content = split_inline_reasoning(final_content)
+                        if inline_reasoning:
+                            final_reasoning = inline_reasoning
+                            final_content = visible_content
                             content = final_content
 
                     final_message = {"role": "assistant", "content": final_content}
@@ -584,11 +584,10 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
             content = message.content or ""
             reasoning = getattr(message, "reasoning_content", None)
             if not reasoning and content:
-                import re
-                match = re.search(r"<think>(.*?)</think>", content, re.DOTALL)
-                if match:
-                    reasoning = match.group(1).strip()
-                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                inline_reasoning, visible_content = split_inline_reasoning(content)
+                if inline_reasoning:
+                    reasoning = inline_reasoning
+                    content = visible_content
 
             if not kwargs.get("stream", False):
                 await self._invoke_on_thinking(reasoning or "")
@@ -651,11 +650,10 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                         final_content = content
                         final_reasoning = getattr(final_resp.choices[0].message, "reasoning_content", None)
                         if not final_reasoning and final_content:
-                            import re
-                            match = re.search(r"<think>(.*?)</think>", final_content, re.DOTALL)
-                            if match:
-                                final_reasoning = match.group(1).strip()
-                                final_content = re.sub(r"<think>.*?</think>", "", final_content, flags=re.DOTALL).strip()
+                            inline_reasoning, visible_content = split_inline_reasoning(final_content)
+                            if inline_reasoning:
+                                final_reasoning = inline_reasoning
+                                final_content = visible_content
                                 content = final_content
                         
                         # Update assistant message in messages history
@@ -807,11 +805,10 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                 final_content = content
                 final_reasoning = getattr(final_response.choices[0].message, "reasoning_content", None)
                 if not final_reasoning and final_content:
-                    import re
-                    match = re.search(r"<think>(.*?)</think>", final_content, re.DOTALL)
-                    if match:
-                        final_reasoning = match.group(1).strip()
-                        final_content = re.sub(r"<think>.*?</think>", "", final_content, flags=re.DOTALL).strip()
+                    inline_reasoning, visible_content = split_inline_reasoning(final_content)
+                    if inline_reasoning:
+                        final_reasoning = inline_reasoning
+                        final_content = visible_content
                         content = final_content
 
                 final_message = {"role": "assistant", "content": final_content}

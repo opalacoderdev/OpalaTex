@@ -2609,6 +2609,20 @@ export default function App() {
         // calls and the tool results — none of which reach chatMessages.
         setChatContextUsage(prev => contextUsageFromPayload(data) || prev);
         break;
+      case 'stream_retract': {
+        // An orphan </think> proved this text was reasoning, not the answer, after
+        // it had already been streamed. It arrives again as a 'thought' event, so
+        // it only has to leave the live response here. The Output log keeps the
+        // raw provider stream on purpose.
+        const retracted = sanitizeVisibleStreamChunk(data.content);
+        if (!retracted) break;
+        setChatResponseStream(prev => {
+          const next = prev.endsWith(retracted) ? prev.slice(0, -retracted.length) : '';
+          chatResponseStreamRef.current = next;
+          return next;
+        });
+        break;
+      }
       case 'stream_chunk':
         const visibleStreamChunk = sanitizeVisibleStreamChunk(data.content);
         addLog('stream_chunk', visibleStreamChunk, data.agent);

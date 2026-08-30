@@ -6,6 +6,7 @@ import { FormattedMessage } from '../utils/formatMessage';
 import { readClipboard, readClipboardImage } from '../utils/clipboard.js';
 import { base64ImageToFile, clipboardHasText, extractClipboardFiles, pastedImageName } from '../utils/clipboardAttachments.js';
 import { isLocalModelId } from '../utils/models.js';
+import { stripInlineReasoning } from '../utils/thinkTags.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
@@ -18,7 +19,7 @@ const normalizeForErrorMatch = (value) => String(value || '')
   .toLowerCase();
 
 const stripThinkBlocksForErrorMatch = (content = '') => (
-  String(content || '').replace(/<think>[\s\S]*?(<\/think>|$)/gi, '')
+  stripInlineReasoning(content)
 );
 
 const isRetryableAssistantErrorMessage = (msg, displayContent) => {
@@ -988,7 +989,7 @@ export default function ChatPanel({
   };
 
   const contentWithoutThink = (content = '') => (
-    String(content).replace(/<think>[\s\S]*?(<\/think>|$)/gi, '').trim()
+    stripInlineReasoning(content).trim()
   );
 
   const isInternalResumePrompt = (content = '') => {
@@ -1643,7 +1644,7 @@ export default function ChatPanel({
             displayContent = t('app.interruptionNotice');
           }
           if (hideThink && !isUser && displayContent) {
-            displayContent = displayContent.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '');
+            displayContent = stripInlineReasoning(displayContent);
           }
 
           const isError = !isUser && displayContent && (

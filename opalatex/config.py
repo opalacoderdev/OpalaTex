@@ -634,7 +634,8 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
         merged.pop(field, None)
     merged.setdefault("think", False)
-    if not store_supports_thinking:
+    merged["think"] = resolve_think_request(store_supports_thinking, merged["think"])
+    if merged["think"] is None:
         merged.pop("think", None)
 
     # num_ctx resolution: an explicit project override always wins; otherwise
@@ -648,6 +649,30 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     merged["num_ctx"] = resolve_effective_num_ctx(agent_name, resolved_model, merged.get("api_base"))
 
     return sanitize_litellm_kwargs_for_model(runtime_model, merged)
+
+
+def resolve_think_request(supports_thinking: bool, prefer_reasoning: bool) -> bool | None:
+    """Return the `think` value to send to the provider, or None to drop the param.
+
+    **`think` is a parsing switch at the provider, not a display switch.** Ollama's
+    `think: false` does not stop a reasoning model from reasoning — it stops Ollama
+    from separating the reasoning into its own `thinking` field. Verified against
+    `ollama_chat/glm-5.3:cloud`: with `think: false` the model answered
+    `"17*23 = 17*20 + 17*3 = 340 + 51 = 391" + "391"` in `content` with
+    `reasoning_content` empty; with `think: true`, `content` was `"391"` and the
+    working went to `reasoning_content`. The reasoning is emitted either way, and
+    in the off case it arrives **undelimited** — no `<think>` tags, nothing a text
+    splitter can key on — so it was published as the assistant's answer.
+
+    So a thinking-capable model is always asked to separate the two channels. The
+    project's "thinking" setting stays a *display* preference: it decides whether
+    the reasoning is published (`on_thinking`), never whether the provider isolates
+    it. This is the same separation `resolve_model_route` already makes for
+    transport — a reasoning preference must not silently degrade the wire format.
+    """
+    if not supports_thinking:
+        return None
+    return True
 
 
 def model_supports_thinking(model: str | None) -> bool:

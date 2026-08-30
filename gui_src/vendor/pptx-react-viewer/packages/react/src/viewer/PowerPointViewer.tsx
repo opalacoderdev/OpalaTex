@@ -267,6 +267,7 @@ export const PowerPointViewer = forwardRef<PowerPointViewerHandle, PowerPointVie
 			setSelectedElementIds: state.setSelectedElementIds,
 			setEditTemplateMode: state.setEditTemplateMode,
 			setHeaderFooter: state.setHeaderFooter,
+			setIsDirty: state.setIsDirty,
 		});
 
 		// ── Presentation mode + annotations ───────────────────────────

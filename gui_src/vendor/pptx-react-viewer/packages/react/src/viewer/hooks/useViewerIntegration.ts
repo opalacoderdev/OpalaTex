@@ -5,7 +5,7 @@ import type { ViewerMode } from 'pptx-viewer-shared';
  * I/O, annotations, recovery, imperative handle, parent callbacks,
  * and keyboard shortcuts into the viewer orchestrator.
  */
-import { useEffect, useImperativeHandle, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { Dispatch, ForwardedRef, SetStateAction } from 'react';
 
 import { MIN_ZOOM_SCALE, MAX_ZOOM_SCALE } from '../constants';
@@ -215,15 +215,26 @@ export function useViewerIntegration(input: UseViewerIntegrationInput): ViewerIn
 	});
 
 	// ── Imperative handle ─────────────────────────────────────────
+	// Change token of the last `getContent()`, so a host reporting a
+	// successful save cannot clear edits made after it took the bytes.
+	const serializedChangeTokenRef = useRef<number | null>(null);
 	useImperativeHandle(
 		ref,
 		() => ({
 			async getContent() {
+				serializedChangeTokenRef.current = history.getChangeToken();
 				const data = await serializeSlides();
 				if (data && onContentChange) {
 					onContentChange(data);
 				}
 				return data ?? new Uint8Array(0);
+			},
+			markSaved() {
+				const serializedToken = serializedChangeTokenRef.current;
+				if (serializedToken !== null && serializedToken !== history.getChangeToken()) {
+					return;
+				}
+				state.setIsDirty(false);
 			},
 			goTo(index: number) {
 				if (index >= 0 && index < slides.length) {

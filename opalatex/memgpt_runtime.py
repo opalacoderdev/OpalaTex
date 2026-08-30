@@ -70,6 +70,7 @@ from .skills import (
 
 from .tools import get_available_tools
 from .project import tutorial_chat_id
+from .think_stream import InlineReasoningStreamSplitter
 
 CHAT_ORCHESTRATOR_SKILL = "chat-orchestrator"
 MAX_FAILED_SKILL_ATTEMPTS = 2
@@ -548,6 +549,13 @@ def build_run_skill_tool(
                 f"(do NOT type the request text into the command — use the file).\n"
             )
         worker_kwargs = get_agent_llm_kwargs("worker")
+        # The project's worker "thinking" setting is a display preference; the wire
+        # flag inside worker_kwargs is the provider's parsing switch (see
+        # config.resolve_think_request).
+        worker_publishes_reasoning = bool(
+            getattr(_project_ref, "worker_model_params", None) is not None
+            and _project_ref.worker_model_params.get("think", False)
+        )
 
         model = get_agent_model("worker", model)
 
@@ -633,63 +641,34 @@ def build_run_skill_tool(
         object.__setattr__(sub_agent, "model_kwargs", worker_kwargs)
         object.__setattr__(sub_agent, "use_shared_router", False)
         
+        worker_think_splitter = None
         if worker_kwargs.get("stream", False):
             thought_chunks = []
-            in_think_block = [False]
-            think_buffer = [""]
-            
+
             def _worker_on_thinking(chunk: str) -> None:
                 if _record_turn_thought(chunk):
                     thought_chunks.append(chunk)
                     print_event("thought", {"content": chunk, "agent": f"worker:{skill_name}", "_thought_recorded": True})
 
-            def _worker_on_chunk(chunk: str) -> None:
-                think_buffer[0] += chunk
-                while True:
-                    if not in_think_block[0]:
-                        if "<think>" in think_buffer[0]:
-                            before, rest = think_buffer[0].split("<think>", 1)
-                            if before:
-                                print_event("stream_chunk", {"content": before, "agent": f"worker:{skill_name}"})
-                            in_think_block[0] = True
-                            think_buffer[0] = rest
-                        else:
-                            idx = think_buffer[0].rfind("<")
-                            if idx != -1 and "<think>".startswith(think_buffer[0][idx:]):
-                                before = think_buffer[0][:idx]
-                                if before:
-                                    print_event("stream_chunk", {"content": before, "agent": f"worker:{skill_name}"})
-                                think_buffer[0] = think_buffer[0][idx:]
-                            else:
-                                if think_buffer[0]:
-                                    print_event("stream_chunk", {"content": think_buffer[0], "agent": f"worker:{skill_name}"})
-                                    think_buffer[0] = ""
-                            break
-                    else:
-                        if "</think>" in think_buffer[0]:
-                            inside, rest = think_buffer[0].split("</think>", 1)
-                            if inside:
-                                _worker_on_thinking(inside)
-                            in_think_block[0] = False
-                            think_buffer[0] = rest
-                        else:
-                            idx = think_buffer[0].rfind("<")
-                            if idx != -1 and "</think>".startswith(think_buffer[0][idx:]):
-                                before = think_buffer[0][:idx]
-                                if before:
-                                    _worker_on_thinking(before)
-                                think_buffer[0] = think_buffer[0][idx:]
-                            else:
-                                if think_buffer[0]:
-                                    _worker_on_thinking(think_buffer[0])
-                                    think_buffer[0] = ""
-                            break
-                            
-            if worker_kwargs.get("think", False):
+            def _worker_emit_visible(text: str) -> None:
+                print_event("stream_chunk", {"content": text, "agent": f"worker:{skill_name}"})
+
+            def _worker_retract_visible(text: str) -> None:
+                print_event("stream_retract", {"content": text, "agent": f"worker:{skill_name}"})
+
+            worker_think_splitter = InlineReasoningStreamSplitter(
+                on_visible=_worker_emit_visible,
+                on_thinking=_worker_on_thinking,
+                on_retract=_worker_retract_visible,
+            )
+
+            if worker_publishes_reasoning:
                 sub_agent.on_thinking = _worker_on_thinking
-            sub_agent.on_chunk = _worker_on_chunk
+            sub_agent.on_chunk = worker_think_splitter.feed
 
         def _worker_on_iteration(_step: int, messages: list) -> None:
+            if worker_think_splitter is not None:
+                worker_think_splitter.begin_response()
             last = messages[-1] if messages else {}
             content = last.get("content") or ""
             if content:
@@ -1385,59 +1364,33 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     
     if _llm_kwargs.get("stream", False):
         orchestrator_thought_chunks = []
-        in_think_block_orch = [False]
-        think_buffer_orch = [""]
 
         def _orch_on_thinking(chunk: str) -> None:
             if _record_turn_thought(chunk):
                 orchestrator_thought_chunks.append(chunk)
                 print_event("thought", {"content": chunk, "agent": "orchestrator", "_thought_recorded": True})
 
-        def _orch_on_chunk(chunk: str) -> None:
-            think_buffer_orch[0] += chunk
-            while True:
-                if not in_think_block_orch[0]:
-                    if "<think>" in think_buffer_orch[0]:
-                        before, rest = think_buffer_orch[0].split("<think>", 1)
-                        if before:
-                            print_event("stream_chunk", {"content": before, "agent": "orchestrator"})
-                        in_think_block_orch[0] = True
-                        think_buffer_orch[0] = rest
-                    else:
-                        idx = think_buffer_orch[0].rfind("<")
-                        if idx != -1 and "<think>".startswith(think_buffer_orch[0][idx:]):
-                            before = think_buffer_orch[0][:idx]
-                            if before:
-                                print_event("stream_chunk", {"content": before, "agent": "orchestrator"})
-                            think_buffer_orch[0] = think_buffer_orch[0][idx:]
-                        else:
-                            if think_buffer_orch[0]:
-                                print_event("stream_chunk", {"content": think_buffer_orch[0], "agent": "orchestrator"})
-                                think_buffer_orch[0] = ""
-                        break
-                else:
-                    if "</think>" in think_buffer_orch[0]:
-                        inside, rest = think_buffer_orch[0].split("</think>", 1)
-                        if inside:
-                            _orch_on_thinking(inside)
-                        in_think_block_orch[0] = False
-                        think_buffer_orch[0] = rest
-                    else:
-                        idx = think_buffer_orch[0].rfind("<")
-                        if idx != -1 and "</think>".startswith(think_buffer_orch[0][idx:]):
-                            before = think_buffer_orch[0][:idx]
-                            if before:
-                                _orch_on_thinking(before)
-                            think_buffer_orch[0] = think_buffer_orch[0][idx:]
-                        else:
-                            if think_buffer_orch[0]:
-                                _orch_on_thinking(think_buffer_orch[0])
-                                think_buffer_orch[0] = ""
-                        break
-                        
-        if _llm_kwargs.get("think", False):
+        def _orch_emit_visible(text: str) -> None:
+            print_event("stream_chunk", {"content": text, "agent": "orchestrator"})
+
+        def _orch_retract_visible(text: str) -> None:
+            print_event("stream_retract", {"content": text, "agent": "orchestrator"})
+
+        orch_think_splitter = InlineReasoningStreamSplitter(
+            on_visible=_orch_emit_visible,
+            on_thinking=_orch_on_thinking,
+            on_retract=_orch_retract_visible,
+        )
+
+        def _orch_on_iteration(_step: int, _messages: list) -> None:
+            orch_think_splitter.begin_response()
+
+        # `_llm_kwargs["think"]` is now the provider's parsing switch, always on for
+        # a thinking-capable model. What the user turned off is the *display*.
+        if model_params.get("think", False):
             memgpt.on_thinking = _orch_on_thinking
-        memgpt.on_chunk = _orch_on_chunk
+        memgpt.on_chunk = orch_think_splitter.feed
+        memgpt.on_iteration = _orch_on_iteration
 
     if not restore_chat_orchestrator_state(memgpt, project, store):
         seed_chat_orchestrator_history(memgpt, project)

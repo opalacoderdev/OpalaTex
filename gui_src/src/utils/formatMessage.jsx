@@ -7,6 +7,7 @@ import katex from 'katex';
 import i18n from '../i18n';
 import Mermaid from '../components/Mermaid';
 import GraphicPreview from '../components/GraphicPreview';
+import { orphanReasoningPrefix, stripOrphanReasoningPrefix, thoughtBlock } from './thinkTags';
 
 // ── Custom component map ────────────────────────────────────────────────────
 // Maps HTML element names produced by react-markdown to custom React
@@ -361,14 +362,17 @@ export const FormattedMessage = React.memo(function FormattedMessage({ content, 
 function formatMessageContentImpl(content, activeProjectPath = null, zoomLevel = 1.0) {
   if (!content) return null;
 
+  // Reasoning closed by an orphan </think>: the chat template seeded the opening
+  // tag in the prompt, so the model only emitted the closing one.
+  let processed = content;
+  const orphanReasoning = orphanReasoningPrefix(processed);
+  if (orphanReasoning) {
+    processed = thoughtBlock(orphanReasoning) + stripOrphanReasoningPrefix(processed);
+  }
   // Convert <think>...</think> tags to markdown ```thought blocks for rendering
-  let processed = content.replace(/<think>([\s\S]*?)<\/think>/gi, (_, inner) => {
-    return '\n```thought\n' + inner.trim() + '\n```\n';
-  });
+  processed = processed.replace(/<think>([\s\S]*?)<\/think>/gi, (_, inner) => thoughtBlock(inner));
   // Handle unclosed <think> (streaming partial)
-  processed = processed.replace(/<think>([\s\S]*)$/i, (_, inner) => {
-    return '\n```thought\n' + inner.trim() + '\n```\n';
-  });
+  processed = processed.replace(/<think>([\s\S]*)$/i, (_, inner) => thoughtBlock(inner));
   processed = normalizeFinalMathDelimiters(processed);
 
   const localComponents = {

@@ -137,6 +137,15 @@ export function useContentLifecycle(input: UseContentLifecycleInput): ContentLif
 		intervalSeconds: autosaveIntervalSeconds,
 		enabled: autosaveEnabled,
 		onAutosaveContent,
+		readChangeToken: history.getChangeToken,
+		// Serialisation is async: an edit made while it ran is not in the bytes
+		// that were written, so the document only counts as clean when the
+		// change token still matches the one captured before the save.
+		markClean: (savedChangeToken) => {
+			if (history.getChangeToken() === savedChangeToken) {
+				state.setIsDirty(false);
+			}
+		},
 	});
 
 	return { handlerRef, serializeSlides, autosaveStatus };

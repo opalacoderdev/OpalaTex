@@ -409,4 +409,11 @@ export interface PowerPointViewerProps {
 
 export interface PowerPointViewerHandle extends FileViewerHandle, PowerPointViewerAPI {
 	getContent: () => Promise<Uint8Array>;
+	/**
+	 * Reports that the host persisted the bytes from its last `getContent()`
+	 * call, clearing the unsaved-changes flag. Ignored when the deck was
+	 * edited after those bytes were serialised, since the file on disk is
+	 * then already behind again.
+	 */
+	markSaved: () => void;
 }

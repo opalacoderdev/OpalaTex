@@ -30,6 +30,14 @@ export interface EditorHistoryInput {
 	setSelectedElementIds: (ids: string[]) => void;
 	setEditTemplateMode: (mode: boolean) => void;
 	setHeaderFooter: (hf: PptxHeaderFooter) => void;
+	/**
+	 * Marks the document as having unsaved changes in the owner's state.
+	 * Every editing path in the viewer already funnels through the returned
+	 * `markDirty`, so this is the one place where "the deck changed" becomes
+	 * visible to the save / autosave consumers. Optional: a caller that keeps
+	 * no dirty flag of its own can leave it out.
+	 */
+	setIsDirty?: (dirty: boolean) => void;
 }
 
 export interface EditorHistoryResult {
@@ -41,6 +49,12 @@ export interface EditorHistoryResult {
 	handleRedo: () => void;
 	resetHistory: () => void;
 	markDirty: () => void;
+	/**
+	 * Monotonic counter of document changes. Captured before an async save
+	 * starts so the caller can tell whether an edit landed while the save was
+	 * in flight and the document must stay dirty.
+	 */
+	getChangeToken: () => number;
 	buildHistorySnapshot: (actionLabel?: string) => EditorHistorySnapshot;
 }
 
@@ -70,6 +84,7 @@ export function useEditorHistory(input: EditorHistoryInput): EditorHistoryResult
 		setTemplateElementsBySlideId,
 		setSelectedElementId,
 		setSelectedElementIds,
+		setIsDirty: setDocumentDirty,
 	} = input;
 
 	// -- Refs ---------------------------------------------------------------
@@ -93,10 +108,13 @@ export function useEditorHistory(input: EditorHistoryInput): EditorHistoryResult
 	const [canRedo, setCanRedo] = useState(false);
 	const [undoLabel, setUndoLabel] = useState<string | undefined>(undefined);
 	const [redoLabel, setRedoLabel] = useState<string | undefined>(undefined);
-	// State value intentionally unread: setter is used solely to trigger
-	// re-renders via `markDirty` when history changes.
+	// State value intentionally unread: the setter exists solely to force a
+	// re-render when `markDirty` fires. Recording the change for save /
+	// autosave consumers is `setDocumentDirty`'s job, below.
 	// eslint-disable-next-line react/hook-use-state
-	const [_isDirty, setIsDirty] = useState(false);
+	const [_historyTouched, setHistoryTouched] = useState(false);
+	// Monotonic change counter, bumped by every `markDirty`.
+	const changeTokenRef = useRef(0);
 
 	// -- Helpers ------------------------------------------------------------
 
@@ -158,8 +176,12 @@ export function useEditorHistory(input: EditorHistoryInput): EditorHistoryResult
 	}, []);
 
 	const markDirty = useCallback(() => {
-		setIsDirty((previous) => (previous ? previous : true));
-	}, []);
+		changeTokenRef.current += 1;
+		setHistoryTouched((previous) => (previous ? previous : true));
+		setDocumentDirty?.(true);
+	}, [setDocumentDirty]);
+
+	const getChangeToken = useCallback(() => changeTokenRef.current, []);
 
 	// -- Stack navigation ---------------------------------------------------
 
@@ -294,6 +316,7 @@ export function useEditorHistory(input: EditorHistoryInput): EditorHistoryResult
 		lastHistorySerializedRef.current = serialized;
 		lastCheapHashRef.current = cheapHash;
 		updateHistoryAvailability();
+		markDirty();
 	}, [
 		activeSlideIndex,
 		buildHistorySnapshot,
@@ -302,6 +325,7 @@ export function useEditorHistory(input: EditorHistoryInput): EditorHistoryResult
 		error,
 		hasActivePointerInteraction,
 		loading,
+		markDirty,
 		pointerCommitNonce,
 		slides,
 		updateHistoryAvailability,
@@ -318,6 +342,7 @@ export function useEditorHistory(input: EditorHistoryInput): EditorHistoryResult
 		handleRedo,
 		resetHistory,
 		markDirty,
+		getChangeToken,
 		buildHistorySnapshot,
 	};
 }
