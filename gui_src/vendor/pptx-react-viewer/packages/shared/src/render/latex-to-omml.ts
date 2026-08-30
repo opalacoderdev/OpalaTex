@@ -203,6 +203,8 @@ function tokenize(latex: string): Token[] {
 // ── Construct helpers ────────────────────────────────────────────────────────
 
 interface LatexParserContext {
+	/** Current token position — used by stall guards to detect non-advancing loops. */
+	readonly position: number;
 	peek: () => Token | undefined;
 	next: () => Token | undefined;
 	parseGroup: () => OmmlNode[];
@@ -308,15 +310,20 @@ function parseDelimiter(ctx: LatexParserContext): OmmlNode {
 	const openChar = openTok?.value === '.' ? '' : (openTok?.value ?? '(');
 
 	const inner: OmmlNode[] = [];
+	let prevPos = -1;
 	while (ctx.peek()) {
 		if (ctx.peek()!.type === 'command' && ctx.peek()!.value === '\\right') {
 			ctx.next();
 			break;
 		}
+		const curPos = ctx.position;
 		const node = ctx.parseAtom();
 		if (node) {
 			inner.push(node);
+		} else if (ctx.position === curPos) {
+			break; // no progress — avoid infinite loop on unmatched delimiters
 		}
+		prevPos = curPos;
 	}
 
 	const closeTok = ctx.next();
@@ -376,6 +383,11 @@ class LatexParser implements LatexParserContext {
 		this.tokens = tokens;
 	}
 
+	/** Current parser position — used by stall guards to detect non-advancing loops. */
+	public get position(): number {
+		return this.pos;
+	}
+
 	public peek(): Token | undefined {
 		return this.tokens[this.pos];
 	}
@@ -396,12 +408,17 @@ class LatexParser implements LatexParserContext {
 		this.expect('group_start');
 		const nodes: OmmlNode[] = [];
 		while (this.peek() && this.peek()!.type !== 'group_end') {
+			const prevPos = this.pos;
 			const node = this.parseAtom();
 			if (node) {
 				nodes.push(node);
+			} else if (this.pos === prevPos) {
+				break; // no progress — avoid infinite loop
 			}
 		}
-		this.expect('group_end');
+		if (this.peek()?.type === 'group_end') {
+			this.next();
+		}
 		return nodes;
 	}
 
@@ -461,9 +478,12 @@ class LatexParser implements LatexParserContext {
 			this.next();
 			const inner: OmmlNode[] = [];
 			while (this.peek() && !(this.peek()!.type === 'text' && this.peek()!.value === ')')) {
+				const prevPos = this.pos;
 				const node = this.parseAtom();
 				if (node) {
 					inner.push(node);
+				} else if (this.pos === prevPos) {
+					break; // no progress — avoid infinite loop
 				}
 			}
 			if (this.peek()?.type === 'text' && this.peek()?.value === ')') {
@@ -481,9 +501,12 @@ class LatexParser implements LatexParserContext {
 			this.next();
 			const inner: OmmlNode[] = [];
 			while (this.peek() && !(this.peek()!.type === 'text' && this.peek()!.value === ']')) {
+				const prevPos = this.pos;
 				const node = this.parseAtom();
 				if (node) {
 					inner.push(node);
+				} else if (this.pos === prevPos) {
+					break; // no progress — avoid infinite loop
 				}
 			}
 			if (this.peek()?.type === 'text' && this.peek()?.value === ']') {
@@ -523,9 +546,12 @@ class LatexParser implements LatexParserContext {
 			if (cmd === '\\{') {
 				const inner: OmmlNode[] = [];
 				while (this.peek() && !(this.peek()!.type === 'command' && this.peek()!.value === '\\}')) {
+					const prevPos = this.pos;
 					const node = this.parseAtom();
 					if (node) {
 						inner.push(node);
+					} else if (this.pos === prevPos) {
+						break; // no progress — avoid infinite loop on unmatched \{
 					}
 				}
 				if (this.peek()?.type === 'command' && this.peek()?.value === '\\}') {
@@ -650,9 +676,13 @@ class LatexParser implements LatexParserContext {
 	public parseAll(): OmmlNode[] {
 		const nodes: OmmlNode[] = [];
 		while (this.peek()) {
+			const prevPos = this.pos;
 			const node = this.parseAtom();
 			if (node) {
 				nodes.push(node);
+			} else if (this.pos === prevPos) {
+				// Skip the stuck token to guarantee forward progress
+				this.next();
 			}
 		}
 		return nodes;

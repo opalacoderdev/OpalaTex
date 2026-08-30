@@ -657,3 +657,68 @@ describe('convertOmmlToLatex', () => {
 		expect(latex).toContain('\\sqrt{x^{2}+y^{2}}');
 	});
 });
+
+describe('parser stall-guard (incomplete input must not hang)', () => {
+	// Each of these inputs previously caused an infinite loop because
+	// parseAtom() returned null without advancing past a group_end or
+	// other unexpected token, and the enclosing while-loop never broke.
+
+	it('does not hang on \\{ without matching \\}', () => {
+		// The exact input the user reported
+		const result = convertLatexToOmml('I_i \\in \\{');
+		expect(result).toHaveProperty('m:oMathPara');
+	});
+
+	it('does not hang on \\{ followed by a bare }', () => {
+		// \\{ followed by group_end (}) instead of command(\\})
+		const result = convertLatexToOmml('I_i \\in \\{}');
+		expect(result).toHaveProperty('m:oMathPara');
+	});
+
+	it('does not hang on unmatched (', () => {
+		const result = convertLatexToOmml('f(x');
+		expect(result).toHaveProperty('m:oMathPara');
+	});
+
+	it('does not hang on ( followed by }', () => {
+		const result = convertLatexToOmml('f(x}');
+		expect(result).toHaveProperty('m:oMathPara');
+	});
+
+	it('does not hang on unmatched [', () => {
+		const result = convertLatexToOmml('a[b');
+		expect(result).toHaveProperty('m:oMathPara');
+	});
+
+	it('does not hang on [ followed by }', () => {
+		const result = convertLatexToOmml('a[b}');
+		expect(result).toHaveProperty('m:oMathPara');
+	});
+
+	it('does not hang on \\left without \\right', () => {
+		const result = convertLatexToOmml('\\left(x+1');
+		expect(result).toHaveProperty('m:oMathPara');
+	});
+
+	it('does not hang on \\left( with } instead of \\right)', () => {
+		const result = convertLatexToOmml('\\left(x}');
+		expect(result).toHaveProperty('m:oMathPara');
+	});
+
+	it('does not hang on unmatched {', () => {
+		const result = convertLatexToOmml('a + {b');
+		expect(result).toHaveProperty('m:oMathPara');
+	});
+
+	it('matched \\{...\\} still works correctly', () => {
+		const result = convertLatexToOmml('\\{x\\}');
+		expect(result).toHaveProperty('m:oMathPara');
+		const para = result['m:oMathPara'] as Record<string, unknown>;
+		const oMath = para['m:oMath'] as Record<string, unknown>;
+		const delim = oMath['m:d'] as Record<string, unknown>;
+		expect(delim).toBeDefined();
+		const dPr = delim['m:dPr'] as Record<string, unknown>;
+		const begChr = dPr['m:begChr'] as Record<string, unknown>;
+		expect(begChr['@_val']).toBe('{');
+	});
+});
