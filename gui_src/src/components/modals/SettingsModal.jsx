@@ -60,6 +60,7 @@ export default function SettingsModal({
   const { showAlert, showConfirm } = useCustomDialog();
   const [selectedLang, setSelectedLang] = React.useState('');
   const [opalatexHome, setOpalaTexHome] = React.useState('');
+  const [opalatexHomeError, setOpalaTexHomeError] = React.useState('');
   const [draftSynctexEnabled, setDraftSynctexEnabled] = React.useState(false);
   const [workspaceHiddenExtensions, setWorkspaceHiddenExtensions] = React.useState([]);
   const [tectonicInstallMessage, setTectonicInstallMessage] = React.useState('');
@@ -84,7 +85,14 @@ export default function SettingsModal({
 
     fetch('/api/settings/opalatexhome')
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.path) setOpalaTexHome(data.path); })
+      .then(data => {
+        if (!data) return;
+        // A configured directory the backend could not open is reported here
+        // rather than silently replaced by the fallback it is actually using.
+        setOpalaTexHomeError(data.error || '');
+        const shown = data.error ? (data.configured_path || data.path) : data.path;
+        if (shown) setOpalaTexHome(shown);
+      })
       .catch(() => { });
 
     fetch('/api/settings/latex')
@@ -186,10 +194,14 @@ export default function SettingsModal({
       });
       data = await res.json().catch(() => ({}));
       if (!res.ok || data?.error) {
-        await showAlert(t('settingsModal.globalDataDirError') + (data?.error || res.status));
+        const message = data?.error || String(res.status);
+        setOpalaTexHomeError(message);
+        await showAlert(t('settingsModal.globalDataDirError') + message);
         return;
       }
+      setOpalaTexHomeError('');
     } catch (err) {
+      setOpalaTexHomeError(String(err));
       await showAlert(t('settingsModal.globalDataDirError') + err);
       return;
     }
@@ -607,6 +619,9 @@ export default function SettingsModal({
                     {isRestarting ? t('settingsModal.restarting') : t('settingsModal.save')}
                   </button>
                 </div>
+                {opalatexHomeError && (
+                  <span style={{ fontSize: '11px', color: '#f48771' }}>{opalatexHomeError}</span>
+                )}
                 <span style={{ fontSize: '11px', color: '#888888' }}>{t('settingsModal.globalDataDirHint')}</span>
               </div>
 

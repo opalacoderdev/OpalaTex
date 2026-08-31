@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .config import DEFAULT_DB_PATH, DEFAULT_MODEL, resolve_display_num_ctx
+from .config import DEFAULT_DB_PATH, DEFAULT_MODEL, resolve_display_num_ctx, snap_confinement_hint
 from .api_keys import get_env_var_for_model
 
 
@@ -70,9 +70,25 @@ def _ensure_dir(path: str) -> None:
         os.makedirs(dirname, exist_ok=True)
 
 
+def _open(db_path: str) -> sqlite3.Connection:
+    """Open the database, turning sqlite's terse open failures into a diagnostic.
+
+    "unable to open database file" says nothing about which directory sqlite
+    could not write to, which is exactly what a user who repointed the data
+    directory needs to know.
+    """
+    try:
+        return sqlite3.connect(db_path)
+    except sqlite3.OperationalError as exc:
+        directory = os.path.dirname(db_path) or os.getcwd()
+        hint = snap_confinement_hint(directory)
+        detail = f"cannot open the database '{db_path}' in '{directory}' ({exc})"
+        raise sqlite3.OperationalError(f"{detail}. {hint}" if hint else detail) from exc
+
+
 def _conn(db_path: str) -> sqlite3.Connection:
     _ensure_dir(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = _open(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
     if db_path != ":memory:":
         # WAL + NORMAL avoid an fsync-on-commit on every write. Each ProjectStore

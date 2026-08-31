@@ -1883,8 +1883,13 @@ class AsyncHTTPServer:
             self.send_response(writer, 200, json.dumps(install_ollama_windows()).encode('utf-8'), "application/json")
 
         elif path == '/api/settings/opalatexhome' and method == 'GET':
-            from opalatex.config import get_opalatex_home
+            from opalatex.config import configured_opalatex_home, data_dir_error, get_opalatex_home
             current_home = get_opalatex_home()
+            configured_home = configured_opalatex_home()
+            # A configured directory that cannot be opened is silently ignored at
+            # startup, so the UI has to be told why the running app is not using
+            # the path the user picked.
+            home_error = data_dir_error(configured_home) if configured_home else ""
             is_custom = False
             try:
                 import pathlib
@@ -1893,7 +1898,12 @@ class AsyncHTTPServer:
                     is_custom = True
             except Exception:
                 pass
-            self.send_response(writer, 200, json.dumps({"path": current_home, "is_custom": is_custom}).encode('utf-8'), "application/json")
+            self.send_response(writer, 200, json.dumps({
+                "path": current_home,
+                "is_custom": is_custom,
+                "configured_path": configured_home,
+                "error": home_error,
+            }).encode('utf-8'), "application/json")
 
         elif path == '/api/settings/opalatexhome' and method == 'POST':
             new_path = data.get("path", "").strip()
@@ -1906,18 +1916,24 @@ class AsyncHTTPServer:
                         previous_path = pointer_file.read_text(encoding="utf-8").strip()
                     except OSError:
                         previous_path = ""
-                if new_path:
-                    # Validate path
-                    os.makedirs(new_path, exist_ok=True)
-                    pointer_file.write_text(new_path, encoding="utf-8")
+                # Reject a directory the app could not actually open, instead of
+                # storing it and crashing on the next launch when sqlite3 fails
+                # to create sessions.db there.
+                from opalatex.config import data_dir_error
+                rejection = data_dir_error(new_path) if new_path else ""
+                if rejection:
+                    self.send_response(writer, 400, json.dumps({"error": rejection}).encode('utf-8'), "application/json")
                 else:
-                    # Remove custom pointer if empty
-                    if pointer_file.exists():
-                        pointer_file.unlink()
-                # The directory is only read at startup, so a restart is needed
-                # exactly when the stored value actually changed.
-                requires_restart = new_path != previous_path
-                self.send_response(writer, 200, json.dumps({"success": True, "requiresRestart": requires_restart}).encode('utf-8'), "application/json")
+                    if new_path:
+                        pointer_file.write_text(new_path, encoding="utf-8")
+                    else:
+                        # Remove custom pointer if empty
+                        if pointer_file.exists():
+                            pointer_file.unlink()
+                    # The directory is only read at startup, so a restart is needed
+                    # exactly when the stored value actually changed.
+                    requires_restart = new_path != previous_path
+                    self.send_response(writer, 200, json.dumps({"success": True, "requiresRestart": requires_restart}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 

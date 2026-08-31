@@ -1,6 +1,8 @@
 """Global configuration defaults for OpalaTex."""
 
 import os
+import sys
+import tempfile
 import yaml
 import pathlib
 from dotenv import load_dotenv
@@ -17,19 +19,103 @@ warnings.filterwarnings(
     message=".*coroutine 'Logging.async_success_handler' was never awaited.*"
 )
 
-# Load global .env
-def get_opalatex_home() -> str:
+# A directory that `os.path.isdir` accepts can still be unusable. Under snap
+# strict confinement the `home` interface lets the sandbox stat a top-level
+# hidden directory of the real home (e.g. ~/.opalatex) while denying every
+# open() beneath it, and `os.access` is fooled as well because AppArmor does
+# not mediate faccessat. Accepting such a path used to surface much later as
+# `sqlite3.OperationalError: unable to open database file`, so the only usable
+# probe is to actually create a file in the directory. Successful probes are
+# cached because get_opalatex_home() is called from hot paths.
+_verified_data_dirs: set[str] = set()
+_reported_data_dir_problems: set[str] = set()
+
+
+def check_data_dir(path: str) -> str:
+    """Return why `path` cannot hold OpalaTex's global data, or "" if it can."""
+    if not path:
+        return "the path is empty"
+    if path in _verified_data_dirs:
+        return ""
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as exc:
+        return f"the directory could not be created ({exc.strerror or exc})"
+    if not os.path.isdir(path):
+        return "the path is not a directory"
+    try:
+        with tempfile.NamedTemporaryFile(dir=path, prefix=".opalatex-probe-"):
+            pass
+    except OSError as exc:
+        return f"the directory is not writable ({exc.strerror or exc})"
+    _verified_data_dirs.add(path)
+    return ""
+
+
+def snap_confinement_hint(path: str) -> str:
+    """Explain the snap `home` interface restriction when it applies to `path`.
+
+    Returns "" outside a snap, or when the path is not a hidden top-level entry
+    of the user's real home.
+    """
+    real_home = os.environ.get("SNAP_REAL_HOME", "")
+    if not os.environ.get("SNAP_NAME") or not real_home:
+        return ""
+    try:
+        relative = os.path.relpath(os.path.abspath(path), os.path.abspath(real_home))
+    except ValueError:
+        return ""
+    first_component = relative.split(os.sep, 1)[0]
+    if not first_component.startswith(".") or first_component == "..":
+        return ""
+    suggestion = os.path.join(real_home, "OpalaTex")
+    return (
+        f"The snap 'home' interface denies access to hidden top-level "
+        f"directories of {real_home}, so OpalaTex cannot use '{path}'. Pick a "
+        f"directory whose first component is not hidden, e.g. '{suggestion}'."
+    )
+
+
+def data_dir_error(path: str) -> str:
+    """A full, user-facing explanation of why `path` is unusable, or ""."""
+    problem = check_data_dir(path)
+    if not problem:
+        return ""
+    message = f"'{path}' cannot be used as the OpalaTex data directory: {problem}."
+    hint = snap_confinement_hint(path)
+    return f"{message} {hint}" if hint else message
+
+
+def configured_opalatex_home() -> str:
+    """The data directory the user asked for, whether or not it is usable."""
     if os.environ.get("OPALATEX_HOME"):
         return os.environ["OPALATEX_HOME"]
     pointer_file = pathlib.Path.home() / ".opalatexhome"
-    if pointer_file.exists():
-        try:
-            custom_path = pointer_file.read_text(encoding="utf-8").strip()
-            if custom_path and os.path.isdir(custom_path):
-                return custom_path
-        except Exception:
-            pass
-    return str(pathlib.Path.home() / ".opalatex")
+    try:
+        if pointer_file.exists():
+            return pointer_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+    return ""
+
+
+# Load global .env
+def get_opalatex_home() -> str:
+    default_home = str(pathlib.Path.home() / ".opalatex")
+    if os.environ.get("OPALATEX_HOME"):
+        return os.environ["OPALATEX_HOME"]
+    custom_path = configured_opalatex_home()
+    if custom_path:
+        error = data_dir_error(custom_path)
+        if not error:
+            return custom_path
+        if custom_path not in _reported_data_dir_problems:
+            _reported_data_dir_problems.add(custom_path)
+            print(
+                f"Warning: {error} Falling back to '{default_home}'.",
+                file=sys.stderr,
+            )
+    return default_home
 
 global_env = pathlib.Path(get_opalatex_home()) / ".env"
 if global_env.exists():
