@@ -26,6 +26,7 @@ from ..base import (
     CloudPreconditionFailed,
     CloudStorageProvider,
     RemoteEntry,
+    RemoteProject,
     hash_file,
     normalize_rel_path,
 )
@@ -48,6 +49,7 @@ class LocalFolderProvider(CloudStorageProvider):
             conditional_writes=True,
             max_file_size=0,
             server_side_versioning=False,
+            project_listing=True,
         )
 
     def auth_status(self) -> AuthState:
@@ -82,6 +84,23 @@ class LocalFolderProvider(CloudStorageProvider):
         root = os.path.join(self.base_dir, _safe_folder_name(folder_name))
         os.makedirs(root, exist_ok=True)
         return root
+
+    def list_projects(self) -> list[RemoteProject]:
+        if not os.path.isdir(self.base_dir):
+            return []
+        projects: list[RemoteProject] = []
+        for name in sorted(os.listdir(self.base_dir)):
+            candidate = os.path.join(self.base_dir, name)
+            # Symlinks are skipped for the same reason `list_entries` skips
+            # them: what they point at is outside the mirror.
+            if not os.path.isdir(candidate) or os.path.islink(candidate):
+                continue
+            try:
+                modified_at = str(os.stat(candidate).st_mtime)
+            except OSError:
+                modified_at = ""
+            projects.append(RemoteProject(name=name, root=candidate, modified_at=modified_at))
+        return projects
 
     def list_entries(self, root: str) -> list[RemoteEntry]:
         root = os.path.abspath(root)

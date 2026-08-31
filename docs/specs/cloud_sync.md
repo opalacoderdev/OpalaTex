@@ -17,7 +17,8 @@ re-litigated. The architecture itself is described in §2.16 of
 | `.env` | **Excluded by default.** It holds provider API keys. Including it requires an explicit opt-in behind a confirmation. |
 | OAuth scope | `drive.file` only. |
 | OAuth client | Shipped with the build (injected at package time). A user-registered client is an optional override. |
-| Direction | Two-way, with conflict copies. Push-only and pull-only exist in the engine and are reachable through the API. |
+| Direction | Two-way, with conflict copies. Push-only and pull-only exist in the engine and are reachable through the API; pull-only is what a download uses. |
+| Getting a project onto a second machine | Explorer header → the cloud icon: list the account, pick a project, pick an empty folder, download. The clone is registered locally and keeps syncing. |
 | Conflict resolution | The user chooses per file: keep mine, keep the cloud version, or keep both. |
 | Progress feedback | Per-file badges in the explorer, plus the file in flight and a counter in the status bar. |
 | Default state | Off. A project transfers nothing until the user enables it. |
@@ -108,6 +109,67 @@ override cannot disable a working connection.
 4. Credentials → Create credentials → OAuth client ID → **Desktop app**.
 5. Paste the client ID and secret into OpalaTex → Cloud sync → Account.
 
+## Why downloading a project is its own flow
+
+Mirroring only covers the machine that already has the project. The second
+machine has nothing to enable sync *for*, and the sync panel needs an open
+project to configure — so the download lives in its own modal, reached from the
+Explorer header beside New and Import.
+
+| Question | Decision |
+| --- | --- |
+| Where the list comes from | `CloudStorageProvider.list_projects`, gated by `Capabilities.project_listing`. A backend pointed at a single folder declines instead of answering "no projects". |
+| Which folder is downloaded | The provider's own root handle from the listing, not the name. On Drive, resolving a name a second time can create a second folder with that name. |
+| Where it lands | A folder that is new or empty. Enforced, not preferred — see below. |
+| Direction | Pull-only. The remote is the only copy that means anything yet, and nothing local should be published before the user has opened it. |
+| What comes with it | Everything the mirror holds: files, build output, and the conversations, which are merged into this machine's `sessions.db` after the project is registered. |
+| What does not | `.env`, because it is not mirrored in the first place. The API keys stay on the machine they were typed on, and the panel says so. |
+| Already-downloaded projects | Listed but not selectable, annotated with the local path. Two working copies of one remote folder would fight over it. |
+
+### Why the destination has to be empty
+
+A clone is a pull, and a pull into a directory that already has files
+*reconciles* them against the remote instead of downloading a copy of the
+project. That silently merges two unrelated things, which is exactly the class
+of outcome the three-way baseline exists to avoid. Refusing loudly is the only
+answer that cannot lose work, so a non-empty folder is an error with the reason
+in it, not a prompt.
+
+The same rule decides what happens when a download fails halfway: whatever
+arrived is left on disk to be inspected, nothing is registered, and the error
+names the folder to remove before retrying. Resuming would mean reconciling a
+half-copy.
+
+### Ordering: pull, then register, then merge the conversations
+
+Three constraints fix this order, and each of them bites if the order changes.
+
+1. **Registration scaffolds.** `ProjectStore.create` writes a starter
+   `skills.yaml`. Registering first would overwrite the one that just arrived,
+   and the next pass would publish that loss back to the other machine. Hence
+   `create(preserve_existing_skills=True)`, used only here.
+2. **The conversation merge needs a project row.** `merge_into_database`
+   refuses to write history for a project that does not exist locally, so the
+   merge has to come last.
+3. **Last-writer-wins gives the wrong answer exactly once.** The row was created
+   seconds ago, so it is always "newer" than the export, and the model, mode,
+   description and main file chosen on the other machine would never be
+   adopted. `adopt_settings=True` bypasses the timestamp comparison, and is only
+   correct on a project with no history of its own.
+
+The clone also reuses the internal project name from the incoming export when it
+is free on this machine: chat ids are derived from it (`main_<name>`), so a
+fresh key would leave the clone with an empty default chat sitting beside the
+imported one.
+
+### The pull contract had a hole
+
+`SyncEngine._resolve_conflict` uploaded the working copy regardless of
+direction, so a pull could overwrite the very version it was asked to fetch.
+Nothing exercised it — pull-only was API-only until the clone used it. In PULL
+the engine now parks the remote version beside the local one, reports the
+conflict and leaves the baseline untouched for a two-way pass to settle.
+
 ## Why a conflict asks instead of deciding
 
 The engine never merges, and it never picks a winner: it keeps the working copy,
@@ -173,12 +235,19 @@ exact size+mtime fast path so unchanged files are not re-hashed.
   original; the user decides. Auto-merging LaTeX would produce a file that still
   compiles while saying something the author never wrote.
 - **Per-file selective sync.** The exclusion list is glob-based, not a picker.
+- **Resuming an interrupted download.** A half-copy is deleted or renamed by
+  hand and the download is started again; the empty-folder rule is what keeps a
+  partial clone from being reconciled against the remote.
+- **Downloading into a folder that already holds files.** Same rule. Importing
+  an existing directory is what Import Project is for.
 
 ## Adding another provider
 
 Implement `CloudStorageProvider` in `opalatex/cloud/providers/`, add an entry to
 `opalatex/cloud/registry.py`, and add the module to `hiddenimports` in
-`OpalaTex.spec`. Nothing in the engine or the service layer should need to
+`OpalaTex.spec`. `list_projects` is optional — a backend that cannot enumerate
+leaves `Capabilities.project_listing` false and the download flow reports that
+instead of showing an empty account. Nothing in the engine or the service layer should need to
 change; if it does, the facade has leaked and that is the bug to fix first.
 
 `tests/test_cloud_sync.py` is the contract suite — point its `provider` fixture

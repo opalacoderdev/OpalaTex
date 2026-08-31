@@ -10,7 +10,7 @@ import os
 import pytest
 
 from opalatex.cloud.base import normalize_rel_path
-from opalatex.cloud.engine import PUSH, SyncEngine, conflict_copy_name
+from opalatex.cloud.engine import PULL, PUSH, SyncEngine, conflict_copy_name
 from opalatex.cloud.providers.local_folder import LocalFolderProvider
 from opalatex.cloud.scanner import scan_project
 from opalatex.cloud.state import CloudSettings, CloudState, load_state, save_state
@@ -237,6 +237,26 @@ def test_push_direction_never_touches_the_working_copy(project, provider):
 
     assert report.downloaded == []
     assert read(project, "main.tex") == "v1"
+
+
+def test_pull_direction_never_writes_to_the_remote(project, provider):
+    write(project, "main.tex", "v1")
+    _, state = sync(project, provider)
+
+    # Both sides move, which is the one case that used to publish the working
+    # copy regardless of direction — a one-way fetch overwriting the very
+    # version it was asked to fetch.
+    write(project, "main.tex", "edited here")
+    write(remote_root(provider, project), "main.tex", "edited there")
+    report, state = sync(project, provider, state=state, direction=PULL)
+
+    assert read(remote_root(provider, project), "main.tex") == "edited there"
+    assert report.uploaded == []
+    # The divergence is still visible: the working copy keeps the canonical
+    # path and the remote version is parked beside it.
+    assert [c.rel_path for c in report.conflicts] == ["main.tex"]
+    assert read(project, "main.tex") == "edited here"
+    assert read(project, report.conflicts[0].conflict_copy) == "edited there"
 
 
 # ─── Safety ───────────────────────────────────────────────────────────────────

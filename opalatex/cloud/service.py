@@ -33,11 +33,12 @@ from .base import (
     CloudAuthError,
     CloudError,
     CloudStorageProvider,
+    RemoteProject,
     hash_file,
     local_path_for,
     normalize_rel_path,
 )
-from .engine import TWO_WAY, ProgressEvent, SyncEngine, SyncReport
+from .engine import PULL, TWO_WAY, ProgressEvent, SyncEngine, SyncReport
 from .registry import get_cloud_provider, list_providers
 from .scanner import scan_project
 from .state import (
@@ -332,6 +333,161 @@ def _incoming_conversation_file(project_path: str, report: SyncReport) -> Option
 
 def _rel_path_of(project_path: str, absolute: str) -> str:
     return os.path.relpath(absolute, project_path).replace(os.sep, "/")
+
+
+# ─── Bringing a project onto a second machine ─────────────────────────────────
+
+@dataclass
+class CloneOutcome:
+    """The result of pulling a mirrored project down onto this machine."""
+
+    project_path: str = ""
+    remote_folder: str = ""
+    provider: str = ""
+    report: Optional[SyncReport] = None
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.report and self.report.ok and not self.error)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "project_path": self.project_path,
+            "remote_folder": self.remote_folder,
+            "provider": self.provider,
+            "error": self.error,
+            "report": self.report.to_dict() if self.report else None,
+        }
+
+
+def list_remote_projects(
+    provider_id: str,
+    provider_config: Optional[dict[str, Any]] = None,
+    *,
+    provider: Optional[CloudStorageProvider] = None,
+) -> list[RemoteProject]:
+    """Enumerate the projects already mirrored in an account. Blocking."""
+    backend = provider or get_cloud_provider(provider_id, dict(provider_config or {}))
+    try:
+        if not backend.capabilities().project_listing:
+            raise CloudError(
+                f"{backend.display_name or provider_id} cannot list projects."
+            )
+        return backend.list_projects()
+    finally:
+        if provider is None:
+            try:
+                backend.close()
+            except Exception:
+                pass
+
+
+def prepare_destination(destination: str) -> str:
+    """Validate where a clone is about to land, and create the directory.
+
+    The destination has to be empty. A clone runs as a one-way pull, and a pull
+    into a directory that already holds files would reconcile them against the
+    remote — turning "download a copy of my project" into a sync of whatever
+    happened to be there. Refusing loudly is the only answer that cannot
+    silently merge two unrelated projects.
+    """
+    expanded = os.path.abspath(os.path.expanduser(str(destination or "").strip()))
+    if not expanded or expanded == os.path.abspath(os.sep):
+        raise CloudError("A destination folder is required.")
+    if os.path.exists(expanded):
+        if not os.path.isdir(expanded):
+            raise CloudError(f"{expanded} exists and is not a directory.")
+        if os.listdir(expanded):
+            raise CloudError(
+                f"{expanded} is not empty. Choose an empty or new folder for the "
+                f"downloaded project."
+            )
+    os.makedirs(expanded, exist_ok=True)
+    if not os.access(expanded, os.W_OK):
+        raise CloudError(f"No write access to {expanded}.")
+    return expanded
+
+
+def clone_project(
+    provider_id: str,
+    remote_name: str,
+    destination: str,
+    *,
+    provider_config: Optional[dict[str, Any]] = None,
+    remote_root: str = "",
+    settings_overrides: Optional[dict[str, Any]] = None,
+    provider: Optional[CloudStorageProvider] = None,
+) -> CloneOutcome:
+    """Download a mirrored project into `destination`, blocking.
+
+    This is the second half of the feature the mirror exists for: machine A
+    enables sync, machine B downloads the project and carries on. The pass runs
+    in the PULL direction — the remote is the only copy that means anything yet,
+    and nothing local should be published back before the user has even opened
+    it.
+
+    The project's cloud settings are written before the pass because the engine
+    reads them (what to exclude, which remote folder), which also means a
+    download that fails halfway leaves a folder holding a partial copy plus its
+    settings. That folder is not a project yet and is not empty either, so a
+    retry has to be pointed at a fresh folder — see the endpoint, which says so.
+
+    Registering the project with the application (its row in `sessions.db`, its
+    conversations) is the caller's job — this layer knows about storage, not
+    about the project store.
+    """
+    outcome = CloneOutcome(remote_folder=remote_name, provider=provider_id)
+    overrides = dict(settings_overrides or {})
+    project_path = ""
+    backend: Optional[CloudStorageProvider] = None
+    progress: Optional[SyncProgress] = None
+    try:
+        # Everything that can refuse the clone runs before anything is
+        # transferred, and reports through the outcome rather than raising, so
+        # one caller shape covers "the folder is wrong" and "the network died".
+        project_path = prepare_destination(destination)
+        outcome.project_path = project_path
+        backend = provider or get_cloud_provider(provider_id, dict(provider_config or {}))
+        progress = _begin_progress(project_path, dry_run=False)
+
+        settings = CloudSettings.from_dict(
+            {
+                "enabled": True,
+                "provider": provider_id,
+                "remote_folder": remote_name,
+                "provider_config": dict(provider_config or {}),
+                **overrides,
+            }
+        )
+        state = CloudState(settings=settings, root=str(remote_root or ""))
+        save_state(project_path, state)
+
+        engine = SyncEngine(
+            project_path,
+            backend,
+            state,
+            direction=PULL,
+            persist=lambda current: save_state(project_path, current),
+            on_progress=lambda event: _record_progress(progress, event),
+        )
+        outcome.report = engine.run()
+    except CloudError as exc:
+        outcome.error = str(exc)
+    except OSError as exc:
+        outcome.error = str(exc)
+    finally:
+        if project_path:
+            if progress is not None:
+                _end_progress(project_path)
+            invalidate_file_states(project_path)
+        if provider is None and backend is not None:
+            try:
+                backend.close()
+            except Exception:
+                pass
+    return outcome
 
 
 KEEP_LOCAL = "keep_local"

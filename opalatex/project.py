@@ -606,7 +606,16 @@ class ProjectStore:
                 res.append(d)
             return res
 
-    def create(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, git_root_path: str = "") -> ProjectData:
+    def create(self, name: str, mode: str, model: str, project_name: str = "", project_path: str = "", skills: list = None, description: str = "", worker_model: str = "", api_key: str = None, api_base: str = None, worker_api_key: str = None, worker_api_base: str = None, model_params: dict = None, worker_model_params: dict = None, git_root_path: str = "", preserve_existing_skills: bool = False) -> ProjectData:
+        """Register a project and scaffold its directory.
+
+        `preserve_existing_skills` keeps a `skills.yaml` that is already in the
+        directory instead of resetting it to the scaffolding default. It is for
+        a directory whose contents came from somewhere else — a project pulled
+        down from cloud storage — where overwriting that file would not only
+        drop the skill set locally but sync the loss back to the machine the
+        project came from.
+        """
         now = datetime.now(timezone.utc).isoformat()
         _skills = skills if skills is not None else ["opalatex"]
         if "opalatex" not in _skills:
@@ -653,7 +662,9 @@ class ProjectStore:
 
             # 2. Write project's skills.yaml containing the command-line skill
             from .skills import write_skills_yaml
-            write_skills_yaml(abs_proj_path, ["command-line"])
+            if not (preserve_existing_skills
+                    and os.path.isfile(os.path.join(abs_proj_path, "skills.yaml"))):
+                write_skills_yaml(abs_proj_path, ["command-line"])
 
             # 3. Write API Key and API Base to local .env
             env_path = os.path.join(abs_proj_path, ".env")

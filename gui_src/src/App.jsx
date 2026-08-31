@@ -41,6 +41,7 @@ import AskModal from './components/modals/AskModal';
 import HardwareModal from './components/modals/HardwareModal';
 import AssetStoreModal from './components/modals/AssetStoreModal';
 import CloudSyncModal from './components/modals/CloudSyncModal';
+import CloudDownloadModal from './components/modals/CloudDownloadModal';
 import OnboardingModal from './components/modals/OnboardingModal';
 import DirPickerModal from './components/modals/DirPickerModal';
 import DeleteProjectModal from './components/modals/DeleteProjectModal';
@@ -444,6 +445,10 @@ export default function App() {
   const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
   const [isAssetStoreOpen, setIsAssetStoreOpen] = useState(false);
   const [isCloudSyncOpen, setIsCloudSyncOpen] = useState(false);
+  const [isCloudDownloadOpen, setIsCloudDownloadOpen] = useState(false);
+  // Folder the downloaded project is created in, chosen with the directory
+  // picker, which lives here because the picker is a sibling modal.
+  const [cloudDownloadParent, setCloudDownloadParent] = useState('');
   // Mirrors the project's cloud status so the activity bar and status bar can
   // show it without either of them polling the backend on its own.
   const [cloudStatus, setCloudStatus] = useState(null);
@@ -2567,6 +2572,32 @@ export default function App() {
     }
   };
 
+  // Cloud download: opening the panel resolves a sensible default parent folder
+  // so the common case is "press Download", not "go find the home directory".
+  const openCloudDownload = async () => {
+    setIsCloudDownloadOpen(true);
+    if (cloudDownloadParent) return;
+    try {
+      const res = await fetch('/api/fs/dirs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: '~' })
+      });
+      const data = await res.json();
+      if (data.current) setCloudDownloadParent(data.current);
+    } catch (e) { /* the user can still pick a folder by hand */ }
+  };
+
+  const handleProjectDownloaded = (project) => {
+    setIsCloudDownloadOpen(false);
+    const downloaded = (project?.report?.downloaded || []).length;
+    addLog('info', t('app.projectDownloaded', {
+      name: project.project_name || project.name,
+      count: downloaded,
+      defaultValue: '{{name}} downloaded from the cloud ({{count}} file(s)).',
+    }));
+    fetchProjects(project.name);
+  };
+
   const confirmDirPicker = async () => {
     if (!dirPicker) return;
     if (dirPicker.target === 'new') setNewProjPath(dirPicker.current);
@@ -2575,6 +2606,9 @@ export default function App() {
     }
     else if (dirPicker.target === 'edit-git-root') {
       setEditingProject(p => ({ ...p, git_root_path: dirPicker.current }));
+    }
+    else if (dirPicker.target === 'cloud-download') {
+      setCloudDownloadParent(dirPicker.current);
     }
     else if (dirPicker.target === 'import') {
       // Call import-project API
@@ -3858,6 +3892,7 @@ export default function App() {
                 handleSelectProject={handleSelectProject}
                 onNewProject={() => { setShowNewProjectModal(true); setNewProjModelParams({}); }}
                 onImportProject={() => { setImportError(''); openDirPicker('import', '~'); }}
+                onDownloadFromCloud={openCloudDownload}
                 importError={importError}
                 onClearImportError={() => setImportError('')}
                 files={files}
@@ -3937,6 +3972,7 @@ export default function App() {
                 handleSelectProject={handleSelectProject}
                 onNewProject={() => { setShowNewProjectModal(true); setNewProjModelParams({}); }}
                 onImportProject={() => { setImportError(''); openDirPicker('import', '~'); }}
+                onDownloadFromCloud={openCloudDownload}
                 importError={importError}
                 onClearImportError={() => setImportError('')}
                 files={files}
@@ -4368,6 +4404,15 @@ export default function App() {
           activeProject={activeProject}
           onClose={() => { setIsCloudSyncOpen(false); refreshCloudStatus(); }}
           onWorkspaceChanged={refreshWorkspaceFiles}
+        />
+      )}
+
+      {isCloudDownloadOpen && (
+        <CloudDownloadModal
+          parentPath={cloudDownloadParent}
+          onPickParentPath={() => openDirPicker('cloud-download', cloudDownloadParent || '~')}
+          onClose={() => setIsCloudDownloadOpen(false)}
+          onDownloaded={handleProjectDownloaded}
         />
       )}
 

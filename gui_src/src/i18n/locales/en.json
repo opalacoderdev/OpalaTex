@@ -131,7 +131,8 @@
     "selectProjectPlaceholder": "Select project...",
     "noProjects": "No projects found",
     "projectPathMissing": "Not found: {{path}}",
-    "projectPathMissingHint": "Project folder not found on this machine. Click to fix its path."
+    "projectPathMissingHint": "Project folder not found on this machine. Click to fix its path.",
+    "downloadFromCloud": "Download project from the cloud"
   },
   "gitSidebar": {
     "header": "SOURCE CONTROL",
@@ -1113,7 +1114,8 @@
     "pdfSourceFileLabel": "LaTeX source open in the editor",
     "pdfSelectedExcerptLabel": "Excerpt selected in the PDF viewer",
     "projectPathLabel": "Project path",
-    "askAboutPdfQuestionLabel": "My question:"
+    "askAboutPdfQuestionLabel": "My question:",
+    "projectDownloaded": "{{name}} downloaded from the cloud ({{count}} file(s))."
   },
   "onboarding": {
     "welcome": "Welcome to OpalaTex! ",
@@ -1332,6 +1334,26 @@
       "delete-local": "Removing locally",
       "conflict": "Conflict on"
     }
+  },
+  "cloudDownload": {
+    "title": "Download a project from the cloud",
+    "intro": "Projects you mirror to the cloud on another computer can be downloaded here and worked on from this one. They keep syncing afterwards.",
+    "projects": "Projects in the cloud",
+    "refresh": "Refresh",
+    "loading": "Looking for projects…",
+    "empty": "No projects here yet. Turn on cloud sync for a project on your other computer first.",
+    "alreadyHere": "already on this computer",
+    "parent": "Save inside",
+    "parentPlaceholder": "Choose a folder…",
+    "browse": "Browse",
+    "folderName": "New folder name",
+    "destinationHint": "The project will be downloaded to {{path}}. The folder must be new or empty.",
+    "chooseParent": "Choose the folder the project will be created in.",
+    "starting": "Starting the download…",
+    "progress": "Downloading {{examined}} of {{total}} — {{path}}",
+    "download": "Download project",
+    "downloading": "Downloading…",
+    "envNotice": "The project .env is not mirrored, so API keys stay on the computer they were entered on. Add yours in the project settings after downloading."
   },
   "explorer": {
     "cloudSynced": "Synced to the cloud",

@@ -4512,6 +4512,245 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        # 7i11b. Cloud sync — is this backend usable right now? Project-scoped
+        # status needs a project; downloading one is exactly the case where
+        # there is not one yet.
+        elif path == '/api/cloud/auth-status' and method == 'POST':
+            from opalatex.cloud.base import CloudError
+            from opalatex.cloud.registry import get_cloud_provider
+            provider_id = str(data.get('provider', '') or '')
+            if not provider_id:
+                self.send_response(writer, 400, b'{"error":"provider is required"}', "application/json")
+                return
+            try:
+                backend = get_cloud_provider(provider_id, data.get('config') or {})
+                # Refreshing a token is a network round-trip.
+                auth = await asyncio.get_running_loop().run_in_executor(
+                    None, backend.auth_status
+                )
+                self.send_response(writer, 200, json.dumps({
+                    "connected": auth.connected,
+                    "account": auth.account,
+                    "error": auth.error,
+                }).encode('utf-8'), "application/json")
+            except CloudError as e:
+                self.send_response(writer, 200, json.dumps({
+                    "connected": False, "account": "", "error": str(e),
+                }).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i12. Cloud sync — list the projects already mirrored in an account,
+        # so a second machine can find a project it has never seen.
+        elif path == '/api/cloud/remote-projects' and method == 'POST':
+            from opalatex.cloud.base import CloudError
+            from opalatex.cloud.service import list_remote_projects
+            from opalatex.cloud.state import load_state
+            from opalatex.config import DEFAULT_DB_PATH
+            from opalatex.project import ProjectStore
+            provider_id = str(data.get('provider', '') or '')
+            if not provider_id:
+                self.send_response(writer, 400, b'{"error":"provider is required"}', "application/json")
+                return
+            try:
+                config = data.get('config') or {}
+                # Listing a Drive account is a network round-trip.
+                remote_projects = await asyncio.get_running_loop().run_in_executor(
+                    None, lambda: list_remote_projects(provider_id, config)
+                )
+
+                # A project already mirrored on this machine must not be offered
+                # as a download: cloning it a second time would give the same
+                # remote folder two local working copies fighting over it.
+                mirrored = {}
+                for entry in ProjectStore(db_path=DEFAULT_DB_PATH).list_projects():
+                    local_path = entry.get("project_path") or ""
+                    if not local_path or not os.path.isdir(local_path):
+                        continue
+                    settings = load_state(local_path).settings
+                    if settings.provider != provider_id or not settings.remote_folder:
+                        continue
+                    mirrored[settings.remote_folder] = {
+                        "name": entry.get("name", ""),
+                        "project_name": entry.get("project_name", "") or entry.get("name", ""),
+                        "project_path": local_path,
+                    }
+
+                payload = [
+                    {
+                        "name": project.name,
+                        "root": project.root,
+                        "modified_at": project.modified_at,
+                        "local": mirrored.get(project.name),
+                    }
+                    for project in remote_projects
+                ]
+                self.send_response(writer, 200, json.dumps({"projects": payload}).encode('utf-8'), "application/json")
+            except CloudError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7i13. Cloud sync — download a mirrored project onto this machine and
+        # register it, so the same project can be continued from here.
+        elif path == '/api/cloud/clone' and method == 'POST':
+            from opalatex.cloud import chats as cloud_chats
+            from opalatex.cloud.base import CloudError
+            from opalatex.cloud.service import MANAGER, clone_project, prepare_destination
+            from opalatex.config import DEFAULT_DB_PATH
+            from opalatex.project import ProjectStore
+
+            provider_id = str(data.get('provider', '') or '')
+            remote_name = str(data.get('name', '') or '').strip()
+            parent_path = str(data.get('parentPath', '') or '').strip()
+            folder_name = str(data.get('folderName', '') or '').strip() or remote_name
+            if not provider_id or not remote_name or not parent_path:
+                self.send_response(writer, 400, json.dumps({
+                    "error": "provider, name and parentPath are required"
+                }).encode('utf-8'), "application/json")
+                return
+            if (os.sep in folder_name or (os.altsep and os.altsep in folder_name)
+                    or folder_name in {".", ".."}):
+                self.send_response(writer, 400, json.dumps({
+                    "error": "folderName must be a single folder name, not a path."
+                }).encode('utf-8'), "application/json")
+                return
+
+            store = ProjectStore(db_path=DEFAULT_DB_PATH)
+            destination = os.path.join(os.path.abspath(os.path.expanduser(parent_path)), folder_name)
+
+            # Both checks happen before anything is transferred: a download that
+            # lands somewhere it cannot be registered is wasted work.
+            existing_name = store.find_by_path(destination)
+            if existing_name:
+                existing_proj = store.load(existing_name)
+                existing_project_name = existing_proj.project_name if existing_proj else existing_name
+                err_msg = get_translation("project_exists_in_folder", name=existing_project_name)
+                self.send_response(writer, 400, json.dumps({"error": err_msg}).encode('utf-8'), "application/json")
+                return
+            try:
+                prepare_destination(destination)
+            except CloudError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                return
+
+            try:
+                outcome = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    lambda: clone_project(
+                        provider_id,
+                        remote_name,
+                        destination,
+                        provider_config=data.get('config') or {},
+                        remote_root=str(data.get('root', '') or ''),
+                        settings_overrides=data.get('settings') or {},
+                    ),
+                )
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                return
+
+            if not outcome.ok:
+                # Nothing is registered when the download fails. Whatever
+                # arrived is left on disk to be inspected rather than deleted,
+                # which does mean the folder is no longer empty — so the message
+                # says where a retry has to go instead of letting the user hit
+                # "not empty" on the second attempt without knowing why.
+                report = outcome.report.to_dict() if outcome.report else None
+                message = outcome.error or (outcome.report.aborted if outcome.report else "")
+                if not message and outcome.report and outcome.report.errors:
+                    message = outcome.report.errors[0][1]
+                message = message or "The download did not complete."
+                if outcome.report is not None:
+                    message += (
+                        f" A partial copy is in {outcome.project_path}; remove that "
+                        f"folder or choose another name before trying again."
+                    )
+                self.send_response(writer, 400, json.dumps({
+                    "error": message,
+                    "project_path": outcome.project_path,
+                    "report": report,
+                }).encode('utf-8'), "application/json")
+                return
+
+            # The project's own skill set travelled with its files; the row has
+            # to agree with the skills.yaml that was just downloaded.
+            skills = ["opalatex"]
+            try:
+                from opalatex.skills import read_skills_yaml
+                found_skills = read_skills_yaml(destination)
+                if found_skills:
+                    skills = found_skills if "opalatex" in found_skills else ["opalatex"] + found_skills
+            except Exception:
+                pass
+
+            # Reuse the internal name the project has on the machine it came
+            # from when it is free here. Chat ids are derived from it
+            # (`main_<name>`), so an arbitrary new key would leave the clone with
+            # an empty default chat sitting beside the imported one.
+            export = cloud_chats.read_export(destination) or {}
+            preferred = str(export.get("project", "") or "").strip()
+            db_key = preferred if preferred and not store.exists(preferred) else ""
+            if not db_key:
+                db_key = folder_name.replace(" ", "_").lower()
+                original_db_key = db_key
+                counter = 1
+                while store.exists(db_key):
+                    db_key = f"{original_db_key}_{counter}"
+                    counter += 1
+
+            try:
+                project = store.create(
+                    name=db_key,
+                    mode="auto",
+                    model="",
+                    project_name=folder_name,
+                    project_path=destination,
+                    skills=skills,
+                    description="",
+                    preserve_existing_skills=True,
+                )
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                return
+
+            # The conversations arrived as a file; this folds them into the
+            # local database. `adopt_settings` is right here and nowhere else:
+            # the row was created seconds ago, so last-writer-wins would always
+            # prefer the empty local settings over the ones that were synced.
+            merge = None
+            try:
+                merge = cloud_chats.apply_export(db_key, destination, adopt_settings=True)
+            except Exception as e:
+                print(f"[cloud] Failed to import the project's conversations: {e}")
+
+            MANAGER.activate(db_key, destination)
+
+            reloaded = store.load(db_key) or project
+            # The model came from the other machine's settings, so this is the
+            # same "the project's model changed" moment create-project handles:
+            # without the pre-fetch the first message fails on a model that was
+            # never downloaded here. The helper skips models Ollama already has.
+            if reloaded.model and reloaded.model.startswith("ollama/"):
+                from opalatex.config import is_local_model
+                if is_local_model(reloaded.model, reloaded.api_base):
+                    from opalatex.ollama_manager import pull_model_in_background
+                    pull_model_in_background(reloaded.model.split("ollama/", 1)[1])
+
+            self.send_response(writer, 200, json.dumps({
+                "name": reloaded.name,
+                "project_name": reloaded.project_name,
+                "project_path": reloaded.project_path,
+                "skills": reloaded.skills,
+                "model": reloaded.model,
+                "report": outcome.report.to_dict() if outcome.report else None,
+                "merge": merge.to_dict() if merge else None,
+            }).encode('utf-8'), "application/json")
+
         # 7j. Web search config — GET
         elif path == '/api/settings/web-search' and method == 'GET':
             from opalatex.web_search_config import load_config

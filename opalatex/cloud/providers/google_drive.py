@@ -48,6 +48,7 @@ from ..base import (
     CloudStorageProvider,
     CloudTransientError,
     RemoteEntry,
+    RemoteProject,
     normalize_rel_path,
 )
 
@@ -353,6 +354,7 @@ class GoogleDriveProvider(CloudStorageProvider):
             conditional_writes=False,
             max_file_size=MAX_FILE_SIZE,
             server_side_versioning=True,
+            project_listing=True,
         )
 
     # -- authorization ---------------------------------------------------------
@@ -458,6 +460,34 @@ class GoogleDriveProvider(CloudStorageProvider):
         if root != self._indexed_root:
             self._reset_index()
         return root
+
+    def list_projects(self) -> list[RemoteProject]:
+        """Every project folder inside the account's OpalaTex container.
+
+        Read-only by contract: the container is *looked up*, never created, so
+        asking an account that has never synced anything answers "nothing here"
+        instead of leaving an empty folder behind in the user's Drive.
+        """
+        container = self._find_folder(_safe_name(CONTAINER_FOLDER), parent="root")
+        if not container:
+            return []
+        projects: list[RemoteProject] = []
+        for item in self._list_children(container):
+            if str(item.get("mimeType", "")) != FOLDER_MIME:
+                continue
+            name = str(item.get("name", ""))
+            file_id = str(item.get("id", ""))
+            if not name or not file_id:
+                continue
+            projects.append(
+                RemoteProject(
+                    name=name,
+                    root=file_id,
+                    modified_at=str(item.get("modifiedTime", "") or ""),
+                )
+            )
+        projects.sort(key=lambda project: project.name.lower())
+        return projects
 
     def list_entries(self, root: str) -> list[RemoteEntry]:
         self._build_index(root)
@@ -659,7 +689,8 @@ class GoogleDriveProvider(CloudStorageProvider):
             return None
         return _node_from(item)
 
-    def _ensure_folder(self, name: str, parent: str) -> str:
+    def _find_folder(self, name: str, parent: str) -> str:
+        """Id of the folder named `name` under `parent`, or "" when there is none."""
         query = (
             f"name = {_quote(name)} and {_quote_id(parent)} in parents "
             f"and mimeType = {_quote(FOLDER_MIME)} and trashed = false"
@@ -670,11 +701,17 @@ class GoogleDriveProvider(CloudStorageProvider):
             params={"q": query, "fields": "files(id,modifiedTime)", "pageSize": "10"},
         )
         found = payload.get("files") or []
-        if found:
-            # Deterministic pick when the user has several folders of the same
-            # name: the oldest, so the choice does not change between runs.
-            found.sort(key=lambda item: str(item.get("modifiedTime", "")))
-            return str(found[0]["id"])
+        if not found:
+            return ""
+        # Deterministic pick when the user has several folders of the same
+        # name: the oldest, so the choice does not change between runs.
+        found.sort(key=lambda item: str(item.get("modifiedTime", "")))
+        return str(found[0]["id"])
+
+    def _ensure_folder(self, name: str, parent: str) -> str:
+        existing = self._find_folder(name, parent)
+        if existing:
+            return existing
         created = self._api_json(
             "POST",
             f"{API_BASE}/files",

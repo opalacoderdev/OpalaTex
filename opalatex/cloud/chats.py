@@ -277,9 +277,22 @@ def read_export_from(path: str) -> Optional[dict[str, Any]]:
 # ─── Import ───────────────────────────────────────────────────────────────────
 
 def merge_into_database(
-    project_name: str, payload: dict[str, Any], db_path: Optional[str] = None
+    project_name: str,
+    payload: dict[str, Any],
+    db_path: Optional[str] = None,
+    *,
+    adopt_settings: bool = False,
 ) -> MergeStats:
-    """Merge a document produced by :func:`export_project` into the local store."""
+    """Merge a document produced by :func:`export_project` into the local store.
+
+    `adopt_settings` takes the incoming project settings unconditionally instead
+    of by last-writer-wins. It exists for the one case where the timestamp
+    comparison gives the wrong answer: a project being cloned onto a second
+    machine has a row created seconds ago, so it is always "newer" than the
+    export, and the model, mode and main file the user actually chose would
+    never be adopted. It is only ever correct on a project with no history of
+    its own — there is nothing local to lose.
+    """
     stats = MergeStats()
     if not isinstance(payload, dict):
         return stats
@@ -314,7 +327,7 @@ def merge_into_database(
             project_name,
             payload.get("settings") or {},
             str(payload.get("updated_at", "") or ""),
-            str(exists["updated_at"] or ""),
+            "" if adopt_settings else str(exists["updated_at"] or ""),
         )
         conn.commit()
     return stats
@@ -464,9 +477,15 @@ def refresh_export(project_name: str, project_path: str, db_path: Optional[str] 
     return write_export(project_path, export_project(project_name, db_path))
 
 
-def apply_export(project_name: str, project_path: str, db_path: Optional[str] = None) -> MergeStats:
+def apply_export(
+    project_name: str,
+    project_path: str,
+    db_path: Optional[str] = None,
+    *,
+    adopt_settings: bool = False,
+) -> MergeStats:
     """Merge whatever the on-disk export holds back into the local database."""
     payload = read_export(project_path)
     if payload is None:
         return MergeStats()
-    return merge_into_database(project_name, payload, db_path)
+    return merge_into_database(project_name, payload, db_path, adopt_settings=adopt_settings)

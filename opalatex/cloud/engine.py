@@ -498,6 +498,15 @@ class SyncEngine:
 
         report.conflicts.append(Conflict(rel_path=rel_path, conflict_copy=copy_path))
 
+        if self.direction == PULL:
+            # A pull is defined as never writing to the remote, and that has to
+            # hold for the conflict path too: publishing the working copy from
+            # here would let a one-way fetch overwrite the very version it was
+            # asked to fetch. The remote version is parked beside the local one
+            # and the baseline is left untouched, so the divergence is still
+            # there for a two-way pass to settle.
+            return
+
         # The working copy wins the canonical path, so the user's open editor
         # buffer keeps matching the file on disk.
         absolute = local_path_for(self.project_path, rel_path)

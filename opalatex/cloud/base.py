@@ -76,6 +76,22 @@ class RemoteEntry:
 
 
 @dataclass(frozen=True)
+class RemoteProject:
+    """One project folder found in the account, as an entry point for a clone.
+
+    ``root`` is the same opaque handle :meth:`CloudStorageProvider.ensure_root`
+    returns, so a machine that has never seen this project can be pointed
+    straight at it without resolving the name again — which on a backend that
+    keys by id rather than by name would otherwise risk creating a second folder
+    with the same name.
+    """
+
+    name: str
+    root: str
+    modified_at: str = ""
+
+
+@dataclass(frozen=True)
 class Capabilities:
     """What a provider can do, so the engine never assumes a Drive-only feature."""
 
@@ -89,6 +105,10 @@ class Capabilities:
     max_file_size: int = 0
     # Whether the provider keeps its own version history of overwritten files.
     server_side_versioning: bool = False
+    # Whether `list_projects` works. A backend that can only be pointed at one
+    # folder (a single WebDAV URL, say) has nothing to enumerate, and the UI
+    # offers the "download a project" flow only where this is true.
+    project_listing: bool = False
 
 
 @dataclass
@@ -225,6 +245,20 @@ class CloudStorageProvider(ABC):
         and reused, so renaming the folder in the provider's own UI does not
         orphan the project.
         """
+
+    def list_projects(self) -> list["RemoteProject"]:
+        """List the projects already mirrored in this account.
+
+        This is what lets a second machine find a project it has never seen. It
+        is deliberately *not* abstract: a backend that addresses exactly one
+        folder has nothing to enumerate, and must keep working without it.
+        Implementations that do support it set ``Capabilities.project_listing``
+        so callers can tell before asking, and must **not** create anything —
+        listing is a read.
+        """
+        raise CloudError(
+            f"{self.display_name or self.id or 'This backend'} cannot list projects."
+        )
 
     @abstractmethod
     def list_entries(self, root: str) -> list[RemoteEntry]:

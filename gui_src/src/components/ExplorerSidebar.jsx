@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Settings, Trash2, RefreshCw, ExternalLink, FolderOpen, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Plus, Settings, Trash2, RefreshCw, ExternalLink, FolderOpen, ChevronDown, AlertTriangle, CloudDownload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import FileNode from './FileNode';
 
@@ -10,6 +10,7 @@ export default function ExplorerSidebar({
   handleSelectProject,
   onNewProject,
   onImportProject,
+  onDownloadFromCloud,
   importError,
   onClearImportError,
   files,
@@ -70,6 +71,13 @@ export default function ExplorerSidebar({
           title={t('explorerSidebar.importProject', 'Import Project')}
         >
           <FolderOpen size={14} />
+        </button>
+        <button
+          onClick={onDownloadFromCloud}
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)', marginLeft: '6px' }}
+          title={t('explorerSidebar.downloadFromCloud', 'Download project from the cloud')}
+        >
+          <CloudDownload size={14} />
         </button>
       </div>
 

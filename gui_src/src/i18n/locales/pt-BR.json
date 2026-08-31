@@ -131,7 +131,8 @@
     "selectProjectPlaceholder": "Selecionar projeto...",
     "noProjects": "Nenhum projeto encontrado",
     "projectPathMissing": "Não encontrado: {{path}}",
-    "projectPathMissingHint": "Pasta do projeto não encontrada nesta máquina. Clique para corrigir o caminho."
+    "projectPathMissingHint": "Pasta do projeto não encontrada nesta máquina. Clique para corrigir o caminho.",
+    "downloadFromCloud": "Baixar projeto da nuvem"
   },
   "gitSidebar": {
     "header": "SOURCE CONTROL",
@@ -1113,7 +1114,8 @@
     "pdfSourceFileLabel": "Fonte LaTeX aberta no editor",
     "pdfSelectedExcerptLabel": "Trecho selecionado no visualizador de PDF",
     "projectPathLabel": "Caminho do projeto",
-    "askAboutPdfQuestionLabel": "Minha pergunta:"
+    "askAboutPdfQuestionLabel": "Minha pergunta:",
+    "projectDownloaded": "{{name}} baixado da nuvem ({{count}} arquivo(s))."
   },
   "onboarding": {
     "welcome": "Bem-vindo ao OpalaTex! 🚀",
@@ -1332,6 +1334,26 @@
       "delete-local": "Removendo local",
       "conflict": "Conflito em"
     }
+  },
+  "cloudDownload": {
+    "title": "Baixar um projeto da nuvem",
+    "intro": "Projetos espelhados na nuvem em outro computador podem ser baixados aqui e trabalhados a partir deste. Eles continuam sincronizando depois.",
+    "projects": "Projetos na nuvem",
+    "refresh": "Atualizar",
+    "loading": "Procurando projetos…",
+    "empty": "Nenhum projeto aqui ainda. Ative a sincronização na nuvem para um projeto no seu outro computador primeiro.",
+    "alreadyHere": "já está neste computador",
+    "parent": "Salvar dentro de",
+    "parentPlaceholder": "Escolha uma pasta…",
+    "browse": "Procurar",
+    "folderName": "Nome da nova pasta",
+    "destinationHint": "O projeto será baixado em {{path}}. A pasta precisa ser nova ou estar vazia.",
+    "chooseParent": "Escolha a pasta em que o projeto será criado.",
+    "starting": "Iniciando o download…",
+    "progress": "Baixando {{examined}} de {{total}} — {{path}}",
+    "download": "Baixar projeto",
+    "downloading": "Baixando…",
+    "envNotice": "O .env do projeto não é espelhado, então as chaves de API ficam no computador em que foram digitadas. Informe as suas nas configurações do projeto depois de baixar."
   },
   "explorer": {
     "cloudSynced": "Sincronizado com a nuvem",

@@ -19,6 +19,7 @@ from .base import (
     CloudStorageProvider,
     CloudTransientError,
     RemoteEntry,
+    RemoteProject,
 )
 from .engine import PULL, PUSH, TWO_WAY, SyncEngine, SyncReport
 from .registry import ProviderInfo, get_cloud_provider, list_providers, register_provider
@@ -40,6 +41,7 @@ __all__ = [
     "PULL",
     "PUSH",
     "RemoteEntry",
+    "RemoteProject",
     "SyncEngine",
     "SyncReport",
     "TWO_WAY",
