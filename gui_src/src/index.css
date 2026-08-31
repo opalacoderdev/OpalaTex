@@ -986,6 +986,66 @@ input:focus, select:focus, textarea:focus {
   min-width: 0;
 }
 
+/* ── Studio layout ──────────────────────────────────────────────────────────
+   Editor + preview across the top, chat and terminal side by side underneath,
+   with the workspace explorer docked to the left of all three (retracted on
+   entry). The three panels are the IDE layout's own components left where they
+   already sit in the React tree — switching layouts must not remount the editor
+   or tear down a live terminal — so the layout is expressed entirely as grid
+   placement, and each panel is routed to its area by the class it already
+   carries. The templates themselves are computed in utils/studioLayout.js and
+   applied inline, since the display switch on <main> is inline too. */
+.vscode-editor-panel.vscode-studio-layout {
+  grid-template-areas:
+    "editor   editor   editor"
+    "rowsplit rowsplit rowsplit"
+    "chat     colsplit terminal";
+  min-width: 0;
+  min-height: 0;
+}
+
+/* `.vscode-editor-panel` is EditorPanel's own root; `.vscode-editor-container`
+   is what it renders instead when no file is open. */
+.vscode-studio-layout > .vscode-editor-panel,
+.vscode-studio-layout > .vscode-editor-container {
+  grid-area: editor;
+}
+
+.vscode-studio-layout > .vscode-chat {
+  grid-area: chat;
+  /* The panel's own 320px default would win over the grid track and leave a
+     gap beside the terminal; here the column is what sets the width. */
+  width: auto;
+  /* The chat is on the left here, so its rule borders the terminal instead of
+     the editor it used to hang off. */
+  border-left: none;
+  border-right: 1px solid var(--vscode-border);
+}
+
+.vscode-studio-layout > .vscode-studio-terminal-cell {
+  grid-area: terminal;
+  flex-direction: column;
+}
+
+.vscode-studio-layout > .vscode-studio-row-resizer { grid-area: rowsplit; }
+.vscode-studio-layout > .vscode-studio-col-resizer { grid-area: colsplit; }
+
+/* Every grid item here holds a scrollable panel, and the default `min-*: auto`
+   would let its content set the track size instead of the other way round —
+   which is how the terminal ends up taller than the row it lives in. */
+.vscode-studio-layout > * {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The panel fills the cell rather than carrying its own pixel height (see
+   BottomPanel's `fillContainer`), so the row handle above is what sizes it. */
+.vscode-studio-terminal-cell > .vscode-bottom-panel {
+  flex: 1;
+  min-height: 0;
+}
+
 .vscode-chat-bottom-layout > .vscode-chat {
   min-height: 0;
 }

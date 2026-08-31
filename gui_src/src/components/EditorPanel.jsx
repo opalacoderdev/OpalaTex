@@ -16,6 +16,7 @@ import EditorContextMenuOverlay from './EditorContextMenuOverlay';
 import TabContextMenu from './TabContextMenu';
 import { FormattedMessage } from '../utils/formatMessage';
 import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
+import { viewportPointToApp } from '../utils/uiScale';
 import Split from 'react-split';
 import PdfPreview from './PdfPreview';
 import HtmlPreview from './HtmlPreview';
@@ -72,6 +73,10 @@ export default function EditorPanel({
   onAskAboutPdf,
   isAgentRunning,
   onTextStatsChange,
+  // Set by a layout that is built around a visible preview (the studio). It
+  // seeds the preview layout flags on entry rather than controlling them, so
+  // the toolbar toggles keep working once the user is inside the layout.
+  openPreviewByDefault,
 }) {
   const { t } = useTranslation();
   const { showAlert } = useCustomDialog();
@@ -1118,9 +1123,11 @@ export default function EditorPanel({
       const hasSelection = sel && !sel.isEmpty();
       const selectedText = hasSelection ? model?.getValueInRange(sel) : '';
 
+      // Positioned with left/top inside the zoomed app — see viewportPointToApp.
+      const point = viewportPointToApp(e.clientX, e.clientY);
       setEditorContextMenu({
-        x: e.clientX,
-        y: e.clientY,
+        x: point.x,
+        y: point.y,
         editor: ed,
         monaco,
         hasSelection,
@@ -1143,6 +1150,18 @@ export default function EditorPanel({
   useEffect(() => {
     setShowLatexHelp(false);
   }, [selectedFile]);
+
+  // Entering a preview-first layout opens the split the user would otherwise
+  // have to reach for by hand: the side-by-side preview for Markdown/HTML and
+  // the PDF pane for LaTeX, whichever the open file has. isPreviewMode is
+  // cleared because a full preview replaces the editor the split exists to
+  // pair the preview with.
+  useEffect(() => {
+    if (!openPreviewByDefault) return;
+    setIsPreviewMode(false);
+    setIsSplitPreview(true);
+    setIsPdfPreviewCollapsed(false);
+  }, [openPreviewByDefault]);
 
   if (!selectedFile) {
     return (
@@ -1355,7 +1374,7 @@ export default function EditorPanel({
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setTabContextMenu({ x: e.clientX, y: e.clientY, filePath });
+                  setTabContextMenu({ ...viewportPointToApp(e.clientX, e.clientY), filePath });
                 }}
                 className={`vscode-tab ${isActive ? 'active' : ''}`}
                 style={{ cursor: 'pointer', userSelect: 'none' }}

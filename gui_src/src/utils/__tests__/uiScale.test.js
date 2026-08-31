@@ -10,6 +10,9 @@ import {
   clampUiScale,
   presetForScale,
   roundUiScale,
+  readUiScale,
+  viewportPointToApp,
+  viewportPxToApp,
 } from '../uiScale.js';
 
 test('clamps a scale into the supported range', () => {
@@ -59,4 +62,35 @@ test('presets are ordered and distinct', () => {
   const scales = UI_SCALE_PRESETS.map((p) => p.scale);
   assert.deepEqual(scales, [...scales].sort((a, b) => a - b));
   assert.equal(new Set(scales).size, scales.length);
+});
+
+// ── Crossing the zoom boundary ────────────────────────────────────────────
+// Regression cover for the context menu that opened near the bottom of the
+// window when it was invoked at the top of the file tree: event coordinates are
+// viewport pixels, but `left`/`top` inside the zoomed app are multiplied by the
+// scale before they are painted.
+
+test('a pointer position becomes a CSS length inside the zoomed app', () => {
+  // A click that Chrome reports at (560, 420) sits at CSS (400, 300) when the
+  // interface is scaled to 140% — measured against a real rendered page.
+  assert.deepEqual(viewportPointToApp(560, 420, 1.4), { x: 400, y: 300 });
+  assert.equal(viewportPxToApp(140, 1.4), 100);
+});
+
+test('conversion is the identity at the default scale', () => {
+  assert.deepEqual(viewportPointToApp(560, 420, 1), { x: 560, y: 420 });
+  assert.equal(viewportPxToApp(37, 1), 37);
+});
+
+test('converting round-trips against the scale that produced it', () => {
+  for (const preset of UI_SCALE_PRESETS) {
+    const { x, y } = viewportPointToApp(800 * preset.scale, 600 * preset.scale, preset.scale);
+    assert.ok(Math.abs(x - 800) < 1e-9, preset.id);
+    assert.ok(Math.abs(y - 600) < 1e-9, preset.id);
+  }
+});
+
+test('readUiScale falls back to the default without a document', () => {
+  // Node has no DOM; the helper must not throw when imported outside a browser.
+  assert.equal(readUiScale(), UI_SCALE_DEFAULT);
 });

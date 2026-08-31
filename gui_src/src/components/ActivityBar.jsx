@@ -1,5 +1,5 @@
 import React from 'react';
-import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, PanelBottom, Terminal, History, Columns2, Store, GraduationCap, Cloud, CloudOff } from 'lucide-react';
+import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, LayoutGrid, PanelBottom, Terminal, History, Columns2, Store, GraduationCap, Cloud, CloudOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 // Left-side vertical activity bar (VSCode-style icon strip).
@@ -18,9 +18,13 @@ export default function ActivityBar({
   layoutMode,
   setLayoutMode,
   isTerminalCollapsed,
-  setIsTerminalCollapsed
+  setIsTerminalCollapsed,
+  setActiveBottomTab
 }) {
   const { t } = useTranslation();
+  // Layouts that dock the explorer/source-control sidebar to their left, and so
+  // can open one without being switched away from.
+  const hasDockedSidebar = layoutMode === 'ide' || layoutMode === 'studio';
 
   return (
     <div className="vscode-activitybar">
@@ -42,10 +46,10 @@ export default function ActivityBar({
         </button>
         <button
           onClick={() => {
-            setLayoutMode('ide');
+            if (!hasDockedSidebar) setLayoutMode('ide');
             setActiveSidebarTab(activeSidebarTab === 'explorer' ? null : 'explorer');
           }}
-          className={`vscode-activitybar-btn ${activeSidebarTab === 'explorer' && layoutMode === 'ide' ? 'active' : ''}`}
+          className={`vscode-activitybar-btn ${activeSidebarTab === 'explorer' && hasDockedSidebar ? 'active' : ''}`}
           title={t('activityBar.explorer')}
         >
           <Files size={22} />
@@ -65,10 +69,10 @@ export default function ActivityBar({
 
         <button
           onClick={() => {
-            setLayoutMode('ide');
+            if (!hasDockedSidebar) setLayoutMode('ide');
             setActiveSidebarTab(activeSidebarTab === 'git' ? null : 'git');
           }}
-          className={`vscode-activitybar-btn ${activeSidebarTab === 'git' && layoutMode === 'ide' ? 'active' : ''}`}
+          className={`vscode-activitybar-btn ${activeSidebarTab === 'git' && hasDockedSidebar ? 'active' : ''}`}
           title={t('activityBar.sourceControl')}
           style={{ position: 'relative' }}
         >
@@ -111,6 +115,29 @@ export default function ActivityBar({
           title="Alternar Painel Inferior (Terminal)"
         >
           <Terminal size={22} />
+        </button>
+
+        <button
+          onClick={() => {
+            if (layoutMode === 'studio') {
+              setLayoutMode('ide');
+              return;
+            }
+            // The studio is a four-surface layout, so it opens with all four on
+            // screen — except the workspace explorer, which starts retracted
+            // because the layout exists to give the document the width.
+            setLayoutMode('studio');
+            setActiveSidebarTab(null);
+            setIsChatVisible(true);
+            setIsTerminalCollapsed(false);
+            // The layout names that cell the terminal, so it opens on the
+            // terminal rather than on whichever tab was last read there.
+            setActiveBottomTab('terminal');
+          }}
+          className={`vscode-activitybar-btn ${layoutMode === 'studio' ? 'active' : ''}`}
+          title={layoutMode === 'studio' ? t('activityBar.editMode') : t('activityBar.studioMode')}
+        >
+          <LayoutGrid size={22} />
         </button>
 
         <button

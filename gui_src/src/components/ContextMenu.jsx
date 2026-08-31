@@ -1,4 +1,5 @@
 import React, { useRef, useLayoutEffect } from 'react';
+import { readUiScale, viewportPxToApp } from '../utils/uiScale';
 import { Plus, FolderPlus, Upload, Edit2, Trash2, Copy, ClipboardPaste, ExternalLink, FolderInput } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -23,12 +24,16 @@ export default function ContextMenu({
 
   useLayoutEffect(() => {
     if (menuRef.current && contextMenu) {
+      // The comparisons stay in viewport pixels — a rect and innerHeight are
+      // both measured there — but the corrected position is written back as a
+      // CSS length inside the zoomed app, so it has to cross the boundary.
+      const scale = readUiScale();
       const rect = menuRef.current.getBoundingClientRect();
       if (rect.bottom > window.innerHeight) {
-        menuRef.current.style.top = `${window.innerHeight - rect.height - 5}px`;
+        menuRef.current.style.top = `${viewportPxToApp(window.innerHeight - rect.height - 5, scale)}px`;
       }
       if (rect.right > window.innerWidth) {
-        menuRef.current.style.left = `${window.innerWidth - rect.width - 5}px`;
+        menuRef.current.style.left = `${viewportPxToApp(window.innerWidth - rect.width - 5, scale)}px`;
       }
     }
   }, [contextMenu]);

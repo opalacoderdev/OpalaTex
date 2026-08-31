@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { viewportPxToApp } from '../utils/uiScale';
 import { Send, X, Wand2, MessageSquarePlus, Palette } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -88,8 +89,12 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
   };
 
   const overlayWidth = 420;
-  const safeX = Math.round((window.innerWidth - overlayWidth) / 2);
-  const safeY = Math.round(window.innerHeight * 0.35);
+  // The overlay is placed with CSS lengths inside the zoomed app, so the
+  // viewport it is being centred in has to be expressed in that space too.
+  const viewportWidth = viewportPxToApp(window.innerWidth);
+  const viewportHeight = viewportPxToApp(window.innerHeight);
+  const safeX = Math.round((viewportWidth - overlayWidth) / 2);
+  const safeY = Math.round(viewportHeight * 0.35);
 
 
 

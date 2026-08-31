@@ -99,6 +99,9 @@ export default function ChatPanel({
   pendingAttachments,
   setPendingAttachments,
   isChatMode,
+  // The studio layout sizes the chat through its own grid track, so the panel
+  // must fill whatever cell it is given instead of carrying a pixel width.
+  fillContainer,
   globalModels = [],
   onRefreshModels,
   onEditModels,
@@ -1066,7 +1069,9 @@ export default function ChatPanel({
   return (
     <aside 
       className="vscode-chat" 
-      style={isChatMode ? { flex: 1, borderLeft: 'none', width: '100%' } : { width: `${chatWidth}px` }}
+      style={isChatMode || fillContainer
+        ? { flex: 1, minWidth: 0, borderLeft: 'none', width: '100%' }
+        : { width: `${chatWidth}px` }}
     >
       <TextContextMenu
         menu={menu}

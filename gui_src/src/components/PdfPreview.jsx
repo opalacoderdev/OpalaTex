@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, us
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import { viewportPointToApp, viewportPxToApp } from '../utils/uiScale';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare, Sparkles } from 'lucide-react';
 import PdfContextMenu, { ANNOTATION_COLORS } from './PdfContextMenu';
@@ -337,9 +338,11 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     const { clientX, clientY } = event;
     hoverRafRef.current = requestAnimationFrame(() => {
       hoverRafRef.current = null;
+      // The hit test compares two viewport measurements and stays there; only
+      // the tooltip's own placement crosses into the zoomed app's coordinates.
       const found = annotationAtPoint(clientX, clientY);
       if (found && (found.content || '').trim()) {
-        setAnnotationTooltip({ x: clientX, y: clientY, annotation: found });
+        setAnnotationTooltip({ ...viewportPointToApp(clientX, clientY), annotation: found });
       } else {
         setAnnotationTooltip((prev) => (prev ? null : prev));
       }
@@ -478,8 +481,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
       return;
     }
     setNotePopup({
-      x: event.clientX,
-      y: event.clientY,
+      ...viewportPointToApp(event.clientX, event.clientY),
       value: annotation.content || '',
       mode: 'edit',
       annotationId: annotation.id,
@@ -654,8 +656,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     setTranslation(null);
     setNotePopup(null);
     setContextMenu({
-      x: event.clientX,
-      y: event.clientY,
+      ...viewportPointToApp(event.clientX, event.clientY),
       page: Number.isNaN(page) ? currentPage : page,
       selectedText: readPdfSelection(),
       // Captured here, not when the menu item is clicked: clicking an item (a
@@ -1113,8 +1114,8 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     const rawX = e.clientX - rect.left;
     const rawY = e.clientY - rect.top;
     
-    const ptX = rawX / scale;
-    const ptY = rawY / scale;
+    const ptX = viewportPxToApp(rawX) / scale;
+    const ptY = viewportPxToApp(rawY) / scale;
     
     try {
       const res = await fetch(`/api/latex/synctex?action=pdf2tex&page=${pageIndex}&x=${ptX}&y=${ptY}&filePath=${encodeURIComponent(selectedFile)}&projectPath=${encodeURIComponent(activeProject.project_path)}`);
@@ -1760,7 +1761,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
           className="pdf-annotation-tooltip"
           role="tooltip"
           style={{
-            left: `${Math.min(annotationTooltip.x + 14, window.innerWidth - 300)}px`,
+            left: `${Math.min(annotationTooltip.x + 14, viewportPxToApp(window.innerWidth) - 300)}px`,
             top: `${annotationTooltip.y + 16}px`,
           }}
         >

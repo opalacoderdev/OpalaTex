@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { readUiScale, viewportPxToApp } from '../utils/uiScale';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -35,8 +36,11 @@ export default function TabContextMenu({ menu, onClose, onCloseTab, onCloseOther
   useEffect(() => {
     if (!menu || !ref.current) return;
     const rect = ref.current.getBoundingClientRect();
-    if (rect.right > window.innerWidth) ref.current.style.left = `${window.innerWidth - rect.width - 4}px`;
-    if (rect.bottom > window.innerHeight) ref.current.style.top = `${window.innerHeight - rect.height - 4}px`;
+    // Compared in viewport pixels, written back as a CSS length inside the
+    // zoomed app — see viewportPxToApp.
+    const scale = readUiScale();
+    if (rect.right > window.innerWidth) ref.current.style.left = `${viewportPxToApp(window.innerWidth - rect.width, scale) - 4}px`;
+    if (rect.bottom > window.innerHeight) ref.current.style.top = `${viewportPxToApp(window.innerHeight - rect.height, scale) - 4}px`;
   }, [menu]);
 
   if (!menu) return null;

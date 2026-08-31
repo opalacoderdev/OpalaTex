@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { readUiScale, viewportPxToApp } from '../utils/uiScale';
 import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 
 /**
@@ -30,11 +31,14 @@ export default function EditorContextMenuOverlay({ menu, onClose, setInlinePromp
   // Position adjustment: keep menu inside viewport
   useEffect(() => {
     if (!ref.current) return;
+    // Compared in viewport pixels, written back as a CSS length inside the
+    // zoomed app — see viewportPxToApp.
+    const scale = readUiScale();
     const rect = ref.current.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    if (rect.right > vw) ref.current.style.left = `${vw - rect.width - 4}px`;
-    if (rect.bottom > vh) ref.current.style.top = `${vh - rect.height - 4}px`;
+    if (rect.right > vw) ref.current.style.left = `${viewportPxToApp(vw - rect.width, scale) - 4}px`;
+    if (rect.bottom > vh) ref.current.style.top = `${viewportPxToApp(vh - rect.height, scale) - 4}px`;
   }, [menu]);
 
   const { editor, monaco, hasSelection, selectedText, pos, sel } = menu;
@@ -43,10 +47,14 @@ export default function EditorContextMenuOverlay({ menu, onClose, setInlinePromp
   const getPromptCoords = () => {
     const coords = editor.getScrolledVisiblePosition(pos);
     const domNode = editor.getDomNode();
+    // Two coordinate spaces meet here: the editor's bounding rect is in viewport
+    // pixels, while Monaco reports `coords` in its own CSS pixels — already
+    // inside the zoomed app. Only the rect needs converting.
+    const scale = readUiScale();
     const rect = domNode?.getBoundingClientRect() ?? { left: 200, top: 100 };
     return {
-      x: rect.left + (coords?.left ?? 60) + 20,
-      y: rect.top + (coords?.top ?? 40) + 24,
+      x: viewportPxToApp(rect.left, scale) + (coords?.left ?? 60) + 20,
+      y: viewportPxToApp(rect.top, scale) + (coords?.top ?? 40) + 24,
     };
   };
 

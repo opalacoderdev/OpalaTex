@@ -32,7 +32,10 @@ export default function BottomPanel({
   isBottomMaximized,
   onToggleMaximizeBottom,
   achievementsMemory,
-  theme
+  theme,
+  // The studio layout gives the panel a grid cell of its own, so it fills that
+  // cell and the row is resized by the layout's handle instead of the panel's.
+  fillContainer,
 }) {
   const { t } = useTranslation();
   const contentRef = useRef(null);
@@ -116,7 +119,7 @@ export default function BottomPanel({
         }
       />
       {/* Vertical resize handle */}
-      {!isTerminalCollapsed && !isBottomMaximized && (
+      {!fillContainer && !isTerminalCollapsed && !isBottomMaximized && (
         <div
           className="vscode-resizer-vertical"
           onMouseDown={(e) => startResizing(e, 'bottom')}
@@ -125,7 +128,9 @@ export default function BottomPanel({
 
       <div
         className="vscode-bottom-panel"
-        style={{ height: isTerminalCollapsed ? '30px' : isBottomMaximized ? '100%' : `${bottomPanelHeight}px` }}
+        style={fillContainer
+          ? { height: '100%', minHeight: 0 }
+          : { height: isTerminalCollapsed ? '30px' : isBottomMaximized ? '100%' : `${bottomPanelHeight}px` }}
       >
         {/* Tab header */}
         <div className="vscode-bottom-tabs">

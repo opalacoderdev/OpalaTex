@@ -7,6 +7,7 @@
   "activityBar": {
     "chatBottomMode": "Switch to chat with bottom panel",
     "chatComparisonMode": "Chat comparison mode",
+    "studioMode": "Studio layout: editor, preview, chat and terminal",
     "explorer": "Explorer",
     "chatMode": "Chat Mode",
     "editMode": "Edit Mode",

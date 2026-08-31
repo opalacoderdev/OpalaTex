@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback, useTransition } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useTransition } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import { useTranslation } from 'react-i18next';
 import i18n from './i18n/index.js';
 
 // Utils
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
-import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale } from './utils/uiScale';
+import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale, viewportPointToApp, viewportPxToApp } from './utils/uiScale';
 
 // Hooks
 import { useResizing } from './hooks/useResizing';
@@ -20,6 +20,11 @@ import EditorPanel from './components/EditorPanel';
 import ChatPanel from './components/ChatPanel';
 import ChatSidebar from './components/ChatSidebar';
 import ChatComparisonPanel from './components/ChatComparisonPanel';
+import {
+  STUDIO_BOTTOM_HEIGHT_DEFAULT,
+  STUDIO_CHAT_WIDTH_DEFAULT,
+  studioGridTemplate,
+} from './utils/studioLayout';
 import BottomPanel from './components/BottomPanel';
 import ContextMenu from './components/ContextMenu';
 import MoveToModal from './components/MoveToModal';
@@ -332,6 +337,9 @@ export default function App() {
   // ── UI state ──────────────────────────────────────────────────────────────
   const [layoutMode, setLayoutMode] = useState('ide');
   const isChatLayout = layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare';
+  // The studio: editor + preview across the top, chat and terminal side by side
+  // beneath, workspace explorer docked left. See utils/studioLayout.js.
+  const isStudioLayout = layoutMode === 'studio';
   const [comparisonChats, setComparisonChats] = useState({ left: '', right: '' });
   const [activeComparisonPanel, setActiveComparisonPanel] = useState('left');
   const [comparisonScales, setComparisonScales] = useState({ left: 1, right: 1 });
@@ -388,8 +396,26 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(330);
   const [chatWidth, setChatWidth] = useState(400);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(240);
+  // The studio arranges the same panels in a different geometry, so it keeps
+  // its own sizes: sharing them would mean a chat widened for the studio's
+  // bottom row also widening the IDE's right-hand dock, and a bottom row sized
+  // to hold a conversation reopening as a 700px terminal in the IDE.
+  const [studioChatWidth, setStudioChatWidth] = useState(STUDIO_CHAT_WIDTH_DEFAULT);
+  const [studioBottomHeight, setStudioBottomHeight] = useState(STUDIO_BOTTOM_HEIGHT_DEFAULT);
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [isBottomMaximized, setIsBottomMaximized] = useState(false);
+  // The studio's whole geometry is this one grid template: the panels below are
+  // the IDE's own components kept at their existing positions in the tree — so
+  // switching layouts never remounts the editor or tears down a live terminal —
+  // and only their CSS placement changes.
+  const studioGrid = useMemo(() => studioGridTemplate({
+    chatWidth: studioChatWidth,
+    bottomHeight: studioBottomHeight,
+    isChatVisible,
+    isTerminalVisible: !isTerminalCollapsed,
+    isEditorMaximized,
+    isBottomMaximized,
+  }), [studioChatWidth, studioBottomHeight, isChatVisible, isTerminalCollapsed, isEditorMaximized, isBottomMaximized]);
 
   // ── Modals ─────────────────────────────────────────────────────────────────
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -599,7 +625,18 @@ export default function App() {
   }
 
   // ── Hooks ─────────────────────────────────────────────────────────────────
-  const { startResizing } = useResizing({ setSidebarWidth, setChatWidth, setBottomPanelHeight, sidebarWidth, chatWidth, bottomPanelHeight });
+  const { startResizing } = useResizing({
+    setSidebarWidth,
+    setChatWidth,
+    setBottomPanelHeight,
+    sidebarWidth,
+    chatWidth,
+    bottomPanelHeight,
+    studioChatWidth,
+    setStudioChatWidth,
+    studioBottomHeight,
+    setStudioBottomHeight,
+  });
 
   // ── Effects ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -2569,14 +2606,14 @@ export default function App() {
     if (!activeProject) return;
     e.preventDefault(); e.stopPropagation();
     setRightClickedNode(null);
-    setContextMenu({ x: e.clientX, y: e.clientY });
+    setContextMenu(viewportPointToApp(e.clientX, e.clientY));
   };
 
   const handleNodeContextMenu = (e, node) => {
     if (!activeProject) return;
     e.preventDefault(); e.stopPropagation();
     setRightClickedNode(node);
-    setContextMenu({ x: e.clientX, y: e.clientY });
+    setContextMenu(viewportPointToApp(e.clientX, e.clientY));
   };
 
   const handleOpenInSystem = async (node) => {
@@ -3808,10 +3845,11 @@ export default function App() {
           setLayoutMode={setLayoutMode}
           isTerminalCollapsed={isTerminalCollapsed}
           setIsTerminalCollapsed={setIsTerminalCollapsed}
+          setActiveBottomTab={setActiveBottomTab}
         />
 
         {/* Left Sidebar */}
-        {!isEditorMaximized && activeSidebarTab && layoutMode === 'ide' && (
+        {!isEditorMaximized && activeSidebarTab && (layoutMode === 'ide' || isStudioLayout) && (
           <aside className="vscode-sidebar" style={{ width: `${sidebarWidth}px` }}>
             {activeSidebarTab === 'explorer' ? (
               <ExplorerSidebar
@@ -3928,12 +3966,21 @@ export default function App() {
         )}
 
         {/* Left resize handle */}
-        {!isEditorMaximized && ((activeSidebarTab && layoutMode === 'ide') || isChatLayout) && (
+        {!isEditorMaximized && ((activeSidebarTab && (layoutMode === 'ide' || isStudioLayout)) || isChatLayout) && (
           <div className="vscode-resizer-horizontal" onMouseDown={(e) => startResizing(e, 'left')} />
         )}
 
         {/* Center — Editor + Bottom Panel */}
-        <main className={`vscode-editor-panel ${layoutMode === 'chat-bottom' ? 'vscode-chat-bottom-layout' : ''}`} style={{ flex: layoutMode === 'chat' || layoutMode === 'chat-compare' ? 0 : 1, display: layoutMode === 'chat' || layoutMode === 'chat-compare' ? 'none' : 'flex' }}>
+        <main
+          className={`vscode-editor-panel ${layoutMode === 'chat-bottom' ? 'vscode-chat-bottom-layout' : ''} ${isStudioLayout ? 'vscode-studio-layout' : ''}`}
+          style={{
+            flex: layoutMode === 'chat' || layoutMode === 'chat-compare' ? 0 : 1,
+            display: layoutMode === 'chat' || layoutMode === 'chat-compare' ? 'none' : isStudioLayout ? 'grid' : 'flex',
+            // Inline, because the flex/grid switch above is inline too and a
+            // class-level template would lose to it.
+            ...(isStudioLayout ? { gridTemplateColumns: studioGrid.gridTemplateColumns, gridTemplateRows: studioGrid.gridTemplateRows } : {}),
+          }}
+        >
           {!isBottomMaximized && layoutMode === 'review' && (
             <GitSidebar
               activeProject={activeProject}
@@ -3956,7 +4003,7 @@ export default function App() {
             />
           )}
 
-          {!isBottomMaximized && layoutMode === 'ide' && (
+          {!isBottomMaximized && (layoutMode === 'ide' || isStudioLayout) && (
             <EditorPanel
               selectedFile={selectedFile}
               openFiles={openFiles}
@@ -3995,7 +4042,7 @@ export default function App() {
                   setIsEditorMaximized(false);
                   setIsTerminalCollapsed(false);
                   setActiveBottomTab('terminal');
-                  setBottomPanelHeight(Math.floor(window.innerHeight / 2));
+                  setBottomPanelHeight(Math.floor(viewportPxToApp(window.innerHeight) / 2));
                   return;
                 }
                 if (isTerminalCollapsed) {
@@ -4028,12 +4075,31 @@ export default function App() {
               onAskAboutPdf={handleAskAboutPdf}
               isAgentRunning={isAgentRunning}
               onTextStatsChange={setEditorTextStats}
+              openPreviewByDefault={isStudioLayout}
             />
           )}
 
-          {layoutMode === 'chat-bottom' && !isBottomMaximized && (
+          {/* Studio drag handles. They are grid items like the panels, so they
+              sit between the cells without wrapping anything in a container —
+              which is what keeps the panels' tree positions untouched. */}
+          {isStudioLayout && studioGrid.showRowResizer && (
+            <div
+              className="vscode-resizer-vertical vscode-studio-row-resizer"
+              onMouseDown={(e) => startResizing(e, 'studio-bottom')}
+            />
+          )}
+          {isStudioLayout && studioGrid.showColumnResizer && (
+            <div
+              className="vscode-resizer-horizontal vscode-studio-col-resizer"
+              onMouseDown={(e) => startResizing(e, 'studio-chat')}
+            />
+          )}
+
+          {((layoutMode === 'chat-bottom' && !isBottomMaximized)
+            || (isStudioLayout && isChatVisible && !isEditorMaximized)) && (
             <ChatPanel
-              isChatMode
+              isChatMode={!isStudioLayout}
+              fillContainer={isStudioLayout}
               isTutorialChat={Boolean(tutorialChatId) && activeChatId === tutorialChatId}
               tutorialTopics={tutorialTopics}
               onTutorialTopic={handleTutorialTopic}
@@ -4077,7 +4143,14 @@ export default function App() {
               onModelChange={handleProjectModelChange}
             />
           )}
-          <div style={{ display: isEditorMaximized || (layoutMode !== 'ide' && layoutMode !== 'chat-bottom') ? 'none' : 'contents' }}>
+          <div
+            className={isStudioLayout ? 'vscode-studio-terminal-cell' : undefined}
+            style={{
+              display: isStudioLayout
+                ? (isEditorMaximized || isTerminalCollapsed ? 'none' : 'flex')
+                : (isEditorMaximized || (layoutMode !== 'ide' && layoutMode !== 'chat-bottom') ? 'none' : 'contents'),
+            }}
+          >
             <BottomPanel
               activeBottomTab={activeBottomTab}
               setActiveBottomTab={setActiveBottomTab}
@@ -4097,6 +4170,7 @@ export default function App() {
               isBottomMaximized={isBottomMaximized}
               onToggleMaximizeBottom={() => setIsBottomMaximized(!isBottomMaximized)}
               theme={theme}
+              fillContainer={isStudioLayout}
             />
           </div>
         </main>
@@ -4121,7 +4195,7 @@ export default function App() {
           />
         )}
 
-        {(!isEditorMaximized && layoutMode !== 'review' && layoutMode !== 'chat-bottom' && layoutMode !== 'chat-compare' && (isChatVisible || layoutMode === 'chat')) && (
+        {(!isEditorMaximized && layoutMode !== 'review' && layoutMode !== 'chat-bottom' && layoutMode !== 'chat-compare' && !isStudioLayout && (isChatVisible || layoutMode === 'chat')) && (
           <>
             <ChatPanel
               isChatMode={layoutMode === 'chat'}

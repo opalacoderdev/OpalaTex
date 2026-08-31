@@ -56,3 +56,36 @@ export const roundUiScale = (value) =>
 /** The preset a factor corresponds to, or null when it sits between steps. */
 export const presetForScale = (scale) =>
   UI_SCALE_PRESETS.find((p) => Math.abs(p.scale - scale) < UI_SCALE_STEP / 2) || null;
+
+/**
+ * The scale currently applied to the interface, read from the document element
+ * so there is a single source of truth (App.jsx is its only writer).
+ */
+export const readUiScale = () => {
+  if (typeof document === 'undefined') return UI_SCALE_DEFAULT;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--ui-scale');
+  const scale = Number.parseFloat(raw);
+  return Number.isFinite(scale) && scale > 0 ? scale : UI_SCALE_DEFAULT;
+};
+
+// ── Crossing the zoom boundary ────────────────────────────────────────────
+// The app renders inside a CSS `zoom`, which multiplies every CSS length in the
+// subtree before it reaches the screen. DOM geometry does not go through that
+// multiplication: MouseEvent.clientX/clientY, getBoundingClientRect() and
+// window.innerWidth/innerHeight are all reported in real viewport pixels. So a
+// pointer position written straight into `left`/`top` lands scale-times too far
+// from the origin — which is why a context menu opened at the top of the tree
+// used to appear near the bottom of the window at 140%.
+//
+// Convert whenever a measured or pointer coordinate becomes a CSS length inside
+// the app, and *only* then: hit-testing a pointer against a getBoundingClientRect
+// compares two viewport values and must be left alone.
+
+/** A viewport distance (event or rect pixels) as a CSS length inside the app. */
+export const viewportPxToApp = (px, scale = readUiScale()) => px / scale;
+
+/** A viewport point (typically event.clientX/clientY) as app CSS coordinates. */
+export const viewportPointToApp = (clientX, clientY, scale = readUiScale()) => ({
+  x: clientX / scale,
+  y: clientY / scale,
+});

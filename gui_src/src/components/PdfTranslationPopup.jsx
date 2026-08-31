@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { readUiScale, viewportPointToApp, viewportPxToApp } from '../utils/uiScale';
 import { Languages, X, Copy, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { safeGetLocalStorage, safeSetLocalStorage } from '../utils/storage';
@@ -75,7 +76,7 @@ export default function PdfTranslationPopup({ state, onClose, onRetry, onCopy })
     const handleMove = (e) => {
       const grab = dragGrabRef.current;
       if (!grab) return;
-      setPosition({ x: e.clientX - grab.dx, y: e.clientY - grab.dy });
+      setPosition(viewportPointToApp(e.clientX - grab.dx, e.clientY - grab.dy));
     };
     const endDrag = () => {
       dragGrabRef.current = null;
@@ -112,9 +113,13 @@ export default function PdfTranslationPopup({ state, onClose, onRetry, onCopy })
   // so re-running it on its own result settles in one pass.
   useLayoutEffect(() => {
     if (!state || !popupRef.current) return;
+    // `position` is a CSS length inside the zoomed app, while the rect and the
+    // window are measured in viewport pixels; the bounds have to be brought
+    // into the same space before they can be compared.
+    const scale = readUiScale();
     const rect = popupRef.current.getBoundingClientRect();
-    const maxX = Math.max(VIEWPORT_MARGIN, window.innerWidth - rect.width - VIEWPORT_MARGIN);
-    const maxY = Math.max(VIEWPORT_MARGIN, window.innerHeight - rect.height - VIEWPORT_MARGIN);
+    const maxX = Math.max(VIEWPORT_MARGIN, viewportPxToApp(window.innerWidth - rect.width, scale) - VIEWPORT_MARGIN);
+    const maxY = Math.max(VIEWPORT_MARGIN, viewportPxToApp(window.innerHeight - rect.height, scale) - VIEWPORT_MARGIN);
     setPosition((prev) => {
       const x = Math.min(Math.max(VIEWPORT_MARGIN, prev.x), maxX);
       const y = Math.min(Math.max(VIEWPORT_MARGIN, prev.y), maxY);

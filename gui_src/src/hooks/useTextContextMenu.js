@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { viewportPointToApp } from '../utils/uiScale';
 import { readClipboard } from '../utils/clipboard.js';
 
 export function useTextContextMenu() {
@@ -7,7 +8,8 @@ export function useTextContextMenu() {
   const onContextMenu = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
-    setMenu({ x: e.clientX, y: e.clientY });
+    // Positioned with left/top inside the zoomed app — see viewportPointToApp.
+    setMenu(viewportPointToApp(e.clientX, e.clientY));
   }, []);
 
   const close = useCallback(() => setMenu(null), []);

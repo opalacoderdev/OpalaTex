@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
+import { readUiScale, viewportPxToApp } from '../utils/uiScale';
 import { MessageSquareQuote, Languages, Highlighter, Underline, Strikethrough, StickyNote, Trash2, PenLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -54,11 +55,14 @@ export default function PdfContextMenu({
   useLayoutEffect(() => {
     if (!menu || !menuRef.current) return;
     const rect = menuRef.current.getBoundingClientRect();
+    // Compared in viewport pixels, written back as a CSS length inside the
+    // zoomed app — see viewportPxToApp.
+    const scale = readUiScale();
     if (rect.right > window.innerWidth) {
-      menuRef.current.style.left = `${Math.max(4, window.innerWidth - rect.width - 5)}px`;
+      menuRef.current.style.left = `${Math.max(4, viewportPxToApp(window.innerWidth - rect.width, scale) - 5)}px`;
     }
     if (rect.bottom > window.innerHeight) {
-      menuRef.current.style.top = `${Math.max(4, window.innerHeight - rect.height - 5)}px`;
+      menuRef.current.style.top = `${Math.max(4, viewportPxToApp(window.innerHeight - rect.height, scale) - 5)}px`;
     }
   }, [menu]);
 
