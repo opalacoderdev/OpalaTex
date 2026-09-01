@@ -84,6 +84,27 @@ release pipeline's secrets (`OPALATEX_GDRIVE_CLIENT_ID` /
 repository. A build without those secrets still works — it simply ships no
 client, and the Account tab asks for one.
 
+### The release that shipped without a client
+
+Verified against the published `v0.2.10` asset that `install.ps1` installs
+(`OpalaTex-windows-x64.zip`, 561 MB, 11478 entries, whole central directory
+read): **`bundled_google_client.json` is not in it.** Every install from that
+release therefore had Cloud sync unable to open the Google sign-in at all — the
+Connect button had no client to build an authorization URL from, so it could
+only report the missing-client message. Nothing in the app could have fixed
+that; OAuth has no flow without a client id.
+
+The cause is a chain of optional steps, each individually reasonable:
+`build_exe.ps1` injects the client only `if ($env:OPALATEX_GDRIVE_CLIENT_ID)`
+and otherwise prints a note and carries on; the workflow feeds that env var from
+a repository secret; an unset secret therefore produces a complete, publishable,
+silently crippled release.
+
+Two guards in `.github/workflows/build.yml` close it, both scoped to a published
+build so forks and branch builds stay permissive: the secrets are required
+*before* the build runs, and the packaged `dist/` is checked for the file
+*after* it. A release now fails instead of shipping with the feature dead.
+
 ### The packaging trap this fell into
 
 `bundled_google_client.json` is `.gitignore`'d, and hatchling drops VCS-ignored

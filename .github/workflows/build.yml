@@ -40,10 +40,32 @@ jobs:
         with:
           node-version: '20'
 
+      # A build that is going to be published must carry the Google OAuth client.
+      # Without it every install from the release — which is what install.ps1 and
+      # install.sh hand the user — has Cloud sync unable to open the Google
+      # sign-in at all, and the app can only tell the user to go register
+      # credentials in the Google Cloud console. The build scripts treat the
+      # client as optional so a fork or a branch build still works; a release
+      # cannot afford that, so it fails here, before 20 minutes of packaging.
+      - name: Require the Google OAuth client for a published build
+        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.tag != ''
+        shell: bash
+        env:
+          OPALATEX_GDRIVE_CLIENT_ID: ${{ secrets.OPALATEX_GDRIVE_CLIENT_ID }}
+          OPALATEX_GDRIVE_CLIENT_SECRET: ${{ secrets.OPALATEX_GDRIVE_CLIENT_SECRET }}
+        run: |
+          missing=""
+          [ -z "$OPALATEX_GDRIVE_CLIENT_ID" ] && missing="OPALATEX_GDRIVE_CLIENT_ID"
+          [ -z "$OPALATEX_GDRIVE_CLIENT_SECRET" ] && missing="$missing OPALATEX_GDRIVE_CLIENT_SECRET"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing. Set them under Settings -> Secrets and variables -> Actions, then re-run this release. Publishing without them ships an app whose Cloud sync cannot connect."
+            exit 1
+          fi
+
       - name: Build Windows
         if: matrix.os == 'windows-latest'
-        # The Google OAuth client is optional: without these secrets the build
-        # still works, and Cloud sync asks the user for their own client.
+        # The Google OAuth client is optional for branch and fork builds only:
+        # the step above makes it mandatory for anything published.
         env:
           OPALATEX_GDRIVE_CLIENT_ID: ${{ secrets.OPALATEX_GDRIVE_CLIENT_ID }}
           OPALATEX_GDRIVE_CLIENT_SECRET: ${{ secrets.OPALATEX_GDRIVE_CLIENT_SECRET }}
@@ -57,6 +79,21 @@ jobs:
         run: |
           chmod +x build_exe.sh
           ./build_exe.sh
+
+      # Having the secret does not prove the file reached the bundle: it is added
+      # through a separate --add-data argument, and PyInstaller drops a missing
+      # data file with a warning rather than an error. This is the check that the
+      # published release v0.2.10 would have failed.
+      - name: Verify the packaged app carries the OAuth client
+        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.tag != ''
+        shell: bash
+        run: |
+          found=$(find dist -name bundled_google_client.json | head -1)
+          if [ -z "$found" ]; then
+            echo "::error::The packaged app has no bundled_google_client.json. Cloud sync would ship unable to connect."
+            exit 1
+          fi
+          echo "OAuth client packaged at $found"
 
       - name: Package Release Assets (Windows)
         if: matrix.os == 'windows-latest'
