@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  X, CloudDownload, RefreshCw, AlertTriangle, Check, FolderOpen, Cloud, CloudOff, KeyRound,
+  X, CloudDownload, RefreshCw, AlertTriangle, Check, FolderOpen, Cloud, CloudOff,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -10,6 +10,12 @@ import { useTranslation } from 'react-i18next';
 // It is deliberately its own modal rather than a tab of CloudSyncModal — that
 // panel configures the project you already have open, and this flow exists
 // precisely when there is no such project yet.
+//
+// Connecting is the *same* one-click browser authorization the sync panel uses,
+// and nothing more: press Connect, authorize in the browser, done. The OAuth
+// client ships with the build, so no credential is ever asked for here — a
+// second machine is where the user is least willing to go and register
+// something in a cloud console.
 export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, onPickParentPath }) {
   const { t } = useTranslation();
 
@@ -24,13 +30,6 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(null);
   const [pendingAuthUrl, setPendingAuthUrl] = useState('');
-  // Which OAuth client this installation connects with. A build that ships one
-  // never shows this; a source checkout has to be able to register a client
-  // here, because on a machine with no projects yet there is no project panel
-  // to go and do it in.
-  const [googleClient, setGoogleClient] = useState(null);
-  const [customClientId, setCustomClientId] = useState('');
-  const [customClientSecret, setCustomClientSecret] = useState('');
 
   // Guards a state update from an in-flight request after the modal closed.
   const mounted = useRef(true);
@@ -41,40 +40,6 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
   const needsAuth = !!currentProvider?.requires_authorization;
   const connected = !!auth?.connected;
   const destination = parentPath && folderName ? `${parentPath}/${folderName}` : '';
-
-  const loadGoogleClient = useCallback(async () => {
-    try {
-      const res = await fetch('/api/cloud/google-client');
-      const payload = await res.json();
-      if (!mounted.current) return;
-      setGoogleClient(payload);
-      setCustomClientId(payload.custom_client_id || '');
-    } catch (_) { /* the panel still works without it */ }
-  }, []);
-
-  useEffect(() => { loadGoogleClient(); }, [loadGoogleClient]);
-
-  const saveGoogleClient = async () => {
-    setBusy('client');
-    setError('');
-    try {
-      const res = await fetch('/api/cloud/google-client', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: customClientId, client_secret: customClientSecret }),
-      });
-      const payload = await res.json();
-      if (payload.error) { setError(payload.error); return; }
-      // The secret is write-only: it is never sent back, so the field is
-      // cleared rather than left holding a value the user cannot verify.
-      setCustomClientSecret('');
-      await loadGoogleClient();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      if (mounted.current) setBusy('');
-    }
-  };
 
   useEffect(() => {
     (async () => {
@@ -313,40 +278,6 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
             </div>
           )}
 
-          {/* Only a build that carries no OAuth client of its own ever shows this. */}
-          {provider === 'google_drive' && googleClient && !googleClient.configured && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <span className="flex items-center" style={{ gap: '6px', fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>
-                <KeyRound size={12} style={{ flexShrink: 0 }} />
-                {t('cloudSync.googleClientHelp')}
-              </span>
-              <input
-                type="text"
-                className="vscode-settings-input"
-                value={customClientId}
-                placeholder={t('cloudSync.clientId', 'Client ID')}
-                onChange={(e) => setCustomClientId(e.target.value)}
-              />
-              <input
-                type="password"
-                className="vscode-settings-input"
-                value={customClientSecret}
-                placeholder={googleClient.has_custom_client_secret
-                  ? t('cloudSync.clientSecretStored', 'Stored — leave blank to keep it')
-                  : t('cloudSync.clientSecret', 'Client secret')}
-                onChange={(e) => setCustomClientSecret(e.target.value)}
-              />
-              <button
-                className="vscode-button"
-                onClick={saveGoogleClient}
-                disabled={busy === 'client' || !customClientId}
-                style={{ alignSelf: 'flex-start' }}
-              >
-                {t('cloudSync.saveClient', 'Save credentials')}
-              </button>
-            </div>
-          )}
-
           {needsAuth && (
             <div className="flex items-center justify-between" style={{ gap: '8px' }}>
               <span className="flex items-center" style={{ gap: '6px', fontSize: '12px' }}>
@@ -356,11 +287,7 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
                   : t('cloudSync.notConnected', 'Not connected')}
               </span>
               {!connected && (
-                <button
-                  className="vscode-button"
-                  onClick={connect}
-                  disabled={!!busy || (provider === 'google_drive' && googleClient && !googleClient.configured)}
-                >
+                <button className="vscode-button" onClick={connect} disabled={!!busy}>
                   {busy === 'connect'
                     ? t('cloudSync.connecting', 'Waiting for authorization…')
                     : t('cloudSync.connect', 'Connect')}
