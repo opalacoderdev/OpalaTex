@@ -72,6 +72,32 @@ class SynctexParser:
                                 except:
                                     pass
 
+def select_record_line(recorded_lines, target_line):
+    """Picks which recorded source line covers `target_line`.
+
+    A SyncTeX record carries the line that was current when TeX *shipped* the
+    material out, not necessarily the line the material was written on. Anything
+    collected into a box and typeset later -- a beamer frame body above all, whose
+    whole content is emitted at ``\\end{frame}`` -- is therefore recorded under a
+    line at or *after* the one the user edited.
+
+    So when the target line has no record of its own, the record that covers it is
+    the next one, never the previous one. Choosing the numerically nearest line
+    instead sends the first half of every beamer frame to the slide before it: for
+    a frame spanning lines 9-15, line 10 is closer to the preceding frame's record
+    (line 7) than to its own (line 15).
+
+    Only when nothing follows the target -- a click past the last typeset line --
+    does the closest earlier record win.
+    """
+    if not recorded_lines:
+        return None
+    at_or_after = [line for line in recorded_lines if line >= target_line]
+    if at_or_after:
+        return min(at_or_after)
+    return max(recorded_lines)
+
+
 def find_pdf_position(synctex_path, target_file, target_line):
     """Finds the first node matching the target file and line."""
     parser = SynctexParser(synctex_path)
@@ -86,20 +112,12 @@ def find_pdf_position(synctex_path, target_file, target_line):
     if not target_tag:
         return None
         
-    best_nodes = []
-    min_dist = float('inf')
-    best_line = -1
-    
-    for node in parser.nodes:
-        if node['tag'] == target_tag:
-            dist = abs(node['line'] - target_line)
-            if dist < min_dist:
-                min_dist = dist
-                best_line = node['line']
-                best_nodes = [node]
-            elif dist == min_dist and node['line'] == best_line:
-                best_nodes.append(node)
-                
+    file_nodes = [node for node in parser.nodes if node['tag'] == target_tag]
+    best_line = select_record_line({node['line'] for node in file_nodes}, target_line)
+    if best_line is None:
+        return None
+
+    best_nodes = [node for node in file_nodes if node['line'] == best_line]
     if not best_nodes:
         return None
     
@@ -116,11 +134,14 @@ def find_pdf_position(synctex_path, target_file, target_line):
         p = n['page']
         page_counts[p] = page_counts.get(p, 0) + 1
         
-    # Find the page with the most nodes (the actual text, not ToC or headers)
+    # Find the page with the most nodes (the actual text, not ToC or headers).
+    # A beamer frame with \pause is shipped once per overlay, with every box
+    # present on every one of them, so its pages tie here; the -k term breaks
+    # that tie towards the first overlay rather than leaving it to node order.
     if not page_counts:
         return None
         
-    best_page = max(page_counts.keys(), key=lambda k: page_counts[k])
+    best_page = max(page_counts.keys(), key=lambda k: (page_counts[k], -k))
     
     # Filter nodes to ONLY those on the best_page
     page_nodes = [n for n in text_nodes if n['page'] == best_page]

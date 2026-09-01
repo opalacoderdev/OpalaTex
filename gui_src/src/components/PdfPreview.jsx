@@ -82,7 +82,13 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     if (!pageEls.length) return;
 
     const containerRect = container.getBoundingClientRect();
-    const viewportCenter = containerRect.top + container.clientHeight / 2;
+    // Both terms must come from the same coordinate space. `containerRect` is in
+    // real viewport pixels while `clientHeight` is a CSS length inside the app's
+    // `zoom`, so mixing them put the "center" at 1/scale of the way down the
+    // pane and reported the page above the one actually in view at any interface
+    // scale above 100%. The rects the pages are compared against are viewport
+    // values too, so the height has to come from the rect as well.
+    const viewportCenter = containerRect.top + containerRect.height / 2;
     let bestPage = null;
     let bestDistance = Infinity;
 
