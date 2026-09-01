@@ -315,7 +315,10 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
             </div>
           )}
 
-          {auth && !connected && auth.error && (
+          {/* Pressing Connect reports the same failure the status check already
+              found, so the two would otherwise print the identical paragraph
+              twice, one above the other. */}
+          {auth && !connected && auth.error && auth.error !== error && (
             <div style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{auth.error}</div>
           )}
 

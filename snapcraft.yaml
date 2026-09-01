@@ -1,6 +1,6 @@
 name: opalatex
 title: OpalaTex
-version: "0.2.9"
+version: "0.2.10"
 summary: AI-assisted LaTeX editor and project IDE
 description: |
   OpalaTex is a project-centric, AI-assisted LaTeX editor with a local
@@ -153,6 +153,16 @@ parts:
       "$CRAFT_PART_INSTALL/bin/python" -m pip install --upgrade pip setuptools wheel
       "$CRAFT_PART_INSTALL/bin/python" -m pip install .
       "$CRAFT_PART_INSTALL/bin/python" -c "from opalatex.assetstore import list_assets; assets = list_assets('template'); assert len(assets) > 0, 'No templates found in assetstore'"
+
+      # The Google OAuth client is .gitignore'd, so a packaging rule that drops
+      # VCS-ignored files removes it without a word and the snap ships with Cloud
+      # sync unable to connect at all. If the source tree has one, the installed
+      # package must have it too.
+      if [ -f opalatex/cloud/providers/bundled_google_client.json ]; then
+        "$CRAFT_PART_INSTALL/bin/python" -c "import os, opalatex.cloud.providers as p; f = os.path.join(os.path.dirname(p.__file__), 'bundled_google_client.json'); assert os.path.isfile(f), 'The build dropped bundled_google_client.json: Cloud sync would ship unable to connect'"
+      else
+        echo "WARNING: no bundled_google_client.json in the source tree; this snap ships without a Google OAuth client and Cloud sync will not connect."
+      fi
 
       mkdir -p "$CRAFT_PART_INSTALL/bin"
       curl -L "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz" -o tectonic.tar.gz

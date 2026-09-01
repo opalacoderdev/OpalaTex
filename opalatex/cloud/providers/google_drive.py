@@ -98,13 +98,17 @@ def unavailable_reason() -> str:
     return ""
 
 
-# Reached only by a build that carries no bundled client (a source checkout, or
-# a package built without the credentials). The normal path never shows it, so
-# it names the escape hatch instead of describing a required setup.
+# Reached only by an installation that carries no bundled client. Connecting is
+# meant to be one click, so this text names the real cause — the install is
+# incomplete — instead of handing the user a Google Cloud console chore as if
+# registering credentials were a normal step. It has been the wrong shape once
+# already: a packaging rule dropped the client from every installed build, and
+# this message sent users to the console to work around a broken package.
 _MISSING_CLIENT_MESSAGE = (
-    "This build of OpalaTex carries no Google OAuth client. Open Cloud sync -> "
-    "Account -> Use my own Google OAuth client and paste a 'Desktop app' client "
-    "created in the Google Cloud console, with the Google Drive API enabled."
+    "This installation of OpalaTex was packaged without its Google OAuth client, "
+    "so it cannot open the Google sign-in. Update or reinstall OpalaTex to a "
+    "build that carries one. (Advanced: you can register a 'Desktop app' client "
+    "of your own under Cloud sync -> Account.)"
 )
 
 
