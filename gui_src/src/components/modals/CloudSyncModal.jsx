@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './CustomDialogProvider';
+import { handleExternalClick } from '../../utils/openExternal';
 
 function TabButton({ active, onClick, children }) {
   return (
@@ -650,9 +651,10 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
                   </div>
                   <a
                     href={pendingAuthUrl}
+                    onClick={handleExternalClick(pendingAuthUrl)}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ color: 'var(--vscode-accent)', wordBreak: 'break-all' }}
+                    style={{ color: 'var(--vscode-accent)', wordBreak: 'break-all', cursor: 'pointer' }}
                   >
                     <ExternalLink size={11} style={{ display: 'inline', marginRight: '4px' }} />
                     {pendingAuthUrl}

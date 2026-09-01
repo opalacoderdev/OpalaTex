@@ -4751,6 +4751,33 @@ class AsyncHTTPServer:
                 "merge": merge.to_dict() if merge else None,
             }).encode('utf-8'), "application/json")
 
+        # 7i14. Open a URL in the desktop's default browser.
+        # The UI runs in a pywebview window with no createWindow handler, where
+        # a `target="_blank"` link does nothing at all — so an authorization URL
+        # the user is asked to follow has to be opened from here.
+        elif path == '/api/system/open-url' and method == 'POST':
+            import webbrowser
+            from urllib.parse import urlparse
+            url = str(data.get('url', '') or '').strip()
+            scheme = urlparse(url).scheme.lower() if url else ""
+            # Only web URLs. Handing an arbitrary scheme to the desktop opener
+            # would turn this into "run whatever the page asks for".
+            if scheme not in {"http", "https"}:
+                self.send_response(writer, 400, json.dumps({
+                    "error": "Only http and https URLs can be opened."
+                }).encode('utf-8'), "application/json")
+                return
+            try:
+                # Launching a browser can block while the desktop portal answers.
+                opened = await asyncio.get_running_loop().run_in_executor(
+                    None, lambda: bool(webbrowser.open(url, new=1, autoraise=True))
+                )
+                self.send_response(writer, 200, json.dumps({"opened": opened}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 200, json.dumps({
+                    "opened": False, "error": str(e),
+                }).encode('utf-8'), "application/json")
+
         # 7j. Web search config — GET
         elif path == '/api/settings/web-search' and method == 'GET':
             from opalatex.web_search_config import load_config

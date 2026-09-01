@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  X, CloudDownload, RefreshCw, AlertTriangle, Check, FolderOpen, Cloud, CloudOff,
+  X, CloudDownload, RefreshCw, AlertTriangle, Check, FolderOpen, Cloud, CloudOff, ExternalLink,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { handleExternalClick } from '../../utils/openExternal';
 
 // The other half of cloud mirroring: a machine that has never seen a project
 // finds it in the account and pulls it down, so the same work continues here.
@@ -297,9 +298,20 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
           )}
 
           {pendingAuthUrl && (
-            <div style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)', wordBreak: 'break-all' }}>
-              {t('cloudSync.waitingBrowser', 'Waiting for you to finish in the browser…')}
-              <div style={{ marginTop: '4px', fontFamily: 'monospace' }}>{pendingAuthUrl}</div>
+            <div style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)', lineHeight: 1.5 }}>
+              <div style={{ marginBottom: '4px' }}>
+                {t('cloudSync.waitingBrowser', 'Waiting for you to finish in the browser…')}
+              </div>
+              <a
+                href={pendingAuthUrl}
+                onClick={handleExternalClick(pendingAuthUrl)}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: 'var(--vscode-accent)', wordBreak: 'break-all', cursor: 'pointer' }}
+              >
+                <ExternalLink size={11} style={{ display: 'inline', marginRight: '4px' }} />
+                {pendingAuthUrl}
+              </a>
             </div>
           )}
 
