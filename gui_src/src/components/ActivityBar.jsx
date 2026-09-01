@@ -1,6 +1,12 @@
-import React from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, LayoutGrid, PanelBottom, Terminal, History, Columns2, Store, GraduationCap, Cloud, CloudOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import {
+  ACTIVITY_BAR_DEFAULT_DENSITY,
+  getActivityBarDensity,
+  pickActivityBarDensity,
+} from '../utils/activityBarDensity';
+import { readUiScale } from '../utils/uiScale';
 
 // Left-side vertical activity bar (VSCode-style icon strip).
 export default function ActivityBar({
@@ -26,15 +32,88 @@ export default function ActivityBar({
   // can open one without being switched away from.
   const hasDockedSidebar = layoutMode === 'ide' || layoutMode === 'studio';
 
+  const barRef = useRef(null);
+  const [densityName, setDensityName] = useState(ACTIVITY_BAR_DEFAULT_DENSITY.name);
+  const [fade, setFade] = useState({ top: false, bottom: false });
+  const density = getActivityBarDensity(densityName);
+
+  // Which edges still hide a button, so the strip can fade there instead of
+  // ending in a half-drawn icon that reads as a rendering glitch.
+  const measureFade = useCallback(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const hidden = bar.scrollHeight - bar.clientHeight;
+    const top = hidden > 1 && bar.scrollTop > 1;
+    const bottom = hidden > 1 && bar.scrollTop < hidden - 1;
+    setFade(prev => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
+  }, []);
+
+  // The bar is stretched by `.vscode-main`, so its own height never depends on
+  // the tier we pick — measuring it here cannot oscillate. Button counts come
+  // from the DOM so that adding a button keeps the fit calculation honest.
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return undefined;
+    const measure = () => {
+      const counts = {
+        top: bar.querySelectorAll('.vscode-activitybar-top > *').length,
+        bottom: bar.querySelectorAll('.vscode-activitybar-bottom > *').length,
+      };
+      setDensityName(pickActivityBarDensity(bar.clientHeight, counts).name);
+      measureFade();
+    };
+    measure();
+    const stop = [];
+    if (typeof ResizeObserver !== 'undefined') {
+      const resize = new ResizeObserver(measure);
+      resize.observe(bar);
+      stop.push(() => resize.disconnect());
+    }
+    // The interface scale is a CSS `zoom`, so raising it shrinks the bar in its
+    // own CSS pixels while the box it paints keeps the same size on screen —
+    // a change ResizeObserver does not report, and the one that hid the last
+    // icons in the first place. `--ui-scale` on <html> is the single source of
+    // truth for that factor (see utils/uiScale.js), so the bar re-measures when
+    // it is rewritten; reading clientHeight then forces the pending layout.
+    if (typeof MutationObserver !== 'undefined') {
+      let lastScale = readUiScale();
+      const zoom = new MutationObserver(() => {
+        const scale = readUiScale();
+        if (scale === lastScale) return;
+        lastScale = scale;
+        measure();
+      });
+      zoom.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+      stop.push(() => zoom.disconnect());
+    }
+    return () => stop.forEach(fn => fn());
+  }, [measureFade]);
+
+  // A tier change resizes the content, not the bar, so the fades are recomputed
+  // after it lands.
+  useEffect(() => { measureFade(); }, [densityName, gitChangesCount, cloudEnabled, measureFade]);
+
   return (
-    <div className="vscode-activitybar">
+    <div
+      ref={barRef}
+      className="vscode-activitybar"
+      data-density={density.name}
+      data-fade-top={fade.top ? 'true' : 'false'}
+      data-fade-bottom={fade.bottom ? 'true' : 'false'}
+      onScroll={measureFade}
+      style={{
+        '--activitybar-padding-y': `${density.paddingY}px`,
+        '--activitybar-gap': `${density.gap}px`,
+        '--activitybar-btn-padding-y': `${density.buttonPaddingY}px`,
+      }}
+    >
       <div className="vscode-activitybar-top">
         <button
           onClick={() => setLayoutMode(layoutMode === 'chat' ? 'ide' : 'chat')}
           className={`vscode-activitybar-btn ${layoutMode === 'chat' ? 'active' : ''}`}
           title={layoutMode === 'chat' ? t('activityBar.editMode') : t('activityBar.chatMode')}
         >
-          <LayoutTemplate size={22} />
+          <LayoutTemplate size={density.iconSize} />
         </button>
 
         <button
@@ -42,7 +121,7 @@ export default function ActivityBar({
           className={`vscode-activitybar-btn ${layoutMode === 'chat-bottom' ? 'active' : ''}`}
           title={layoutMode === 'chat-bottom' ? t('activityBar.editMode') : t('activityBar.chatBottomMode')}
         >
-          <PanelBottom size={22} />
+          <PanelBottom size={density.iconSize} />
         </button>
         <button
           onClick={() => {
@@ -52,7 +131,7 @@ export default function ActivityBar({
           className={`vscode-activitybar-btn ${activeSidebarTab === 'explorer' && hasDockedSidebar ? 'active' : ''}`}
           title={t('activityBar.explorer')}
         >
-          <Files size={22} />
+          <Files size={density.iconSize} />
         </button>
 
         <button
@@ -63,7 +142,7 @@ export default function ActivityBar({
           className={`vscode-activitybar-btn ${layoutMode === 'review' ? 'active' : ''}`}
           title={t('activityBar.reviewMode')}
         >
-          <History size={22} />
+          <History size={density.iconSize} />
         </button>
 
 
@@ -76,7 +155,7 @@ export default function ActivityBar({
           title={t('activityBar.sourceControl')}
           style={{ position: 'relative' }}
         >
-          <GitBranch size={22} />
+          <GitBranch size={density.iconSize} />
           {gitChangesCount > 0 && (
             <span style={{
               position: 'absolute',
@@ -106,7 +185,7 @@ export default function ActivityBar({
           disabled={layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare'}
           style={{ opacity: layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare' ? 0.5 : 1, cursor: layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare' ? 'not-allowed' : 'pointer' }}
         >
-          <MessageSquare size={22} />
+          <MessageSquare size={density.iconSize} />
         </button>
 
         <button
@@ -114,7 +193,7 @@ export default function ActivityBar({
           className={`vscode-activitybar-btn ${!isTerminalCollapsed ? 'active' : ''}`}
           title="Alternar Painel Inferior (Terminal)"
         >
-          <Terminal size={22} />
+          <Terminal size={density.iconSize} />
         </button>
 
         <button
@@ -137,7 +216,7 @@ export default function ActivityBar({
           className={`vscode-activitybar-btn ${layoutMode === 'studio' ? 'active' : ''}`}
           title={layoutMode === 'studio' ? t('activityBar.editMode') : t('activityBar.studioMode')}
         >
-          <LayoutGrid size={22} />
+          <LayoutGrid size={density.iconSize} />
         </button>
 
         <button
@@ -145,17 +224,17 @@ export default function ActivityBar({
           className={`vscode-activitybar-btn ${layoutMode === 'chat-compare' ? 'active' : ''}`}
           title={layoutMode === 'chat-compare' ? t('activityBar.editMode') : t('activityBar.chatComparisonMode')}
         >
-          <Columns2 size={22} />
+          <Columns2 size={density.iconSize} />
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="vscode-activitybar-bottom">
         <button
           onClick={onOpenTutorial}
           className="vscode-activitybar-btn"
           title={t('activityBar.tutorial', 'Tutorial')}
         >
-          <GraduationCap size={20} />
+          <GraduationCap size={density.secondaryIconSize} />
         </button>
 
         <button
@@ -163,7 +242,7 @@ export default function ActivityBar({
           className="vscode-activitybar-btn"
           title={t('activityBar.assetStore', 'Asset Store')}
         >
-          <Store size={20} />
+          <Store size={density.secondaryIconSize} />
         </button>
 
         <button
@@ -173,7 +252,7 @@ export default function ActivityBar({
             ? t('activityBar.cloudSyncOn', 'Cloud sync (on)')
             : t('activityBar.cloudSync', 'Cloud sync')}
         >
-          {cloudEnabled ? <Cloud size={20} /> : <CloudOff size={20} />}
+          {cloudEnabled ? <Cloud size={density.secondaryIconSize} /> : <CloudOff size={density.secondaryIconSize} />}
         </button>
 
         <button
@@ -181,7 +260,7 @@ export default function ActivityBar({
           className="vscode-activitybar-btn"
           title={t('activityBar.hardware', 'Hardware')}
         >
-          <Cpu size={20} />
+          <Cpu size={density.secondaryIconSize} />
         </button>
 
         <button
@@ -189,7 +268,7 @@ export default function ActivityBar({
           className="vscode-activitybar-btn"
           title={t('activityBar.settings')}
         >
-          <Settings size={20} />
+          <Settings size={density.secondaryIconSize} />
         </button>
       </div>
     </div>
