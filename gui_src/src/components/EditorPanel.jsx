@@ -26,8 +26,6 @@ import RichTextEditor from './RichTextEditor';
 // The WYSIWYG mode pulls in the whole ProseMirror stack, so it is loaded only
 // when a file is actually switched into it.
 const LatexWysiwygEditor = lazy(() => import('../wysiwyg/LatexWysiwygEditor.jsx'));
-const DocxEditorPanel = lazy(() => import('./DocxEditorPanel'));
-const PptxEditorPanel = lazy(() => import('./PptxEditorPanel'));
 
 // Center panel: file tabs + Monaco editor (or empty state when no file is open).
 export default function EditorPanel({
@@ -65,8 +63,6 @@ export default function EditorPanel({
   setJumpToLine,
   triggerCompileRequest,
   onCompileRequestHandled,
-  onBinaryFileSaved,
-  onRegisterBinarySave,
   onLatexCompileError,
   onLatexCompileSuccess,
   onFixLatexProblem,
@@ -116,12 +112,8 @@ export default function EditorPanel({
   // mounting and async math rendering.
   const richTextScrollTopsRef = useRef({});
   const documentActionsMenuRef = useRef(null);
-  const docxEditorRef = useRef(null);
-  const pptxEditorRef = useRef(null);
   
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
-  const isDocxFile = selectedFile && selectedFile.toLowerCase().endsWith('.docx');
-  const isPptxFile = selectedFile && selectedFile.toLowerCase().endsWith('.pptx');
   const isHtmlFile = selectedFile && /\.(html|htm)$/i.test(selectedFile);
   const isMarkdownFile = !!selectedFile && selectedFile.toLowerCase().endsWith('.md');
   // Files that have a rendered preview at all — the only ones the preview
@@ -137,21 +129,6 @@ export default function EditorPanel({
   };
   const isTexFile = isTexRelatedFile(selectedFile);
   const isNormalLatexEditor = isTexFile && !isRichTextMode && !isWysiwygMode && !isPreviewMode;
-
-  const saveBinaryEditor = useCallback(() => {
-    if (isDocxFile) return docxEditorRef.current?.save?.() || false;
-    if (isPptxFile) return pptxEditorRef.current?.save?.() || false;
-    return false;
-  }, [isDocxFile, isPptxFile]);
-
-  useEffect(() => {
-    if (isDocxFile || isPptxFile) {
-      onRegisterBinarySave?.(saveBinaryEditor);
-      return () => onRegisterBinarySave?.(null);
-    }
-    onRegisterBinarySave?.(null);
-    return undefined;
-  }, [isDocxFile, isPptxFile, onRegisterBinarySave, saveBinaryEditor, selectedFile]);
 
   const updateEditorFontSize = useCallback((updater) => {
     if (!setEditorFontSize) return;
@@ -707,9 +684,9 @@ export default function EditorPanel({
     }
   }, []);
 
-  // Binary editors (PDF, DOCX, PPTX) render their own content — fileContent
-  // is not the text the user sees, so no count is reported for them.
-  const supportsTextStats = !!selectedFile && !isPdfFile && !isDocxFile && !isPptxFile;
+  // The PDF panel renders its own content — fileContent is not the text the
+  // user sees, so no count is reported for it.
+  const supportsTextStats = !!selectedFile && !isPdfFile;
 
   const documentTextStats = useMemo(
     () => (supportsTextStats ? countTextStats(fileContent ?? '', resolvedCountMode) : null),
@@ -1532,17 +1509,15 @@ export default function EditorPanel({
               {isInstallingTectonic ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
             </button>
           )}
-          {!isPptxFile && (
-            <button
-              onClick={saveFile}
-              disabled={isSaving}
-              className="vscode-editor-action-btn"
-              title={t('editorPanel.save')}
-              aria-label={t('editorPanel.save')}
-            >
-              {isSaving ? <Save size={12} className="save-pulse" /> : <Save size={12} />}
-            </button>
-          )}
+          <button
+            onClick={saveFile}
+            disabled={isSaving}
+            className="vscode-editor-action-btn"
+            title={t('editorPanel.save')}
+            aria-label={t('editorPanel.save')}
+          >
+            {isSaving ? <Save size={12} className="save-pulse" /> : <Save size={12} />}
+          </button>
 
           <button
             onClick={() => setIsDiffMode(!isDiffMode)}
@@ -1791,40 +1766,6 @@ export default function EditorPanel({
               uiScale={uiScale}
             />
           </div>
-        ) : isDocxFile ? (
-          <Suspense
-            fallback={(
-              <div className="docx-editor-host docx-editor-empty">
-                <RefreshCw size={18} className="animate-spin" />
-                <span>{t('docxEditor.loading')}</span>
-              </div>
-            )}
-          >
-            <DocxEditorPanel
-              ref={docxEditorRef}
-              activeProject={activeProject}
-              selectedFile={selectedFile}
-              theme={theme}
-              onSaved={onBinaryFileSaved}
-            />
-          </Suspense>
-        ) : isPptxFile ? (
-          <Suspense
-            fallback={(
-              <div className="pptx-editor-host pptx-editor-loading">
-                <RefreshCw size={18} className="animate-spin" />
-                <span>{t('pptxEditor.loading', 'Loading presentation...')}</span>
-              </div>
-            )}
-          >
-            <PptxEditorPanel
-              ref={pptxEditorRef}
-              activeProject={activeProject}
-              selectedFile={selectedFile}
-              theme={theme}
-              onSaved={onBinaryFileSaved}
-            />
-          </Suspense>
         ) : isTexFile && isPdfPreviewCollapsed ? (
           renderTexEditorSurface()
         ) : isTexFile ? (

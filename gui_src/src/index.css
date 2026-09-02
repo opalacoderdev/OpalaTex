@@ -369,44 +369,6 @@
   border-color: #005fb8;
 }
 
-.docx-editor-host {
-  position: relative;
-  height: 100%;
-  width: 100%;
-  min-width: 0;
-  min-height: 0;
-  background: var(--vscode-editor-bg);
-  color: var(--vscode-text-fg);
-}
-
-.docx-editor-host .ep-root {
-  height: 100%;
-}
-
-.docx-editor-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--vscode-descriptionForeground);
-}
-
-.docx-editor-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.docx-editor-status {
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--vscode-descriptionForeground);
-}
-
 /* Source control */
 .git-file-row,
 .git-commit-row,
@@ -550,20 +512,6 @@ input, select, textarea {
 select option {
   background-color: var(--vscode-input-bg);
   color: var(--vscode-text-fg);
-}
-
-.docx-editor-host .ep-root input,
-.docx-editor-host .ep-root select,
-.docx-editor-host .ep-root textarea {
-  font-family: inherit;
-}
-
-.docx-editor-host .ep-root select {
-  appearance: auto;
-  -webkit-appearance: auto;
-  -moz-appearance: auto;
-  background-image: none;
-  padding-right: inherit;
 }
 
 input:focus, select:focus, textarea:focus {
@@ -2699,31 +2647,6 @@ select {
   background: #c8c8c8;
 }
 
-/* PPTX viewer integration */
-.opalatex-pptx-viewer-host {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  background: #111827;
-}
-
-.opalatex-pptx-viewer-host.light {
-  background: #f5f5f5;
-}
-
-.opalatex-pptx-viewer-frame {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.opalatex-pptx-viewer-frame > * {
-  width: 100%;
-  height: 100%;
-}
-
 /* ── react-pdf annotation layer fixes ───────────────────────────────────────
  *
  * Context: react-pdf v10 renders highlight/underline/squiggly annotations as
@@ -2887,152 +2810,4 @@ select {
 @media (max-width: 760px) {
   .vscode-chat-comparison { grid-template-columns: 1fr; overflow-y: auto; }
   .vscode-chat-comparison-pane { min-height: 50%; flex: 1 0 50%; border-right: none; border-bottom: 1px solid var(--vscode-border); }
-}
-
-
-/* ---------------------------------------------------------------------------
- * Equation editor overlay (DOCX)
- *
- * Anchored over the equation it edits, inside `.docx-editor-host`. The panel
- * floats above the painted pages, so it carries its own surface color rather
- * than inheriting the page's white.
- * ------------------------------------------------------------------------ */
-.math-equation-editor {
-  position: absolute;
-  z-index: 40;
-  width: 460px;
-  max-width: calc(100% - 16px);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--vscode-border);
-  border-radius: 6px;
-  background: var(--vscode-sidebar-bg, #252526);
-  color: var(--vscode-text-fg);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.math-equation-editor__header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.math-equation-editor__title {
-  font-size: 12px;
-  font-weight: 600;
-  flex: 1;
-}
-
-.math-equation-editor__display-toggle {
-  display: flex;
-  border: 1px solid var(--vscode-border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.math-equation-editor__display-toggle button {
-  border: none;
-  background: transparent;
-  color: var(--vscode-text-fg);
-  font-size: 11px;
-  padding: 2px 8px;
-  cursor: pointer;
-}
-
-.math-equation-editor__display-toggle button.is-active {
-  background: #0e639c;
-  color: #ffffff;
-}
-
-.math-equation-editor__close {
-  border: none;
-  background: transparent;
-  color: var(--vscode-text-fg);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-}
-
-.math-equation-editor__templates {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.math-equation-editor__group {
-  display: flex;
-  gap: 2px;
-  padding-right: 6px;
-  border-right: 1px solid var(--vscode-border);
-}
-
-.math-equation-editor__group:last-child {
-  border-right: none;
-}
-
-.math-equation-editor__group button {
-  min-width: 30px;
-  height: 24px;
-  padding: 0 6px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  background: var(--vscode-input-bg, #3c3c3c);
-  color: var(--vscode-text-fg);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.math-equation-editor__group button:hover {
-  border-color: #0e639c;
-}
-
-.math-equation-editor__field {
-  border: 1px solid var(--vscode-border);
-  border-radius: 4px;
-  background: #ffffff;
-  color: #1f1f1f;
-  padding: 4px 6px;
-}
-
-.math-equation-editor__latex {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-}
-
-.math-equation-editor__latex input {
-  flex: 1;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 11px;
-  padding: 3px 6px;
-  border: 1px solid var(--vscode-border);
-  border-radius: 3px;
-  background: var(--vscode-input-bg, #3c3c3c);
-  color: var(--vscode-text-fg);
-}
-
-.math-equation-editor__footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.math-equation-editor__hint {
-  flex: 1;
-  font-size: 11px;
-  opacity: 0.7;
-}
-
-.math-equation-editor__footer .vscode-button.primary {
-  background: #0e639c;
-  color: #ffffff;
-}
-
-.math-equation-editor__error {
-  font-size: 11px;
-  color: #f48771;
-  margin: 0;
 }

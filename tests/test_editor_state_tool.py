@@ -124,8 +124,9 @@ def test_stage_editor_state_records_the_tab_list(tmp_path):
 
 
 def test_absent_open_files_preserves_the_previous_list(tmp_path):
-    # The inline editor (DocxEditorPanel) posts no tab list. Overwriting the
-    # staged one with [] would make the next get_editor_state report "no tabs".
+    # A caller that does not know the tab list omits the key. Overwriting the
+    # staged one with [] would make the next get_editor_state report "no tabs",
+    # so absent and empty have to stay distinct.
     from opalatex.agent_stdin import stage_editor_state
 
     stage_editor_state(str(tmp_path), {"current_file": "a.tex", "open_files": ["a.tex", "b.tex"]})

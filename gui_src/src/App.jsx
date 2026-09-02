@@ -201,7 +201,7 @@ const extractInlineReplacementBlock = (text) => {
 
 const isBinaryEditorFile = (filePath) => {
   if (!filePath) return false;
-  return /\.(docx|pptx|pdf)$/i.test(String(filePath));
+  return /\.pdf$/i.test(String(filePath));
 };
 
 const SYSTEM_APP_EXTENSIONS = new Set([
@@ -214,7 +214,7 @@ const SYSTEM_APP_EXTENSIONS = new Set([
   // Archives
   'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'tgz', 'iso', 'cab', 'dmg', 'pkg',
   // Non-supported Office / Documents
-  'doc', 'ppt', 'xls', 'xlsx', 'xlsm', 'odt', 'ods', 'odp', 'epub', 'pages', 'numbers', 'key',
+  'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'xlsm', 'odt', 'ods', 'odp', 'epub', 'pages', 'numbers', 'key',
   // Executables / Binaries / Compiled / Database / Libraries
   'exe', 'dll', 'so', 'dylib', 'bin', 'dat', 'db', 'sqlite', 'sqlite3', 'pyc', 'pyo', 'pyd', 'o', 'obj', 'a', 'lib', 'class', 'jar', 'war', 'ear', 'apk', 'msi', 'deb', 'rpm'
 ]);
@@ -592,7 +592,6 @@ export default function App() {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const saveFileRef = useRef(null);
-  const binarySaveHandlerRef = useRef(null);
   const diskFileContentsRef = useRef({});
   const gitStatusRequestRef = useRef(null);
   const lastEditorInputAtRef = useRef(0);
@@ -2080,12 +2079,8 @@ export default function App() {
 
   const saveFile = async ({ suppressCompile = false } = {}) => {
     if (!activeProject || !selectedFile) return false;
-    if (isBinaryEditorFile(selectedFile)) {
-      const saved = await binarySaveHandlerRef.current?.();
-      if (saved) return true;
-      addLog('error', t('app.fileSaveFailedPath', { path: selectedFile }));
-      return false;
-    }
+    // The PDF panel is a read-only viewer: there is nothing to write back.
+    if (isBinaryEditorFile(selectedFile)) return false;
     const currentContent = getCurrentTextFileContent();
     fileContentRef.current = currentContent;
     if (currentContent !== fileContent) {
@@ -4103,14 +4098,6 @@ export default function App() {
                 setTriggerCompileRequest(prev => (
                   prev?.id === requestId ? null : prev
                 ));
-              }}
-              onBinaryFileSaved={(filePath) => {
-                addLog('info', t('app.fileSaved', { path: filePath }));
-                fetchGitStatus();
-                fetchProblems();
-              }}
-              onRegisterBinarySave={(handler) => {
-                binarySaveHandlerRef.current = handler;
               }}
               onLatexCompileError={handleLatexCompileError}
               onLatexCompileSuccess={handleLatexCompileSuccess}

@@ -16,8 +16,7 @@ OpalaTex has three parts working together:
 
 1. **The editor** — source editor with a PDF preview side by side, SyncTeX to jump
    between the PDF and the `.tex` line that produced it, plus a rich-text mode, a
-   markdown preview, dedicated document viewers (.docx, .pptx, HTML), and a file
-   explorer.
+   markdown preview, an HTML preview, and a file explorer.
 2. **The AI assistant** — a chat orchestrator that reads and edits your files, runs
    commands, searches the web, generates office documents (.docx, .pptx), asks
    interactive clarifying questions, and delegates specialised tasks to skills and

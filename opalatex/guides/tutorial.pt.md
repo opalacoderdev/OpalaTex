@@ -16,8 +16,8 @@ O OpalaTex tem três partes trabalhando juntas:
 
 1. **O editor** — editor de código-fonte com pré-visualização do PDF lado a lado,
    SyncTeX para pular entre o PDF e a linha `.tex` que o gerou, além de um modo rich
-   text, pré-visualização de Markdown, visualizadores de documentos dedicados (.docx,
-   .pptx, HTML) e um explorador de arquivos.
+   text, pré-visualização de Markdown, pré-visualização de HTML e um explorador de
+   arquivos.
 2. **O assistente de IA** — um orquestrador de chat que lê e edita seus arquivos, roda
    comandos, pesquisa na web, gera documentos de escritório (.docx, .pptx), faz
    perguntas interativas para tirar dúvidas e delega trabalho especializado para skills
