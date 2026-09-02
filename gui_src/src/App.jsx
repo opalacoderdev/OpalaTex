@@ -564,7 +564,14 @@ export default function App() {
 
   // ── Ephemeral Agent Params ────────────────────────────────────────────────
   const [ephemeralParams, setEphemeralParams] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('ephemeralParams')) || {}; } catch { return {}; }
+    try {
+      const stored = JSON.parse(localStorage.getItem('ephemeralParams')) || {};
+      // `think` was a per-run override before thinking became a model-catalog
+      // capability. Drop a stored value so it cannot be sent as a request
+      // parameter that nothing reads back.
+      delete stored.think;
+      return stored;
+    } catch { return {}; }
   });
 
   const [triggerCompileRequest, setTriggerCompileRequest] = useState(null);

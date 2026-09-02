@@ -472,8 +472,6 @@
     "optionMedium": "Medium",
     "optionHigh": "High",
     "optionXHigh": "Extra high",
-    "optionTrue": "True",
-    "optionFalse": "False",
     "optionAll": "All",
     "cancel": "Cancel",
     "connectionOk": "[OK] Connection OK",
@@ -653,7 +651,6 @@
     "minP": "Min P",
     "repetitionPenalty": "Repetition Penalty",
     "reasoningEffort": "Reasoning Effort",
-    "thinking": "Thinking (think)",
     "stream": "Stream",
     "debug": "Debug",
     "responseMode": "Response Mode (MemGPT)",
@@ -743,7 +740,6 @@
     "ephemeralContextWindow": "Context Window (num_ctx)",
     "ephemeralTemperature": "Temperature",
     "ephemeralReasoningEffort": "Reasoning Effort",
-    "ephemeralThink": "Think Parameter",
     "ephemeralResponseMode": "Response Mode",
     "ephemeralDefault": "default",
     "ephemeralLastDefault": "last (default)",
@@ -1168,8 +1164,6 @@
     "optionMedium": "Medium",
     "optionHigh": "High",
     "optionXHigh": "Extra high",
-    "optionTrue": "True",
-    "optionFalse": "False",
     "optionAll": "All"
   },
   "chat": {

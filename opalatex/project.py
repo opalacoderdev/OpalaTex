@@ -111,6 +111,18 @@ def _normalize_compile_on_save(partial: bool, full: bool) -> tuple[bool, bool]:
     return False, False
 
 
+def _without_legacy_think(params: dict) -> dict:
+    """Strip the retired per-project ``think`` setting from stored model params.
+
+    Thinking is resolved from the selected model's catalog capability alone
+    (``config.resolve_think_request``). Rows written before that consolidation
+    still carry a ``think`` boolean; it is dropped on read so nothing downstream
+    can mistake it for a live setting, and the next save persists the clean shape.
+    """
+    params.pop("think", None)
+    return params
+
+
 MAIN_CHAT_NAME = "Main Chat"
 
 # The default `project_history.chat_id` and `project_activity.chat_id` were
@@ -443,8 +455,8 @@ class ProjectData:
     subplans: list = field(default_factory=list)
     results: dict = field(default_factory=dict)
     core_memory: str = ""
-    model_params: dict = field(default_factory=lambda: {"think": False, "stream": True})
-    worker_model_params: dict = field(default_factory=lambda: {"think": False, "stream": True})
+    model_params: dict = field(default_factory=lambda: {"stream": True})
+    worker_model_params: dict = field(default_factory=lambda: {"stream": True})
     api_key: str = ""
     api_base: str = ""
     worker_api_key: str = ""
@@ -574,10 +586,14 @@ class ProjectStore:
                     d["worker_model_params"] = dict(d["model_params"])
 
                 # Apply defaults for params added after project creation
-                d["model_params"].setdefault("think", False)
                 d["model_params"].setdefault("stream", True)
-                d["worker_model_params"].setdefault("think", False)
                 d["worker_model_params"].setdefault("stream", True)
+                # `think` used to be a per-project setting. It is now resolved from
+                # the model catalog's `supports_thinking` alone
+                # (config.resolve_think_request), so a value left in an older row is
+                # dropped here rather than being reported as a live setting.
+                d["model_params"].pop("think", None)
+                d["worker_model_params"].pop("think", None)
 
                 # Effective num_ctx for UI display (chat context indicator) before
                 # any turn has run to measure the real prompt_tokens window: an
@@ -625,9 +641,9 @@ class ProjectStore:
         # runtime from the model's catalog entry, then the local/cloud heuristic
         # (see config.resolve_effective_num_ctx). An explicit num_ctx passed in
         # model_params/worker_model_params is preserved as-is and always wins.
-        _model_params = dict(model_params or {})
+        _model_params = _without_legacy_think(dict(model_params or {}))
         _model_params.setdefault("stream", True)
-        _worker_model_params = dict(worker_model_params or {})
+        _worker_model_params = _without_legacy_think(dict(worker_model_params or {}))
 
         # Ensure the project path is absolute and exists
         abs_proj_path = os.path.abspath(project_path) if project_path else os.getcwd()
@@ -873,14 +889,14 @@ class ProjectStore:
                 subplans=json.loads(row["subplans"]),
                 results=json.loads(row["results"]),
                 core_memory=row["core_memory"] if "core_memory" in row.keys() else "",
-                model_params={
-                    "think": False, "stream": True,
+                model_params=_without_legacy_think({
+                    "stream": True,
                     **(json.loads(row["model_params"]) if "model_params" in row.keys() else {}),
-                },
-                worker_model_params={
-                    "think": False, "stream": True,
+                }),
+                worker_model_params=_without_legacy_think({
+                    "stream": True,
                     **(json.loads(row["worker_model_params"]) if "worker_model_params" in row.keys() and row["worker_model_params"] else (json.loads(row["model_params"]) if "model_params" in row.keys() else {})),
-                },
+                }),
                 api_key=api_key,
                 api_base=api_base,
                 worker_api_key=worker_api_key,

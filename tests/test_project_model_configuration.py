@@ -158,7 +158,7 @@ def test_every_project_setting_the_ui_offers_survives_sanitizing():
         "temperature": 0.7, "max_tokens": 2048, "num_ctx": 8192, "seed": 1,
         "top_p": 0.9, "frequency_penalty": 0.1, "presence_penalty": 0.1,
         "top_k": 40, "min_p": 0.05, "repetition_penalty": 1.1,
-        "think": True, "stream": True, "reasoning_effort": "low",
+        "stream": True, "reasoning_effort": "low",
         "force_vision": True, "max_heartbeats": 20, "max_context_tokens": 16384,
         "eviction_threshold": 0.85, "memory_pressure_threshold": 0.9,
         "max_iterations": 5, "max_tool_calls": 40, "loop_detection": True,
@@ -175,9 +175,23 @@ def test_unknown_keys_are_still_rejected():
     """The allow-list must keep doing its job; dead keys stay out."""
     from opalatex.config import sanitize_model_params
 
-    result = sanitize_model_params({"think": True, "tool_role_workaround": "assistant"})
+    result = sanitize_model_params({"stream": True, "tool_role_workaround": "assistant"})
 
-    assert result == {"think": True}
+    assert result == {"stream": True}
+
+
+def test_think_is_not_a_project_setting():
+    """Thinking is resolved from the model catalog's `supports_thinking` alone.
+
+    Keeping a project copy of it meant two switches for one behaviour: the wire
+    flag came from the catalog while a stale project value still decided whether
+    the reasoning was shown, so a project could look like thinking was off while
+    the provider was reasoning on every turn.
+    """
+    from opalatex.config import _MODEL_PARAMS_SCHEMA, sanitize_model_params
+
+    assert "think" not in _MODEL_PARAMS_SCHEMA
+    assert sanitize_model_params({"think": True, "stream": True}) == {"stream": True}
 
 
 def test_ipc_project_update_sanitizes_stored_params(tmp_path, monkeypatch):
@@ -211,6 +225,6 @@ def test_ipc_project_update_sanitizes_stored_params(tmp_path, monkeypatch):
     }))
 
     saved = store.load(name).model_params
-    assert saved.get("think") is True
     assert saved.get("empty_response_reasoning_fallback") is True
     assert "tool_role_workaround" not in saved
+    assert "think" not in saved, "thinking is a model capability, not a project setting"

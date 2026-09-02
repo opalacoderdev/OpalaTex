@@ -100,13 +100,13 @@ def test_set_model_param_valid(tmp_path):
     # Known numeric params
     asyncio.run(_registry.dispatch(state, "/set-model-param", ["temperature", "0.8"]))
     asyncio.run(_registry.dispatch(state, "/set-model-param", ["num_ctx", "4096"]))
-    asyncio.run(_registry.dispatch(state, "/set-model-param", ["think", "1024"]))
+    asyncio.run(_registry.dispatch(state, "/set-model-param", ["max_tokens", "1024"]))
     assert state.project.model_params["temperature"] == 0.8
     assert state.project.model_params["num_ctx"] == 4096
-    assert state.project.model_params["think"] == 1024
+    assert state.project.model_params["max_tokens"] == 1024
     assert store.load("t").model_params["temperature"] == 0.8
     assert store.load("t").model_params["num_ctx"] == 4096
-    assert store.load("t").model_params["think"] == 1024
+    assert store.load("t").model_params["max_tokens"] == 1024
 
     # Any arbitrary LiteLLM param is now accepted
     asyncio.run(_registry.dispatch(state, "/set-model-param", ["reasoning_effort", "medium"]))
@@ -117,10 +117,25 @@ def test_set_model_param_valid(tmp_path):
     assert state.project.model_params["top_k"] == 50
 
     # Boolean coercion
+    asyncio.run(_registry.dispatch(state, "/set-model-param", ["stream", "true"]))
+    assert state.project.model_params["stream"] is True
+    asyncio.run(_registry.dispatch(state, "/set-model-param", ["stream", "false"]))
+    assert state.project.model_params["stream"] is False
+
+
+def test_set_model_param_refuses_think_instead_of_storing_it_dead(tmp_path):
+    """`think` comes from the model catalog, so a project write would be inert.
+
+    Accepting it would report success for a setting nothing reads back — the
+    project store strips it on load — so the command refuses and names the place
+    that owns the decision.
+    """
+    state, store = _state(tmp_path)
+
     asyncio.run(_registry.dispatch(state, "/set-model-param", ["think", "true"]))
-    assert state.project.model_params["think"] is True
-    asyncio.run(_registry.dispatch(state, "/set-model-param", ["think", "false"]))
-    assert state.project.model_params["think"] is False
+
+    assert "think" not in state.project.model_params
+    assert "think" not in store.load("t").model_params
 
 
 def test_set_model_param_invalid(tmp_path):

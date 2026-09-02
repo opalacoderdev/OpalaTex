@@ -238,12 +238,25 @@ def test_a_thinking_capable_model_is_always_asked_to_separate_the_channels():
     as the answer. Only think=true makes the provider isolate it."""
     from opalatex.config import resolve_think_request
 
-    assert resolve_think_request(supports_thinking=True, prefer_reasoning=False) is True
-    assert resolve_think_request(supports_thinking=True, prefer_reasoning=True) is True
+    assert resolve_think_request(supports_thinking=True) is True
 
 
 def test_a_model_without_thinking_support_never_receives_the_param():
     from opalatex.config import resolve_think_request
 
-    assert resolve_think_request(supports_thinking=False, prefer_reasoning=True) is None
-    assert resolve_think_request(supports_thinking=False, prefer_reasoning=False) is None
+    assert resolve_think_request(supports_thinking=False) is None
+
+
+def test_the_catalog_capability_is_the_only_input_to_the_think_decision():
+    """No preference argument exists to be threaded in from a project setting.
+
+    Thinking used to be storable per project as well, which left two switches
+    disagreeing about one behaviour; the catalog capability is now the sole
+    source of truth.
+    """
+    import inspect
+    from opalatex.config import resolve_think_request
+
+    assert list(inspect.signature(resolve_think_request).parameters) == [
+        "supports_thinking"
+    ]

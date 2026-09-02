@@ -38,14 +38,13 @@ LITELLM_PARAMS = {
     "top_k":               30,
     "min_p":               0.05,
     "repetition_penalty":  1.1,
-    "think":               False,
     "stream":              False,
 }
 
-RUNTIME_LITELLM_PARAMS = {
-    key: value for key, value in LITELLM_PARAMS.items()
-    if key != "think"
-}
+# `think` is deliberately absent: it is not a project parameter at all, it is
+# resolved from the selected model's catalog capability
+# (config.resolve_think_request).
+RUNTIME_LITELLM_PARAMS = dict(LITELLM_PARAMS)
 
 AGENT_PARAMS = {
     "max_heartbeats":           15,
@@ -240,7 +239,8 @@ class TestUpdateProjectPersistence:
             "presence_penalty": "0,8",  # string comma float
             "frequency_penalty": 3.5,  # above max 2.0
             "num_ctx": "4096",  # string int
-            "think": "true",  # string bool
+            "stream": "true",  # string bool
+            "think": "true",  # a model capability, never a project param
             "invalid_param": "some_value"  # not in schema
         }
         
@@ -250,5 +250,6 @@ class TestUpdateProjectPersistence:
         assert sanitized["presence_penalty"] == 0.8
         assert sanitized["frequency_penalty"] == 2.0
         assert sanitized["num_ctx"] == 4096
-        assert sanitized["think"] is True
+        assert sanitized["stream"] is True
+        assert "think" not in sanitized
         assert "invalid_param" not in sanitized

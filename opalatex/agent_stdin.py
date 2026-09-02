@@ -1519,18 +1519,6 @@ async def handle_run(data: dict):
         stage_editor_state(current_project.project_path, data)
     
 
-    # Whether the model's reasoning is published at all (thought events, Thinking
-    # panel). The provider is always asked to isolate the reasoning channel for a
-    # thinking-capable model -- see config.resolve_think_request -- so this is the
-    # display preference alone, never the wire flag.
-    publish_reasoning = bool(
-        (
-            data.get("model_params")
-            or getattr(current_project, "model_params", None)
-            or {}
-        ).get("think", False)
-    )
-
     # Build agent
     agent = None
     if agent_type == "chat_orchestrator":
@@ -1607,8 +1595,8 @@ async def handle_run(data: dict):
         # thinking-capable model (config.resolve_think_request): `think` decides
         # whether the provider *parses* the reasoning out, not whether the user
         # sees it. `_apply_model_thinking_capability` drops the param for a model
-        # that does not support it. The project setting below stays a display
-        # preference and only gates `on_thinking`.
+        # that does not support it, and the surviving value is what gates the
+        # Thinking panel (`publish_reasoning`).
         model_kwargs["think"] = True
         # Inline editing applies a single final replacement. It must never expose
         # partial model output, regardless of a global streaming default.
@@ -1658,6 +1646,15 @@ async def handle_run(data: dict):
     wrap_agent_litellm_compat(agent)
     attach_usage_tracking(agent)
 
+    # Whether the model's reasoning is published at all (thought events, Thinking
+    # panel). Read off the resolved wire flag rather than any user setting: the
+    # provider is asked to isolate the reasoning channel exactly when the model's
+    # catalog entry declares `supports_thinking` (config.resolve_think_request), so
+    # the reasoning that exists to be shown and the decision to show it come from
+    # one place. A model without the capability has no isolated channel at all --
+    # its inline `<think>` tags are still handled by the splitter below.
+    publish_reasoning = bool((getattr(agent, "model_kargs", None) or {}).get("think"))
+
     # Setup message history if provided (for custom/standard LLMAgentBlock)
     if messages_history and hasattr(agent, "internal_history"):
         agent.internal_history.clear()
@@ -1706,9 +1703,9 @@ async def handle_run(data: dict):
 
     def _on_thinking(chunk: str) -> None:
         _log_chunk_timing("thinking", chunk)
-        # Thinking turned off in project settings means the reasoning is not
-        # published anywhere -- not that the provider stops isolating it. The
-        # callback stays wired either way, so an agent can always call it.
+        # A model whose catalog entry does not declare thinking support has no
+        # isolated reasoning channel to publish. The callback stays wired either
+        # way, so an agent (or the inline splitter) can always call it.
         if not publish_reasoning:
             return
         if _record_turn_thought(chunk):

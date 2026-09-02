@@ -549,13 +549,11 @@ def build_run_skill_tool(
                 f"(do NOT type the request text into the command — use the file).\n"
             )
         worker_kwargs = get_agent_llm_kwargs("worker")
-        # The project's worker "thinking" setting is a display preference; the wire
-        # flag inside worker_kwargs is the provider's parsing switch (see
-        # config.resolve_think_request).
-        worker_publishes_reasoning = bool(
-            getattr(_project_ref, "worker_model_params", None) is not None
-            and _project_ref.worker_model_params.get("think", False)
-        )
+        # One decision, one source: `think` is in worker_kwargs only when the
+        # worker model's catalog entry declares `supports_thinking`
+        # (config.resolve_think_request), and that is exactly when there is an
+        # isolated reasoning channel to publish.
+        worker_publishes_reasoning = bool(worker_kwargs.get("think"))
 
         model = get_agent_model("worker", model)
 
@@ -1385,9 +1383,10 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         def _orch_on_iteration(_step: int, _messages: list) -> None:
             orch_think_splitter.begin_response()
 
-        # `_llm_kwargs["think"]` is now the provider's parsing switch, always on for
-        # a thinking-capable model. What the user turned off is the *display*.
-        if model_params.get("think", False):
+        # `_llm_kwargs["think"]` is set only for a model whose catalog entry
+        # declares `supports_thinking` (config.resolve_think_request); that is both
+        # the provider's parsing switch and the reason there is anything to show.
+        if _llm_kwargs.get("think"):
             memgpt.on_thinking = _orch_on_thinking
         memgpt.on_chunk = orch_think_splitter.feed
         memgpt.on_iteration = _orch_on_iteration

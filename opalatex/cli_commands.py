@@ -331,8 +331,20 @@ def _parse_model_param_value(val_str: str):
     return val_str
 
 
+# Parameters a project must not carry, with the place that actually owns them.
+# Storing one here would be dead configuration: the resolver never reads it back,
+# so a silent write would look like a setting the user had made.
+_MODEL_PARAMS_OWNED_ELSEWHERE = {
+    "think": (
+        "thinking is a per-model capability, not a project setting: enable "
+        "'supports_thinking' on the model's catalog entry (Edit Models, or "
+        "/models) and every project using that model reasons"
+    ),
+}
+
+
 @_registry.register("/set-model-param", usage="<param_name> <value>",
-                    description="Set any LiteLLM/model parameter (e.g. temperature, reasoning_effort, seed, stop, num_ctx, think, ...)")
+                    description="Set any LiteLLM/model parameter (e.g. temperature, reasoning_effort, seed, stop, num_ctx, ...)")
 async def cmd_set_model_param(state: REPLState, args: list[str]) -> str | None:
     if len(args) < 2:
         T.error("Usage: /set-model-param <param_name> <value>\n"
@@ -345,6 +357,13 @@ async def cmd_set_model_param(state: REPLState, args: list[str]) -> str | None:
 
     if not param or not param.replace("_", "").replace("-", "").isalnum():
         T.error(f"Invalid parameter name '{param}'. Use only letters, digits, underscores and hyphens.")
+        return "continue"
+
+    if param in _MODEL_PARAMS_OWNED_ELSEWHERE:
+        T.error(
+            f"'{param}' cannot be set per project: "
+            f"{_MODEL_PARAMS_OWNED_ELSEWHERE[param]}."
+        )
         return "continue"
 
     try:

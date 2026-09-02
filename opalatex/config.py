@@ -141,10 +141,13 @@ _AGENTS_CONFIG = {}
 _APP_CONFIG = _load_yaml("config.yaml")
 
 # Hardcoded defaults for internal OpalaTex skills so they work without agents.yaml
+# `think` is deliberately absent from every role below: it is resolved from the
+# selected model's catalog capability alone (see resolve_think_request), so a
+# role-level default here would be dead configuration that reads as a second
+# source of truth.
 _CORE_AGENT_DEFAULTS = {
     "memgpt": {
         "num_ctx": 16384,
-        "think": True,
         "max_heartbeats": 20,
         "debug": False,
     },
@@ -156,7 +159,6 @@ _CORE_AGENT_DEFAULTS = {
     },
     "orchestrator": {
         "num_ctx": 16384,
-        "think": True,
         "max_heartbeats": 20,
         "debug": False,
         "strategy": "workflow",
@@ -312,7 +314,6 @@ _MODEL_PARAMS_SCHEMA = {
     "top_k": {"type": int, "min": 1},
     "min_p": {"type": float, "min": 0.0, "max": 1.0},
     "repetition_penalty": {"type": float, "min": 0.0},
-    "think": {"type": bool},
     "stream": {"type": bool},
     "reasoning_effort": {"type": str, "choices": ["none", "low", "medium", "high", "xhigh"]},
     # Vision / attachment settings
@@ -719,10 +720,13 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
 
     for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
         merged.pop(field, None)
-    merged.setdefault("think", False)
-    merged["think"] = resolve_think_request(store_supports_thinking, merged["think"])
-    if merged["think"] is None:
-        merged.pop("think", None)
+    # `think` is never read from the merged sources above -- not from
+    # agents.yaml, not from the project's model_params (which can no longer
+    # store it). The model catalog's `supports_thinking` is the only input.
+    think = resolve_think_request(store_supports_thinking)
+    merged.pop("think", None)
+    if think is not None:
+        merged["think"] = think
 
     # num_ctx resolution: an explicit project override always wins; otherwise
     # fall back to the model's catalog entry, then the local/cloud heuristic.
@@ -737,8 +741,16 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     return sanitize_litellm_kwargs_for_model(runtime_model, merged)
 
 
-def resolve_think_request(supports_thinking: bool, prefer_reasoning: bool) -> bool | None:
+def resolve_think_request(supports_thinking: bool) -> bool | None:
     """Return the `think` value to send to the provider, or None to drop the param.
+
+    **The model catalog is the single source of truth for thinking.** A model's
+    `supports_thinking` capability (registered once in the Edit Models UI) decides
+    everything: whether the provider is asked to isolate the reasoning channel,
+    and — downstream, in `agent_stdin`/`memgpt_runtime` — whether that reasoning is
+    published to the Thinking panel. There is no per-project thinking setting to
+    consult, and there never needs to be: a project that selects a thinking-capable
+    model has asked for thinking by selecting it.
 
     **`think` is a parsing switch at the provider, not a display switch.** Ollama's
     `think: false` does not stop a reasoning model from reasoning — it stops Ollama
@@ -748,13 +760,9 @@ def resolve_think_request(supports_thinking: bool, prefer_reasoning: bool) -> bo
     `reasoning_content` empty; with `think: true`, `content` was `"391"` and the
     working went to `reasoning_content`. The reasoning is emitted either way, and
     in the off case it arrives **undelimited** — no `<think>` tags, nothing a text
-    splitter can key on — so it was published as the assistant's answer.
-
-    So a thinking-capable model is always asked to separate the two channels. The
-    project's "thinking" setting stays a *display* preference: it decides whether
-    the reasoning is published (`on_thinking`), never whether the provider isolates
-    it. This is the same separation `resolve_model_route` already makes for
-    transport — a reasoning preference must not silently degrade the wire format.
+    splitter can key on — so it was published as the assistant's answer. That is
+    why a capable model is always asked to separate the two channels, and why a
+    user preference must never be allowed to turn the isolation off.
     """
     if not supports_thinking:
         return None

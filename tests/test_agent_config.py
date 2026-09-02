@@ -3,7 +3,8 @@
 Covers:
 1. reasoning_effort disables gemma4 thinking for agents that depend on tool_calls
    (ollama issue #15288) — the worker and the enricher/memgpt path.
-2. think is NOT forced off for planning agents that benefit from reasoning.
+2. think comes from the selected model's catalog capability alone — no role
+   default and no project setting can override it.
 3. The orchestrator and memgpt roles get a large num_ctx (long histories).
 """
 
@@ -11,12 +12,12 @@ import pytest
 from opalatex.config import get_agent_llm_kwargs
 
 
-# Agents whose tool_calls field must be populated → thinking must be disabled.
+# Agents whose tool_calls field must be populated.
 TOOL_CALL_AGENTS = [
     "worker",
 ]
 
-# Planning sub-agents: thinking defaults off to avoid unbounded reasoning streams.
+# Planning sub-agents.
 SUBAGENT_AGENTS = [
     "landscape_planner",
     "refinement_agent",
@@ -51,13 +52,40 @@ def test_orchestrator_agents_do_not_send_think_without_model_support(agent):
 
 
 @pytest.mark.parametrize("agent", TOOL_CALL_AGENTS + SUBAGENT_AGENTS)
-def test_subagents_do_not_enable_thinking_by_default(agent):
-    """Workers and planning sub-agents default think=False to avoid long reasoning
-    streams that can block the agent run indefinitely on complex inputs."""
+def test_subagents_follow_the_model_capability_like_every_other_role(agent):
+    """`think` is decided by the selected model's catalog entry, never by the role.
+
+    The role used to carry its own default, but `resolve_think_request` reads only
+    `supports_thinking`, so a role-level value was configuration that no call site
+    could act on. One capability, one answer, for workers and orchestrators alike.
+    """
     with patch("opalatex.ui_settings.load_ui_settings", return_value={}):
         with patch("opalatex.tools._PROJECT_SESSION", None):
-            kwargs = get_agent_llm_kwargs(agent)
-            assert not kwargs.get("think")
+            with patch("opalatex.models_store.get_model", return_value={"supports_thinking": False}):
+                assert "think" not in get_agent_llm_kwargs(agent)
+            with patch("opalatex.models_store.get_model", return_value={"supports_thinking": True}):
+                assert get_agent_llm_kwargs(agent).get("think") is True
+
+
+@pytest.mark.parametrize("agent", PLANNING_AGENTS + ["memgpt", "worker"])
+def test_a_role_default_cannot_override_the_model_capability(agent):
+    """An agents.yaml `think` for a role is ignored, not merged.
+
+    Two switches for one behaviour is what the consolidation removed: a role
+    default that survived here would silently send `think` to a model whose
+    catalog entry says it cannot parse it.
+    """
+    with patch("opalatex.ui_settings.load_ui_settings", return_value={}):
+        with patch("opalatex.tools._PROJECT_SESSION", None):
+            with patch(
+                "opalatex.config._get_agent_overrides",
+                return_value={agent: {"think": True}},
+            ):
+                with patch(
+                    "opalatex.models_store.get_model",
+                    return_value={"supports_thinking": False},
+                ):
+                    assert "think" not in get_agent_llm_kwargs(agent)
 
 
 def test_orchestrator_has_large_num_ctx():

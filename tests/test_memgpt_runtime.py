@@ -11,6 +11,7 @@ Verifies assembly and wiring WITHOUT invoking any LLM:
 import asyncio
 import os
 
+import pytest
 
 from opalatex.memgpt_runtime import (
     resolve_skill_model,
@@ -660,3 +661,68 @@ def test_memgpt_returns_plain_json_content_without_tool_recovery():
 
     assert result.response == response_text
     assert result.tool_calls_made == 0
+
+
+@pytest.mark.parametrize(
+    "worker_kwargs, expect_wired",
+    [
+        ({"stream": True, "think": True}, True),
+        ({"stream": True}, False),
+    ],
+)
+def test_worker_reasoning_display_follows_its_own_model_capability(
+    tmp_path, monkeypatch, worker_kwargs, expect_wired
+):
+    """A worker publishes reasoning exactly when its model was asked to isolate it.
+
+    The gate used to be a separate `worker_model_params["think"]` checkbox, so a
+    stale project value decided whether a reasoning channel the provider was
+    already filling ever reached the panel.
+    """
+    import opalatex.memgpt_runtime as runtime
+    from types import SimpleNamespace
+
+    built = []
+
+    class FakeLLMAgentBlock:
+        def __init__(self, **kwargs):
+            self.name = kwargs.get("name", "")
+            self.model = kwargs.get("model", "")
+            self.tools = kwargs.get("tools", [])
+            self.model_kwargs = kwargs.get("model_kwargs", {})
+            self.on_iteration = None
+            self.on_thinking = None
+            self.on_chunk = None
+            built.append(self)
+
+        async def _acompletion(self, _messages, **_kwargs):
+            return SimpleNamespace(choices=[])
+
+        async def run(self, _input):
+            return SimpleNamespace(response="done", tool_calls_made=1)
+
+    monkeypatch.setattr(runtime, "LLMAgentBlock", FakeLLMAgentBlock)
+    monkeypatch.setattr(
+        runtime, "get_agent_llm_kwargs",
+        lambda agent_name: dict(worker_kwargs) if agent_name == "worker" else {},
+    )
+
+    project = _project(tmp_path)
+    project.mode = "auto"
+    project.worker_model = "ollama/gemma4:26b"
+    # A stale per-project value must not resurrect the retired setting.
+    project.worker_model_params = {"think": not expect_wired, "stream": True}
+
+    m = build_chat_orchestrator(project, None)
+    run_skill = build_run_skill_tool(
+        m,
+        str(tmp_path),
+        project_model=project.model,
+        project_worker=project.worker_model,
+        _project_ref=project,
+    )
+    raw = getattr(run_skill, "_func", None) or run_skill
+    asyncio.run(raw("command-line", "inspect the project"))
+
+    assert built, "the worker sub-agent should have been constructed"
+    assert (built[-1].on_thinking is not None) is expect_wired

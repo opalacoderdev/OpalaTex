@@ -863,3 +863,40 @@ def test_legacy_openai_api_key_is_still_loaded_for_non_openai_models(store, tmp_
     assert loaded.api_base == "legacy_base"
 
 
+
+
+def test_a_legacy_think_value_is_not_reported_as_a_live_setting(store, tmp_path):
+    """Rows written before thinking became a model-catalog capability carry a
+    `think` boolean. Reading it back as a project setting is what let a stale
+    value keep the Thinking panel closed for a model that was reasoning anyway,
+    so it is dropped on every read path instead."""
+    import json
+    import sqlite3
+
+    project_path = str(tmp_path / "legacy")
+    os.makedirs(project_path)
+    project = store.create(**_base_args(
+        name="legacy", project_path=project_path, project_name="Legacy",
+    ))
+
+    # Write the pre-consolidation shape straight into the row.
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE projects SET model_params=?, worker_model_params=? WHERE name=?",
+            (
+                json.dumps({"think": True, "stream": True, "temperature": 0.4}),
+                json.dumps({"think": False, "stream": True}),
+                project.name,
+            ),
+        )
+
+    reloaded = store.load(project.name)
+    assert "think" not in reloaded.model_params
+    assert "think" not in reloaded.worker_model_params
+    # Everything else on the row is untouched.
+    assert reloaded.model_params["temperature"] == 0.4
+    assert reloaded.model_params["stream"] is True
+
+    listed = [p for p in store.list_projects() if p["name"] == project.name][0]
+    assert "think" not in listed["model_params"]
+    assert "think" not in listed["worker_model_params"]

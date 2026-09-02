@@ -663,17 +663,6 @@ export default function SettingsModal({
                     </select>
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralThink', 'Think Parameter')}</label>
-                    <select className="vscode-settings-input"
-                      value={ephemeralParams?.think === undefined ? 'false' : (ephemeralParams.think ? 'true' : 'false')}
-                      onChange={e => {
-                        updateEphemeralParam('think', e.target.value === 'true');
-                      }}>
-                      <option value="true">{t('common.optionTrue', 'True')}</option>
-                      <option value="false">{t('common.optionFalse', 'False')}</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col" style={{ gap: '4px' }}>
                     <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralResponseMode', 'Response Mode')}</label>
                     <select className="vscode-settings-input"
                       value={ephemeralParams?.response_mode || 'last'}

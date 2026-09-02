@@ -23,8 +23,11 @@ import re
 from contextlib import contextmanager
 from typing import Any
 
-# Keys that go into agent.model_kargs (litellm kwargs)
-_LITELLM_KEYS = {"max_tokens", "temperature", "top_k", "top_p", "min_p", "think"}
+# Keys that go into agent.model_kargs (litellm kwargs).
+# `think` is deliberately absent: it is resolved from the selected model's
+# catalog capability alone (config.resolve_think_request), and a per-message
+# override would silently change the wire format for that turn.
+_LITELLM_KEYS = {"max_tokens", "temperature", "top_k", "top_p", "min_p"}
 # Keys that are direct attributes on LLMAgentBlock
 _AGENT_ATTR_KEYS = {"system_prompt"}
 _ALLOWED_KEYS = _LITELLM_KEYS | _AGENT_ATTR_KEYS

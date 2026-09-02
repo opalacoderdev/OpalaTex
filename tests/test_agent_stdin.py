@@ -1396,3 +1396,74 @@ def test_handle_create_project_reports_a_taken_folder_without_crashing(tmp_path,
     errors = [d for ev, d in events if ev == "error"]
     assert errors, f"expected an error event, got {events}"
     assert "first" in errors[0]["message"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "wire_kwargs, expect_published",
+    [
+        ({"think": True}, True),
+        ({}, False),
+    ],
+)
+async def test_thinking_panel_follows_the_resolved_capability_not_a_project_setting(
+    monkeypatch, tmp_path, wire_kwargs, expect_published
+):
+    """The reasoning is shown exactly when the provider was asked to isolate it.
+
+    `think` reaches the agent's kwargs only for a model whose catalog entry
+    declares `supports_thinking` (config.resolve_think_request). Publishing used
+    to be gated by a separate per-project checkbox instead, so a project could
+    have the provider reasoning on every turn while the Thinking panel stayed
+    empty — two switches, one behaviour, and no way to tell which one was lying.
+    """
+    import opalatex.agent_stdin as stdin_mod
+
+    events = []
+
+    class FakeProject:
+        name = "proj"
+        mode = "auto"
+        project_path = str(tmp_path)
+        model = "fake/model"
+        current_chat_id = "main"
+        # A project can no longer store `think`; a stale value must not revive it.
+        model_params = {"think": False, "stream": True}
+
+    class FakeStore:
+        def append_message(self, _project, role, content, attachments=None):
+            pass
+
+        def append_activity(self, _project, event, content="", agent="", payload=None):
+            pass
+
+        def save(self, _project):
+            pass
+
+    class FakeMemGPT:
+        model = "fake/model"
+        internal_history = []
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        on_thinking = None
+
+        def __init__(self):
+            self.model_kargs = dict(wire_kwargs)
+            self.model_kwargs = self.model_kargs
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, _agent_input):
+            self.on_thinking("weighing the options")
+            return SimpleNamespace(response="Done.")
+
+    monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(stdin_mod, "current_memgpt", FakeMemGPT())
+    monkeypatch.setattr(stdin_mod, "current_project", FakeProject())
+    monkeypatch.setattr(stdin_mod, "current_store", FakeStore())
+
+    await stdin_mod.handle_run({"agent": "chat_orchestrator", "prompt": "go"})
+
+    thoughts = [data["content"] for event, data in events if event == "thought"]
+    assert thoughts == (["weighing the options"] if expect_published else [])
