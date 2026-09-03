@@ -6,6 +6,7 @@ import i18n from './i18n/index.js';
 // Utils
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
 import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale, viewportPointToApp, viewportPxToApp } from './utils/uiScale';
+import { layoutAfterOpeningFile, layoutShowsEditor } from './utils/layoutModes';
 
 // Hooks
 import { useResizing } from './hooks/useResizing';
@@ -19,7 +20,6 @@ import GitSidebar from './components/GitSidebar';
 import EditorPanel from './components/EditorPanel';
 import ChatPanel from './components/ChatPanel';
 import ChatSidebar from './components/ChatSidebar';
-import ChatComparisonPanel from './components/ChatComparisonPanel';
 import {
   STUDIO_BOTTOM_HEIGHT_DEFAULT,
   STUDIO_CHAT_WIDTH_DEFAULT,
@@ -320,6 +320,11 @@ export default function App() {
   const [chatInputFocusSignal, setChatInputFocusSignal] = useState(0);
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
+  // Messages typed while a turn is running, waiting to be handed to it. An entry
+  // leaves this list when the backend reports it delivered, when the user
+  // cancels it, or when the turn ends without delivering it — in which case it
+  // is sent as an ordinary next turn.
+  const [queuedMessages, setQueuedMessages] = useState([]);
   const [isInterruptPending, setIsInterruptPending] = useState(false);
   const [isInlineRunning, setIsInlineRunning] = useState(false);
 
@@ -337,13 +342,19 @@ export default function App() {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [layoutMode, setLayoutMode] = useState('ide');
-  const isChatLayout = layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare';
+  const isChatLayout = layoutMode === 'chat' || layoutMode === 'chat-bottom';
   // The studio: editor + preview across the top, chat and terminal side by side
   // beneath, workspace explorer docked left. See utils/studioLayout.js.
   const isStudioLayout = layoutMode === 'studio';
-  const [comparisonChats, setComparisonChats] = useState({ left: '', right: '' });
-  const [activeComparisonPanel, setActiveComparisonPanel] = useState('left');
-  const [comparisonScales, setComparisonScales] = useState({ left: 1, right: 1 });
+  // The document layout: the open .tex/.md and its own preview (the PDF for
+  // LaTeX, the rendered document for Markdown/HTML) across the full width, with
+  // neither chat nor terminal on screen. It renders the same EditorPanel as the
+  // IDE layout and only seeds the panel's preview flags, so every toolbar
+  // toggle keeps working once the user is inside it.
+  const isDocumentLayout = layoutMode === 'document';
+  // Layouts that show the editor and its preview, and therefore share the IDE
+  // layout's docked sidebar and resize handle. See utils/layoutModes.js.
+  const isEditorLayout = layoutShowsEditor(layoutMode);
   const [isChatVisible, setIsChatVisible] = useState(false);
   const [activeSidebarTab, setActiveSidebarTab] = useState('explorer');
   const [contextMenu, setContextMenu] = useState(null);
@@ -846,8 +857,6 @@ export default function App() {
               }
             }
             setActiveChatId(currentChatId);
-            const alternateChatId = loadedChats.find((chat) => chat.id !== currentChatId)?.id || currentChatId;
-            setComparisonChats({ left: currentChatId, right: alternateChatId });
             if (!activeProject.current_chat_id || activeProject.current_chat_id !== currentChatId) {
               setActiveProject(prev => prev ? { ...prev, current_chat_id: currentChatId } : null);
             }
@@ -922,7 +931,6 @@ export default function App() {
       setChatContextUsage(null);
       setActiveChatId('');
       setMainChatId('');
-      setComparisonChats({ left: '', right: '' });
       setGitChanges([]);
       setTerminalLogs([]);
       setAchievementsMemory('');
@@ -1986,6 +1994,14 @@ export default function App() {
     }
   };
 
+  // Opening a file has to put the editor on screen, but only the layouts that
+  // hide it need leaving: forcing 'ide' from the studio or the document layout
+  // would drop the user out of a layout that is already showing the file they
+  // just picked.
+  const revealEditorLayout = useCallback(() => {
+    setLayoutMode(layoutAfterOpeningFile);
+  }, []);
+
   const handleFileSelect = async (filePath, jumpLine = null) => {
     if (!activeProject) return;
     setIsBottomMaximized(false);
@@ -2008,7 +2024,7 @@ export default function App() {
       });
       setFileContent('');
       setSelectedFile(filePath);
-      setLayoutMode('ide');
+      revealEditorLayout();
       return;
     }
     const cachedFilePath = Object.keys(fileContents).find(path => sameFilePath(path, filePath)) || filePath;
@@ -2030,7 +2046,7 @@ export default function App() {
     if (fileContents[cachedFilePath] !== undefined) {
       setFileContent(fileContents[cachedFilePath]);
       setSelectedFile(filePath);
-      setLayoutMode('ide'); // Force the IDE view so the text editor is visible
+      revealEditorLayout(); // Put the editor on screen if the layout hides it
       if (jumpLine !== null) {
         setJumpToLine({ file: filePath, line: jumpLine });
       }
@@ -2045,7 +2061,7 @@ export default function App() {
         setFileContents(prev => ({ ...prev, [filePath]: data.content }));
         setOriginalFileContents(prev => ({ ...prev, [filePath]: data.content }));
         setSelectedFile(filePath);
-        setLayoutMode('ide'); // Force the IDE view so the text editor is visible
+        revealEditorLayout(); // Put the editor on screen if the layout hides it
         if (jumpLine !== null) {
           setJumpToLine({ file: filePath, line: jumpLine });
         }
@@ -2067,13 +2083,13 @@ export default function App() {
         addLog('error', t('app.fileReadFailed', { path: filePath }));
         setSelectedFile(filePath);
         setFileContent('');
-        setLayoutMode('ide');
+        revealEditorLayout();
       }
     } catch (err) {
       addLog('error', t('app.readError', { error: err.message }));
       setSelectedFile(filePath);
       setFileContent('');
-      setLayoutMode('ide');
+      revealEditorLayout();
     }
   };
 
@@ -2914,6 +2930,20 @@ export default function App() {
             : msg
         )));
         break;
+      case 'user_message_delivered':
+        // The agent has taken the message off the queue and read it. Stop showing
+        // it as waiting; it is part of the conversation from here on.
+        setQueuedMessages(prev => prev.filter(m => m.clientMessageId !== data.client_message_id));
+        setChatMessages(prev => prev.map(msg => (
+          msg.client_message_id === data.client_message_id ? { ...msg, _queued: false } : msg
+        )));
+        addLog('info', t('app.messageDelivered', 'Message delivered to the running agent.'));
+        break;
+      case 'user_message_backlog':
+        // Reported, not acted on here: these entries are still in queuedMessages
+        // and the flush effect sends them as the next turn.
+        addLog('info', t('app.messageBacklog', 'The turn ended before {{count}} queued message(s) were delivered. Sending them as a new turn.', { count: (data.items || []).length }));
+        break;
       case 'agent_finished': addLog('info', t('app.processingCompleted', 'Processamento concluído.')); break;
       case 'input_request':
         setConfirmRequest({ ...data, id: data.id, prompt: data.prompt, options: data.options || ['yes', 'no'], default: data.default || 'yes', type: data.type || 'confirm' });
@@ -2932,15 +2962,92 @@ export default function App() {
     }
   };
 
+  const makeClientMessageId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    return `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  };
+
+  // Hand a message to the turn already running. The agent picks it up at its next
+  // boundary — after the tool call in flight, before the next model call — so the
+  // bubble is marked as waiting until the backend reports it delivered. Delivery
+  // is never instant and the UI must not pretend otherwise.
+  const queueMessageForRunningAgent = async (text, attachments, chatId) => {
+    const clientMessageId = makeClientMessageId();
+    setChatMessages(prev => [...prev, {
+      role: 'user',
+      content: text || '📎 Attachment',
+      client_message_id: clientMessageId,
+      _attachments: attachments,
+      _queued: true,
+      timestamp: new Date().toISOString(),
+      chat_id: chatId,
+    }]);
+    setQueuedMessages(prev => [...prev, { clientMessageId, itemId: '', text, attachments, chatId }]);
+
+    let result = {};
+    try {
+      const res = await fetch('/api/opalatex/message', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: text,
+          display_text: text,
+          attachments,
+          project_path: activeProject?.project_path || '',
+          chat_id: chatId,
+          client_message_id: clientMessageId,
+        }),
+      });
+      result = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setQueuedMessages(prev => prev.map(m => (
+          m.clientMessageId === clientMessageId ? { ...m, itemId: result.item_id || '' } : m
+        )));
+        addLog('info', t('app.messageQueued', 'Message queued for the running agent.'));
+        return;
+      }
+      if (result.reason === 'no_active_run') {
+        // The turn ended between typing and this request. The entry stays queued
+        // and the flush effect below sends it as an ordinary next turn.
+        return;
+      }
+      throw new Error(result.error || t('app.messageQueueFailed', 'The message could not be queued.'));
+    } catch (err) {
+      // Refused: drop the bubble and give the text back to the composer instead
+      // of showing a message that will never reach the agent.
+      setChatMessages(prev => prev.filter(m => m.client_message_id !== clientMessageId));
+      setQueuedMessages(prev => prev.filter(m => m.clientMessageId !== clientMessageId));
+      setChatInput(prev => (prev.trim() ? prev : text));
+      setPendingAttachments(prev => (prev.length ? prev : attachments));
+      addLog('error', t('app.messageQueueError', 'Could not queue the message: {{error}}', { error: err.message }));
+    }
+  };
+
+  const handleCancelQueuedMessage = async (clientMessageId) => {
+    const entry = queuedMessages.find(m => m.clientMessageId === clientMessageId);
+    if (!entry) return;
+    if (entry.itemId) {
+      try {
+        const res = await fetch('/api/opalatex/message/cancel', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: entry.itemId }),
+        });
+        // 404 means the agent already took it: it is part of the conversation
+        // now, and removing the bubble would hide a message the model has read.
+        if (!res.ok) return;
+      } catch (err) {
+        addLog('error', t('app.messageCancelError', 'Could not cancel the message: {{error}}', { error: err.message }));
+        return;
+      }
+    }
+    setQueuedMessages(prev => prev.filter(m => m.clientMessageId !== clientMessageId));
+    setChatMessages(prev => prev.filter(m => m.client_message_id !== clientMessageId));
+  };
+
   const handleSendMessage = async (e, retryMsg = null, options = {}) => {
     if (e && e.preventDefault) e.preventDefault();
     const targetChatId = options.chatIdOverride || activeChatId;
-    const makeClientMessageId = () => {
-      if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-        return crypto.randomUUID();
-      }
-      return `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    };
 
     let userText = '';
     let displayText = '';
@@ -2966,12 +3073,29 @@ export default function App() {
       displayText = userText;
       attachmentsSnapshot = retryMsg._attachments || [];
     } else {
-      if ((!chatInput.trim() && pendingAttachments.length === 0) || !activeProject || isAgentRunning) return;
+      if ((!chatInput.trim() && pendingAttachments.length === 0) || !activeProject) return;
       userText = chatInput;
       displayText = userText;
       attachmentsSnapshot = [...pendingAttachments];
       setChatInput('');
       setPendingAttachments([]);
+      if (isAgentRunning) {
+        // A slash command is a client-side operation on the chat the agent is
+        // using (/clear erases the history it is answering from), not something
+        // to hand the model as text. Refuse it while a turn runs instead of
+        // silently sending it as a message.
+        if (userText.trim().startsWith('/')) {
+          setChatInput(userText);
+          setPendingAttachments(attachmentsSnapshot);
+          addLog('error', t('app.slashCommandWhileRunning', 'Slash commands cannot run while the agent is working. Stop the agent first.'));
+          return;
+        }
+        // The composer stays live during a turn. This message joins the turn in
+        // flight instead of waiting for it to end, so it does not start a run of
+        // its own here.
+        await queueMessageForRunningAgent(userText, attachmentsSnapshot, targetChatId);
+        return;
+      }
     }
     if (!clientMessageId) {
       clientMessageId = makeClientMessageId();
@@ -3111,6 +3235,24 @@ export default function App() {
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
     } finally { setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
   };
+
+  // A message the turn ended without delivering becomes an ordinary next turn.
+  // It goes back through handleSendMessage rather than through a shortcut, so it
+  // keeps its attachments, its turn checkpoint and its stored identity: a queued
+  // message must not end up as a lesser kind of message. One per pass — starting
+  // a turn re-runs this effect for whatever is still queued.
+  useEffect(() => {
+    if (isAgentRunning || !activeProject || queuedMessages.length === 0) return;
+    const next = queuedMessages[0];
+    setQueuedMessages(prev => prev.filter(m => m.clientMessageId !== next.clientMessageId));
+    setChatMessages(prev => prev.filter(m => m.client_message_id !== next.clientMessageId));
+    handleSendMessage(null, null, {
+      overrideText: next.text,
+      overrideAttachments: next.attachments,
+      clientMessageId: next.clientMessageId,
+      chatIdOverride: next.chatId,
+    });
+  }, [isAgentRunning, queuedMessages, activeProject]);
 
   const handleFixLatexProblem = async (problem) => {
     if (!activeProject || isAgentRunning || !problem) return;
@@ -3879,13 +4021,14 @@ export default function App() {
           onOpenTutorial={handleOpenTutorial}
           layoutMode={layoutMode}
           setLayoutMode={setLayoutMode}
+          hasOpenDocument={!!selectedFile}
           isTerminalCollapsed={isTerminalCollapsed}
           setIsTerminalCollapsed={setIsTerminalCollapsed}
           setActiveBottomTab={setActiveBottomTab}
         />
 
         {/* Left Sidebar */}
-        {!isEditorMaximized && activeSidebarTab && (layoutMode === 'ide' || isStudioLayout) && (
+        {!isEditorMaximized && activeSidebarTab && isEditorLayout && (
           <aside className="vscode-sidebar" style={{ width: `${sidebarWidth}px` }}>
             {activeSidebarTab === 'explorer' ? (
               <ExplorerSidebar
@@ -3950,18 +4093,13 @@ export default function App() {
             <div className="vscode-chat-sidebar-history-pane">
               <ChatSidebar
                 chats={chats}
-                activeChatId={layoutMode === 'chat-compare' ? comparisonChats[activeComparisonPanel] : activeChatId}
+                activeChatId={activeChatId}
                 setActiveChatId={setActiveChatId}
                 mainChatId={mainChatId}
                 setChats={setChats}
                 activeProject={activeProject}
                 setChatMessages={setChatMessages}
-                onSwitchChat={layoutMode === 'chat-compare'
-                  ? (id) => {
-                    setComparisonChats((current) => ({ ...current, [activeComparisonPanel]: id }));
-                    handleSwitchChat(id);
-                  }
-                  : handleSwitchChat}
+                onSwitchChat={handleSwitchChat}
               />
             </div>
 
@@ -4004,7 +4142,7 @@ export default function App() {
         )}
 
         {/* Left resize handle */}
-        {!isEditorMaximized && ((activeSidebarTab && (layoutMode === 'ide' || isStudioLayout)) || isChatLayout) && (
+        {!isEditorMaximized && ((activeSidebarTab && isEditorLayout) || isChatLayout) && (
           <div className="vscode-resizer-horizontal" onMouseDown={(e) => startResizing(e, 'left')} />
         )}
 
@@ -4012,8 +4150,8 @@ export default function App() {
         <main
           className={`vscode-editor-panel ${layoutMode === 'chat-bottom' ? 'vscode-chat-bottom-layout' : ''} ${isStudioLayout ? 'vscode-studio-layout' : ''}`}
           style={{
-            flex: layoutMode === 'chat' || layoutMode === 'chat-compare' ? 0 : 1,
-            display: layoutMode === 'chat' || layoutMode === 'chat-compare' ? 'none' : isStudioLayout ? 'grid' : 'flex',
+            flex: layoutMode === 'chat' ? 0 : 1,
+            display: layoutMode === 'chat' ? 'none' : isStudioLayout ? 'grid' : 'flex',
             // Inline, because the flex/grid switch above is inline too and a
             // class-level template would lose to it.
             ...(isStudioLayout ? { gridTemplateColumns: studioGrid.gridTemplateColumns, gridTemplateRows: studioGrid.gridTemplateRows } : {}),
@@ -4041,7 +4179,7 @@ export default function App() {
             />
           )}
 
-          {!isBottomMaximized && (layoutMode === 'ide' || isStudioLayout) && (
+          {!isBottomMaximized && isEditorLayout && (
             <EditorPanel
               selectedFile={selectedFile}
               openFiles={openFiles}
@@ -4105,7 +4243,7 @@ export default function App() {
               onAskAboutPdf={handleAskAboutPdf}
               isAgentRunning={isAgentRunning}
               onTextStatsChange={setEditorTextStats}
-              openPreviewByDefault={isStudioLayout}
+              openPreviewByDefault={isStudioLayout || isDocumentLayout}
             />
           )}
 
@@ -4138,6 +4276,7 @@ export default function App() {
               setChatInput={setChatInput}
               chatInputFocusSignal={chatInputFocusSignal}
               isAgentRunning={isAgentRunning}
+              onCancelQueuedMessage={handleCancelQueuedMessage}
               isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}
               chatResponseStream={chatResponseStream}
@@ -4211,21 +4350,7 @@ export default function App() {
         )}
 
         {/* Chat Panel */}
-        {layoutMode === 'chat-compare' && !isEditorMaximized && (
-          <ChatComparisonPanel
-            chats={chats}
-            activeProject={activeProject}
-            comparisonChats={comparisonChats}
-            setComparisonChats={setComparisonChats}
-            activePanel={activeComparisonPanel}
-            setActivePanel={setActiveComparisonPanel}
-            scales={comparisonScales}
-            setScales={setComparisonScales}
-            onSelectChat={handleSwitchChat}
-          />
-        )}
-
-        {(!isEditorMaximized && layoutMode !== 'review' && layoutMode !== 'chat-bottom' && layoutMode !== 'chat-compare' && !isStudioLayout && (isChatVisible || layoutMode === 'chat')) && (
+        {(!isEditorMaximized && layoutMode !== 'review' && layoutMode !== 'chat-bottom' && !isDocumentLayout && !isStudioLayout && (isChatVisible || layoutMode === 'chat')) && (
           <>
             <ChatPanel
               isChatMode={layoutMode === 'chat'}
@@ -4237,6 +4362,7 @@ export default function App() {
               setChatInput={setChatInput}
               chatInputFocusSignal={chatInputFocusSignal}
               isAgentRunning={isAgentRunning}
+              onCancelQueuedMessage={handleCancelQueuedMessage}
               isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}
               chatResponseStream={chatResponseStream}

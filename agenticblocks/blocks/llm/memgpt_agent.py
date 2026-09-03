@@ -12,6 +12,8 @@ from agenticblocks.blocks.llm.agent import (
     AgentInput, AgentOutput, _get_shared_router, _print_debug_report,
     _tool_call_signature, _loop_block_message
 )
+from agenticblocks.blocks.llm.inbox import InboxItem, MessageInbox
+from agenticblocks.utils.messages import build_user_content, history_accepts_user_message
 from agenticblocks.blocks.llm.tokens import count_message_tokens
 from agenticblocks.tools.a2a_bridge import block_to_tool_schema
 from agenticblocks.core.block import Block
@@ -145,11 +147,65 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     Signature: `def callback(usage: TokenUsage) -> Any`.
     Can be a synchronous or asynchronous function."""
 
+    inbox: Optional[MessageInbox] = None
+    """Optional channel for messages submitted while this run is already in flight.
+
+    Drained at the top of each heartbeat, before the request is assembled, which
+    is the only point where `internal_history` is guaranteed not to sit between
+    an assistant tool call and its results. Delivered messages join
+    `internal_history`, so they are saved with `dump_state` and survive an
+    interrupted turn like any other part of the conversation.
+
+    The loop breaks as soon as the model returns a final text response, so a
+    message submitted during that last response is never delivered here: it
+    stays pending and `MessageInbox.close()` hands it back to the caller."""
+    on_message_delivery: Optional[Callable[["InboxItem"], Any]] = None
+    """Optional callback invoked for each inbox message at the moment it is
+    delivered, in delivery order, immediately *before* it enters the conversation.
+
+    The item is mutable: a host that must finalize the message against live run
+    state (budgeting an attachment against the current context, annotating it,
+    recording it in its own store) does so here, and whatever the item carries
+    when the callback returns is what the model receives. An exception
+    propagates and ends the run, so a host that prefers to degrade must handle
+    its own failures.
+    Signature: `def callback(item: InboxItem) -> Any`.
+    Can be a synchronous or asynchronous function."""
+
     # Memória de estado persistente do agente
     internal_history: List[Dict[str, Any]] = Field(default_factory=list)
     recursive_summary: str = DEFAULT_RECURSIVE_SUMMARY
 
     model_config = {"arbitrary_types_allowed": True}
+
+    async def _invoke_on_message_delivery(self, item: "InboxItem") -> None:
+        if self.on_message_delivery:
+            if inspect.iscoroutinefunction(self.on_message_delivery):
+                await self.on_message_delivery(item)
+            else:
+                self.on_message_delivery(item)
+
+    async def _drain_inbox(self) -> List["InboxItem"]:
+        """Append every pending inbox message to `internal_history`, in order.
+
+        Returns without taking anything while the history cannot accept a
+        message: the items stay queued for the next heartbeat instead of being
+        delivered into a request the provider would reject.
+        """
+        if not self.inbox or not len(self.inbox):
+            return []
+        if not history_accepts_user_message(self.internal_history):
+            return []
+
+        delivered: List["InboxItem"] = []
+        for item in self.inbox.drain():
+            await self._invoke_on_message_delivery(item)
+            self.internal_history.append({
+                "role": item.role,
+                "content": build_user_content(item.content, item.attachments),
+            })
+            delivered.append(item)
+        return delivered
 
     async def _invoke_on_iteration(self, iteration: int, messages: List[Dict[str, Any]]) -> None:
         if self.on_iteration:
@@ -412,21 +468,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         litellm_tools = [block_to_tool_schema(b) for b in agent_tools]
 
         # Build user content — plain string or multimodal list (vision models).
-        user_content: str | list = input.prompt
-        if input.attachments:
-            parts: list[dict] = [{"type": "text", "text": input.prompt}]
-            for att in input.attachments:
-                if att.get("type") == "image":
-                    parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{att['mime']};base64,{att['data']}"}
-                    })
-                elif att.get("type") == "pdf_text":
-                    parts.append({
-                        "type": "text",
-                        "text": f"\n\n[Content of attached file '{att['name']}']:\n{att['data']}"
-                    })
-            user_content = parts
+        user_content: str | list = build_user_content(input.prompt, input.attachments)
 
         # Append the incoming prompt to the internal history. Runtime corrections
         # enter as "system" so local models do not read framework feedback as
@@ -451,6 +493,12 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         accumulated_responses = []
         
         while True:
+            # Messages submitted while this turn is in flight enter the history
+            # here, before the request is assembled and before eviction runs, so
+            # the model sees them on its next call and the newest of them becomes
+            # the turn eviction refuses to cross.
+            await self._drain_inbox()
+
             # --- Gerenciamento de Contexto (FIFO Queue & Summarization) ---
             messages = self.build_request_messages()
 

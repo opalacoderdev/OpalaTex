@@ -51,6 +51,14 @@ sys.stderr = _force_utf8_stream(sys.stderr)
 _real_stdout = sys.stdout
 sys.stdout = sys.stderr
 
+from agenticblocks.blocks.llm.inbox import (
+    InboxClosedError,
+    InboxError,
+    InboxFullError,
+    InboxItem,
+    MessageInbox,
+)
+
 # Hook to intercept event prints (e.g. for Python GUI server)
 event_hook = None
 
@@ -76,6 +84,85 @@ DEFAULT_CONTEXT_WINDOW = 8192
 # Pending GUI input requests: maps request-id -> asyncio.Future so that the
 # /api/opalatex/input_response endpoint can resolve them.
 _gui_input_pending: dict = {}
+
+# The out-of-band message inbox of the agent turn currently running, and the
+# project/chat pair it belongs to. `/api/opalatex/message` submits here; the turn
+# opens it in handle_run and closes it in the same turn's cleanup. This is a
+# separate channel from `_gui_input_pending` on purpose: that one resolves a
+# question the agent asked, this one carries a message the agent did not ask for,
+# and routing one into the other would answer a pending `ask_question` with text
+# the user wrote for the conversation (PROJECT_DESIGN 2.7).
+_active_inbox: "MessageInbox | None" = None
+_active_inbox_scope: tuple[str, str] = ("", "")
+
+
+class InboxScopeError(RuntimeError):
+    """Raised when a message is submitted to a turn of a different project/chat."""
+
+
+def active_inbox_scope() -> dict | None:
+    """Describe the running turn's inbox, or None when no turn accepts messages."""
+    if _active_inbox is None or _active_inbox.closed:
+        return None
+    project_path, chat_id = _active_inbox_scope
+    return {
+        "project_path": project_path,
+        "chat_id": chat_id,
+        "pending": len(_active_inbox),
+        "max_pending": _active_inbox.max_pending,
+    }
+
+
+def submit_chat_message(
+    content: str,
+    *,
+    project_path: str = "",
+    chat_id: str = "",
+    attachments: list | None = None,
+    client_message_id: str = "",
+    display_text: str = "",
+) -> dict:
+    """Queue a message for the agent turn already running.
+
+    Raises `InboxClosedError` when no turn is accepting messages, `InboxFullError`
+    when too many are already waiting, and `InboxScopeError` when the caller is
+    talking to a different conversation than the one running. Each is a clear
+    diagnostic the caller must surface: a message that is accepted and never
+    delivered is worse than one that is refused.
+    """
+    inbox = _active_inbox
+    if inbox is None or inbox.closed:
+        raise InboxClosedError("no agent turn is currently accepting messages")
+
+    scope_project, scope_chat = _active_inbox_scope
+    requested_project = str(project_path or "").strip()
+    requested_chat = str(chat_id or "").strip()
+    if requested_project and scope_project and requested_project != scope_project:
+        raise InboxScopeError("the running agent turn belongs to another project")
+    if requested_chat and scope_chat and requested_chat != scope_chat:
+        raise InboxScopeError("the running agent turn belongs to another chat")
+
+    item = inbox.submit(
+        content,
+        attachments=attachments,
+        metadata={
+            "client_message_id": str(client_message_id or "").strip(),
+            "display_text": str(display_text or "").strip(),
+        },
+    )
+    return {
+        "item_id": item.item_id,
+        "client_message_id": item.metadata.get("client_message_id", ""),
+        "pending": len(inbox),
+    }
+
+
+def cancel_chat_message(item_id: str) -> bool:
+    """Drop a queued message. False means it was already delivered or unknown."""
+    inbox = _active_inbox
+    if inbox is None:
+        return False
+    return inbox.cancel(str(item_id or ""))
 
 import litellm
 
@@ -957,6 +1044,224 @@ def _recent_history_attachments(history: list, *, limit: int = 3) -> list[dict]:
                     return list(reversed(attachments))
     return list(reversed(attachments))
 
+
+def _deliver_inbox_message(item: "InboxItem", agent_type: str) -> None:
+    """Finalize and record one out-of-band message as it enters the running turn.
+
+    Called by the agent loop immediately before the message joins the history, so
+    everything here describes a message the model is about to read:
+
+    - the attachments go through the same vision gate, document budget and alias
+      registration as the message that opened the turn, budgeted against the
+      context measured so far in this turn rather than at submission time;
+    - the message is written to `project_history` now, not when the user sent it,
+      so the stored conversation keeps the order the model actually saw
+      (PROJECT_DESIGN 2.6);
+    - `user_message_delivered` always reports the delivery, while
+      `user_message_saved` reports the stored identity only when there is one.
+    """
+    import opalatex.tools as tools_mod
+
+    client_message_id = str(item.metadata.get("client_message_id") or "")
+    display_text = str(item.metadata.get("display_text") or "").strip() or item.content
+    raw_attachments = list(item.attachments or [])
+
+    content, final_attachments, aliases = _prepare_turn_attachments(
+        item.content,
+        raw_attachments,
+        alias_offset=tools_mod.recent_file_attachment_count(),
+        history_fallback=False,
+    )
+    item.content = content
+    item.attachments = final_attachments
+    if aliases:
+        tools_mod.add_recent_file_attachments(aliases)
+
+    message_id = None
+    if current_store is not None and current_project is not None:
+        try:
+            message_id = current_store.append_message(
+                current_project,
+                "user",
+                display_text,
+                attachments=raw_attachments,
+                client_message_id=client_message_id,
+            )
+            current_store.save(current_project)
+        except Exception as exc:
+            # The model is about to read this message either way — the loop has
+            # already taken it off the inbox. Report the divergence instead of
+            # hiding it: the turn continues, but the next turn will not replay
+            # this message, and the user has to know that now.
+            message_id = None
+            print_event("error", {
+                "agent": agent_type,
+                "message": (
+                    "A message delivered to the running agent could not be stored "
+                    f"in the chat history: {exc}"
+                ),
+                "trace": "",
+            })
+
+    print_event("user_message_delivered", {
+        "agent": agent_type,
+        "item_id": item.item_id,
+        "client_message_id": client_message_id,
+        "message_id": message_id,
+    })
+    if message_id is not None:
+        print_event("user_message_saved", {
+            "message_id": message_id,
+            "client_message_id": client_message_id,
+        })
+
+
+def _open_turn_inbox(
+    agent,
+    agent_type: str,
+    *,
+    project_path: str,
+    chat_id: str,
+) -> "MessageInbox":
+    """Attach a fresh inbox to the agent for the duration of this turn."""
+    global _active_inbox, _active_inbox_scope
+
+    inbox = MessageInbox()
+    agent.inbox = inbox
+    agent.on_message_delivery = lambda item: _deliver_inbox_message(item, agent_type)
+    _active_inbox = inbox
+    _active_inbox_scope = (project_path, chat_id)
+    return inbox
+
+
+def _close_turn_inbox(agent, inbox: "MessageInbox | None", agent_type: str) -> None:
+    """Close the turn's inbox and report whatever was never delivered.
+
+    The chat orchestrator block outlives the turn, so the inbox is detached here:
+    leaving a closed one attached would make the next turn start with a channel
+    that rejects everything.
+    """
+    global _active_inbox, _active_inbox_scope
+
+    if inbox is None:
+        return
+    try:
+        agent.inbox = None
+        agent.on_message_delivery = None
+    except Exception:
+        pass
+    if _active_inbox is inbox:
+        _active_inbox = None
+        _active_inbox_scope = ("", "")
+
+    undelivered = inbox.close()
+    if not undelivered:
+        return
+    # The turn ended before these reached the model — the loop breaks as soon as
+    # the model produces its final response, and a message submitted during it
+    # misses the last boundary. They are handed back to the front-end, which
+    # resends them as an ordinary next turn, rather than being dropped.
+    print_event("user_message_backlog", {
+        "agent": agent_type,
+        "items": [
+            {
+                "item_id": item.item_id,
+                "client_message_id": str(item.metadata.get("client_message_id") or ""),
+            }
+            for item in undelivered
+        ],
+    })
+
+
+def _prepare_turn_attachments(
+    prompt: str,
+    raw_attachments: list,
+    *,
+    alias_offset: int = 0,
+    history_fallback: bool = True,
+) -> tuple[str, list, dict]:
+    """Apply the vision gate and the document budget to one message's attachments.
+
+    Returns the prompt with the attachment context appended, the attachments the
+    request will actually carry, and the alias -> descriptor map the file tools
+    resolve. A message delivered mid-turn from the agent inbox goes through this
+    same function, so a file attached to it is budgeted, gated and aliased
+    exactly like a file attached to the message that opened the turn.
+
+    ``alias_offset`` continues the alias numbering of a turn that already
+    registered attachments, so a mid-turn message cannot claim an alias the model
+    was already given. ``history_fallback`` is for the opening message only: a
+    turn with no attachments of its own reuses the recent ones from the chat, but
+    a mid-turn message must not re-attach what the turn already carries.
+    """
+    import litellm as _litellm
+
+    _model_name = (current_project.model if current_project else None) or ""
+    _mp = getattr(current_project, "model_params", {}) or {}
+    # litellm.supports_vision() only knows models in its static registry;
+    # local Ollama vision models (e.g. llava, moondream2) are NOT listed there.
+    # Setting force_vision=true in model_params lets the user override this.
+    _litellm_vision = _litellm.supports_vision(_model_name)
+    model_supports_vision = _litellm_vision or bool(_mp.get("force_vision", False))
+
+    pdf_truncate_enabled = _mp.get("pdf_truncate", True)
+    pdf_truncate_pct = int(_mp.get("pdf_truncate_pct", 50))
+    from opalatex.config import resolve_effective_num_ctx
+    num_ctx = resolve_effective_num_ctx("memgpt", _model_name)
+
+    # Budget the attachment against what the provider charged for the previous
+    # request of this chat. project_history holds neither the system prompt, nor
+    # the tool schemas, nor any tool result, so its JSON length understates the
+    # occupied window by a wide margin and lets a truncated PDF still overflow
+    # the context. The char/4 estimate remains only as the pre-measurement
+    # fallback, on the very first request of a conversation.
+    history_tokens = get_context_prompt_tokens()
+    if history_tokens is None:
+        _hist = getattr(current_project, "history", []) or []
+        history_tokens = len(json.dumps(_hist)) // 4
+    free_tokens = max(0, num_ctx - history_tokens)
+    free_chars = free_tokens * 4  # back to chars
+
+    history_attachments = []
+    if history_fallback and not raw_attachments and current_project:
+        history_attachments = _recent_history_attachments(getattr(current_project, "history", []) or [])
+
+    attachments_for_turn = list(raw_attachments or history_attachments)
+    if pdf_truncate_enabled:
+        attachments_for_turn = _apply_document_budget(
+            attachments_for_turn, free_chars, pdf_truncate_pct
+        )
+    final_attachments = []
+    for att in attachments_for_turn:
+        if att.get("type") == "image" and not model_supports_vision:
+            prompt += (
+                f"\n\n[Note: The user attached image '{att.get('name', 'image')}' "
+                f"but the active model does not support vision. The image was not analysed.]"
+            )
+            continue
+        final_attachments.append(att)
+
+    attachment_aliases = {
+        _attachment_alias(alias_offset + idx, att): att
+        for idx, att in enumerate(final_attachments)
+        if att.get("type") in ("image", "pdf_text")
+    }
+
+    if final_attachments:
+        source = "current message" if raw_attachments else "recent chat history"
+        summaries = [
+            _attachment_summary(att, _attachment_alias(alias_offset + idx, att))
+            for idx, att in enumerate(final_attachments)
+        ]
+        prompt += (
+            f"\n\n[Attachment context from {source}. These files are attached to this LLM message. "
+            f"Use the visual/document content directly when possible. If a tool asks for a file path, "
+            f"use the listed alias exactly. For document aliases, read_file(alias) extracts the original attached file.]\n"
+            + "\n".join(summaries)
+        )
+
+    return prompt, final_attachments, attachment_aliases
+
 from opalatex.config import DEFAULT_MODEL, DEFAULT_DB_PATH, sanitize_model_params
 from opalatex.project import ProjectStore, ProjectData
 from opalatex.memgpt_runtime import build_chat_orchestrator
@@ -1806,6 +2111,18 @@ async def handle_run(data: dict):
 
     from opalatex.tools import TURN_ACHIEVEMENTS
     import opalatex.tools as tools_mod
+
+    # Open the out-of-band inbox for this turn. Only the conversation agents take
+    # one: a worker or an inline edit is not a conversation the user can talk
+    # into, and the composer that produces these messages belongs to the chat.
+    turn_inbox = None
+    if agent_type in ("orchestrator", "chat_orchestrator"):
+        turn_inbox = _open_turn_inbox(
+            agent,
+            agent_type,
+            project_path=getattr(current_project, "project_path", "") or "",
+            chat_id=str(data.get("chat_id") or ""),
+        )
     if agent_type == "chat_orchestrator":
         tools_mod.TURN_ACHIEVEMENTS = ""
 
@@ -1917,74 +2234,11 @@ async def handle_run(data: dict):
     try:
         try:
             # --- Attachment processing: vision gate + smart PDF truncation ---
-            import litellm as _litellm
-            _model_name = (current_project.model if current_project else None) or ""
-
-            _mp = getattr(current_project, "model_params", {}) or {}
-            # litellm.supports_vision() only knows models in its static registry;
-            # local Ollama vision models (e.g. llava, moondream2) are NOT listed there.
-            # Setting force_vision=true in model_params lets the user override this.
-            _litellm_vision = _litellm.supports_vision(_model_name)
-            model_supports_vision = _litellm_vision or bool(_mp.get("force_vision", False))
-
-            pdf_truncate_enabled = _mp.get("pdf_truncate", True)
-            pdf_truncate_pct = int(_mp.get("pdf_truncate_pct", 50))
-            from opalatex.config import resolve_effective_num_ctx
-            num_ctx = resolve_effective_num_ctx("memgpt", _model_name)
-
-            # Budget the attachment against what the provider charged for the
-            # previous request of this chat. project_history holds neither the
-            # system prompt, nor the tool schemas, nor any tool result, so its
-            # JSON length understates the occupied window by a wide margin and
-            # lets a truncated PDF still overflow the context. The char/4
-            # estimate remains only as the pre-measurement fallback, on the very
-            # first request of a conversation.
-            history_tokens = get_context_prompt_tokens()
-            if history_tokens is None:
-                _hist = getattr(current_project, "history", []) or []
-                history_tokens = len(json.dumps(_hist)) // 4
-            free_tokens = max(0, num_ctx - history_tokens)
-            free_chars = free_tokens * 4  # back to chars
-
             user_history_content = display_prompt or prompt
-            history_attachments = []
-            if not raw_attachments and current_project:
-                history_attachments = _recent_history_attachments(getattr(current_project, "history", []) or [])
-
-            attachments_for_turn = list(raw_attachments or history_attachments)
-            if pdf_truncate_enabled:
-                attachments_for_turn = _apply_document_budget(
-                    attachments_for_turn, free_chars, pdf_truncate_pct
-                )
-            final_attachments = []
-            for att in attachments_for_turn:
-                if att.get("type") == "image" and not model_supports_vision:
-                    prompt += (
-                        f"\n\n[Note: The user attached image '{att.get('name', 'image')}' "
-                        f"but the active model does not support vision. The image was not analysed.]"
-                    )
-                    continue
-                final_attachments.append(att)
-
-            attachment_aliases = {
-                _attachment_alias(idx, att): att
-                for idx, att in enumerate(final_attachments)
-                if att.get("type") in ("image", "pdf_text")
-            }
+            prompt, final_attachments, attachment_aliases = _prepare_turn_attachments(
+                prompt, raw_attachments
+            )
             tools_mod.set_recent_file_attachments(attachment_aliases)
-
-            if final_attachments:
-                source = "current message" if raw_attachments else "recent chat history"
-                summaries = [
-                    _attachment_summary(att, _attachment_alias(idx, att))
-                    for idx, att in enumerate(final_attachments)
-                ]
-                prompt += (
-                    f"\n\n[Attachment context from {source}. These files are attached to this LLM message. "
-                    f"Use the visual/document content directly when possible. If a tool asks for a file path, "
-                    f"use the listed alias exactly. For document aliases, read_file(alias) extracts the original attached file.]\n"
-                    + "\n".join(summaries)
-                )
 
             # Save user message to store immediately so it's not lost if the agent crashes
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
@@ -2108,6 +2362,10 @@ async def handle_run(data: dict):
             user_msg = _friendly_llm_error(e, current_project)
             print_event("error", {"message": user_msg, "trace": err_msg})
     finally:
+        # Close the message channel before anything else in the cleanup: from
+        # here on nothing will drain it, so a message still accepted would be
+        # accepted into a turn that can no longer deliver it.
+        _close_turn_inbox(agent, turn_inbox, agent_type)
         # Persist the orchestrator's working memory even when the turn failed or was
         # interrupted: the partial context is what a resume needs, and the
         # compatibility layer repairs any tool call left without its result.

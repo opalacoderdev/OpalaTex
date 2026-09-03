@@ -3007,6 +3007,53 @@ class AsyncHTTPServer:
                 self.send_response(writer, 404, b'{"error":"No pending request with that id"}', "application/json")
             return
 
+        # 7a2. Message to a running agent turn
+        #
+        # This is NOT /api/opalatex/input_response. That endpoint answers a
+        # question the agent asked and resolves a pending future; this one hands
+        # the agent a message it never asked for. Routing chat text into a
+        # pending `ask_question` would answer one thing with another
+        # (PROJECT_DESIGN 2.7), so the two channels stay separate.
+        elif path == '/api/opalatex/message' and method == 'POST':
+            from opalatex.agent_stdin import (
+                InboxScopeError,
+                submit_chat_message,
+            )
+            from agenticblocks.blocks.llm.inbox import InboxClosedError, InboxFullError
+            try:
+                result = submit_chat_message(
+                    data.get("content") or data.get("prompt") or "",
+                    project_path=data.get("project_path") or data.get("projectPath") or "",
+                    chat_id=data.get("chat_id") or "",
+                    attachments=data.get("attachments") or [],
+                    client_message_id=data.get("client_message_id") or "",
+                    display_text=data.get("display_text") or "",
+                )
+                self.send_response(writer, 200, json.dumps({"status": "queued", **result}).encode(), "application/json")
+            except InboxClosedError as e:
+                # 409, not 200-with-a-flag: the caller must fall back to starting
+                # a normal turn, and a success shape would hide that.
+                self.send_response(writer, 409, json.dumps({"error": str(e), "reason": "no_active_run"}).encode(), "application/json")
+            except InboxScopeError as e:
+                self.send_response(writer, 409, json.dumps({"error": str(e), "reason": "scope_mismatch"}).encode(), "application/json")
+            except InboxFullError as e:
+                self.send_response(writer, 429, json.dumps({"error": str(e), "reason": "inbox_full"}).encode(), "application/json")
+            except ValueError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode(), "application/json")
+            return
+
+        # 7a3. Cancel a message still waiting for delivery
+        elif path == '/api/opalatex/message/cancel' and method == 'POST':
+            from opalatex.agent_stdin import cancel_chat_message
+            cancelled = cancel_chat_message(data.get("item_id") or "")
+            self.send_response(
+                writer,
+                200 if cancelled else 404,
+                json.dumps({"cancelled": cancelled}).encode(),
+                "application/json",
+            )
+            return
+
         # 7b. Run Agent (Streaming)
         elif path == '/api/opalatex/run' and method == 'POST':
             from opalatex.ui_settings import load_ui_settings

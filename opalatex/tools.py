@@ -87,6 +87,22 @@ def set_recent_file_attachments(attachments_by_alias: dict[str, dict]) -> None:
     _RECENT_FILE_ATTACHMENTS.update(attachments_by_alias or {})
 
 
+def add_recent_file_attachments(attachments_by_alias: dict[str, dict]) -> None:
+    """Register more attachments without dropping the ones already registered.
+
+    A turn can gain attachments after it started: a message sent while the agent
+    is working is delivered mid-turn and brings its own files. Replacing the map
+    would unregister the aliases the model was already told about, so those calls
+    would start failing halfway through the turn.
+    """
+    _RECENT_FILE_ATTACHMENTS.update(attachments_by_alias or {})
+
+
+def recent_file_attachment_count() -> int:
+    """Number of aliases registered for the current turn."""
+    return len(_RECENT_FILE_ATTACHMENTS)
+
+
 def set_recent_image_attachments(attachments_by_alias: dict[str, dict]) -> None:
     """Backward-compatible wrapper for callers that only register images."""
     set_recent_file_attachments(attachments_by_alias)

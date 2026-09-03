@@ -7,6 +7,7 @@ import {
   pickActivityBarDensity,
 } from '../utils/activityBarDensity';
 import { readUiScale } from '../utils/uiScale';
+import { layoutShowsEditor } from '../utils/layoutModes';
 
 // Left-side vertical activity bar (VSCode-style icon strip).
 export default function ActivityBar({
@@ -23,6 +24,7 @@ export default function ActivityBar({
   onOpenTutorial,
   layoutMode,
   setLayoutMode,
+  hasOpenDocument,
   isTerminalCollapsed,
   setIsTerminalCollapsed,
   setActiveBottomTab
@@ -30,7 +32,12 @@ export default function ActivityBar({
   const { t } = useTranslation();
   // Layouts that dock the explorer/source-control sidebar to their left, and so
   // can open one without being switched away from.
-  const hasDockedSidebar = layoutMode === 'ide' || layoutMode === 'studio';
+  const hasDockedSidebar = layoutShowsEditor(layoutMode);
+  // Layouts that do not render the chat at all: the chat-first ones (where the
+  // chat *is* the layout and cannot be hidden) and the document layout, which
+  // is only the file and its preview. The visibility toggle has nothing to
+  // switch in either, so it is disabled rather than silently inert.
+  const isChatToggleDisabled = layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'document';
 
   const barRef = useRef(null);
   const [densityName, setDensityName] = useState(ACTIVITY_BAR_DEFAULT_DENSITY.name);
@@ -179,11 +186,11 @@ export default function ActivityBar({
         </button>
 
         <button
-          onClick={() => { if (layoutMode !== 'chat' && layoutMode !== 'chat-bottom' && layoutMode !== 'chat-compare') setIsChatVisible(!isChatVisible); }}
-          className={`vscode-activitybar-btn ${isChatVisible || layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare' ? 'active' : ''}`}
+          onClick={() => { if (!isChatToggleDisabled) setIsChatVisible(!isChatVisible); }}
+          className={`vscode-activitybar-btn ${isChatVisible || layoutMode === 'chat' || layoutMode === 'chat-bottom' ? 'active' : ''}`}
           title={t('activityBar.opalatexCodes')}
-          disabled={layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare'}
-          style={{ opacity: layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare' ? 0.5 : 1, cursor: layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'chat-compare' ? 'not-allowed' : 'pointer' }}
+          disabled={isChatToggleDisabled}
+          style={{ opacity: isChatToggleDisabled ? 0.5 : 1, cursor: isChatToggleDisabled ? 'not-allowed' : 'pointer' }}
         >
           <MessageSquare size={density.iconSize} />
         </button>
@@ -220,9 +227,23 @@ export default function ActivityBar({
         </button>
 
         <button
-          onClick={() => setLayoutMode(layoutMode === 'chat-compare' ? 'ide' : 'chat-compare')}
-          className={`vscode-activitybar-btn ${layoutMode === 'chat-compare' ? 'active' : ''}`}
-          title={layoutMode === 'chat-compare' ? t('activityBar.editMode') : t('activityBar.chatComparisonMode')}
+          onClick={() => {
+            if (layoutMode === 'document') {
+              setLayoutMode('ide');
+              return;
+            }
+            // Two panes and nothing else: the open document and its preview.
+            // The explorer starts retracted for the same reason the studio
+            // retracts it — the layout exists to give the document the width,
+            // and it can be reopened from this bar without leaving the layout.
+            // With no document open there is nothing to give the width to, and
+            // the editor's empty state points at the file tree, so the layout
+            // opens on the explorer instead of on a closed sidebar.
+            setLayoutMode('document');
+            setActiveSidebarTab(hasOpenDocument ? null : 'explorer');
+          }}
+          className={`vscode-activitybar-btn ${layoutMode === 'document' ? 'active' : ''}`}
+          title={layoutMode === 'document' ? t('activityBar.editMode') : t('activityBar.documentMode')}
         >
           <Columns2 size={density.iconSize} />
         </button>

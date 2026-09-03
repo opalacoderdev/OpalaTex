@@ -6,7 +6,7 @@
   },
   "activityBar": {
     "chatBottomMode": "Alternar para chat com painel inferior",
-    "chatComparisonMode": "Modo de comparação de chats",
+    "documentMode": "Layout Documento: o arquivo aberto e sua pré-visualização",
     "studioMode": "Layout Studio: editor, pré-visualização, chat e terminal",
     "explorer": "Explorer",
     "chatMode": "Modo Chat",
@@ -439,16 +439,12 @@
     "continue": "Continuar",
     "attachFile": "Anexar imagens, PDFs, DOCX ou PPTX (também dá para colar imagens)",
     "uploadingFiles": "Processando anexo...",
-    "localAttachmentWarning": "Modelo local: os anexos disputam com a conversa uma janela de contexto pequena, então anexe poucos arquivos por vez. Modelos em nuvem suportam lotes maiores."
-  },
-  "chatComparison": {
-    "leftPanel": "Chat esquerdo",
-    "rightPanel": "Chat direito",
-    "selectChat": "Selecionar chat para {{panel}}",
-    "scale": "Escala",
-    "scaleFor": "Escala para {{panel}}",
-    "loading": "Carregando histórico do chat...",
-    "empty": "Este chat ainda não tem mensagens."
+    "localAttachmentWarning": "Modelo local: os anexos disputam com a conversa uma janela de contexto pequena, então anexe poucos arquivos por vez. Modelos em nuvem suportam lotes maiores.",
+    "sendWhileRunning": "Envie uma mensagem para o agente em execucao...",
+    "sendToRunningAgent": "Enviar ao agente em execucao (entregue no proximo passo dele)",
+    "queuedMessage": "Aguardando o agente",
+    "queuedMessageHint": "O agente recebe esta mensagem no proximo passo dele.",
+    "cancelQueuedMessage": "Cancelar esta mensagem"
   },
   "chatSidebar": {
     "newChat": "Novo Chat",
@@ -1039,7 +1035,14 @@
     "pdfSelectedExcerptLabel": "Trecho selecionado no visualizador de PDF",
     "projectPathLabel": "Caminho do projeto",
     "askAboutPdfQuestionLabel": "Minha pergunta:",
-    "projectDownloaded": "{{name}} baixado da nuvem ({{count}} arquivo(s))."
+    "projectDownloaded": "{{name}} baixado da nuvem ({{count}} arquivo(s)).",
+    "messageQueued": "Mensagem enfileirada para o agente em execucao.",
+    "messageDelivered": "Mensagem entregue ao agente em execucao.",
+    "messageBacklog": "O turno terminou antes de entregar {{count}} mensagem(ns) enfileirada(s). Enviando como um novo turno.",
+    "messageQueueFailed": "Nao foi possivel enfileirar a mensagem.",
+    "messageQueueError": "Nao foi possivel enfileirar a mensagem: {{error}}",
+    "messageCancelError": "Nao foi possivel cancelar a mensagem: {{error}}",
+    "slashCommandWhileRunning": "Comandos de barra nao podem ser executados enquanto o agente trabalha. Pare o agente primeiro."
   },
   "onboarding": {
     "welcome": "Bem-vindo ao OpalaTex! 🚀",

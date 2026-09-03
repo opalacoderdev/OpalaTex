@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
-import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle } from 'lucide-react';
+import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { FormattedMessage } from '../utils/formatMessage';
@@ -72,6 +72,7 @@ export default function ChatPanel({
   chatInputFocusSignal = 0,
   setChatInput,
   isAgentRunning,
+  onCancelQueuedMessage,
   isInterruptPending = false,
   chatThoughtStream,
   chatResponseStream,
@@ -511,7 +512,7 @@ export default function ChatPanel({
 
   const handleFormSubmit = (e) => {
     if (e) e.preventDefault();
-    if ((!chatInput.trim() && (!pendingAttachments || pendingAttachments.length === 0)) || !activeProject || isAgentRunning) return;
+    if ((!chatInput.trim() && (!pendingAttachments || pendingAttachments.length === 0)) || !activeProject) return;
     const text = chatInput.trim();
     if (text) {
       setInputHistory(prev => {
@@ -1676,8 +1677,16 @@ export default function ChatPanel({
             }
           }
 
+          // Sent while the agent was working and not yet picked up by it. The
+          // agent reads it at its next step, so it is shown as waiting rather
+          // than as an ordinary message it has already seen.
+          const isQueued = isUser && msg._queued === true;
+
           return (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div
+              key={i}
+              style={{ display: 'flex', flexDirection: 'column', gap: '4px', opacity: isQueued ? 0.65 : 1 }}
+            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span
@@ -1689,6 +1698,32 @@ export default function ChatPanel({
                   {msg.timestamp && (
                     <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #717171)' }}>
                       {new Date(msg.timestamp).toLocaleString()}
+                    </span>
+                  )}
+                  {isQueued && (
+                    <span
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px',
+                        color: 'var(--vscode-descriptionForeground, #717171)',
+                      }}
+                      title={t('chatPanel.queuedMessageHint', 'The agent receives this message at its next step.')}
+                    >
+                      <Clock size={11} />
+                      {t('chatPanel.queuedMessage', 'Waiting for the agent')}
+                      {onCancelQueuedMessage && (
+                        <button
+                          type="button"
+                          onClick={() => onCancelQueuedMessage(msg.client_message_id)}
+                          style={{
+                            background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 2px',
+                            color: 'var(--vscode-descriptionForeground, #717171)', display: 'flex', alignItems: 'center',
+                          }}
+                          title={t('chatPanel.cancelQueuedMessage', 'Cancel this message')}
+                          className="msg-action-btn"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
                     </span>
                   )}
                 </div>
@@ -1714,6 +1749,9 @@ export default function ChatPanel({
                     <Pencil size={12} />
                   </button>
                 )}
+                {/* A queued message is not part of the stored conversation yet,
+                    so there is nothing here to branch from. */}
+                {!isQueued && (
                 <button
                   onClick={() => handleBranchChat(i, msg)}
                   style={{
@@ -1732,6 +1770,7 @@ export default function ChatPanel({
                 >
                   <GitBranch size={12} />
                 </button>
+                )}
                 {!isUser && (
                   <button
                     onClick={() => handleExportSingleMessage(msg.content)}
@@ -2109,7 +2148,7 @@ export default function ChatPanel({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={!activeProject || isAgentRunning}
+            disabled={!activeProject}
             title={t('chatPanel.attachFile', 'Attach images, PDFs, DOCX or PPTX (you can also paste images)')}
             style={{
               background: 'transparent', border: 'none', cursor: 'pointer',
@@ -2126,11 +2165,11 @@ export default function ChatPanel({
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handleInputPaste}
-            disabled={!activeProject || isAgentRunning || isEvolvingPrompt}
+            disabled={!activeProject || isEvolvingPrompt}
             placeholder={
               !activeProject ? t('chatPanel.setProjectFirst') :
-              isAgentRunning ? t('chatPanel.thinking') :
               isEvolvingPrompt ? t('chatPanel.evolving', 'Evolving...') :
+              isAgentRunning ? t('chatPanel.sendWhileRunning', 'Send a message to the running agent...') :
               t('chatPanel.askOpalaTex')
             }
             className="vscode-chat-textarea"
@@ -2165,7 +2204,10 @@ export default function ChatPanel({
               <Sparkles size={14} style={{ color: (!activeProject || !chatInput.trim() || isAgentRunning) ? 'inherit' : '#4ec9b0' }} />
             )}
           </button>
-          {isAgentRunning ? (
+          {/* Stop and Send coexist during a turn: stopping and adding to it are
+              different intentions, and hiding Send is what forced a user to
+              interrupt the agent just to say one more thing. */}
+          {isAgentRunning && (
             <button
               type="button"
               onClick={handleInterruptAgent}
@@ -2176,16 +2218,18 @@ export default function ChatPanel({
             >
               {isInterruptPending ? <RefreshCw size={14} className="spin" /> : <X size={14} />}
             </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={!activeProject || (!chatInput.trim() && (!pendingAttachments || pendingAttachments.length === 0))}
-              className="vscode-button"
-              style={{ padding: '6px' }}
-            >
-              <ArrowRight size={14} />
-            </button>
           )}
+          <button
+            type="submit"
+            disabled={!activeProject || (!chatInput.trim() && (!pendingAttachments || pendingAttachments.length === 0))}
+            className="vscode-button"
+            style={{ padding: '6px' }}
+            title={isAgentRunning
+              ? t('chatPanel.sendToRunningAgent', 'Send to the running agent (delivered at its next step)')
+              : undefined}
+          >
+            <ArrowRight size={14} />
+          </button>
         </div>
       </form>
     </aside>

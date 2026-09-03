@@ -6,7 +6,7 @@
   },
   "activityBar": {
     "chatBottomMode": "Switch to chat with bottom panel",
-    "chatComparisonMode": "Chat comparison mode",
+    "documentMode": "Document layout: the open file and its preview",
     "studioMode": "Studio layout: editor, preview, chat and terminal",
     "explorer": "Explorer",
     "chatMode": "Chat Mode",
@@ -439,16 +439,12 @@
     "continue": "Continue",
     "attachFile": "Attach images, PDFs, DOCX or PPTX (you can also paste images)",
     "uploadingFiles": "Processing attachment...",
-    "localAttachmentWarning": "Local model: attachments compete with the conversation for a small context window, so attach few files at a time. Cloud models handle larger batches."
-  },
-  "chatComparison": {
-    "leftPanel": "Left chat",
-    "rightPanel": "Right chat",
-    "selectChat": "Select chat for {{panel}}",
-    "scale": "Scale",
-    "scaleFor": "Scale for {{panel}}",
-    "loading": "Loading chat history...",
-    "empty": "This chat has no messages yet."
+    "localAttachmentWarning": "Local model: attachments compete with the conversation for a small context window, so attach few files at a time. Cloud models handle larger batches.",
+    "sendWhileRunning": "Send a message to the running agent...",
+    "sendToRunningAgent": "Send to the running agent (delivered at its next step)",
+    "queuedMessage": "Waiting for the agent",
+    "queuedMessageHint": "The agent receives this message at its next step.",
+    "cancelQueuedMessage": "Cancel this message"
   },
   "chatSidebar": {
     "newChat": "New Chat",
@@ -1039,7 +1035,14 @@
     "pdfSelectedExcerptLabel": "Excerpt selected in the PDF viewer",
     "projectPathLabel": "Project path",
     "askAboutPdfQuestionLabel": "My question:",
-    "projectDownloaded": "{{name}} downloaded from the cloud ({{count}} file(s))."
+    "projectDownloaded": "{{name}} downloaded from the cloud ({{count}} file(s)).",
+    "messageQueued": "Message queued for the running agent.",
+    "messageDelivered": "Message delivered to the running agent.",
+    "messageBacklog": "The turn ended before {{count}} queued message(s) were delivered. Sending them as a new turn.",
+    "messageQueueFailed": "The message could not be queued.",
+    "messageQueueError": "Could not queue the message: {{error}}",
+    "messageCancelError": "Could not cancel the message: {{error}}",
+    "slashCommandWhileRunning": "Slash commands cannot run while the agent is working. Stop the agent first."
   },
   "onboarding": {
     "welcome": "Welcome to OpalaTex! ",

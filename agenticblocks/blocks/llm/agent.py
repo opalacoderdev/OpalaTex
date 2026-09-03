@@ -13,6 +13,8 @@ from agenticblocks.core.block import Block
 from agenticblocks.tools.a2a_bridge import block_to_tool_schema
 from agenticblocks.runtime.state import TokenUsage, _current_ctx
 from agenticblocks.utils.parsers import split_inline_reasoning
+from agenticblocks.utils.messages import build_user_content, history_accepts_user_message
+from agenticblocks.blocks.llm.inbox import InboxItem, MessageInbox
 
 
 class _DummyFunction(BaseModel):
@@ -313,8 +315,57 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     """Optional callback invoked after each LLM call with standard content chunks.
     Signature: `def callback(chunk: str) -> Any`.
     Can be a synchronous or asynchronous function."""
+    inbox: Optional[MessageInbox] = None
+    """Optional channel for messages submitted while this run is already in flight.
+
+    Drained at the top of each loop iteration, which is the only point where the
+    history is guaranteed not to sit between a tool call and its results. A
+    message submitted after the loop has broken out is never delivered here; it
+    stays pending and is returned by `MessageInbox.close()` for the caller to
+    route somewhere else."""
+    on_message_delivery: Optional[Callable[["InboxItem"], Any]] = None
+    """Optional callback invoked for each inbox message at the moment it is
+    delivered, in delivery order, immediately *before* it enters the conversation.
+
+    The item is mutable: a host that must finalize the message against live run
+    state (budgeting an attachment against the current context, annotating it,
+    recording it in its own store) does so here, and whatever the item carries
+    when the callback returns is what the model receives. An exception
+    propagates and ends the run, so a host that prefers to degrade must handle
+    its own failures.
+    Signature: `def callback(item: InboxItem) -> Any`.
+    Can be a synchronous or asynchronous function."""
 
     model_config = {"arbitrary_types_allowed": True}
+
+    async def _invoke_on_message_delivery(self, item: "InboxItem") -> None:
+        if self.on_message_delivery:
+            if inspect.iscoroutinefunction(self.on_message_delivery):
+                await self.on_message_delivery(item)
+            else:
+                self.on_message_delivery(item)
+
+    async def _drain_inbox(self, history: List[Dict[str, Any]]) -> List["InboxItem"]:
+        """Append every pending inbox message to ``history``, in order.
+
+        Returns without taking anything when the history cannot accept a message
+        yet: the items stay queued for the next boundary rather than being
+        delivered into a request the provider would reject.
+        """
+        if not self.inbox or not len(self.inbox):
+            return []
+        if not history_accepts_user_message(history):
+            return []
+
+        delivered: List["InboxItem"] = []
+        for item in self.inbox.drain():
+            await self._invoke_on_message_delivery(item)
+            history.append({
+                "role": item.role,
+                "content": build_user_content(item.content, item.attachments),
+            })
+            delivered.append(item)
+        return delivered
 
     async def _invoke_on_iteration(self, iteration: int, messages: List[Dict[str, Any]]) -> None:
         if self.on_iteration:
@@ -453,21 +504,7 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
         litellm_tools = [block_to_tool_schema(b) for b in self.tools]
 
         # Build user content — plain string or multimodal list (vision models).
-        user_content: str | list = input.prompt
-        if input.attachments:
-            parts: list[dict] = [{"type": "text", "text": input.prompt}]
-            for att in input.attachments:
-                if att.get("type") == "image":
-                    parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{att['mime']};base64,{att['data']}"}
-                    })
-                elif att.get("type") == "pdf_text":
-                    parts.append({
-                        "type": "text",
-                        "text": f"\n\n[Content of attached file '{att['name']}']:\n{att['data']}"
-                    })
-            user_content = parts
+        user_content: str | list = build_user_content(input.prompt, input.attachments)
 
         messages = [
             {"role": "system", "content": self.system_prompt},
@@ -484,6 +521,10 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
 
         try:
           while True:
+            # Messages submitted while this run is in flight enter here, before
+            # the request is assembled, so the model sees them on its next call.
+            await self._drain_inbox(messages)
+
             await self._invoke_on_iteration(iteration_count, messages)
 
             if self.max_iterations is not None and iteration_count >= self.max_iterations:
