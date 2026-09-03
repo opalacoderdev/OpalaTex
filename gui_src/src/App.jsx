@@ -2931,11 +2931,14 @@ export default function App() {
         )));
         break;
       case 'user_message_delivered':
-        // The agent has taken the message off the queue and read it. Stop showing
-        // it as waiting; it is part of the conversation from here on.
+        // The agent has taken the message off the queue and read it. This is the
+        // one moment the user is waiting to see, so it is reported as its own
+        // state rather than by dropping the waiting badge.
         setQueuedMessages(prev => prev.filter(m => m.clientMessageId !== data.client_message_id));
         setChatMessages(prev => prev.map(msg => (
-          msg.client_message_id === data.client_message_id ? { ...msg, _queued: false } : msg
+          msg.client_message_id === data.client_message_id
+            ? { ...msg, _deliveryState: 'delivered' }
+            : msg
         )));
         addLog('info', t('app.messageDelivered', 'Message delivered to the running agent.'));
         break;
@@ -2969,10 +2972,19 @@ export default function App() {
     return `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   };
 
+  const setMessageDeliveryState = (clientMessageId, deliveryState) => {
+    setChatMessages(prev => prev.map(msg => (
+      msg.client_message_id === clientMessageId ? { ...msg, _deliveryState: deliveryState } : msg
+    )));
+  };
+
   // Hand a message to the turn already running. The agent picks it up at its next
   // boundary — after the tool call in flight, before the next model call — so the
-  // bubble is marked as waiting until the backend reports it delivered. Delivery
-  // is never instant and the UI must not pretend otherwise.
+  // message passes through three reported states: 'sending' while the request is
+  // in flight, 'queued' once the backend accepted it, and 'delivered' once the
+  // agent has actually read it. Delivery is never instant, and the difference
+  // between "waiting" and "read" is the whole question the user is asking, so
+  // both are stated rather than implied by the absence of a badge.
   const queueMessageForRunningAgent = async (text, attachments, chatId) => {
     const clientMessageId = makeClientMessageId();
     setChatMessages(prev => [...prev, {
@@ -2980,7 +2992,7 @@ export default function App() {
       content: text || '📎 Attachment',
       client_message_id: clientMessageId,
       _attachments: attachments,
-      _queued: true,
+      _deliveryState: 'sending',
       timestamp: new Date().toISOString(),
       chat_id: chatId,
     }]);
@@ -3004,12 +3016,15 @@ export default function App() {
         setQueuedMessages(prev => prev.map(m => (
           m.clientMessageId === clientMessageId ? { ...m, itemId: result.item_id || '' } : m
         )));
+        setMessageDeliveryState(clientMessageId, 'queued');
         addLog('info', t('app.messageQueued', 'Message queued for the running agent.'));
         return;
       }
       if (result.reason === 'no_active_run') {
         // The turn ended between typing and this request. The entry stays queued
-        // and the flush effect below sends it as an ordinary next turn.
+        // and the flush effect below sends it as an ordinary next turn — so it is
+        // waiting, not still being sent.
+        setMessageDeliveryState(clientMessageId, 'queued');
         return;
       }
       throw new Error(result.error || t('app.messageQueueFailed', 'The message could not be queued.'));
@@ -3043,6 +3058,13 @@ export default function App() {
     }
     setQueuedMessages(prev => prev.filter(m => m.clientMessageId !== clientMessageId));
     setChatMessages(prev => prev.filter(m => m.client_message_id !== clientMessageId));
+  };
+
+  const handleCancelAllQueuedMessages = async () => {
+    const pending = [...queuedMessages];
+    for (const entry of pending) {
+      await handleCancelQueuedMessage(entry.clientMessageId);
+    }
   };
 
   const handleSendMessage = async (e, retryMsg = null, options = {}) => {
@@ -4276,7 +4298,9 @@ export default function App() {
               setChatInput={setChatInput}
               chatInputFocusSignal={chatInputFocusSignal}
               isAgentRunning={isAgentRunning}
+              queuedMessages={queuedMessages}
               onCancelQueuedMessage={handleCancelQueuedMessage}
+              onCancelAllQueuedMessages={handleCancelAllQueuedMessages}
               isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}
               chatResponseStream={chatResponseStream}
@@ -4362,7 +4386,9 @@ export default function App() {
               setChatInput={setChatInput}
               chatInputFocusSignal={chatInputFocusSignal}
               isAgentRunning={isAgentRunning}
+              queuedMessages={queuedMessages}
               onCancelQueuedMessage={handleCancelQueuedMessage}
+              onCancelAllQueuedMessages={handleCancelAllQueuedMessages}
               isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}
               chatResponseStream={chatResponseStream}

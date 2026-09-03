@@ -444,7 +444,14 @@
     "sendToRunningAgent": "Enviar ao agente em execucao (entregue no proximo passo dele)",
     "queuedMessage": "Aguardando o agente",
     "queuedMessageHint": "O agente recebe esta mensagem no proximo passo dele.",
-    "cancelQueuedMessage": "Cancelar esta mensagem"
+    "cancelQueuedMessage": "Cancelar esta mensagem",
+    "messageSending": "Enviando...",
+    "queuedMessagePosition": "Aguardando o agente (#{{position}})",
+    "deliveredMessage": "Lida pelo agente",
+    "deliveredMessageHint": "O agente leu esta mensagem e esta levando ela em conta.",
+    "queueStatusOne": "Mensagem enviada. O agente le no proximo passo dele.",
+    "queueStatusMany": "{{count}} mensagens enviadas. O agente le nos proximos passos dele.",
+    "cancelAllQueuedMessages": "Cancelar todas"
   },
   "chatSidebar": {
     "newChat": "Novo Chat",

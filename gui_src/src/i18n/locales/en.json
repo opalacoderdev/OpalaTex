@@ -444,7 +444,14 @@
     "sendToRunningAgent": "Send to the running agent (delivered at its next step)",
     "queuedMessage": "Waiting for the agent",
     "queuedMessageHint": "The agent receives this message at its next step.",
-    "cancelQueuedMessage": "Cancel this message"
+    "cancelQueuedMessage": "Cancel this message",
+    "messageSending": "Sending...",
+    "queuedMessagePosition": "Waiting for the agent (#{{position}})",
+    "deliveredMessage": "Read by the agent",
+    "deliveredMessageHint": "The agent read this message and is taking it into account.",
+    "queueStatusOne": "Message sent. The agent reads it at its next step.",
+    "queueStatusMany": "{{count}} messages sent. The agent reads them at its next steps.",
+    "cancelAllQueuedMessages": "Cancel all"
   },
   "chatSidebar": {
     "newChat": "New Chat",

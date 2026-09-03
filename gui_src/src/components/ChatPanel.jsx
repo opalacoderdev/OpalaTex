@@ -72,7 +72,9 @@ export default function ChatPanel({
   chatInputFocusSignal = 0,
   setChatInput,
   isAgentRunning,
+  queuedMessages = [],
   onCancelQueuedMessage,
+  onCancelAllQueuedMessages,
   isInterruptPending = false,
   chatThoughtStream,
   chatResponseStream,
@@ -1677,10 +1679,16 @@ export default function ChatPanel({
             }
           }
 
-          // Sent while the agent was working and not yet picked up by it. The
-          // agent reads it at its next step, so it is shown as waiting rather
-          // than as an ordinary message it has already seen.
-          const isQueued = isUser && msg._queued === true;
+          // Sent while the agent was working. Three states, all stated
+          // explicitly: still being handed over, accepted and waiting for the
+          // agent's next step, or actually read by it. "Read" is the answer the
+          // user is waiting for, so it gets a badge of its own instead of being
+          // signalled by the waiting badge disappearing.
+          const deliveryState = isUser ? msg._deliveryState : undefined;
+          const isQueued = deliveryState === 'sending' || deliveryState === 'queued';
+          const queuePosition = deliveryState === 'queued'
+            ? queuedMessages.findIndex(m => m.clientMessageId === msg.client_message_id) + 1
+            : 0;
 
           return (
             <div
@@ -1700,30 +1708,40 @@ export default function ChatPanel({
                       {new Date(msg.timestamp).toLocaleString()}
                     </span>
                   )}
-                  {isQueued && (
+                  {deliveryState === 'sending' && (
+                    <span className="chat-msg-badge chat-msg-badge-sending">
+                      <RefreshCw size={11} className="spin" />
+                      {t('chatPanel.messageSending', 'Sending...')}
+                    </span>
+                  )}
+                  {deliveryState === 'queued' && (
                     <span
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px',
-                        color: 'var(--vscode-descriptionForeground, #717171)',
-                      }}
+                      className="chat-msg-badge chat-msg-badge-waiting"
                       title={t('chatPanel.queuedMessageHint', 'The agent receives this message at its next step.')}
                     >
                       <Clock size={11} />
-                      {t('chatPanel.queuedMessage', 'Waiting for the agent')}
+                      {queuePosition > 1
+                        ? t('chatPanel.queuedMessagePosition', 'Waiting for the agent (#{{position}})', { position: queuePosition })
+                        : t('chatPanel.queuedMessage', 'Waiting for the agent')}
                       {onCancelQueuedMessage && (
                         <button
                           type="button"
+                          className="chat-msg-badge-cancel"
                           onClick={() => onCancelQueuedMessage(msg.client_message_id)}
-                          style={{
-                            background: 'transparent', border: 'none', cursor: 'pointer', padding: '0 2px',
-                            color: 'var(--vscode-descriptionForeground, #717171)', display: 'flex', alignItems: 'center',
-                          }}
                           title={t('chatPanel.cancelQueuedMessage', 'Cancel this message')}
-                          className="msg-action-btn"
                         >
                           <X size={11} />
                         </button>
                       )}
+                    </span>
+                  )}
+                  {deliveryState === 'delivered' && (
+                    <span
+                      className="chat-msg-badge chat-msg-badge-delivered chat-msg-delivered"
+                      title={t('chatPanel.deliveredMessageHint', 'The agent read this message and is taking it into account.')}
+                    >
+                      <Check size={11} />
+                      {t('chatPanel.deliveredMessage', 'Read by the agent')}
                     </span>
                   )}
                 </div>
@@ -2114,10 +2132,7 @@ export default function ChatPanel({
         )}
         {/* Local models pay for every attachment out of a small context window */}
         {showLocalAttachmentWarning && (
-          <div style={{
-            padding: '4px 10px', fontSize: '11px', color: '#d7ba7d',
-            display: 'flex', alignItems: 'center', gap: '5px',
-          }}>
+          <div className="chat-attachment-warning">
             <AlertTriangle size={12} style={{ flexShrink: 0 }} />
             <span>
               {t(
@@ -2125,6 +2140,31 @@ export default function ChatPanel({
                 'Local model: attachments compete with the conversation for a small context window, so attach few files at a time. Cloud models handle larger batches.',
               )}
             </span>
+          </div>
+        )}
+        {/* Delivery status for messages sent into a running turn. The bubble
+            badges alone are not enough: when the user presses Enter their eyes
+            are on the composer, and the bubble may have already scrolled out of
+            view behind the agent's streaming output. */}
+        {queuedMessages.length > 0 && (
+          <div className="chat-queue-strip">
+            <Clock size={12} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1 }}>
+              {queuedMessages.length === 1
+                ? t('chatPanel.queueStatusOne', 'Message sent. The agent reads it at its next step.')
+                : t('chatPanel.queueStatusMany', '{{count}} messages sent. The agent reads them at its next steps.', { count: queuedMessages.length })}
+            </span>
+            {onCancelAllQueuedMessages && (
+              <button
+                type="button"
+                className="chat-queue-strip-action"
+                onClick={onCancelAllQueuedMessages}
+              >
+                {queuedMessages.length === 1
+                  ? t('chatPanel.cancelQueuedMessage', 'Cancel this message')
+                  : t('chatPanel.cancelAllQueuedMessages', 'Cancel all')}
+              </button>
+            )}
           </div>
         )}
         {/* Upload status */}

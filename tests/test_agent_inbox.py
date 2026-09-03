@@ -492,3 +492,38 @@ def test_cancelling_a_queued_message_keeps_it_out_of_the_conversation(opalatex_t
     assert module.cancel_chat_message(result["item_id"]) is True
     assert module.cancel_chat_message(result["item_id"]) is False
     assert len(opalatex_turn.inbox) == 0
+
+
+def test_delivery_is_reported_during_the_turn_not_after_it(opalatex_turn, monkeypatch):
+    """The badge that says "read by the agent" depends on this event ordering.
+
+    The front-end has no other way to know a queued message stopped waiting, so
+    `user_message_delivered` has to leave the backend while the turn is still
+    running -- before the answer that took it into account, not after the stream
+    has already closed.
+    """
+    module = opalatex_turn.module
+    agent = _memgpt_agent(opalatex_turn.inbox)
+    agent.on_message_delivery = opalatex_turn.agent.on_message_delivery
+    monkeypatch.setattr(module, "_active_inbox", opalatex_turn.inbox)
+
+    calls = {"n": 0}
+
+    async def fake_acompletion(messages, **_kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            module.submit_chat_message(
+                "and cite the source",
+                client_message_id="client-3",
+                chat_id=opalatex_turn.project.current_chat_id,
+            )
+            return _response(tool_calls=[_tool_call("c1", "probe", '{"target": "x"}')])
+        module.print_event("agent_response", {"response": "done"})
+        return _response(content="done")
+
+    agent._acompletion = fake_acompletion
+    asyncio.run(agent.run(AgentInput(prompt="write it")))
+
+    names = [event for event, _data in opalatex_turn.events]
+    assert "user_message_delivered" in names
+    assert names.index("user_message_delivered") < names.index("agent_response")

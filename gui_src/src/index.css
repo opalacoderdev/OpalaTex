@@ -2729,3 +2729,125 @@ select {
   opacity: 0.8;
 }
 
+
+/* ── Spinner used by inline status indicators ────────────────────────────────
+   `className="spin"` was already in use (the interrupt button, the prompt
+   evolution indicator) with no rule behind it anywhere, so those icons sat
+   still while claiming to be working. */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* ── Delivery feedback for messages sent into a running turn ────────────────
+   Colours live here rather than inline so the light theme can override them:
+   the dark-theme amber and teal wash out to near-invisible on a white ground,
+   which is exactly the failure an "is it there yet?" indicator cannot have. */
+.chat-msg-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+}
+
+.chat-msg-badge-sending {
+  color: var(--vscode-descriptionForeground, #858585);
+  padding: 0;
+  border: none;
+}
+
+.chat-msg-badge-waiting {
+  color: #e5c07b;
+  background-color: rgba(229, 192, 123, 0.12);
+  border-color: rgba(229, 192, 123, 0.45);
+}
+
+.chat-msg-badge-delivered {
+  color: #4ec9b0;
+  background-color: rgba(78, 201, 176, 0.12);
+  border-color: rgba(78, 201, 176, 0.45);
+}
+
+.chat-msg-badge-cancel {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  padding: 0 0 0 2px;
+}
+
+.chat-queue-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: #e5c07b;
+  background-color: rgba(229, 192, 123, 0.10);
+  border-top: 1px solid rgba(229, 192, 123, 0.30);
+}
+
+.chat-queue-strip-action {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  text-decoration: underline;
+  padding: 0;
+  font-size: 11px;
+}
+
+/* Amber and teal at dark-theme lightness are unreadable on white. These are the
+   same hues taken down to text contrast, not different colours. */
+.light-theme .chat-msg-badge-waiting {
+  color: #7a4f00;
+  background-color: rgba(229, 192, 123, 0.28);
+  border-color: rgba(122, 79, 0, 0.40);
+}
+
+.light-theme .chat-msg-badge-delivered {
+  color: #0a6250;
+  background-color: rgba(78, 201, 176, 0.24);
+  border-color: rgba(10, 98, 80, 0.40);
+}
+
+.light-theme .chat-queue-strip {
+  color: #7a4f00;
+  background-color: rgba(229, 192, 123, 0.24);
+  border-top-color: rgba(122, 79, 0, 0.35);
+}
+
+/* The local-model attachment warning in the same composer strip carried the
+   same hardcoded dark-theme tan and washed out identically. */
+.chat-attachment-warning {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: #d7ba7d;
+}
+
+.light-theme .chat-attachment-warning {
+  color: #7a4f00;
+}
+
+/* A message queued during a turn changes state without the user acting again,
+   so the moment the agent reads it has to catch the eye on its own. */
+@keyframes chatMessageDelivered {
+  0% { transform: scale(0.9); opacity: 0; }
+  35% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.chat-msg-delivered {
+  animation: chatMessageDelivered 420ms ease-out;
+}
