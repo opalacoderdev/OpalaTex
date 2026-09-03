@@ -112,7 +112,7 @@ export default function FileNode({
   };
 
   const isDragOver = dragOverPath === node.path;
-  let baseStyle = isDragOver ? { backgroundColor: '#2d2d2d', border: '1px dashed #007acc' } : {};
+  let baseStyle = isDragOver ? { backgroundColor: 'var(--vscode-hover-item)', border: '1px dashed var(--vscode-accent)' } : {};
 
   // Check if node is part of the multi-selection
   const isMultiSelected = selectedNodes && selectedNodes.has(node.path);
@@ -131,7 +131,7 @@ export default function FileNode({
       onDoubleClick={(e) => e.stopPropagation()}
       style={{
         background: 'var(--vscode-input-bg, #1e1e1e)',
-        color: 'var(--vscode-input-fg, #cccccc)',
+        color: 'var(--vscode-input-fg, var(--vscode-text-fg))',
         border: '1px solid var(--vscode-focusBorder, #007acc)',
         borderRadius: '2px',
         outline: 'none',
@@ -170,12 +170,12 @@ export default function FileNode({
           onContextMenu={(e) => handleNodeContextMenu(e, node)}
         >
           {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <Folder size={14} className="text-white" style={{ color: '#e8a838', flexShrink: 0 }} />
+          <Folder size={14} className="text-white" style={{ color: 'var(--vscode-fg-folder)', flexShrink: 0 }} />
           {isRenaming ? renderRenameInput() : <span className="truncate">{node.name}</span>}
           <CloudFileBadge state={cloudState} />
         </div>
         {isOpen && (
-          <div style={{ paddingLeft: '12px', borderLeft: '1px solid #3c3c3c', marginLeft: '14px' }}>
+          <div style={{ paddingLeft: '12px', borderLeft: '1px solid var(--vscode-border)', marginLeft: '14px' }}>
             {node.children.map(child => (
               <FileNode
                 key={child.path}
@@ -218,7 +218,7 @@ export default function FileNode({
       onDragStart={handleDragStart}
       onContextMenu={(e) => handleNodeContextMenu(e, node)}
     >
-      <File size={14} className="text-white" style={{ color: '#808080', flexShrink: 0 }} />
+      <File size={14} className="text-white" style={{ color: 'var(--vscode-text-muted)', flexShrink: 0 }} />
       {isRenaming ? renderRenameInput() : <span className="truncate">{node.name}{isDirty ? ' *' : ''}</span>}
       <CloudFileBadge state={cloudState} />
     </div>

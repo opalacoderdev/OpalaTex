@@ -146,7 +146,7 @@ export default function BottomPanel({
                   <>
                     {t('bottomPanel.problemsTab')}{' '}
                     {problems.length > 0 && (
-                      <span style={{ marginLeft: '4px', background: '#f48771', color: '#1e1e1e', borderRadius: '10px', padding: '0 6px', fontSize: '11px', fontWeight: 'bold' }}>
+                      <span style={{ marginLeft: '4px', background: 'var(--vscode-errorForeground)', color: 'var(--vscode-bg)', borderRadius: '10px', padding: '0 6px', fontSize: '11px', fontWeight: 'bold' }}>
                         {problems.length}
                       </span>
                     )}
@@ -215,7 +215,7 @@ export default function BottomPanel({
                   setIsTerminalCollapsed(!isTerminalCollapsed);
                 }
               }}
-              style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0' }}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)' }}
               title={isTerminalCollapsed ? t('bottomPanel.expandPanel') : isBottomMaximized ? t('bottomPanel.restorePanel') : t('bottomPanel.collapsePanel')}
             >
               {isTerminalCollapsed ? <ChevronUp size={14} /> : isBottomMaximized ? <Minimize2 size={12} /> : <ChevronDown size={14} />}
@@ -223,7 +223,7 @@ export default function BottomPanel({
             {!isTerminalCollapsed && !isBottomMaximized && (
               <button
                 onClick={onToggleMaximizeBottom}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0' }}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)' }}
                 title={t('bottomPanel.maximizePanel')}
               >
                 <Maximize2 size={12} />
@@ -248,39 +248,39 @@ export default function BottomPanel({
                 onScroll={handleScroll}
               >
                 {terminalLogs.filter(log => !['thought', 'reflection'].includes(log.type)).length === 0 ? (
-                  <div style={{ color: '#808080', fontStyle: 'italic' }}>
+                  <div style={{ color: 'var(--vscode-text-muted)', fontStyle: 'italic' }}>
                     {t('bottomPanel.noLogs')}
                   </div>
                 ) : (
                   terminalLogs
                     .filter(log => !['thought', 'reflection'].includes(log.type))
                     .map((log, i) => {
-                      let colorStyle = { color: '#cccccc' };
+                      let colorStyle = { color: 'var(--vscode-text-fg)' };
                       let label = 'SYSTEM';
                       let bgColor = 'transparent';
                       let borderColor = 'transparent';
 
                       if (log.type === 'error') { 
-                        colorStyle = { color: '#f48771', fontWeight: 'bold' }; 
+                        colorStyle = { color: 'var(--vscode-errorForeground)', fontWeight: 'bold' }; 
                         label = 'ERROR'; 
                         bgColor = 'rgba(244, 135, 113, 0.08)';
-                        borderColor = '#f48771';
+                        borderColor = 'var(--vscode-errorForeground)';
                       }
                       else if (log.type === 'info') { 
-                        colorStyle = { color: '#75beff' }; 
+                        colorStyle = { color: 'var(--vscode-fg-link)' }; 
                         label = 'INFO'; 
                       }
                       else if (log.type === 'tool_call') { 
-                        colorStyle = { color: '#d7ba7d' }; 
+                        colorStyle = { color: 'var(--vscode-textPreformat-foreground)' }; 
                         label = 'TOOL'; 
                         bgColor = 'rgba(215, 186, 125, 0.08)';
-                        borderColor = '#d7ba7d';
+                        borderColor = 'var(--vscode-textPreformat-foreground)';
                       }
                       else if (log.type === 'tool_result') { 
-                        colorStyle = { color: '#89d4a5' }; 
+                        colorStyle = { color: 'var(--vscode-fg-success)' }; 
                         label = 'RESULT'; 
                         bgColor = 'rgba(137, 212, 165, 0.08)';
-                        borderColor = '#89d4a5';
+                        borderColor = 'var(--vscode-fg-success)';
                       }
 
                       return (
@@ -293,9 +293,9 @@ export default function BottomPanel({
                           borderRadius: '2px'
                         }}>
                           <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', fontSize: '11px', opacity: 0.8 }}>
-                            <span style={{ color: '#888', marginRight: '6px' }}>[{log.timestamp}]</span>
+                            <span style={{ color: 'var(--vscode-text-muted)', marginRight: '6px' }}>[{log.timestamp}]</span>
                             <span style={{ fontWeight: 'bold', marginRight: '6px', color: colorStyle.color }}>[{label}]</span>
-                            {log.agent && <span style={{ color: '#9cdcfe', fontWeight: 'bold' }}>@{log.agent}</span>}
+                            {log.agent && <span style={{ color: 'var(--vscode-fg-info)', fontWeight: 'bold' }}>@{log.agent}</span>}
                           </div>
                           <div style={{ whiteSpace: 'pre-wrap', fontFamily: 'Consolas, monospace', fontSize: '12px', color: 'var(--vscode-text-fg)' }}>
                             {log.message}
@@ -312,7 +312,7 @@ export default function BottomPanel({
             {activeBottomTab === 'problems' && (
               <div className="vscode-problems-list" style={{ padding: '8px', overflowY: 'auto', height: '100%', color: 'var(--vscode-text-fg)', fontFamily: 'Consolas, monospace', fontSize: '12px' }}>
                 {problems.length === 0 ? (
-                  <div style={{ color: '#808080', fontStyle: 'italic', padding: '8px' }}>{t('bottomPanel.noProblems')}</div>
+                  <div style={{ color: 'var(--vscode-text-muted)', fontStyle: 'italic', padding: '8px' }}>{t('bottomPanel.noProblems')}</div>
                 ) : (
                   problems.map((prob) => (
                     <div key={prob.id} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', borderBottom: '1px solid var(--vscode-border)', padding: '6px 0' }}>
@@ -342,22 +342,22 @@ export default function BottomPanel({
                 onScroll={handleScroll}
               >
                 {terminalLogs.filter(log => ['thought', 'reflection', 'stream_chunk'].includes(log.type)).length === 0 ? (
-                  <div style={{ color: '#808080', fontStyle: 'italic' }}>
+                  <div style={{ color: 'var(--vscode-text-muted)', fontStyle: 'italic' }}>
                     No agent thinking recorded in this turn yet.
                   </div>
                 ) : (
                   terminalLogs
                     .filter(log => ['thought', 'reflection', 'stream_chunk'].includes(log.type))
                     .map((log, i) => {
-                      let colorStyle = { color: '#da70d6' };
+                      let colorStyle = { color: 'var(--vscode-fg-magenta)' };
                       let label = 'THINKING';
 
-                      if (log.type === 'reflection') { colorStyle = { color: '#4ec9b0' }; label = 'REFLECTION'; }
-                      else if (log.type === 'stream_chunk') { colorStyle = { color: '#da70d6' }; label = 'STREAM'; }
+                      if (log.type === 'reflection') { colorStyle = { color: 'var(--vscode-fg-teal)' }; label = 'REFLECTION'; }
+                      else if (log.type === 'stream_chunk') { colorStyle = { color: 'var(--vscode-fg-magenta)' }; label = 'STREAM'; }
 
                       return (
                         <div key={i} style={{ padding: '4px 8px', marginBottom: '6px', wordBreak: 'break-word' }}>
-                          <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--vscode-text-muted)', marginBottom: '4px' }}>
                              [{log.timestamp}] - <span style={{ color: colorStyle.color, fontStyle: 'italic' }}>{label}</span> {log.agent && `(@${log.agent})`}
                           </div>
                           <div style={{ whiteSpace: 'pre-wrap', fontFamily: 'Consolas, monospace', fontSize: '12px', color: 'var(--vscode-text-fg)', opacity: 0.9 }}>
@@ -375,7 +375,7 @@ export default function BottomPanel({
             {/* Terminal tab */}
             <div style={{ display: activeBottomTab === 'terminal' ? 'flex' : 'none', flexDirection: 'column', height: '100%', background: 'var(--vscode-terminal-bg)', overflow: 'hidden' }}>
               {!activeProject ? (
-                <div style={{ color: '#808080', fontStyle: 'italic', padding: '16px' }}>
+                <div style={{ color: 'var(--vscode-text-muted)', fontStyle: 'italic', padding: '16px' }}>
                   {t('bottomPanel.setProjectForTerminal')}
                 </div>
               ) : (

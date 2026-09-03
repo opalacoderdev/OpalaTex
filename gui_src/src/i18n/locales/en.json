@@ -14,12 +14,17 @@
     "reviewMode": "Review Mode",
     "sourceControl": "Source Control",
     "opalatexCodes": "OpalaTex Chat",
-    "settings": "Settings",
     "hardware": "Hardware",
     "assetStore": "Asset Store",
     "tutorial": "Tutorial",
     "cloudSync": "Cloud sync",
-    "cloudSyncOn": "Cloud sync (on)"
+    "cloudSyncOn": "Cloud sync (on)",
+    "planPending": "Plan awaiting your approval",
+    "editorSettings": "Editor settings",
+    "editorSettingsBadge": "E",
+    "projectSettings": "Project settings",
+    "projectSettingsBadge": "P",
+    "projectSettingsDisabled": "Open a project to change its settings"
   },
   "tutorial": {
     "menuTitle": "Tutorial topics",
@@ -119,7 +124,6 @@
     "header": "EXPLORER: PROJECTS",
     "newProject": "New Project...",
     "selectProject": "Select Project",
-    "configureProject": "Configure project",
     "removeProject": "Remove project",
     "openFolder": "Open folder in OS",
     "workspaceFiles": "Workspace Files",
@@ -779,9 +783,15 @@
     "no": "No",
     "yes": "Yes",
     "always": "Always Allow",
-    "cancel": "Cancel",
-    "editPlan": "Edit Plan",
-    "preview": "Preview"
+    "cancel": "Cancel"
+  },
+  "planPanel": {
+    "title": "Proposed Plan",
+    "edit": "Edit",
+    "preview": "Preview",
+    "approve": "Approve",
+    "reject": "Reject",
+    "rejectHint": "Rejecting stops the turn and returns to the chat, where you can say what to change."
   },
   "editModelsModal": {
     "title": "Edit Models / Providers",

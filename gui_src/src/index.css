@@ -10,6 +10,30 @@
   /* Accessibility interface scale; see .vscode-app. Overridden at runtime
      on the document element from the value stored in ui_settings.json. */
   --ui-scale: 1;
+  /* ── Spacing, shape and dialog insets ───────────────────────────────────
+     The global reset further down zeroes every margin and padding, so an
+     element whose spacing class matches no rule renders flush against its
+     own border — which is exactly how the settings, asset-store and cloud
+     dialogs ended up with their labels, inputs and tabs touching the frame.
+     These tokens are the single place the app's insets are decided: the
+     dialog chrome consumes them directly and the utility layer further down
+     exposes the same scale as classes. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  /* One gutter shared by a dialog's title bar, tab strip, body and footer, so
+     every band lines up on the same vertical rule instead of each drifting to
+     whatever its own markup happened to set. */
+  --modal-gutter: 20px;
+  --modal-band-padding: 14px;
+  --modal-body-padding: 20px;
   --vscode-bg: #1e1e1e;
   --vscode-sidebar-bg: #252526;
   --vscode-activitybar-bg: #333333;
@@ -73,6 +97,66 @@
   /* PDF text-layer selection: translucent, so the rendered page glyphs
      underneath the invisible text layer stay readable while selected. */
   --pdf-selection-bg: rgba(64, 132, 204, 0.30);
+
+  /* ── Semantic foreground accents ─────────────────────────────────────────
+     The dark values are the literals components used to hardcode inline. Each
+     one has a light counterpart below, picked for AA contrast on the light
+     surfaces (#ffffff editor, #f0f0f0 panel, #ebebeb sidebar) — the dark hues
+     land between 1.5:1 and 2.9:1 there, which is why hardcoding them made
+     text vanish in the light theme.
+     ─────────────────────────────────────────────────────────────────────── */
+  --vscode-text-subtle: #a0a0a0;
+  --vscode-text-muted: #808080;
+  --vscode-fg-info: #9cdcfe;
+  --vscode-fg-link: #4daafc;
+  --vscode-fg-success: #4ade80;
+  --vscode-fg-warning: #facc15;
+  --vscode-fg-gold: #e2b52b;
+  --vscode-fg-folder: #e8a838;
+  --vscode-fg-danger: #f87171;
+  --vscode-fg-teal: #4ec9b0;
+  --vscode-fg-magenta: #da70d6;
+
+  /* ── VS Code vocabulary aliases ──────────────────────────────────────────
+     Names components borrowed from VS Code's own token set but that were
+     never defined here. Every one of them silently fell back to a dark-theme
+     literal (or dropped the declaration entirely, leaving the element
+     unstyled), so they ignored the theme. They are re-declared verbatim in
+     the `.light-theme` block below, and that repetition is required, not an
+     oversight: a custom property whose value contains `var()` is substituted
+     where it is *declared*, not where it is used, so an alias declared only
+     here resolves against this element's (dark) tokens and inherits that
+     frozen value into the light theme — which is exactly how the settings
+     and cloud modals ended up with black title bars on a light body.
+     ─────────────────────────────────────────────────────────────────────── */
+  --vscode-foreground: var(--vscode-text-fg);
+  --vscode-editor-foreground: var(--vscode-text-fg);
+  --vscode-description-fg: var(--vscode-descriptionForeground);
+  --vscode-error-fg: var(--vscode-errorForeground);
+  --vscode-textLink-foreground: var(--vscode-fg-link);
+  --vscode-input-background: var(--vscode-input-bg);
+  --vscode-input-foreground: var(--vscode-input-fg);
+  --vscode-dropdown-background: var(--vscode-input-bg);
+  --vscode-dropdown-foreground: var(--vscode-input-fg);
+  --vscode-dropdown-border: var(--vscode-border);
+  --vscode-button-background: var(--vscode-button-bg);
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-fg: #ffffff;
+  --vscode-button-secondaryBackground: var(--vscode-input-bg);
+  --vscode-button-secondaryForeground: var(--vscode-text-fg);
+  --vscode-badge-background: var(--vscode-active-item);
+  --vscode-list-hoverBackground: var(--vscode-list-hoverBg);
+  --vscode-list-activeSelectionBackground: var(--vscode-list-activeSelectionBg);
+  --vscode-list-activeSelectionForeground: var(--vscode-list-activeSelectionFg);
+  --vscode-hover-bg: var(--vscode-hover-item);
+  --vscode-focusBorder: var(--vscode-active-border);
+  --vscode-titlebar-bg: var(--titlebar-bg);
+  --vscode-titleBar-activeBackground: var(--titlebar-bg);
+  --vscode-titleBar-activeForeground: var(--vscode-text-fg);
+  --vscode-editor-inactiveSelectionBackground: var(--vscode-active-item);
+  --vscode-editor-font-family: "Fira Code", "Courier New", Courier, monospace;
+  --vscode-editor-font: var(--vscode-editor-font-family);
+  --vscode-font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 /* ─── Light Theme ──────────────────────────────────────────────────────────
@@ -150,6 +234,48 @@
   --vscode-selection-bg: #add6ff;
   --vscode-selection-fg: #1e1e1e;
   --pdf-selection-bg: rgba(0, 95, 184, 0.26);
+
+  /* Semantic foreground accents — darkened counterparts of the dark-theme
+     hues, all at or above 4.5:1 on #ffffff and 3:1 on #ebebeb. */
+  --vscode-text-subtle: #5f6570;
+  --vscode-text-muted: #6a6a6a;
+  --vscode-fg-info: #0a5aa0;
+  --vscode-fg-link: #005fb8;
+  --vscode-fg-success: #137a3c;
+  --vscode-fg-warning: #8a6100;
+  --vscode-fg-gold: #8a6100;
+  --vscode-fg-folder: #8f6000;
+  --vscode-fg-danger: #b42318;
+  --vscode-fg-teal: #0d6e61;
+  --vscode-fg-magenta: #a1279c;
+
+  /* The same aliases as `:root`, re-declared so they resolve against the light
+     tokens above — see the note there on where `var()` is substituted. */
+  --vscode-foreground: var(--vscode-text-fg);
+  --vscode-editor-foreground: var(--vscode-text-fg);
+  --vscode-description-fg: var(--vscode-descriptionForeground);
+  --vscode-error-fg: var(--vscode-errorForeground);
+  --vscode-textLink-foreground: var(--vscode-fg-link);
+  --vscode-input-background: var(--vscode-input-bg);
+  --vscode-input-foreground: var(--vscode-input-fg);
+  --vscode-dropdown-background: var(--vscode-input-bg);
+  --vscode-dropdown-foreground: var(--vscode-input-fg);
+  --vscode-dropdown-border: var(--vscode-border);
+  --vscode-button-background: var(--vscode-button-bg);
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-fg: #ffffff;
+  --vscode-button-secondaryBackground: var(--vscode-input-bg);
+  --vscode-button-secondaryForeground: var(--vscode-text-fg);
+  --vscode-badge-background: var(--vscode-active-item);
+  --vscode-list-hoverBackground: var(--vscode-list-hoverBg);
+  --vscode-list-activeSelectionBackground: var(--vscode-list-activeSelectionBg);
+  --vscode-list-activeSelectionForeground: var(--vscode-list-activeSelectionFg);
+  --vscode-hover-bg: var(--vscode-hover-item);
+  --vscode-focusBorder: var(--vscode-active-border);
+  --vscode-titlebar-bg: var(--titlebar-bg);
+  --vscode-titleBar-activeBackground: var(--titlebar-bg);
+  --vscode-titleBar-activeForeground: var(--vscode-text-fg);
+  --vscode-editor-inactiveSelectionBackground: var(--vscode-active-item);
 }
 
 /* ── Native text selection ────────────────────────────────────────────────
@@ -591,8 +717,47 @@ input:focus, select:focus, textarea:focus {
   color: var(--vscode-text-fg);
 }
 
+.vscode-icon-button:disabled,
+.vscode-modal-close:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.vscode-icon-button:disabled:hover,
+.vscode-modal-close:disabled:hover {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--vscode-descriptionForeground);
+}
+
 .vscode-icon-button-danger {
   color: var(--vscode-errorForeground);
+}
+
+/* Small icon actions inside sidebar headers (open folder, settings, remove
+   project, refresh). Colors come from theme tokens so the hover state stays
+   readable in the light theme, where a white-on-white highlight used to make
+   the icon disappear. */
+.vscode-sidebar-action-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.vscode-sidebar-action-btn:hover {
+  background-color: var(--vscode-hover-item);
+  color: var(--vscode-text-fg);
+}
+
+.vscode-sidebar-action-btn:focus-visible {
+  outline: 1px solid var(--vscode-active-border);
+  outline-offset: 1px;
 }
 
 .vscode-button:focus-visible,
@@ -725,6 +890,37 @@ input:focus, select:focus, textarea:focus {
 
 .vscode-activitybar-btn:hover {
   color: #ffffff;
+}
+
+/* Two gears live in this strip — one for the app/editor settings, one for the
+   open project's — and the glyph alone cannot say which is which. The letter
+   rides in the icon's bottom-right corner on the bar's own background, so it
+   punches a hole in the gear instead of blending into its teeth, and takes
+   `currentColor` so it follows the button's idle, hover, active and disabled
+   colors without needing a second set of rules. */
+.vscode-activitybar-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vscode-activitybar-icon-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: var(--activitybar-badge-size, 11px);
+  height: var(--activitybar-badge-size, 11px);
+  padding: 0 1px;
+  box-sizing: border-box;
+  border-radius: 3px;
+  background-color: var(--vscode-activitybar-bg);
+  color: currentColor;
+  font-size: var(--activitybar-badge-font, 9px);
+  font-weight: 700;
+  line-height: var(--activitybar-badge-size, 11px);
+  text-align: center;
+  pointer-events: none;
 }
 
 /* Sidebar */
@@ -1394,6 +1590,10 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* A dialog flush against the window edge reads as a panel that failed to
+     lay out. The gutter is inside the overlay's box, so `max-width: 100%` on
+     the dialog resolves against what is left of the viewport. */
+  padding: var(--space-4);
   z-index: 100;
 }
 
@@ -1401,9 +1601,10 @@ input:focus, select:focus, textarea:focus {
   background-color: var(--vscode-sidebar-bg);
   border: 1px solid var(--vscode-border);
   width: 100%;
-  max-width: calc(95 * var(--ui-vw));
+  max-width: min(calc(95 * var(--ui-vw)), 100%);
   max-height: calc(85 * var(--ui-vh));
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
   /* Last-resort scroll: modals that designate an inner scrolling body (a
@@ -1436,9 +1637,18 @@ input:focus, select:focus, textarea:focus {
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: var(--space-3);
+  padding: var(--modal-band-padding) var(--modal-gutter);
   border-bottom: 1px solid var(--vscode-border);
+}
+
+/* The dialogs that paint their title bar in the chrome color (settings, asset
+   store, cloud sync/download) used to hand-roll the whole band inline. The
+   modifier keeps that look while the inset stays the shared one. */
+.vscode-modal-header.titlebar {
+  background-color: var(--vscode-titlebar-bg);
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
 }
 
 .vscode-modal-header h2 {
@@ -1448,9 +1658,78 @@ input:focus, select:focus, textarea:focus {
   font-weight: 600;
 }
 
-.vscode-modal-content {
-  padding: 16px;
+.vscode-modal-header-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  font-weight: 700;
   color: var(--vscode-text-fg);
+}
+
+/* A tab strip is a band of the dialog, so it shares the gutter with the title
+   bar above it and the body below it. */
+.vscode-modal-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-4);
+  padding: 0 var(--modal-gutter);
+  border-bottom: 1px solid var(--vscode-border);
+}
+
+.vscode-modal-tabs.titlebar {
+  background-color: var(--vscode-titlebar-bg);
+}
+
+.vscode-modal-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-2) var(--space-1);
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--vscode-text-subtle);
+  cursor: pointer;
+}
+
+.vscode-modal-tab:hover {
+  color: var(--vscode-text-fg);
+}
+
+.vscode-modal-tab.active {
+  font-weight: 700;
+  color: var(--vscode-text-fg);
+  border-bottom-color: var(--vscode-accent);
+}
+
+.vscode-modal-tab:focus-visible {
+  outline: 1px solid var(--vscode-active-border);
+  outline-offset: -2px;
+}
+
+.vscode-modal-content {
+  padding: var(--modal-body-padding) var(--modal-gutter);
+  color: var(--vscode-text-fg);
+}
+
+/* Label-over-control stack used by every dialog form. Without it the `label`
+   stayed inline and sat beside its own input. */
+.vscode-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.vscode-form-group > label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-text-fg);
+}
+
+.vscode-form-group > input,
+.vscode-form-group > select,
+.vscode-form-group > textarea {
+  width: 100%;
 }
 
 /* Reserves room for the longest variant of a swappable hint so switching the
@@ -1459,6 +1738,13 @@ input:focus, select:focus, textarea:focus {
   display: block;
   line-height: 1.4;
   min-height: 3.6em;
+}
+
+/* An inline form nested inside another dialog body (the connection form
+   embedded in the model form) already sits inside that body's gutter; a
+   second one would double the inset. */
+.vscode-modal-content .vscode-modal-content {
+  padding: 0;
 }
 
 /* Only the body scrolls, so the header and footer stay pinned when the
@@ -1475,9 +1761,15 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   flex: 0 0 auto;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: var(--space-2);
+  padding: var(--modal-band-padding) var(--modal-gutter);
   border-top: 1px solid var(--vscode-border);
+}
+
+.vscode-modal-footer.titlebar {
+  background-color: var(--vscode-titlebar-bg);
+  border-bottom-left-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
 }
 
 /* Skills Store */
@@ -1552,20 +1844,154 @@ input:focus, select:focus, textarea:focus {
   font-size: 11px;
 }
 
-/* Layout Utilities (No-Tailwind equivalents) */
+/* ── Utility layer (no-Tailwind equivalents) ──────────────────────────────
+   Components across the app are written in Tailwind's class vocabulary, but
+   Tailwind is not a dependency and never was: only the layout handful below
+   had ever been given a rule, so every `p-4`, `px-4`, `gap-2` and
+   `animate-spin` in the JSX resolved to nothing. The result was invisible in
+   review and obvious on screen — dialog labels, inputs and tab strips flush
+   against the frame, spinners that did not spin, a compile-error card with no
+   padding or corner radius at all.
+
+   The layer therefore covers every utility the codebase actually writes, and
+   `src/utils/__tests__/spacingUtilities.test.js` fails if a component adds one
+   that has no rule here. Spacing follows Tailwind's 4px step so the class
+   names mean what they look like; the type scale is the *app's* (11px floor,
+   13px body — see §2.16), not Tailwind's rem ladder, because these classes
+   have to sit next to the interface scale without fighting it. */
+
+/* Layout */
 .flex { display: flex; }
 .flex-1 { flex: 1; }
 .flex-col { flex-direction: column; }
-.flex-shrink-0 { flex-shrink: 0; }
+.flex-shrink-0, .shrink-0 { flex-shrink: 0; }
 .items-center { align-items: center; }
+.items-start { align-items: flex-start; }
 .justify-between { justify-content: space-between; }
+.justify-center { justify-content: center; }
+.justify-end { justify-content: flex-end; }
 .relative { position: relative; }
 .h-full { height: 100%; }
 .w-full { width: 100%; }
+.w-fit { width: fit-content; }
+.max-w-3xl { max-width: 768px; }
+.max-h-64 { max-height: 256px; }
 .overflow-hidden { overflow: hidden; }
 .overflow-y-auto { overflow-y: auto; }
+.overflow-x-auto { overflow-x: auto; }
+
+/* Spacing */
+.p-0 { padding: 0; }
+.p-0\.5 { padding: 2px; }
+.p-1 { padding: var(--space-1); }
+.p-1\.5 { padding: 6px; }
+.p-2 { padding: var(--space-2); }
+.p-3 { padding: var(--space-3); }
+.p-4 { padding: var(--space-4); }
+.p-5 { padding: var(--space-5); }
+.p-6 { padding: var(--space-6); }
+.p-8 { padding: var(--space-8); }
+
+.px-0 { padding-left: 0; padding-right: 0; }
+.px-0\.5 { padding-left: 2px; padding-right: 2px; }
+.px-1 { padding-left: var(--space-1); padding-right: var(--space-1); }
+.px-1\.5 { padding-left: 6px; padding-right: 6px; }
+.px-2 { padding-left: var(--space-2); padding-right: var(--space-2); }
+.px-3 { padding-left: var(--space-3); padding-right: var(--space-3); }
+.px-4 { padding-left: var(--space-4); padding-right: var(--space-4); }
+.px-5 { padding-left: var(--space-5); padding-right: var(--space-5); }
+.px-6 { padding-left: var(--space-6); padding-right: var(--space-6); }
+.px-8 { padding-left: var(--space-8); padding-right: var(--space-8); }
+
+.py-0 { padding-top: 0; padding-bottom: 0; }
+.py-0\.5 { padding-top: 2px; padding-bottom: 2px; }
+.py-1 { padding-top: var(--space-1); padding-bottom: var(--space-1); }
+.py-1\.5 { padding-top: 6px; padding-bottom: 6px; }
+.py-2 { padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.py-3 { padding-top: var(--space-3); padding-bottom: var(--space-3); }
+.py-4 { padding-top: var(--space-4); padding-bottom: var(--space-4); }
+.py-5 { padding-top: var(--space-5); padding-bottom: var(--space-5); }
+.py-6 { padding-top: var(--space-6); padding-bottom: var(--space-6); }
+.py-8 { padding-top: var(--space-8); padding-bottom: var(--space-8); }
+
+.mt-0 { margin-top: 0; }
+.mt-0\.5 { margin-top: 2px; }
+.mt-1 { margin-top: var(--space-1); }
+.mt-1\.5 { margin-top: 6px; }
+.mt-2 { margin-top: var(--space-2); }
+.mt-3 { margin-top: var(--space-3); }
+.mt-4 { margin-top: var(--space-4); }
+.mt-5 { margin-top: var(--space-5); }
+.mt-6 { margin-top: var(--space-6); }
+.mt-8 { margin-top: var(--space-8); }
+
+.mb-0 { margin-bottom: 0; }
+.mb-0\.5 { margin-bottom: 2px; }
+.mb-1 { margin-bottom: var(--space-1); }
+.mb-1\.5 { margin-bottom: 6px; }
+.mb-2 { margin-bottom: var(--space-2); }
+.mb-3 { margin-bottom: var(--space-3); }
+.mb-4 { margin-bottom: var(--space-4); }
+.mb-5 { margin-bottom: var(--space-5); }
+.mb-6 { margin-bottom: var(--space-6); }
+.mb-8 { margin-bottom: var(--space-8); }
+
+.gap-0 { gap: 0; }
+.gap-0\.5 { gap: 2px; }
+.gap-1 { gap: var(--space-1); }
+.gap-1\.5 { gap: 6px; }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.gap-4 { gap: var(--space-4); }
+.gap-5 { gap: var(--space-5); }
+.gap-6 { gap: var(--space-6); }
+.gap-8 { gap: var(--space-8); }
+
+/* `space-y-*` spaces siblings without giving the first one a leading margin. */
+.space-y-3 > * + * { margin-top: var(--space-3); }
+
+/* Type */
+.text-xs { font-size: 11px; }
+.text-sm { font-size: 12px; }
+.text-\[13px\] { font-size: 13px; }
+.text-xl { font-size: 18px; }
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.font-mono { font-family: var(--vscode-editor-font-family); }
+.text-center { text-align: center; }
 .text-white { color: #ffffff; }
+.uppercase { text-transform: uppercase; }
+.tracking-wider { letter-spacing: 0.05em; }
+.leading-relaxed { line-height: 1.6; }
 .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.break-words { overflow-wrap: break-word; }
+.whitespace-pre-wrap { white-space: pre-wrap; }
+
+/* Shape and surface. Border colors resolve to theme tokens rather than
+   Tailwind's palette, so a bordered element stays readable in both themes. */
+.rounded-md { border-radius: var(--radius-md); }
+.rounded-lg { border-radius: var(--radius-lg); }
+.rounded-xl { border-radius: 12px; }
+.rounded-full { border-radius: 9999px; }
+.border { border: 1px solid var(--vscode-border); }
+.border-b { border-bottom: 1px solid var(--vscode-border); }
+.border-red-500\/30 { border-color: color-mix(in srgb, var(--vscode-errorForeground) 30%, transparent); }
+.bg-white { background-color: #ffffff; }
+.shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45); }
+.shadow-inner { box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25); }
+
+/* Interaction */
+.cursor-pointer { cursor: pointer; }
+.cursor-text { cursor: text; }
+.transition-colors { transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease; }
+.transition-transform { transition: transform 0.15s ease; }
+
+/* `.group` marks the ancestor a variant reads state from; here, the only
+   variant in use is a disclosure arrow that turns when its <details> opens. */
+.group[open] .group-open\:rotate-90 { transform: rotate(90deg); }
+
+@keyframes vscode-spin { to { transform: rotate(360deg); } }
+.animate-spin { animation: vscode-spin 1s linear infinite; }
 
 /* Resizer split drag lines */
 .vscode-resizer-horizontal {

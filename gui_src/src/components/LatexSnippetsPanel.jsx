@@ -229,7 +229,7 @@ export default function LatexSnippetsPanel({ onInsert, onClose }) {
         }}
       >
         <Plus size={14} style={{ color: 'var(--vscode-accent, #007acc)' }} />
-        <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--vscode-text-fg, #cccccc)' }}>
+        <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--vscode-text-fg)' }}>
           LaTeX Snippets
         </span>
         <div style={{ flex: 1 }} />
@@ -267,7 +267,7 @@ export default function LatexSnippetsPanel({ onInsert, onClose }) {
               background: 'transparent',
               border: 'none',
               outline: 'none',
-              color: 'var(--vscode-input-fg, #cccccc)',
+              color: 'var(--vscode-input-fg, var(--vscode-text-fg))',
               fontSize: '12px',
             }}
           />
@@ -300,7 +300,7 @@ export default function LatexSnippetsPanel({ onInsert, onClose }) {
                   background: isActive ? 'var(--vscode-list-activeSelectionBg, #094771)' : 'transparent',
                   border: 'none',
                   borderBottom: '1px solid var(--vscode-widget-border, #2a2a2a)',
-                  color: isActive ? 'var(--vscode-list-activeSelectionFg, #ffffff)' : 'var(--vscode-text-fg, #cccccc)',
+                  color: isActive ? 'var(--vscode-list-activeSelectionFg, #ffffff)' : 'var(--vscode-text-fg)',
                   cursor: 'pointer',
                   textAlign: 'left',
                   fontSize: '11px',
@@ -334,7 +334,7 @@ export default function LatexSnippetsPanel({ onInsert, onClose }) {
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <ChevronRight size={10} style={{ color: 'var(--vscode-descriptionForeground, #888)' }} />
-                <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg, #cccccc)', fontWeight: '500' }}>
+                <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)', fontWeight: '500' }}>
                   {snip.label}
                 </span>
               </div>

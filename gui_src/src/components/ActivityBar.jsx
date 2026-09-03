@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, LayoutGrid, PanelBottom, Terminal, History, Columns2, Store, GraduationCap, Cloud, CloudOff } from 'lucide-react';
+import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, LayoutGrid, PanelBottom, Terminal, History, Columns2, ClipboardList, Store, GraduationCap, Cloud, CloudOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   ACTIVITY_BAR_DEFAULT_DENSITY,
@@ -27,22 +27,33 @@ export default function ActivityBar({
   hasOpenDocument,
   isTerminalCollapsed,
   setIsTerminalCollapsed,
-  setActiveBottomTab
+  setActiveBottomTab,
+  hasPendingPlan,
+  onOpenPlan,
+  onOpenProjectSettings,
+  hasActiveProject
 }) {
   const { t } = useTranslation();
   // Layouts that dock the explorer/source-control sidebar to their left, and so
   // can open one without being switched away from.
   const hasDockedSidebar = layoutShowsEditor(layoutMode);
   // Layouts that do not render the chat at all: the chat-first ones (where the
-  // chat *is* the layout and cannot be hidden) and the document layout, which
-  // is only the file and its preview. The visibility toggle has nothing to
-  // switch in either, so it is disabled rather than silently inert.
-  const isChatToggleDisabled = layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'document';
+  // chat *is* the layout and cannot be hidden), the document layout, which is
+  // only the file and its preview, and the plan layout, where the plan holds
+  // the chat's dock. The visibility toggle has nothing to switch in any of
+  // them, so it is disabled rather than silently inert.
+  const isChatToggleDisabled = layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'document' || layoutMode === 'plan';
 
   const barRef = useRef(null);
   const [densityName, setDensityName] = useState(ACTIVITY_BAR_DEFAULT_DENSITY.name);
   const [fade, setFade] = useState({ top: false, bottom: false });
   const density = getActivityBarDensity(densityName);
+  // The letter badge on the two settings gears scales with the icon it marks,
+  // so at the denser tiers it stays a corner mark instead of covering the gear.
+  const badgeStyle = {
+    '--activitybar-badge-size': `${Math.max(9, Math.round(density.secondaryIconSize * 0.55))}px`,
+    '--activitybar-badge-font': `${Math.max(8, Math.round(density.secondaryIconSize * 0.45))}px`,
+  };
 
   // Which edges still hide a button, so the strip can fade there instead of
   // ending in a half-drawn icon that reads as a rendering glitch.
@@ -98,7 +109,7 @@ export default function ActivityBar({
 
   // A tier change resizes the content, not the bar, so the fades are recomputed
   // after it lands.
-  useEffect(() => { measureFade(); }, [densityName, gitChangesCount, cloudEnabled, measureFade]);
+  useEffect(() => { measureFade(); }, [densityName, gitChangesCount, cloudEnabled, hasPendingPlan, measureFade]);
 
   return (
     <div
@@ -152,6 +163,27 @@ export default function ActivityBar({
           <History size={density.iconSize} />
         </button>
 
+
+        {hasPendingPlan && (
+          <button
+            onClick={onOpenPlan}
+            className={`vscode-activitybar-btn ${layoutMode === 'plan' ? 'active' : ''}`}
+            title={t('activityBar.planPending', 'Plan awaiting your approval')}
+            style={{ position: 'relative' }}
+          >
+            <ClipboardList size={density.iconSize} />
+            <span style={{
+              position: 'absolute',
+              top: '4px',
+              right: '4px',
+              background: 'var(--vscode-fg-gold)',
+              borderRadius: '50%',
+              width: '8px',
+              height: '8px',
+              boxShadow: '0 0 4px rgba(0,0,0,0.5)',
+            }} />
+          </button>
+        )}
 
         <button
           onClick={() => {
@@ -285,11 +317,33 @@ export default function ActivityBar({
         </button>
 
         <button
+          onClick={(e) => { if (hasActiveProject) onOpenProjectSettings?.(e); }}
+          className="vscode-activitybar-btn"
+          title={hasActiveProject
+            ? t('activityBar.projectSettings', 'Project settings')
+            : t('activityBar.projectSettingsDisabled', 'Open a project to change its settings')}
+          disabled={!hasActiveProject}
+          style={{ opacity: hasActiveProject ? 1 : 0.5, cursor: hasActiveProject ? 'pointer' : 'not-allowed' }}
+        >
+          <span className="vscode-activitybar-icon" style={badgeStyle}>
+            <Settings size={density.secondaryIconSize} />
+            <span className="vscode-activitybar-icon-badge" aria-hidden="true">
+              {t('activityBar.projectSettingsBadge', 'P')}
+            </span>
+          </span>
+        </button>
+
+        <button
           onClick={onOpenSettings}
           className="vscode-activitybar-btn"
-          title={t('activityBar.settings')}
+          title={t('activityBar.editorSettings', 'Editor settings')}
         >
-          <Settings size={density.secondaryIconSize} />
+          <span className="vscode-activitybar-icon" style={badgeStyle}>
+            <Settings size={density.secondaryIconSize} />
+            <span className="vscode-activitybar-icon-badge" aria-hidden="true">
+              {t('activityBar.editorSettingsBadge', 'E')}
+            </span>
+          </span>
         </button>
       </div>
     </div>

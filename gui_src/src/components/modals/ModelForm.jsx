@@ -163,7 +163,7 @@ export default function ModelForm({
     <form onSubmit={handleSubmit} style={formStyle}>
       <div className="vscode-modal-content" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {error && (
-          <div style={{ color: '#f48771', fontSize: '12px', padding: '8px', background: 'rgba(244,135,113,0.1)', borderRadius: '4px' }}>
+          <div style={{ color: 'var(--vscode-errorForeground)', fontSize: '12px', padding: '8px', background: 'rgba(244,135,113,0.1)', borderRadius: '4px' }}>
             {error}
           </div>
         )}
@@ -335,8 +335,8 @@ export default function ModelForm({
         </div>
 
         {(selectedConnection && name) && (
-          <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
-            {t('modelForm.generatedId')}: <strong style={{ color: '#ccc' }}>{selectedConnection.provider}/{name.trim()}</strong>
+          <div style={{ fontSize: '12px', color: 'var(--vscode-text-muted)', marginTop: '4px' }}>
+            {t('modelForm.generatedId')}: <strong style={{ color: 'var(--vscode-text-fg)' }}>{selectedConnection.provider}/{name.trim()}</strong>
           </div>
         )}
       </div>

@@ -43,9 +43,9 @@ export default function EditProjectModal({
   const [activeTab, setActiveTab] = useState('geral');
 
   const getBorderColor = (status) => {
-    if (status === 'green') return '#4ade80';
-    if (status === 'yellow') return '#facc15';
-    if (status === 'red') return '#f87171';
+    if (status === 'green') return 'var(--vscode-fg-success)';
+    if (status === 'yellow') return 'var(--vscode-fg-warning)';
+    if (status === 'red') return 'var(--vscode-fg-danger)';
     return undefined;
   };
 
@@ -119,40 +119,31 @@ export default function EditProjectModal({
     <div className="vscode-modal-overlay">
       <div className="vscode-modal" style={{ maxWidth: '520px', width: '92%' }}>
         {/* Header */}
-        <div className="vscode-sidebar-header" style={{ padding: '10px 16px', borderBottom: 'none' }}>
+        <div className="vscode-modal-header" style={{ borderBottom: 'none' }}>
           <span className="vscode-sidebar-title" style={{ color: 'var(--vscode-text-fg)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Settings size={14} style={{ color: '#007acc' }} />
+            <Settings size={14} style={{ color: 'var(--vscode-accent)' }} />
             {t('editProjectModal.title', { name: editingProject.project_name || editingProject.name })}
           </span>
-          <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0' }}>
+          <button type="button" className="vscode-modal-close" onClick={onClose} aria-label={t('common.close', 'Close')}>
             <X size={14} />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--vscode-border)', marginBottom: '16px', padding: '0 16px' }}>
+        <div className="vscode-modal-tabs">
           {tabs.map(tab => (
             <button
               key={tab.id}
               type="button"
+              className={`vscode-modal-tab${activeTab === tab.id ? ' active' : ''}`}
               onClick={() => setActiveTab(tab.id)}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: '8px 16px',
-                color: activeTab === tab.id ? 'var(--vscode-text-fg)' : '#808080',
-                borderBottom: activeTab === tab.id ? '2px solid #007acc' : '2px solid transparent',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: activeTab === tab.id ? 'bold' : 'normal'
-              }}
             >
               {tab.label}
             </button>
           ))}
         </div>
 
-        <form onSubmit={onSubmit} className="flex flex-col overflow-y-auto flex-1" style={{ padding: '0 16px 16px 16px', gap: '14px' }}>
+        <form onSubmit={onSubmit} className="vscode-modal-content flex flex-col overflow-y-auto flex-1" style={{ gap: '14px' }}>
 
           {/* GERAL TAB */}
           {activeTab === 'geral' && (
@@ -338,8 +329,8 @@ export default function EditProjectModal({
               <div style={{ marginTop: '8px' }}>
                 <button
                   type="button"
-                  className="vscode-button"
-                  style={{ width: '100%', padding: '8px', background: 'var(--vscode-button-secondaryBackground)', color: 'var(--vscode-button-secondaryForeground)' }}
+                  className="vscode-button-secondary"
+                  style={{ width: '100%', padding: '8px' }}
                   onClick={async () => {
                     try {
                       const res = await fetch('/api/opalatex/load-contextual-skills', {
@@ -379,9 +370,9 @@ export default function EditProjectModal({
                   className=""
                   style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
-                {modelStatus === 'green' && <span style={{ fontSize: '11px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
-                {modelStatus === 'yellow' && <span style={{ fontSize: '11px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
-                {modelStatus === 'red' && <span style={{ fontSize: '11px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
+                {modelStatus === 'green' && <span style={{ fontSize: '11px', color: 'var(--vscode-fg-success)' }}>{t('editProjectModal.modelSuitable')}</span>}
+                {modelStatus === 'yellow' && <span style={{ fontSize: '11px', color: 'var(--vscode-fg-warning)' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                {modelStatus === 'red' && <span style={{ fontSize: '11px', color: 'var(--vscode-fg-danger)' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
               </div>
 
               {/* Advanced params (collapsible) */}
@@ -399,7 +390,7 @@ export default function EditProjectModal({
 
                     {/* LiteLLM params */}
                     <div>
-                      <div style={{ color: '#9cdcfe', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      <div style={{ color: 'var(--vscode-fg-info)', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {t('editProjectModal.litellmParams')}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -456,7 +447,7 @@ export default function EditProjectModal({
                             <input type="checkbox"
                               checked={editingProject.model_params?.stream ?? true}
                               onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, stream: e.target.checked } }))} />
-                            <span style={{ fontSize: '12px', color: '#cccccc' }}>{t('editProjectModal.enabled')}</span>
+                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
                           </label>
                         </div>
 
@@ -465,7 +456,7 @@ export default function EditProjectModal({
 
                     {/* Agent params */}
                     <div>
-                      <div style={{ color: '#9cdcfe', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      <div style={{ color: 'var(--vscode-fg-info)', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {t('editProjectModal.agentParams')}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -491,7 +482,7 @@ export default function EditProjectModal({
                             <input type="checkbox"
                               checked={editingProject.model_params?.loop_detection ?? true}
                               onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, loop_detection: e.target.checked } }))} />
-                            <span style={{ fontSize: '12px', color: '#cccccc' }}>{t('editProjectModal.enabled')}</span>
+                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
                           </label>
                         </div>
 
@@ -502,7 +493,7 @@ export default function EditProjectModal({
                             <input type="checkbox"
                               checked={!!editingProject.model_params?.empty_response_reasoning_fallback}
                               onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, empty_response_reasoning_fallback: e.target.checked } }))} />
-                            <span style={{ fontSize: '12px', color: '#cccccc' }}>{t('editProjectModal.enabled')}</span>
+                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
                           </label>
                         </div>
 
@@ -524,7 +515,7 @@ export default function EditProjectModal({
                             <input type="checkbox"
                               checked={!!editingProject.model_params?.debug}
                               onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, debug: e.target.checked } }))} />
-                            <span style={{ fontSize: '12px', color: '#cccccc' }}>{t('editProjectModal.enabled')}</span>
+                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
                           </label>
                         </div>
                       </div>
@@ -556,11 +547,11 @@ export default function EditProjectModal({
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                   {workerHardware ? (
-                    <span style={{ fontSize: '11px', color: '#888888' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--vscode-text-muted)' }}>
                       HW: {workerHardware.gpu_vram_gb}GB VRAM | {workerHardware.ram_gb}GB RAM
                     </span>
                   ) : (
-                    <span style={{ fontSize: '11px', color: '#888888' }}>{t('editProjectModal.detectingHardware')}</span>
+                    <span style={{ fontSize: '11px', color: 'var(--vscode-text-muted)' }}>{t('editProjectModal.detectingHardware')}</span>
                   )}
                 </div>
               </div>
@@ -580,7 +571,7 @@ export default function EditProjectModal({
 
                     {/* LiteLLM params */}
                     <div>
-                      <div style={{ color: '#9cdcfe', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      <div style={{ color: 'var(--vscode-fg-info)', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {t('editProjectModal.litellmParams')}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -687,7 +678,7 @@ export default function EditProjectModal({
           )}
 
           {editProjError && (
-            <div style={{ color: '#f48771', fontSize: '11px', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
+            <div style={{ color: 'var(--vscode-errorForeground)', fontSize: '11px', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
               ⚠️ {editProjError}
             </div>
           )}

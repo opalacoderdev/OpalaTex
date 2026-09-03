@@ -317,7 +317,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
             </div>
 
             {registerError && (
-              <div role="alert" style={{ padding: '8px', marginBottom: '16px', border: '1px solid rgba(244, 135, 113, 0.35)', background: 'rgba(244, 135, 113, 0.12)', color: '#f48771', fontSize: '12px' }}>
+              <div role="alert" style={{ padding: '8px', marginBottom: '16px', border: '1px solid rgba(244, 135, 113, 0.35)', background: 'rgba(244, 135, 113, 0.12)', color: 'var(--vscode-errorForeground)', fontSize: '12px' }}>
                 {t('onboarding.modelRegisterFailed', { error: registerError })}
               </div>
             )}

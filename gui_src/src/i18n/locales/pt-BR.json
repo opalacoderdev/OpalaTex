@@ -14,12 +14,17 @@
     "reviewMode": "Modo Review",
     "sourceControl": "Source Control",
     "opalatexCodes": "OpalaTex Chat",
-    "settings": "Configurações",
     "hardware": "Hardware",
     "assetStore": "Loja de Assets",
     "tutorial": "Tutorial",
     "cloudSync": "Sincronização na nuvem",
-    "cloudSyncOn": "Sincronização na nuvem (ativa)"
+    "cloudSyncOn": "Sincronização na nuvem (ativa)",
+    "planPending": "Plano aguardando sua aprovação",
+    "editorSettings": "Configurações do editor",
+    "editorSettingsBadge": "E",
+    "projectSettings": "Configurações do projeto",
+    "projectSettingsBadge": "P",
+    "projectSettingsDisabled": "Abra um projeto para alterar suas configurações"
   },
   "tutorial": {
     "menuTitle": "Tópicos do tutorial",
@@ -119,7 +124,6 @@
     "header": "EXPLORER: PROJETOS",
     "newProject": "Novo Projeto...",
     "selectProject": "Selecione o Projeto",
-    "configureProject": "Configurar projeto",
     "removeProject": "Remover projeto",
     "openFolder": "Abrir pasta no Sistema Operacional",
     "workspaceFiles": "Workspace Files",
@@ -779,9 +783,15 @@
     "no": "Não",
     "yes": "Sim",
     "always": "Sempre Permitir",
-    "cancel": "Cancelar",
-    "editPlan": "Editar Plano",
-    "preview": "Visualizar"
+    "cancel": "Cancelar"
+  },
+  "planPanel": {
+    "title": "Plano Proposto",
+    "edit": "Editar",
+    "preview": "Visualizar",
+    "approve": "Aprovar",
+    "reject": "Rejeitar",
+    "rejectHint": "Rejeitar interrompe o turno e volta ao chat, onde você pode dizer o que mudar."
   },
   "editModelsModal": {
     "title": "Editar Modelos / Provedores",

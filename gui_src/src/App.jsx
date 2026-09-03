@@ -35,6 +35,7 @@ import NewProjectModal from './components/modals/NewProjectModal';
 import EditProjectModal from './components/modals/EditProjectModal';
 import SettingsModal from './components/modals/SettingsModal';
 import ConfirmModal from './components/modals/ConfirmModal';
+import PlanPanel from './components/PlanPanel';
 import AlertModal from './components/modals/AlertModal';
 import InteractiveTerminalModal from './components/modals/InteractiveTerminalModal';
 import AskModal from './components/modals/AskModal';
@@ -355,6 +356,13 @@ export default function App() {
   // Layouts that show the editor and its preview, and therefore share the IDE
   // layout's docked sidebar and resize handle. See utils/layoutModes.js.
   const isEditorLayout = layoutShowsEditor(layoutMode);
+  // The plan layout is entered from a backend event, not from a click, so the
+  // layout the user was in has to be read at that moment rather than closed
+  // over: the event handler below is not re-created per render. The ref is
+  // written by an effect so the state stays the single source of truth.
+  const layoutModeRef = useRef(layoutMode);
+  useEffect(() => { layoutModeRef.current = layoutMode; }, [layoutMode]);
+  const planReturnLayoutRef = useRef('ide');
   const [isChatVisible, setIsChatVisible] = useState(false);
   const [activeSidebarTab, setActiveSidebarTab] = useState('explorer');
   const [contextMenu, setContextMenu] = useState(null);
@@ -452,6 +460,10 @@ export default function App() {
   const [editProjError, setEditProjError] = useState('');
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [confirmRequest, setConfirmRequest] = useState(null);
+  // `create_plan` is the only request that carries `markdown_content`, and it
+  // is the only one that cannot be answered without reading the project. It
+  // goes to the docked PlanPanel; everything else stays a modal.
+  const planRequest = confirmRequest?.markdown_content ? confirmRequest : null;
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
   const [isAssetStoreOpen, setIsAssetStoreOpen] = useState(false);
@@ -2950,6 +2962,18 @@ export default function App() {
       case 'agent_finished': addLog('info', t('app.processingCompleted', 'Processamento concluído.')); break;
       case 'input_request':
         setConfirmRequest({ ...data, id: data.id, prompt: data.prompt, options: data.options || ['yes', 'no'], default: data.default || 'yes', type: data.type || 'confirm' });
+        if (data.markdown_content) {
+          // Open the plan where the chat sits and remember what it displaced.
+          // Only the agent has to wait for this answer, so the editor, the
+          // explorer and the terminal stay live while the user checks the plan
+          // against the files it names.
+          if (layoutModeRef.current !== 'plan') planReturnLayoutRef.current = layoutModeRef.current;
+          setLayoutMode('plan');
+          // A maximized editor hides every dock, and the modal this panel
+          // replaced was never hidden by anything: an arriving plan has to be
+          // on screen, or the turn stalls on a question the user cannot see.
+          setIsEditorMaximized(false);
+        }
         addLog('info', t('app.waitingConfirmation', '🔔 Aguardando confirmação: {{prompt}}', { prompt: data.prompt }));
         break;
       case 'error':
@@ -3443,7 +3467,15 @@ export default function App() {
     if (!confirmRequest) return;
     const currentRequest = confirmRequest;
     const { id, prompt, isSlashCommand, callback } = currentRequest;
+    const isPlan = !!currentRequest.markdown_content;
     setConfirmRequest(null);
+    if (isPlan) {
+      setLayoutMode(planReturnLayoutRef.current || 'ide');
+      // Only a rejection needs the chat: it halts the turn, and the user's next
+      // move is to type what to change. An approval leaves the chat exactly as
+      // visible as they had left it.
+      if (value === 'no') setIsChatVisible(true);
+    }
 
     if (callback) {
       callback(value);
@@ -3473,6 +3505,9 @@ export default function App() {
       }
     } catch (err) {
       setConfirmRequest(currentRequest);
+      // The backend never got the answer, so the plan is still pending: put the
+      // user back in front of it rather than leaving it only behind the badge.
+      if (isPlan) setLayoutMode('plan');
       addLog('error', t('app.confirmationSendError', { error: err.message }));
       addProblem({ tool: t('app.agentTool', 'Agent'), message: t('app.confirmationRejectedByBackend', { error: err.message }), severity: 'error' });
     }
@@ -4047,6 +4082,10 @@ export default function App() {
           isTerminalCollapsed={isTerminalCollapsed}
           setIsTerminalCollapsed={setIsTerminalCollapsed}
           setActiveBottomTab={setActiveBottomTab}
+          hasPendingPlan={!!planRequest}
+          onOpenPlan={() => { setIsEditorMaximized(false); setLayoutMode('plan'); }}
+          onOpenProjectSettings={(e) => { if (activeProject) openEditModal(e, activeProject); }}
+          hasActiveProject={!!activeProject}
         />
 
         {/* Left Sidebar */}
@@ -4341,7 +4380,7 @@ export default function App() {
             style={{
               display: isStudioLayout
                 ? (isEditorMaximized || isTerminalCollapsed ? 'none' : 'flex')
-                : (isEditorMaximized || (layoutMode !== 'ide' && layoutMode !== 'chat-bottom') ? 'none' : 'contents'),
+                : (isEditorMaximized || (layoutMode !== 'ide' && layoutMode !== 'chat-bottom' && layoutMode !== 'plan') ? 'none' : 'contents'),
             }}
           >
             <BottomPanel
@@ -4369,12 +4408,12 @@ export default function App() {
         </main>
 
         {/* Right resize handle */}
-        {!isEditorMaximized && isChatVisible && layoutMode === 'ide' && (
+        {!isEditorMaximized && ((isChatVisible && layoutMode === 'ide') || (planRequest && layoutMode === 'plan')) && (
           <div className="vscode-resizer-horizontal" onMouseDown={(e) => startResizing(e, 'right')} />
         )}
 
         {/* Chat Panel */}
-        {(!isEditorMaximized && layoutMode !== 'review' && layoutMode !== 'chat-bottom' && !isDocumentLayout && !isStudioLayout && (isChatVisible || layoutMode === 'chat')) && (
+        {(!isEditorMaximized && layoutMode !== 'review' && layoutMode !== 'chat-bottom' && layoutMode !== 'plan' && !isDocumentLayout && !isStudioLayout && (isChatVisible || layoutMode === 'chat')) && (
           <>
             <ChatPanel
               isChatMode={layoutMode === 'chat'}
@@ -4445,6 +4484,18 @@ export default function App() {
               </div>
             )}
           </>
+        )}
+
+        {/* Proposed plan — the panel that replaced the blocking approval
+            modal. It is a sibling of the chat rather than a replacement
+            inside it, so entering and leaving the plan layout never reparents
+            the chat's own tree. */}
+        {!isEditorMaximized && layoutMode === 'plan' && planRequest && (
+          <PlanPanel
+            planRequest={planRequest}
+            onRespond={sendConfirmResponse}
+            chatWidth={chatWidth}
+          />
         )}
       </div>
 
@@ -4568,7 +4619,7 @@ export default function App() {
         <InteractiveTerminalModal request={confirmRequest} onConfirm={sendConfirmResponse} activeProject={activeProject} />
       ) : confirmRequest && confirmRequest.type === 'ask' ? (
         <AskModal askRequest={confirmRequest} onConfirm={sendConfirmResponse} />
-      ) : confirmRequest ? (
+      ) : confirmRequest && !planRequest ? (
         <ConfirmModal confirmRequest={confirmRequest} onConfirm={sendConfirmResponse} />
       ) : null}
 

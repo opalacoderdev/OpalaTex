@@ -20,7 +20,7 @@ function DirTreeNode({ node, depth, selectedDir, onSelect, expanded, onToggle })
         >
           {dirChildren.length > 0 ? (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : null}
         </span>
-        <Folder size={14} style={{ color: '#e8a838', flexShrink: 0 }} />
+        <Folder size={14} style={{ color: 'var(--vscode-fg-folder)', flexShrink: 0 }} />
         <span className="truncate">{node.name}</span>
       </div>
       {isOpen && dirChildren.map(child => (
@@ -71,11 +71,11 @@ export default function MoveToModal({ moveModal, files, isFileInsidePath, onConf
     >
       <div
         className="vscode-modal"
-        style={{ borderRadius: '6px', padding: '16px', width: '480px', maxHeight: 'calc(60 * var(--ui-vh))', display: 'flex', flexDirection: 'column', gap: '10px' }}
+        style={{ padding: 'var(--modal-body-padding) var(--modal-gutter)', width: '480px', maxHeight: 'calc(60 * var(--ui-vh))', display: 'flex', flexDirection: 'column', gap: '10px' }}
         onClick={e => e.stopPropagation()}
       >
-        <div style={{ color: 'var(--vscode-text-fg, #cccccc)', fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <FolderInput size={15} style={{ color: '#e8a838' }} />
+        <div style={{ color: 'var(--vscode-text-fg)', fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <FolderInput size={15} style={{ color: 'var(--vscode-fg-folder)' }} />
           {moveModal.paths && moveModal.paths.length > 1
             ? t('moveToModal.titleMulti', 'Move {{count}} items to...', { count: moveModal.paths.length })
             : t('moveToModal.title', 'Move to...')}
@@ -93,11 +93,11 @@ export default function MoveToModal({ moveModal, files, isFileInsidePath, onConf
             className={`vscode-tree-node ${selectedDir === '' ? 'active' : ''}`}
             style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', paddingLeft: '4px' }}
           >
-            <Folder size={14} style={{ color: '#e8a838', flexShrink: 0 }} />
+            <Folder size={14} style={{ color: 'var(--vscode-fg-folder)', flexShrink: 0 }} />
             <span>{t('moveToModal.projectRoot', 'Project Root')}</span>
           </div>
           {rootDirs.length === 0 && (
-            <div style={{ color: 'var(--vscode-descriptionForeground, #808080)', fontSize: '12px', padding: '12px', textAlign: 'center' }}>
+            <div style={{ color: 'var(--vscode-descriptionForeground, var(--vscode-text-muted))', fontSize: '12px', padding: '12px', textAlign: 'center' }}>
               {t('moveToModal.noSubdirs', 'No subdirectories')}
             </div>
           )}

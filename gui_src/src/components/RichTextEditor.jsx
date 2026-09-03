@@ -620,7 +620,7 @@ function ParagraphBlock({ block, onEdit }) {
     margin: '6px 0',
     fontSize: '13px',
     lineHeight: '1.6',
-    color: 'var(--chat-text, #cccccc)',
+    color: 'var(--chat-text, var(--vscode-text-fg))',
     outline: 'none',
     padding: '2px 4px',
     borderRadius: '3px',
@@ -658,7 +658,7 @@ function ListBlock({
   const isDescription = block.listType === 'description';
   const ListTag = isOrdered ? 'ol' : 'ul';
   return (
-    <ListTag style={{ margin: '8px 0', paddingLeft: '24px', fontSize: '13px', lineHeight: '1.6', color: 'var(--chat-text, #cccccc)' }}>
+    <ListTag style={{ margin: '8px 0', paddingLeft: '24px', fontSize: '13px', lineHeight: '1.6', color: 'var(--chat-text, var(--vscode-text-fg))' }}>
       {block.items.map((item) => {
         const isSimpleText = item.children.length === 1 && item.children[0].type === 'paragraph';
         const body = isSimpleText ? (
@@ -800,7 +800,7 @@ export function TitlePageBlock({ block, onJumpToSource }) {
             </div>
           )}
           {authors.length > 0 && (
-            <div style={{ fontSize: '13px', color: 'var(--chat-text, #cccccc)', marginBottom: (meta.institute || meta.date) ? '4px' : 0 }}>
+            <div style={{ fontSize: '13px', color: 'var(--chat-text, var(--vscode-text-fg))', marginBottom: (meta.institute || meta.date) ? '4px' : 0 }}>
               {authors.map((author, index) => (
                 <div key={index}>{renderStyledLatexText(author)}</div>
               ))}
@@ -874,7 +874,7 @@ export function MakeTitleBlock({ block, onJumpToSource }) {
             </div>
           )}
           {authors.length > 0 && (
-            <div style={{ fontSize: '15px', color: 'var(--chat-text, #cccccc)', marginBottom: meta.date ? '6px' : 0 }}>
+            <div style={{ fontSize: '15px', color: 'var(--chat-text, var(--vscode-text-fg))', marginBottom: meta.date ? '6px' : 0 }}>
               {authors.map((author, index) => (
                 <span key={index}>
                   {index > 0 && <span style={{ margin: '0 8px', color: 'var(--chat-muted, #8a8a8a)' }}>&middot;</span>}
@@ -1567,7 +1567,7 @@ function AsyncInlineMath({ math, raw }) {
       title={state.status === 'invalid' || state.status === 'err' ? translateMathError(t, state) : raw}
       style={{
         color: state.status === 'invalid' || state.status === 'err'
-          ? 'var(--vscode-errorForeground, #f48771)'
+          ? 'var(--vscode-errorForeground)'
           : 'var(--vscode-descriptionForeground, #888)',
         fontStyle: 'italic',
       }}
@@ -2160,7 +2160,7 @@ export function GraphicBlock({ block, activeProjectPath, onJumpToSource }) {
             style={{
               margin: 0,
               fontSize: '11px',
-              color: 'var(--vscode-errorForeground, #f48771)',
+              color: 'var(--vscode-errorForeground)',
               maxHeight: '120px',
               overflow: 'auto',
               whiteSpace: 'pre-wrap',
@@ -2325,7 +2325,7 @@ export function MathBlock({ block, onJumpToSource }) {
             alignItems: 'center',
             justifyContent: 'center',
             color: state.status === 'invalid' || state.status === 'err'
-              ? 'var(--vscode-errorForeground, #f48771)'
+              ? 'var(--vscode-errorForeground)'
               : 'var(--vscode-descriptionForeground, #888)',
             fontSize: '12px',
             fontStyle: state.status === 'err' || state.status === 'invalid' ? 'normal' : 'italic',
@@ -2469,7 +2469,7 @@ export function FigureBlock({ block, activeProjectPath, onJumpToSource, sourceTe
             style={{
               padding: '8px',
               fontSize: '11px',
-              color: 'var(--vscode-errorForeground, #f48771)',
+              color: 'var(--vscode-errorForeground)',
               textAlign: 'left',
             }}
             title={state.log}
@@ -2516,7 +2516,7 @@ export function TableBlock({ block, onJumpToSource }) {
               tableLayout: 'auto',
               fontSize: '12px',
               lineHeight: '1.45',
-              color: 'var(--chat-text, #cccccc)',
+              color: 'var(--chat-text, var(--vscode-text-fg))',
               background: 'var(--editor-bg, #1e1e1e)',
             }}
           >

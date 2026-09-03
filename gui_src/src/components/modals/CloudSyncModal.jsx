@@ -9,15 +9,7 @@ import { handleExternalClick } from '../../utils/openExternal';
 
 function TabButton({ active, onClick, children }) {
   return (
-    <button
-      onClick={onClick}
-      style={{
-        background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px',
-        fontWeight: active ? 'bold' : 'normal',
-        color: active ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
-        borderBottom: active ? '2px solid var(--vscode-accent)' : '2px solid transparent',
-      }}
-    >
+    <button className={`vscode-modal-tab${active ? ' active' : ''}`} onClick={onClick}>
       {children}
     </button>
   );
@@ -314,28 +306,17 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
   return (
     <div className="vscode-modal-overlay">
       <div className="vscode-modal flex flex-col" style={{ width: '640px', maxHeight: 'calc(85 * var(--ui-vh))', padding: 0 }}>
-        <div
-          className="flex items-center justify-between px-4 py-3"
-          style={{ borderBottom: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-titlebar-bg)' }}
-        >
-          <div className="flex items-center" style={{ gap: '8px' }}>
+        <div className="vscode-modal-header titlebar">
+          <div className="vscode-modal-header-title">
             {connected ? <Cloud size={16} /> : <CloudOff size={16} />}
-            <span style={{ fontWeight: 'bold', fontSize: '13px' }}>
-              {t('cloudSync.title', 'Cloud sync')}
-            </span>
+            <span>{t('cloudSync.title', 'Cloud sync')}</span>
           </div>
-          <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', color: 'var(--vscode-text-fg)', cursor: 'pointer', padding: '2px' }}
-          >
+          <button className="vscode-modal-close" onClick={onClose} aria-label={t('common.close', 'Close')}>
             <X size={16} />
           </button>
         </div>
 
-        <div
-          className="flex px-4"
-          style={{ borderBottom: '1px solid var(--vscode-border)', gap: '16px', backgroundColor: 'var(--vscode-titlebar-bg)' }}
-        >
+        <div className="vscode-modal-tabs titlebar">
           <TabButton active={activeTab === 'sync'} onClick={() => setActiveTab('sync')}>
             {t('cloudSync.tabSync', 'Sync')}
           </TabButton>
@@ -347,13 +328,13 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
           </TabButton>
         </div>
 
-        <div style={{ padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div className="vscode-modal-content flex flex-col" style={{ overflowY: 'auto', gap: '14px' }}>
           {error && (
             <div
               className="flex items-start"
               style={{
                 gap: '8px', padding: '8px 10px', fontSize: '11px',
-                border: '1px solid #f87171', color: '#f87171', borderRadius: '3px',
+                border: '1px solid var(--vscode-fg-danger)', color: 'var(--vscode-fg-danger)', borderRadius: '3px',
               }}
             >
               <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '1px' }} />
@@ -633,7 +614,7 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
               )}
 
               <div className="flex items-center" style={{ gap: '8px' }}>
-                {connected ? <Check size={14} color="#4ade80" /> : <CloudOff size={14} />}
+                {connected ? <Check size={14} style={{ color: 'var(--vscode-fg-success)' }} /> : <CloudOff size={14} />}
                 <span style={{ fontSize: '12px' }}>
                   {connected
                     ? t('cloudSync.connectedAs', { defaultValue: 'Connected as {{account}}', account: status.account || '—' })
@@ -641,7 +622,7 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
                 </span>
               </div>
               {status?.auth_error && (
-                <span style={{ fontSize: '11px', color: '#f87171' }}>{status.auth_error}</span>
+                <span style={{ fontSize: '11px', color: 'var(--vscode-fg-danger)' }}>{status.auth_error}</span>
               )}
 
               {pendingAuthUrl && (
@@ -689,12 +670,7 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
           )}
         </div>
 
-        <div
-          style={{
-            display: 'flex', justifyContent: 'flex-end', padding: '12px 16px', gap: '8px',
-            borderTop: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-sidebar-bg)',
-          }}
-        >
+        <div className="vscode-modal-footer">
           <button onClick={onClose} className="vscode-button">{t('cloudSync.close', 'Close')}</button>
         </div>
       </div>
@@ -793,10 +769,10 @@ function SyncReportView({ report, onResolve, resolvingPath }) {
           key={conflict.path}
           style={{
             display: 'flex', flexDirection: 'column', gap: '6px',
-            border: '1px solid #facc15', borderRadius: '3px', padding: '8px',
+            border: '1px solid var(--vscode-fg-warning)', borderRadius: '3px', padding: '8px',
           }}
         >
-          <div style={{ color: '#facc15' }}>
+          <div style={{ color: 'var(--vscode-fg-warning)' }}>
             <AlertTriangle size={12} style={{ display: 'inline', marginRight: '4px' }} />
             {t('cloudSync.conflict', {
               defaultValue: '{{path}} changed in both places. Your version was kept; the cloud version is at {{copy}}.',
@@ -847,11 +823,11 @@ function SyncReportView({ report, onResolve, resolvingPath }) {
       ))}
 
       {(report.errors || []).map((item) => (
-        <div key={item.path} style={{ color: '#f87171' }}>{item.path}: {item.message}</div>
+        <div key={item.path} style={{ color: 'var(--vscode-fg-danger)' }}>{item.path}: {item.message}</div>
       ))}
 
       {report.aborted && (
-        <div style={{ color: '#f87171' }}>
+        <div style={{ color: 'var(--vscode-fg-danger)' }}>
           <AlertTriangle size={12} style={{ display: 'inline', marginRight: '4px' }} />
           {report.aborted}
         </div>

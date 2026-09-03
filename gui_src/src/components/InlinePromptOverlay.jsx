@@ -47,10 +47,10 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
   const { startLine, endLine, selectedText, mode } = inlinePrompt;
 
   const modeIcon = {
-    refine: <Wand2 size={13} style={{ color: '#4ec9b0' }} />,
-    generate: <MessageSquarePlus size={13} style={{ color: '#f48771' }} />,
-    createIllustration: <Palette size={13} style={{ color: '#c586c0' }} />,
-    free: <MessageSquarePlus size={13} style={{ color: '#75beff' }} />,
+    refine: <Wand2 size={13} style={{ color: 'var(--vscode-fg-teal)' }} />,
+    generate: <MessageSquarePlus size={13} style={{ color: 'var(--vscode-errorForeground)' }} />,
+    createIllustration: <Palette size={13} style={{ color: 'var(--vscode-fg-magenta)' }} />,
+    free: <MessageSquarePlus size={13} style={{ color: 'var(--vscode-fg-link)' }} />,
   }[mode] ?? null;
 
   const modeLabel = {
@@ -147,7 +147,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
           borderRadius: '8px',
           boxShadow: '0 8px 28px rgba(0,0,0,0.24)',
           padding: '10px 12px',
-          color: 'var(--vscode-text-fg, #cccccc)',
+          color: 'var(--vscode-text-fg)',
           display: 'flex',
           flexDirection: 'column',
           gap: '8px',
@@ -159,7 +159,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             {modeIcon}
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-text-fg, #cccccc)', letterSpacing: 0 }}>
+            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--vscode-text-fg)', letterSpacing: 0 }}>
               {modeLabel}
             </span>
             <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #858585)', marginLeft: '4px' }}>
@@ -179,7 +179,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
               alignItems: 'center',
               borderRadius: '3px',
             }}
-            onMouseEnter={(e) => { if (!isRunning) e.currentTarget.style.color = 'var(--vscode-text-fg, #cccccc)'; }}
+            onMouseEnter={(e) => { if (!isRunning) e.currentTarget.style.color = 'var(--vscode-text-fg)'; }}
             onMouseLeave={(e) => { if (!isRunning) e.currentTarget.style.color = 'var(--vscode-descriptionForeground, #858585)'; }}
           >
             <X size={13} />
@@ -224,7 +224,7 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
               background: isRunning ? 'var(--vscode-active-item, #37373d)' : 'var(--vscode-input-bg, #2d2d2d)',
               border: '1px solid var(--vscode-input-border, #3c3c3c)',
               borderRadius: '5px',
-              color: isRunning ? 'var(--vscode-descriptionForeground, #858585)' : 'var(--vscode-input-fg, #cccccc)',
+              color: isRunning ? 'var(--vscode-descriptionForeground, #858585)' : 'var(--vscode-input-fg, var(--vscode-text-fg))',
               outline: 'none',
               fontFamily: 'inherit',
               transition: 'border-color 0.15s',
@@ -273,9 +273,9 @@ export default function InlinePromptOverlay({ inlinePrompt, onSubmit, onClose, o
               onClick={onCancel}
               style={{
                 background: 'var(--vscode-errorBackground, rgba(244, 135, 113, 0.08))',
-                border: '1px solid var(--vscode-errorForeground, #f48771)',
+                border: '1px solid var(--vscode-errorForeground)',
                 borderRadius: '5px',
-                color: 'var(--vscode-errorForeground, #f48771)',
+                color: 'var(--vscode-errorForeground)',
                 cursor: 'pointer',
                 padding: '5px 9px',
                 display: 'flex',

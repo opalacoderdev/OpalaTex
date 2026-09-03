@@ -112,16 +112,13 @@ export function CustomDialogProvider({ children }) {
             style={{ 
               maxWidth: '460px', 
               width: '90%',
-              borderRadius: '8px',
-              border: '1px solid var(--vscode-border)',
               background: 'var(--vscode-bg)',
-              boxShadow: '0 12px 32px rgba(0, 0, 0, 0.4)',
               display: 'flex',
               flexDirection: 'column'
             }}
           >
             {/* Header */}
-            <div className="vscode-sidebar-header" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--vscode-border)' }}>
+            <div className="vscode-modal-header">
               <span className="vscode-sidebar-title" style={{ color: 'var(--vscode-text-fg)', fontWeight: 600 }}>{dialog.title}</span>
               <button 
                 type="button" 
@@ -135,7 +132,7 @@ export function CustomDialogProvider({ children }) {
             </div>
 
             {/* Body */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', padding: '24px 20px', color: 'var(--vscode-text-fg)' }}>
+            <div className="vscode-modal-content flex items-start gap-4">
               {dialog.type === 'alert' && <Info size={28} style={{ flex: '0 0 auto', color: 'var(--vscode-accent, #007acc)' }} />}
               {dialog.type === 'confirm' && <HelpCircle size={28} style={{ flex: '0 0 auto', color: 'var(--vscode-accent, #007acc)' }} />}
               {dialog.type === 'prompt' && <Type size={28} style={{ flex: '0 0 auto', color: 'var(--vscode-accent, #007acc)' }} />}
@@ -176,16 +173,7 @@ export function CustomDialogProvider({ children }) {
             </div>
 
             {/* Footer Buttons */}
-            <div 
-              style={{ 
-                display: 'flex', 
-                gap: '8px', 
-                justifyContent: 'flex-end', 
-                padding: '12px 16px', 
-                borderTop: '1px solid var(--vscode-border)', 
-                background: 'var(--vscode-sidebar-bg)' 
-              }}
-            >
+            <div className="vscode-modal-footer">
               {dialog.type === 'alert' && (
                 <button type="button" className="vscode-button" onClick={handleOk} autoFocus style={{ minWidth: '80px' }}>
                   {t('alertModal.ok', 'OK')}

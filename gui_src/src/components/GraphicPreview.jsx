@@ -126,7 +126,7 @@ export default function GraphicPreview({
       >
         <span>{label}</span>
         {state.status === 'loading' && <span>{t('graphicPreview.rendering')}</span>}
-        {state.status === 'err' && <span style={{ color: 'var(--vscode-errorForeground, #f48771)' }}>{t('graphicPreview.previewFailed')}</span>}
+        {state.status === 'err' && <span style={{ color: 'var(--vscode-errorForeground)' }}>{t('graphicPreview.previewFailed')}</span>}
       </div>
       <div
         style={{
@@ -147,7 +147,7 @@ export default function GraphicPreview({
             style={{
               margin: 0,
               fontSize: '11px',
-              color: 'var(--vscode-errorForeground, #f48771)',
+              color: 'var(--vscode-errorForeground)',
               maxHeight: '120px',
               overflow: 'auto',
               whiteSpace: 'pre-wrap',

@@ -11,13 +11,13 @@ import { useTranslation } from 'react-i18next';
 const BADGES = {
   synced: {
     Icon: Check,
-    color: '#4ade80',
+    color: 'var(--vscode-fg-success)',
     labelKey: 'explorer.cloudSynced',
     fallback: 'Synced to the cloud',
   },
   pending: {
     Icon: CloudUpload,
-    color: '#9ca3af',
+    color: 'var(--vscode-text-subtle)',
     labelKey: 'explorer.cloudPending',
     fallback: 'Waiting for the next sync',
   },
@@ -30,7 +30,7 @@ const BADGES = {
   },
   conflict: {
     Icon: AlertTriangle,
-    color: '#facc15',
+    color: 'var(--vscode-fg-warning)',
     labelKey: 'explorer.cloudConflict',
     fallback: 'Changed in both places — needs a decision',
   },

@@ -1359,7 +1359,7 @@ export default function EditorPanel({
                 <span
                   className="vscode-tab-label"
                   title={filePath}
-                  style={{ color: isActive ? '#ffffff' : '#a0a0a0' }}
+                  style={{ color: isActive ? '#ffffff' : 'var(--vscode-text-subtle)' }}
                 >
                   {filePath.replace(/\\/g, '/').split('/').pop()}{isDirty ? ' *' : ''}
                 </span>
@@ -1525,7 +1525,7 @@ export default function EditorPanel({
             style={{ padding: '6px' }}
             title={isDiffMode ? t('editorPanel.disableDiff') : t('editorPanel.enableDiff')}
           >
-            <GitCompare size={12} style={{ color: isDiffMode ? '#4daafc' : 'inherit' }} />
+            <GitCompare size={12} style={{ color: isDiffMode ? 'var(--vscode-fg-link)' : 'inherit' }} />
           </button>
 
           {isTexFile && (
@@ -1580,7 +1580,7 @@ export default function EditorPanel({
                 style={{ padding: '6px' }}
                 title={isRichTextMode ? 'Exit Rich Text mode' : 'Rich Text mode (Overleaf-style: edit prose, complex blocks read-only)'}
               >
-                <Type size={12} style={{ color: isRichTextMode ? '#4daafc' : 'inherit' }} />
+                <Type size={12} style={{ color: isRichTextMode ? 'var(--vscode-fg-link)' : 'inherit' }} />
               </button>
               <button
                 onClick={() => {
@@ -1605,7 +1605,7 @@ export default function EditorPanel({
                   ? t('wysiwyg.exit', { defaultValue: 'Exit WYSIWYG mode' })
                   : t('wysiwyg.enter', { defaultValue: 'WYSIWYG mode (edit the document directly; unmodelled LaTeX is preserved as written)' })}
               >
-                <PenLine size={12} style={{ color: isWysiwygMode ? '#4daafc' : 'inherit' }} />
+                <PenLine size={12} style={{ color: isWysiwygMode ? 'var(--vscode-fg-link)' : 'inherit' }} />
               </button>
               {(isRichTextMode || isWysiwygMode) && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: '4px' }}>
@@ -1641,7 +1641,7 @@ export default function EditorPanel({
                 style={{ padding: '6px' }}
                 title="Insert LaTeX snippet"
               >
-                <PlusSquare size={12} style={{ color: showSnippetsPanel ? '#4daafc' : 'inherit' }} />
+                <PlusSquare size={12} style={{ color: showSnippetsPanel ? 'var(--vscode-fg-link)' : 'inherit' }} />
               </button>
             </>
           )}
@@ -1702,7 +1702,7 @@ export default function EditorPanel({
                   : t('editorPanel.showSplitPreview')}
                 aria-pressed={isSplitPreviewActive}
               >
-                <Columns2 size={12} style={{ color: isSplitPreviewActive ? '#4daafc' : 'inherit' }} />
+                <Columns2 size={12} style={{ color: isSplitPreviewActive ? 'var(--vscode-fg-link)' : 'inherit' }} />
               </button>
               <button
                 onClick={() => {
@@ -1719,7 +1719,7 @@ export default function EditorPanel({
                   : (isPreviewMode ? t('editorPanel.editMarkdown') : t('editorPanel.previewMarkdown'))}
                 aria-pressed={isPreviewMode}
               >
-                {isPreviewMode ? <EyeOff size={12} style={{ color: '#4daafc' }} /> : <Eye size={12} />}
+                {isPreviewMode ? <EyeOff size={12} style={{ color: 'var(--vscode-fg-link)' }} /> : <Eye size={12} />}
               </button>
             </>
           )}
@@ -1733,7 +1733,7 @@ export default function EditorPanel({
               aria-label={t('editorPanel.latexHelpTitle')}
               aria-expanded={showLatexHelp}
             >
-              <HelpCircle size={12} style={{ color: showLatexHelp ? '#4daafc' : 'inherit' }} />
+              <HelpCircle size={12} style={{ color: showLatexHelp ? 'var(--vscode-fg-link)' : 'inherit' }} />
             </button>
           )}
 

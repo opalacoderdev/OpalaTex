@@ -149,7 +149,7 @@ export default function ChatSidebar({
         <div style={{ padding: '8px', borderBottom: '1px solid var(--vscode-border)', background: 'var(--vscode-sidebar-bg)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <span style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('chatSidebar.deletePrompt', 'Deletar este chat e todo o seu histórico?')}</span>
           <div style={{ display: 'flex', gap: '6px' }}>
-            <button onClick={confirmDeleteChat} className="vscode-button" style={{ height: '24px', padding: '0 8px', fontSize: '11px', background: '#f87171', color: '#fff', border: 'none' }}>
+            <button onClick={confirmDeleteChat} className="vscode-button" style={{ height: '24px', padding: '0 8px', fontSize: '11px', background: 'var(--vscode-fg-danger)', color: '#fff', border: 'none' }}>
               {t('chatSidebar.delete', 'Deletar')}
             </button>
             <button onClick={() => setChatToDelete(null)} className="vscode-button" style={{ height: '24px', padding: '0 8px', fontSize: '11px', background: 'transparent', color: 'var(--vscode-text-fg)', border: '1px solid var(--vscode-border)' }}>
@@ -172,7 +172,7 @@ export default function ChatSidebar({
                 className={`vscode-project-item ${isActive ? 'active' : ''}`}
                 style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', cursor: 'pointer' }}
               >
-                <MessageSquare size={14} style={{ marginRight: '8px', color: isActive ? '#4ec9b0' : '#808080' }} />
+                <MessageSquare size={14} style={{ marginRight: '8px', color: isActive ? 'var(--vscode-fg-teal)' : 'var(--vscode-text-muted)' }} />
                 <div className="truncate flex-1" style={{ fontSize: '12px' }}>
                   {c.name}
                 </div>
@@ -180,14 +180,14 @@ export default function ChatSidebar({
                   <div style={{ display: 'flex', gap: '4px' }}>
                     <button
                       onClick={(e) => handleRenameChatClick(c.id, c.name, e)}
-                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0', padding: '2px 4px' }}
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)', padding: '2px 4px' }}
                       title={t('chatSidebar.renameChat', 'Renomear Chat')}
                     >
                       <Pencil size={12} />
                     </button>
                     <button
                       onClick={(e) => handleDeleteChatClick(c.id, e)}
-                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0', padding: '2px 4px' }}
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)', padding: '2px 4px' }}
                       title={t('chatSidebar.removeChat', 'Remover Chat')}
                     >
                       <Trash2 size={12} />

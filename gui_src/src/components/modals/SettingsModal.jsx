@@ -244,52 +244,40 @@ export default function SettingsModal({
     <div className="vscode-modal-overlay">
       <div className="vscode-modal flex flex-col" style={{ width: '640px', maxHeight: 'calc(85 * var(--ui-vh))', padding: 0 }}>
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-titlebar-bg)' }}>
-          <div className="flex items-center" style={{ gap: '8px' }}>
+        <div className="vscode-modal-header titlebar">
+          <div className="vscode-modal-header-title">
             <Settings size={16} />
-            <span style={{ fontWeight: 'bold', fontSize: '13px' }}>{t('settingsModal.title')}</span>
+            <span>{t('settingsModal.title')}</span>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--vscode-text-fg)', cursor: 'pointer', padding: '2px' }}>
+          <button className="vscode-modal-close" onClick={onClose} aria-label={t('common.close', 'Close')}>
             <X size={16} />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex px-4" style={{ borderBottom: '1px solid var(--vscode-border)', gap: '16px', backgroundColor: 'var(--vscode-titlebar-bg)' }}>
+        <div className="vscode-modal-tabs titlebar">
           <button
+            className={`vscode-modal-tab${activeTab === 'general' ? ' active' : ''}`}
             onClick={() => setSettingsTab('general')}
-            style={{
-              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: activeTab === 'general' ? 'bold' : 'normal',
-              color: activeTab === 'general' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
-              borderBottom: activeTab === 'general' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
-            }}
           >
             {t('settingsModal.tabGeneral', 'General')}
           </button>
           <button
+            className={`vscode-modal-tab${activeTab === 'dependencies' ? ' active' : ''}`}
             onClick={() => setSettingsTab('dependencies')}
-            style={{
-              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: activeTab === 'dependencies' ? 'bold' : 'normal',
-              color: activeTab === 'dependencies' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
-              borderBottom: activeTab === 'dependencies' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
-            }}
           >
             {t('settingsModal.tabDependencies', 'Dependencies')}
           </button>
           <button
+            className={`vscode-modal-tab${activeTab === 'about' ? ' active' : ''}`}
             onClick={() => setSettingsTab('about')}
-            style={{
-              background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px', fontWeight: activeTab === 'about' ? 'bold' : 'normal',
-              color: activeTab === 'about' ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
-              borderBottom: activeTab === 'about' ? '2px solid var(--vscode-accent)' : '2px solid transparent',
-            }}
           >
             {t('settingsModal.tabAbout')}
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col" style={{ gap: '16px' }}>
+        <div className="vscode-modal-content flex-1 overflow-y-auto flex flex-col" style={{ gap: '16px' }}>
           {activeTab === 'general' && (
             <>
               {/* Language */}
@@ -545,7 +533,7 @@ export default function SettingsModal({
                     </select>
                     <div className="flex" style={{ gap: '8px' }}>
                       <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
-                        <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.imageGenerationSize')}</label>
+                        <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.imageGenerationSize')}</label>
                         <input
                           type="text"
                           className="vscode-settings-input"
@@ -556,7 +544,7 @@ export default function SettingsModal({
                         />
                       </div>
                       <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
-                        <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.imageGenerationOutputDir')}</label>
+                        <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.imageGenerationOutputDir')}</label>
                         <input
                           type="text"
                           className="vscode-settings-input"
@@ -596,7 +584,7 @@ export default function SettingsModal({
                   className="vscode-settings-input"
                   style={{ width: '100%' }}
                 />
-                <span style={{ fontSize: '11px', color: '#888888' }}>{t('settingsModal.panelMaxLinesHint')}</span>
+                <span style={{ fontSize: '11px', color: 'var(--vscode-text-muted)' }}>{t('settingsModal.panelMaxLinesHint')}</span>
               </div>
 
               {/* Global Data Directory */}
@@ -620,9 +608,9 @@ export default function SettingsModal({
                   </button>
                 </div>
                 {opalatexHomeError && (
-                  <span style={{ fontSize: '11px', color: '#f48771' }}>{opalatexHomeError}</span>
+                  <span style={{ fontSize: '11px', color: 'var(--vscode-errorForeground)' }}>{opalatexHomeError}</span>
                 )}
-                <span style={{ fontSize: '11px', color: '#888888' }}>{t('settingsModal.globalDataDirHint')}</span>
+                <span style={{ fontSize: '11px', color: 'var(--vscode-text-muted)' }}>{t('settingsModal.globalDataDirHint')}</span>
               </div>
 
 
@@ -633,25 +621,25 @@ export default function SettingsModal({
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralMaxTokens')}</label>
+                    <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.ephemeralMaxTokens')}</label>
                     <input type="number" min="1" className="vscode-settings-input" placeholder={t('settingsModal.ephemeralUnlimited')}
                       value={ephemeralParams?.max_tokens || ''}
                       onChange={e => updateEphemeralParam('max_tokens', e.target.value ? Number(e.target.value) : undefined)} />
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralContextWindow')}</label>
+                    <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.ephemeralContextWindow')}</label>
                     <input type="number" min="1" className="vscode-settings-input" placeholder={t('settingsModal.ephemeralContextWindowPlaceholder')}
                       value={ephemeralParams?.num_ctx || ''}
                       onChange={e => updateEphemeralParam('num_ctx', e.target.value ? Number(e.target.value) : undefined)} />
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralTemperature')}</label>
+                    <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.ephemeralTemperature')}</label>
                     <input type="number" step="0.1" min="0" max="2" className="vscode-settings-input" placeholder="0.7"
                       value={ephemeralParams?.temperature ?? ''}
                       onChange={e => updateEphemeralParam('temperature', e.target.value ? parseFloat(e.target.value) : undefined)} />
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralReasoningEffort')}</label>
+                    <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.ephemeralReasoningEffort')}</label>
                     <select className="vscode-settings-input"
                       value={ephemeralParams?.reasoning_effort || 'none'}
                       onChange={e => updateEphemeralParam('reasoning_effort', e.target.value)}>
@@ -663,7 +651,7 @@ export default function SettingsModal({
                     </select>
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralResponseMode', 'Response Mode')}</label>
+                    <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.ephemeralResponseMode', 'Response Mode')}</label>
                     <select className="vscode-settings-input"
                       value={ephemeralParams?.response_mode || 'last'}
                       onChange={e => updateEphemeralParam('response_mode', e.target.value)}>
@@ -672,13 +660,13 @@ export default function SettingsModal({
                     </select>
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralMaxIterations')}</label>
+                    <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.ephemeralMaxIterations')}</label>
                     <input type="number" min="1" className="vscode-settings-input" placeholder="10"
                       value={ephemeralParams?.max_iterations || ''}
                       onChange={e => updateEphemeralParam('max_iterations', e.target.value ? Number(e.target.value) : undefined)} />
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: '#a0a0a0' }}>{t('settingsModal.ephemeralMaxToolCalls')}</label>
+                    <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.ephemeralMaxToolCalls')}</label>
                     <input type="number" min="1" className="vscode-settings-input" placeholder="10"
                       value={ephemeralParams?.max_tool_calls || ''}
                       onChange={e => updateEphemeralParam('max_tool_calls', e.target.value ? Number(e.target.value) : undefined)} />
@@ -825,7 +813,7 @@ export default function SettingsModal({
         </div>
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 16px', gap: '8px', borderTop: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-sidebar-bg)' }}>
+        <div className="vscode-modal-footer">
           <button onClick={onClose} className="vscode-button">{t('settingsModal.close')}</button>
         </div>
       </div>

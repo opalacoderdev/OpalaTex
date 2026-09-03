@@ -63,7 +63,7 @@ export default function ModelSelect({
   return (
     <select
       className={className}
-      style={{ ...(style || {}), ...(isUnknownModel ? { borderColor: '#facc15' } : {}) }}
+      style={{ ...(style || {}), ...(isUnknownModel ? { borderColor: 'var(--vscode-fg-warning)' } : {}) }}
       value={selectedId}
       onChange={handleChange}
       disabled={disabled}

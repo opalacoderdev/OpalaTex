@@ -50,7 +50,7 @@ export default function StatusBar({ activeProject, isAgentRunning, textStats, cl
   const cloudIcon = cloudSyncing
     ? <RefreshCw size={12} className="animate-spin" />
     : cloudError
-      ? <AlertTriangle size={12} color="#facc15" />
+      ? <AlertTriangle size={12} style={{ color: 'var(--vscode-fg-warning)' }} />
       : cloudStatus?.connected || cloudStatus?.settings?.provider === 'local_folder'
         ? <Cloud size={12} />
         : <CloudOff size={12} />;

@@ -110,7 +110,7 @@ export default function PdfContextMenu({
             title={canEditTarget ? undefined : t('pdfContextMenu.annotationNotEditable', 'This annotation was made by other software and cannot be edited here.')}
             onClick={() => { if (canEditTarget) run(onEditNote); }}
           >
-            <PenLine size={13} style={{ color: '#4daafc' }} />
+            <PenLine size={13} style={{ color: 'var(--vscode-fg-link)' }} />
             <span>{t('pdfContextMenu.editNote', 'Edit note')}</span>
           </div>
           <div
@@ -118,7 +118,7 @@ export default function PdfContextMenu({
             aria-disabled={!canEditTarget}
             onClick={() => { if (canEditTarget) run(onRemoveAnnotation); }}
           >
-            <Trash2 size={13} style={{ color: '#f87171' }} />
+            <Trash2 size={13} style={{ color: 'var(--vscode-fg-danger)' }} />
             <span>{t('pdfContextMenu.removeAnnotation', 'Remove annotation')}</span>
           </div>
           <div className="vscode-context-menu-separator" role="separator" />
@@ -147,7 +147,7 @@ export default function PdfContextMenu({
             className="vscode-context-menu-item"
             onClick={() => run(onEditNote)}
           >
-            <StickyNote size={13} style={{ color: '#facc15' }} />
+            <StickyNote size={13} style={{ color: 'var(--vscode-fg-warning)' }} />
             <span>{t('pdfContextMenu.addNote', 'Add a note here')}</span>
           </div>
           <div className="vscode-context-menu-separator" role="separator" />
@@ -172,7 +172,7 @@ export default function PdfContextMenu({
         title={hasSelection ? undefined : t('pdfContextMenu.translateNeedsSelection', 'Select some text in the PDF first.')}
         onClick={() => { if (hasSelection) run(onTranslate); }}
       >
-        <Languages size={13} style={{ color: '#4daafc' }} />
+        <Languages size={13} style={{ color: 'var(--vscode-fg-link)' }} />
         <span>{t('pdfContextMenu.translate', 'Translate selection')}</span>
       </div>
     </div>

@@ -89,7 +89,7 @@ export default function ProviderConnectionForm({
   const fields = (
     <div className="vscode-modal-content" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {error && (
-        <div style={{ color: '#f48771', fontSize: '12px', padding: '8px', background: 'rgba(244,135,113,0.1)', borderRadius: '4px' }}>
+        <div style={{ color: 'var(--vscode-errorForeground)', fontSize: '12px', padding: '8px', background: 'rgba(244,135,113,0.1)', borderRadius: '4px' }}>
           {error}
         </div>
       )}

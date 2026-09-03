@@ -207,26 +207,22 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
   return (
     <div className="vscode-modal-overlay">
       <div className="vscode-modal flex flex-col" style={{ width: '620px', maxHeight: 'calc(85 * var(--ui-vh))', padding: 0 }}>
-        <div
-          className="flex items-center justify-between px-4 py-3"
-          style={{ borderBottom: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-titlebar-bg)' }}
-        >
-          <div className="flex items-center" style={{ gap: '8px' }}>
+        <div className="vscode-modal-header titlebar">
+          <div className="vscode-modal-header-title">
             <CloudDownload size={16} />
-            <span style={{ fontWeight: 'bold', fontSize: '13px' }}>
-              {t('cloudDownload.title', 'Download a project from the cloud')}
-            </span>
+            <span>{t('cloudDownload.title', 'Download a project from the cloud')}</span>
           </div>
           <button
+            className="vscode-modal-close"
             onClick={onClose}
             disabled={downloading}
-            style={{ background: 'none', border: 'none', color: 'var(--vscode-text-fg)', cursor: downloading ? 'default' : 'pointer', padding: '2px' }}
+            aria-label={t('common.close', 'Close')}
           >
             <X size={16} />
           </button>
         </div>
 
-        <div style={{ padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div className="vscode-modal-content flex flex-col" style={{ overflowY: 'auto', gap: '14px' }}>
           <p style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)', margin: 0 }}>
             {t('cloudDownload.intro', 'Projects you mirror to the cloud on another computer can be downloaded here and worked on from this one. They keep syncing afterwards.')}
           </p>
@@ -234,7 +230,7 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
           {error && (
             <div
               className="flex items-start"
-              style={{ gap: '8px', padding: '8px 10px', fontSize: '11px', border: '1px solid #f87171', color: '#f87171', borderRadius: '3px' }}
+              style={{ gap: '8px', padding: '8px 10px', fontSize: '11px', border: '1px solid var(--vscode-fg-danger)', color: 'var(--vscode-fg-danger)', borderRadius: '3px' }}
             >
               <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '1px' }} />
               <span>{error}</span>
@@ -449,10 +445,7 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
           </p>
         </div>
 
-        <div
-          className="flex items-center justify-end px-4 py-3"
-          style={{ borderTop: '1px solid var(--vscode-border)', gap: '8px', backgroundColor: 'var(--vscode-titlebar-bg)' }}
-        >
+        <div className="vscode-modal-footer titlebar items-center">
           <button
             className="vscode-button"
             onClick={onClose}

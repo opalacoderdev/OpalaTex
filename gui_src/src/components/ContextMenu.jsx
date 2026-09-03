@@ -97,14 +97,14 @@ export default function ContextMenu({
             className="vscode-context-menu-item"
             onClick={() => handleCopyNode(rightClickedNode)}
           >
-            <Copy size={13} style={{ color: '#888' }} />
+            <Copy size={13} style={{ color: 'var(--vscode-text-muted)' }} />
             <span>{t('contextMenu.copy', 'Copiar')}</span>
           </div>
           <div
             className="vscode-context-menu-item"
             onClick={() => handleRenameNode(rightClickedNode)}
           >
-            <Edit2 size={13} style={{ color: '#e2b52b' }} />
+            <Edit2 size={13} style={{ color: 'var(--vscode-fg-gold)' }} />
             <span>{t('contextMenu.rename')}</span>
           </div>
           <div
@@ -118,7 +118,7 @@ export default function ContextMenu({
             className="vscode-context-menu-item"
             onClick={() => handleDeleteNode(rightClickedNode)}
           >
-            <Trash2 size={13} style={{ color: '#f48771' }} />
+            <Trash2 size={13} style={{ color: 'var(--vscode-errorForeground)' }} />
             <span>{t('contextMenu.delete')}</span>
           </div>
         </>

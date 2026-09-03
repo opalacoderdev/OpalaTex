@@ -9,26 +9,26 @@ export default function InstallDepsPrompt({ onClose, onInstall }) {
   return (
     <div className="vscode-modal-overlay">
       <div className="vscode-modal" style={{ maxWidth: '440px', width: '90%' }}>
-        <div className="vscode-sidebar-header" style={{ padding: '10px 16px' }}>
-          <span className="vscode-sidebar-title" style={{ color: '#ffffff' }}>{t('installDepsPrompt.title')}</span>
+        <div className="vscode-modal-header">
+          <span className="vscode-sidebar-title" style={{ color: 'var(--vscode-text-fg)' }}>{t('installDepsPrompt.title')}</span>
           <button
             onClick={onClose}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0' }}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)' }}
           >
             <X size={14} />
           </button>
         </div>
 
-        <div className="overflow-y-auto flex-1" style={{ padding: '16px', color: '#cccccc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="vscode-modal-content overflow-y-auto flex-1 flex flex-col" style={{ gap: '12px' }}>
           <p style={{ fontSize: '13px', lineHeight: '1.5' }}>
             <Trans i18nKey="installDepsPrompt.body1" components={[<span />, <code />]} />
           </p>
-          <p style={{ fontSize: '12px', color: '#888888', lineHeight: '1.4' }}>
+          <p style={{ fontSize: '12px', color: 'var(--vscode-text-muted)', lineHeight: '1.4' }}>
             {t('installDepsPrompt.body2')}
           </p>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px', borderTop: '1px solid #3c3c3c', paddingTop: '12px' }}>
-            <button onClick={onClose} className="vscode-button" style={{ backgroundColor: '#3c3c3c', color: '#ffffff' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px', borderTop: '1px solid var(--vscode-border)', paddingTop: '12px' }}>
+            <button onClick={onClose} className="vscode-button-secondary">
               {t('installDepsPrompt.ignore')}
             </button>
             <button onClick={onInstall} className="vscode-button">

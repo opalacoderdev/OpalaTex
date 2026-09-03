@@ -16,12 +16,12 @@ export default function DirPickerModal({ dirPicker, onNavigate, onConfirm, onClo
     >
       <div
         className="vscode-modal"
-        style={{ borderRadius: '6px', padding: '16px', width: '480px', maxHeight: 'calc(60 * var(--ui-vh))', display: 'flex', flexDirection: 'column', gap: '10px' }}
+        style={{ padding: 'var(--modal-body-padding) var(--modal-gutter)', width: '480px', maxHeight: 'calc(60 * var(--ui-vh))', display: 'flex', flexDirection: 'column', gap: '10px' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Title */}
-        <div style={{ color: 'var(--vscode-text-fg, #cccccc)', fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <FolderOpen size={15} style={{ color: '#e8a838' }} />
+        <div style={{ color: 'var(--vscode-text-fg)', fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <FolderOpen size={15} style={{ color: 'var(--vscode-fg-folder)' }} />
           {t('dirPickerModal.title')}
         </div>
 
@@ -32,7 +32,7 @@ export default function DirPickerModal({ dirPicker, onNavigate, onConfirm, onClo
           borderRadius: '3px',
           padding: '5px 8px',
           fontSize: '12px',
-          color: 'var(--vscode-text-fg, #9cdcfe)',
+          color: 'var(--vscode-text-fg, var(--vscode-fg-info))',
           fontFamily: 'monospace',
           wordBreak: 'break-all'
         }}>
@@ -48,7 +48,7 @@ export default function DirPickerModal({ dirPicker, onNavigate, onConfirm, onClo
           background: 'var(--vscode-input-bg, #252526)'
         }}>
           {dirPicker.dirs.length === 0 && (
-            <div style={{ color: 'var(--vscode-descriptionForeground, #808080)', fontSize: '12px', padding: '12px', textAlign: 'center' }}>{t('dirPickerModal.noSubdirs')}</div>
+            <div style={{ color: 'var(--vscode-descriptionForeground, var(--vscode-text-muted))', fontSize: '12px', padding: '12px', textAlign: 'center' }}>{t('dirPickerModal.noSubdirs')}</div>
           )}
           {dirPicker.dirs.map(d => (
             <div
@@ -60,14 +60,14 @@ export default function DirPickerModal({ dirPicker, onNavigate, onConfirm, onClo
                 padding: '5px 8px',
                 cursor: 'pointer',
                 fontSize: '12px',
-                color: 'var(--vscode-text-fg, #cccccc)',
+                color: 'var(--vscode-text-fg)',
                 borderBottom: '1px solid var(--vscode-border, #2d2d2d)'
               }}
               onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBg, #2a2d2e)'}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               onClick={() => onNavigate(d.path)}
             >
-              <Folder size={13} style={{ color: '#e8a838', flexShrink: 0 }} />
+              <Folder size={13} style={{ color: 'var(--vscode-fg-folder)', flexShrink: 0 }} />
               <span style={{ fontFamily: 'monospace' }}>{d.name}</span>
             </div>
           ))}

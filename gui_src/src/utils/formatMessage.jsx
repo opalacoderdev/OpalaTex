@@ -263,7 +263,7 @@ const BASE_COMPONENTS = {
   td: ({ children }) => (
     <td style={{
       padding: '5px 12px',
-      color: 'var(--chat-text, #cccccc)',
+      color: 'var(--chat-text, var(--vscode-text-fg))',
       borderRight: '1px solid var(--border-color, #3c3c3c)',
       verticalAlign: 'top',
     }}>

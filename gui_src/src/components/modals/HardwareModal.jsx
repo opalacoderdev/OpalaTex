@@ -102,8 +102,8 @@ export default function HardwareModal({ onClose }) {
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--vscode-text-fg)', cursor: 'pointer', fontSize: '18px' }}>✕</button>
         </div>
 
-        {errorMsg && <div style={{ background: 'rgba(255,0,0,0.1)', color: '#ff6b6b', padding: '10px', borderRadius: '6px', fontSize: '13px' }}>{errorMsg}</div>}
-        {successMsg && <div style={{ background: 'rgba(0,255,0,0.1)', color: '#4ade80', padding: '10px', borderRadius: '6px', fontSize: '13px' }}>{successMsg}</div>}
+        {errorMsg && <div style={{ background: 'rgba(255,0,0,0.1)', color: 'var(--vscode-fg-danger)', padding: '10px', borderRadius: '6px', fontSize: '13px' }}>{errorMsg}</div>}
+        {successMsg && <div style={{ background: 'rgba(0,255,0,0.1)', color: 'var(--vscode-fg-success)', padding: '10px', borderRadius: '6px', fontSize: '13px' }}>{successMsg}</div>}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px', color: 'var(--vscode-text-fg)' }}>

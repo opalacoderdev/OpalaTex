@@ -9,12 +9,12 @@ const ALL_DIFF_FILES = '__all__';
 
 function buildStatusMeta(t) {
   return {
-    M:  { label: 'M', color: '#e2b52b', title: t('gitSidebar.statusModified') },
-    A:  { label: 'A', color: '#73c991', title: t('gitSidebar.statusAdded') },
-    D:  { label: 'D', color: '#f48771', title: t('gitSidebar.statusDeleted') },
-    R:  { label: 'R', color: '#9cdcfe', title: t('gitSidebar.statusRenamed') },
-    C:  { label: 'C', color: '#9cdcfe', title: t('gitSidebar.statusCopied') },
-    '??': { label: 'U', color: '#73c991', title: t('gitSidebar.statusUntracked') },
+    M:  { label: 'M', color: 'var(--vscode-fg-gold)', title: t('gitSidebar.statusModified') },
+    A:  { label: 'A', color: 'var(--diff-text-added)', title: t('gitSidebar.statusAdded') },
+    D:  { label: 'D', color: 'var(--vscode-errorForeground)', title: t('gitSidebar.statusDeleted') },
+    R:  { label: 'R', color: 'var(--vscode-fg-info)', title: t('gitSidebar.statusRenamed') },
+    C:  { label: 'C', color: 'var(--vscode-fg-info)', title: t('gitSidebar.statusCopied') },
+    '??': { label: 'U', color: 'var(--diff-text-added)', title: t('gitSidebar.statusUntracked') },
   };
 }
 
@@ -69,7 +69,7 @@ function DiffViewer({ diff, wrapLines = false }) {
 function FileRow({ file, projectPath, onStage, onUnstage, onDiscard, onToggleDiff, expandedDiff, diff, loadingDiff }) {
   const { t } = useTranslation();
   const statusMeta = buildStatusMeta(t);
-  const meta = statusMeta[file.status] || { label: file.status || '?', color: '#808080', title: file.status };
+  const meta = statusMeta[file.status] || { label: file.status || '?', color: 'var(--vscode-text-muted)', title: file.status };
   const isStaged = file.staged;
   return (
     <div className="git-file-row">
@@ -91,7 +91,7 @@ function FileRow({ file, projectPath, onStage, onUnstage, onDiscard, onToggleDif
             <button
               title={t('gitSidebar.addToStage')}
               onClick={(e) => { e.stopPropagation(); onStage(file.path); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#73c991', padding: '1px' }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--diff-text-added)', padding: '1px' }}
             >
               <Plus size={12} />
             </button>
@@ -99,7 +99,7 @@ function FileRow({ file, projectPath, onStage, onUnstage, onDiscard, onToggleDif
             <button
               title={t('gitSidebar.removeFromStage')}
               onClick={(e) => { e.stopPropagation(); onUnstage(file.path); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e2b52b', padding: '1px' }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--vscode-fg-gold)', padding: '1px' }}
             >
               <Minus size={12} />
             </button>
@@ -107,7 +107,7 @@ function FileRow({ file, projectPath, onStage, onUnstage, onDiscard, onToggleDif
           <button
             title={file.status === '??' ? t('gitSidebar.discardUntracked') : t('gitSidebar.discardChanges')}
             onClick={(e) => { e.stopPropagation(); onDiscard(file.path); }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f48771', padding: '1px' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--vscode-errorForeground)', padding: '1px' }}
           >
             <RotateCcw size={12} />
           </button>
@@ -116,7 +116,7 @@ function FileRow({ file, projectPath, onStage, onUnstage, onDiscard, onToggleDif
       {expandedDiff && (
         <div style={{ padding: '0 4px 6px 24px' }}>
           {loadingDiff ? (
-            <div style={{ fontSize: '11px', color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
+            <div style={{ fontSize: '11px', color: 'var(--vscode-text-muted)' }}>{t('gitSidebar.loadingDiff')}</div>
           ) : (
             <DiffViewer diff={diff} />
           )}
@@ -380,7 +380,7 @@ export default function GitSidebar({
   if (!activeProject) return (
     <div className="vscode-sidebar-content" style={{ padding: reviewMode ? '20px' : '12px' }}>
       <div className="vscode-sidebar-title">{reviewMode ? t('gitSidebar.reviewHeader') : t('gitSidebar.header')}</div>
-      <div style={{ fontSize: '12px', color: '#808080', fontStyle: 'italic', marginTop: '12px' }}>
+      <div style={{ fontSize: '12px', color: 'var(--vscode-text-muted)', fontStyle: 'italic', marginTop: '12px' }}>
         {t('gitSidebar.selectProjectForVcs')}
       </div>
     </div>
@@ -447,7 +447,7 @@ export default function GitSidebar({
           </div>
         )}
         {loading ? (
-          <div style={{ fontSize: '11px', color: '#808080' }}>{t('gitSidebar.loadingDiff')}</div>
+          <div style={{ fontSize: '11px', color: 'var(--vscode-text-muted)' }}>{t('gitSidebar.loadingDiff')}</div>
         ) : (
           <DiffViewer diff={currentDiff} wrapLines={wrapLines} />
         )}
@@ -509,7 +509,7 @@ export default function GitSidebar({
             </button>
             <Bot size={14} style={{ color: 'var(--vscode-accent, #4d9cf8)', flexShrink: 0 }} />
             <div>
-              <div style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{item.end.short}</div>
+              <div style={{ fontFamily: 'monospace', color: 'var(--vscode-fg-info)' }}>{item.end.short}</div>
               <div>{item.end.date}</div>
             </div>
           </div>
@@ -573,7 +573,7 @@ export default function GitSidebar({
             <div style={{ display: 'flex', gap: '16px', fontSize: '11px' }}>
               <div>
                 <span style={{ color: 'var(--vscode-descriptionForeground)' }}>{t('gitSidebar.agentCheckpointBefore')}: </span>
-                <span style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{item.start.short}</span>
+                <span style={{ fontFamily: 'monospace', color: 'var(--vscode-fg-info)' }}>{item.start.short}</span>
                 <span style={{ color: 'var(--vscode-descriptionForeground)', marginLeft: '6px' }}>{item.start.date}</span>
                 <button
                   type="button"
@@ -588,7 +588,7 @@ export default function GitSidebar({
               </div>
               <div>
                 <span style={{ color: 'var(--vscode-descriptionForeground)' }}>{t('gitSidebar.agentCheckpointAfter')}: </span>
-                <span style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{item.end.short}</span>
+                <span style={{ fontFamily: 'monospace', color: 'var(--vscode-fg-info)' }}>{item.end.short}</span>
                 <span style={{ color: 'var(--vscode-descriptionForeground)', marginLeft: '6px' }}>{item.end.date}</span>
                 <button
                   type="button"
@@ -612,7 +612,7 @@ export default function GitSidebar({
                   {item.tools.map((tool, idx) => (
                     <div key={tool.hash || idx} className="git-commit-row" style={{ fontSize: '11px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontFamily: 'monospace', color: '#9cdcfe', minWidth: '60px' }}>{tool.short}</span>
+                        <span style={{ fontFamily: 'monospace', color: 'var(--vscode-fg-info)', minWidth: '60px' }}>{tool.short}</span>
                         <span style={{ color: 'var(--vscode-text-fg)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={tool.message}>
                           {tool.message.replace(/^Agent tool checkpoint:\s*/, '')}
                         </span>
@@ -647,9 +647,9 @@ export default function GitSidebar({
     return (
       <div style={{ flex: 1, overflowY: 'auto', padding: reviewMode ? '16px 20px 24px' : '12px' }}>
         {loadingLog ? (
-          <div style={{ fontSize: '12px', color: '#808080' }}>{t('gitSidebar.loadingHistory')}</div>
+          <div style={{ fontSize: '12px', color: 'var(--vscode-text-muted)' }}>{t('gitSidebar.loadingHistory')}</div>
         ) : commits.length === 0 ? (
-          <div style={{ fontSize: '12px', color: '#808080', fontStyle: 'italic' }}>
+          <div style={{ fontSize: '12px', color: 'var(--vscode-text-muted)', fontStyle: 'italic' }}>
             {reviewMode && reviewPage > 0 ? t('gitSidebar.noCommitsOnPage') : t('gitSidebar.noCommits')}
           </div>
         ) : (
@@ -664,7 +664,7 @@ export default function GitSidebar({
                 <div key={c.hash || i} className={reviewMode ? 'git-review-row' : 'git-commit-row'}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                     <div style={{ minWidth: reviewMode ? '130px' : 'auto', color: 'var(--vscode-descriptionForeground)', fontSize: reviewMode ? '12px' : '11px' }}>
-                      <div style={{ fontFamily: 'monospace', color: '#9cdcfe' }}>{c.short}</div>
+                      <div style={{ fontFamily: 'monospace', color: 'var(--vscode-fg-info)' }}>{c.short}</div>
                       <div>{c.date}</div>
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -798,7 +798,7 @@ export default function GitSidebar({
           style={{
             margin: reviewMode ? '0 20px 12px' : '0 12px 8px',
             padding: '8px 10px',
-            border: '1px solid #e2b52b',
+            border: '1px solid var(--vscode-fg-gold)',
             borderRadius: '4px',
             background: 'rgba(226, 181, 43, 0.12)',
             fontSize: '11px',
@@ -806,7 +806,7 @@ export default function GitSidebar({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, marginBottom: '4px' }}>
-            <AlertTriangle size={13} style={{ color: '#e2b52b', flexShrink: 0 }} />
+            <AlertTriangle size={13} style={{ color: 'var(--vscode-fg-gold)', flexShrink: 0 }} />
             {t('gitSidebar.nestedRepoWarningTitle')}
           </div>
           <div style={{ color: 'var(--vscode-descriptionForeground)' }}>
@@ -875,7 +875,7 @@ export default function GitSidebar({
           {/* File list */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {gitChanges.length === 0 ? (
-              <div style={{ fontSize: '12px', color: '#808080', fontStyle: 'italic' }}>{t('gitSidebar.noChanges')}</div>
+              <div style={{ fontSize: '12px', color: 'var(--vscode-text-muted)', fontStyle: 'italic' }}>{t('gitSidebar.noChanges')}</div>
             ) : (
               <>
                 <div className="vscode-sidebar-section-title" style={{ marginBottom: '6px', padding: 0 }}>

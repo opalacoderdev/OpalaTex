@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Settings, Trash2, RefreshCw, ExternalLink, FolderOpen, ChevronDown, AlertTriangle, CloudDownload } from 'lucide-react';
+import { Plus, Trash2, RefreshCw, ExternalLink, FolderOpen, ChevronDown, AlertTriangle, CloudDownload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import FileNode from './FileNode';
 
@@ -83,9 +83,9 @@ export default function ExplorerSidebar({
 
       {/* Import error message */}
       {importError && (
-        <div style={{ padding: '6px 10px', fontSize: '11px', color: '#f48771', background: 'var(--vscode-sidebar-bg)', borderBottom: '1px solid var(--vscode-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
+        <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--vscode-errorForeground)', background: 'var(--vscode-sidebar-bg)', borderBottom: '1px solid var(--vscode-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
           <span>⚠️ {importError}</span>
-          <button onClick={() => onClearImportError && onClearImportError()} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#f48771', padding: '0', lineHeight: 1, flexShrink: 0 }}>✕</button>
+          <button onClick={() => onClearImportError && onClearImportError()} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-errorForeground)', padding: '0', lineHeight: 1, flexShrink: 0 }}>✕</button>
         </div>
       )}
 
@@ -110,7 +110,7 @@ export default function ExplorerSidebar({
                 textAlign: 'left',
                 border: '1px solid var(--vscode-dropdown-border, var(--vscode-border, #3c3c3c))',
                 background: 'var(--vscode-dropdown-background, var(--vscode-input-bg, #252526))',
-                color: 'var(--vscode-dropdown-foreground, var(--vscode-input-fg, #cccccc))',
+                color: 'var(--vscode-dropdown-foreground, var(--vscode-input-fg, var(--vscode-text-fg)))',
                 borderRadius: '2px',
               }}
             >
@@ -138,7 +138,7 @@ export default function ExplorerSidebar({
                 }}
               >
                 {projects.length === 0 ? (
-                  <div style={{ padding: '6px 10px', fontSize: '11px', color: '#808080', fontStyle: 'italic' }}>
+                  <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--vscode-text-muted)', fontStyle: 'italic' }}>
                     {t('explorerSidebar.noProjects', 'Nenhum projeto encontrado')}
                   </div>
                 ) : (
@@ -165,7 +165,7 @@ export default function ExplorerSidebar({
                           gap: '2px',
                           borderBottom: '1px solid rgba(255,255,255,0.03)',
                           background: isActive ? 'var(--vscode-list-activeSelectionBackground, var(--vscode-accent, #007acc))' : 'transparent',
-                          color: isActive ? 'var(--vscode-list-activeSelectionForeground, #ffffff)' : 'var(--vscode-dropdown-foreground, var(--vscode-input-fg, #cccccc))',
+                          color: isActive ? 'var(--vscode-list-activeSelectionForeground, #ffffff)' : 'var(--vscode-dropdown-foreground, var(--vscode-input-fg, var(--vscode-text-fg)))',
                         }}
                         onMouseEnter={(e) => {
                           if (!isActive) e.currentTarget.style.background = 'var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08))';
@@ -175,10 +175,10 @@ export default function ExplorerSidebar({
                         }}
                       >
                         <div style={{ fontSize: '12px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '5px' }} className="truncate">
-                          {isMissing && <AlertTriangle size={11} color="#e2c08d" style={{ flexShrink: 0 }} />}
+                          {isMissing && <AlertTriangle size={11} style={{ color: 'var(--vscode-fg-gold)', flexShrink: 0 }} />}
                           {p.project_name || p.name}
                         </div>
-                        <div style={{ fontSize: '11px', color: isMissing ? '#e2c08d' : (isActive ? 'rgba(255,255,255,0.7)' : '#808080') }} className="truncate">
+                        <div style={{ fontSize: '11px', color: isMissing ? 'var(--vscode-fg-gold)' : (isActive ? 'rgba(255,255,255,0.7)' : 'var(--vscode-text-muted)') }} className="truncate">
                           {isMissing ? t('explorerSidebar.projectPathMissing', 'Not found: {{path}}', { path: p.project_path }) : p.project_path}
                         </div>
                       </div>
@@ -205,58 +205,17 @@ export default function ExplorerSidebar({
                     console.error('Failed to open explorer:', err);
                   }
                 }}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: '#a0a0a0',
-                  padding: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: '3px',
-                }}
+                className="vscode-sidebar-action-btn"
+                style={{ padding: '4px' }}
                 title={t('explorerSidebar.openFolder', 'Abrir pasta no Sistema Operacional')}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#ffffff'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#a0a0a0'; }}
               >
                 <ExternalLink size={14} />
               </button>
               <button
-                onClick={(e) => openEditModal(e, activeProject)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: '#a0a0a0',
-                  padding: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: '3px',
-                }}
-                title={t('explorerSidebar.configureProject')}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#ffffff'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#a0a0a0'; }}
-              >
-                <Settings size={14} />
-              </button>
-              <button
                 onClick={(e) => { e.stopPropagation(); handleDeleteProject(activeProject.name); }}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: '#a0a0a0',
-                  padding: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: '3px',
-                }}
+                className="vscode-sidebar-action-btn"
+                style={{ padding: '4px' }}
                 title={t('explorerSidebar.removeProject')}
-                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#ffffff'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#a0a0a0'; }}
               >
                 <Trash2 size={14} />
               </button>
@@ -313,19 +272,8 @@ export default function ExplorerSidebar({
               <button
                 onClick={(e) => { e.stopPropagation(); fetchFiles(); }}
                 title={t('explorerSidebar.refreshFiles')}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#808080',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  padding: '2px',
-                  borderRadius: '3px',
-                  transition: 'color 0.2s, background-color 0.2s',
-                }}
-                onMouseOver={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'; }}
-                onMouseOut={(e) => { e.currentTarget.style.color = '#808080'; e.currentTarget.style.backgroundColor = 'transparent'; }}
+                className="vscode-sidebar-action-btn"
+                style={{ padding: '2px' }}
               >
                 <RefreshCw size={12} />
               </button>
@@ -334,7 +282,7 @@ export default function ExplorerSidebar({
         </div>
 
         {files.length === 0 ? (
-          <div style={{ fontSize: '12px', color: '#808080', padding: '0 4px', fontStyle: 'italic' }}>
+          <div style={{ fontSize: '12px', color: 'var(--vscode-text-muted)', padding: '0 4px', fontStyle: 'italic' }}>
             {t('explorerSidebar.selectProjectToExplore')}
           </div>
         ) : (

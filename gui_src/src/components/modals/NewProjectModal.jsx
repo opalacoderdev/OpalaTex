@@ -34,9 +34,9 @@ export default function NewProjectModal({
   const dynamicPathHint = isWindows ? t('newProjectModal.pathHintWindows', 'Ex: C:\\\\Projects') : t('newProjectModal.pathHintUnix', 'Ex: /home/user/projects');
 
   const getBorderColor = (status) => {
-    if (status === 'green') return '#4ade80';
-    if (status === 'yellow') return '#facc15';
-    if (status === 'red') return '#f87171';
+    if (status === 'green') return 'var(--vscode-fg-success)';
+    if (status === 'yellow') return 'var(--vscode-fg-warning)';
+    if (status === 'red') return 'var(--vscode-fg-danger)';
     return undefined;
   };
 
@@ -62,37 +62,28 @@ export default function NewProjectModal({
   return (
     <div className="vscode-modal-overlay">
       <div className="vscode-modal">
-        <div className="vscode-sidebar-header" style={{ padding: '10px 16px', borderBottom: 'none' }}>
+        <div className="vscode-modal-header" style={{ borderBottom: 'none' }}>
           <span className="vscode-sidebar-title" style={{ color: 'var(--vscode-text-fg)' }}>{t('newProjectModal.title')}</span>
-          <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#a0a0a0' }}>
+          <button type="button" className="vscode-modal-close" onClick={onClose} aria-label={t('common.close', 'Close')}>
             <X size={14} />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--vscode-border)', marginBottom: '16px', padding: '0 16px' }}>
+        <div className="vscode-modal-tabs">
           {tabs.map(tab => (
             <button
               key={tab.id}
               type="button"
+              className={`vscode-modal-tab${activeTab === tab.id ? ' active' : ''}`}
               onClick={() => setActiveTab(tab.id)}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: '8px 16px',
-                color: activeTab === tab.id ? 'var(--vscode-text-fg)' : '#808080',
-                borderBottom: activeTab === tab.id ? '2px solid #007acc' : '2px solid transparent',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: activeTab === tab.id ? 'bold' : 'normal'
-              }}
             >
               {tab.label}
             </button>
           ))}
         </div>
 
-        <form onSubmit={onSubmit} className="flex flex-col overflow-y-auto flex-1" style={{ padding: '0 16px 16px 16px', gap: '12px' }}>
+        <form onSubmit={onSubmit} className="vscode-modal-content flex flex-col overflow-y-auto flex-1" style={{ gap: '12px' }}>
           
           {/* GERAL TAB */}
           {activeTab === 'geral' && (
@@ -168,9 +159,9 @@ export default function NewProjectModal({
                   placeholder={t('newProjectModal.modelPlaceholder')}
                   style={{ borderColor: getBorderColor(modelStatus), borderWidth: modelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
-                {modelStatus === 'green' && <span style={{ fontSize: '11px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
-                {modelStatus === 'yellow' && <span style={{ fontSize: '11px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
-                {modelStatus === 'red' && <span style={{ fontSize: '11px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
+                {modelStatus === 'green' && <span style={{ fontSize: '11px', color: 'var(--vscode-fg-success)' }}>{t('editProjectModal.modelSuitable')}</span>}
+                {modelStatus === 'yellow' && <span style={{ fontSize: '11px', color: 'var(--vscode-fg-warning)' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                {modelStatus === 'red' && <span style={{ fontSize: '11px', color: 'var(--vscode-fg-danger)' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
               </div>
 
               {/* Advanced params for Orchestrator */}
@@ -230,9 +221,9 @@ export default function NewProjectModal({
                   placeholder={t('newProjectModal.workerModelPlaceholder')}
                   style={{ borderColor: getBorderColor(workerModelStatus), borderWidth: workerModelStatus !== 'unknown' ? '2px' : '1px' }}
                 />
-                {workerModelStatus === 'green' && <span style={{ fontSize: '11px', color: '#4ade80' }}>{t('editProjectModal.modelSuitable')}</span>}
-                {workerModelStatus === 'yellow' && <span style={{ fontSize: '11px', color: '#facc15' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
-                {workerModelStatus === 'red' && <span style={{ fontSize: '11px', color: '#f87171' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
+                {workerModelStatus === 'green' && <span style={{ fontSize: '11px', color: 'var(--vscode-fg-success)' }}>{t('editProjectModal.modelSuitable')}</span>}
+                {workerModelStatus === 'yellow' && <span style={{ fontSize: '11px', color: 'var(--vscode-fg-warning)' }}>{t('editProjectModal.modelMayBeSlow')}</span>}
+                {workerModelStatus === 'red' && <span style={{ fontSize: '11px', color: 'var(--vscode-fg-danger)' }}>{t('editProjectModal.modelMayExceedVram')}</span>}
               </div>
 
               {/* Advanced params for Worker */}
@@ -241,21 +232,21 @@ export default function NewProjectModal({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#ccc' }}>{t('editProjectModal.temperature')}</label>
+                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.temperature')}</label>
                       <input type="number" step="0.1" value={newProjWorkerModelParams?.temperature ?? ''} onChange={e => handleParamChange(setNewProjWorkerModelParams, 'temperature', e.target.value ? parseFloat(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 0.2" />
                     </div>
                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: '#ccc' }}>{t('editProjectModal.maxTokens')}</label>
+                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.maxTokens')}</label>
                       <input type="number" value={newProjWorkerModelParams?.max_tokens ?? ''} onChange={e => handleParamChange(setNewProjWorkerModelParams, 'max_tokens', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 8192" />
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '12px' }}>
                      <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                        <label style={{ fontSize: '11px', color: '#ccc' }}>{t('editProjectModal.maxIterations')}</label>
+                        <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.maxIterations')}</label>
                         <input type="number" value={newProjWorkerModelParams?.max_iterations ?? ''} onChange={e => handleParamChange(setNewProjWorkerModelParams, 'max_iterations', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 40" />
                      </div>
                      <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                        <label style={{ fontSize: '11px', color: '#ccc' }}>{t('editProjectModal.loopDetectionLimit')}</label>
+                        <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.loopDetectionLimit')}</label>
                         <input type="number" value={newProjWorkerModelParams?.loop_detection_limit ?? ''} onChange={e => handleParamChange(setNewProjWorkerModelParams, 'loop_detection_limit', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 3" />
                      </div>
                   </div>
@@ -264,7 +255,7 @@ export default function NewProjectModal({
                         <input type="checkbox"
                            checked={newProjWorkerModelParams?.loop_detection ?? true}
                            onChange={e => handleParamChange(setNewProjWorkerModelParams, 'loop_detection', e.target.checked)} />
-                        <span style={{ fontSize: '11px', color: '#ccc' }}>{t('editProjectModal.enableLoopDetection')}</span>
+                        <span style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enableLoopDetection')}</span>
                      </label>
                   </div>
                 </div>
@@ -273,7 +264,7 @@ export default function NewProjectModal({
           )}
 
           {newProjError && (
-            <div style={{ color: '#f48771', fontSize: '11px', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
+            <div style={{ color: 'var(--vscode-errorForeground)', fontSize: '11px', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
               ⚠️ {newProjError}
             </div>
           )}

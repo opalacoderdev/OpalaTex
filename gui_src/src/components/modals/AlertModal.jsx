@@ -19,15 +19,15 @@ export default function AlertModal({ message, onClose }) {
   return (
     <div className="vscode-modal-overlay" role="presentation" onMouseDown={onClose}>
       <div className="vscode-modal" role="alertdialog" aria-modal="true" aria-labelledby="opalatex-alert-title" aria-describedby="opalatex-alert-message" onMouseDown={(event) => event.stopPropagation()} style={{ maxWidth: '460px', width: '90%' }}>
-        <div className="vscode-sidebar-header" style={{ padding: '12px 16px' }}>
+        <div className="vscode-modal-header">
           <span id="opalatex-alert-title" className="vscode-sidebar-title" style={{ color: 'var(--vscode-text-fg)' }}>{t('alertModal.title')}</span>
           <button type="button" className="vscode-bottom-panel-clear-btn" onClick={onClose} aria-label={t('alertModal.close')}><X size={14} /></button>
         </div>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '20px 18px', color: 'var(--vscode-text-fg)' }}>
+        <div className="vscode-modal-content flex items-start" style={{ gap: '12px' }}>
           <Info size={24} style={{ flex: '0 0 auto', color: 'var(--vscode-accent)' }} />
           <div id="opalatex-alert-message" style={{ fontSize: '13px', lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message}</div>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 16px', borderTop: '1px solid var(--vscode-border)', background: 'var(--vscode-sidebar-bg)' }}>
+        <div className="vscode-modal-footer">
           <button type="button" className="vscode-button" onClick={onClose} autoFocus>{t('alertModal.ok')}</button>
         </div>
       </div>

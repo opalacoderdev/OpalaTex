@@ -25,15 +25,7 @@ function AssetIcon({ src, alt, fallback: Fallback = Package }) {
 // Tab button shared by the asset-type tabs and the skills sub-tabs.
 function TabButton({ active, onClick, children }) {
   return (
-    <button
-      onClick={onClick}
-      style={{
-        background: 'none', border: 'none', padding: '8px 4px', cursor: 'pointer', fontSize: '12px',
-        fontWeight: active ? 'bold' : 'normal',
-        color: active ? 'var(--vscode-text-fg)' : 'var(--vscode-text-subtle)',
-        borderBottom: active ? '2px solid var(--vscode-accent)' : '2px solid transparent',
-      }}
-    >
+    <button className={`vscode-modal-tab${active ? ' active' : ''}`} onClick={onClick}>
       {children}
     </button>
   );
@@ -204,18 +196,18 @@ export default function AssetStoreModal({ onClose, projectPath, onWorkspaceChang
     <div className="vscode-modal-overlay">
       <div className="vscode-modal flex flex-col" style={{ width: '760px', maxHeight: 'calc(85 * var(--ui-vh))', padding: 0 }}>
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-titlebar-bg)' }}>
-          <div className="flex items-center" style={{ gap: '8px' }}>
+        <div className="vscode-modal-header titlebar">
+          <div className="vscode-modal-header-title">
             <Store size={16} />
-            <span style={{ fontWeight: 'bold', fontSize: '13px' }}>{t('assetStore.title', 'Asset Store')}</span>
+            <span>{t('assetStore.title', 'Asset Store')}</span>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--vscode-text-fg)', cursor: 'pointer', padding: '2px' }}>
+          <button className="vscode-modal-close" onClick={onClose} aria-label={t('common.close', 'Close')}>
             <X size={16} />
           </button>
         </div>
 
         {/* Asset type tabs */}
-        <div className="flex px-4" style={{ borderBottom: '1px solid var(--vscode-border)', gap: '16px', backgroundColor: 'var(--vscode-titlebar-bg)' }}>
+        <div className="vscode-modal-tabs titlebar">
           <TabButton active={assetType === 'skill'} onClick={() => setAssetType('skill')}>
             {t('assetStore.tabSkills', 'Skills')}
           </TabButton>
@@ -226,7 +218,7 @@ export default function AssetStoreModal({ onClose, projectPath, onWorkspaceChang
 
         {/* Skills sub-tabs: the catalog and what the project actually runs */}
         {assetType === 'skill' && (
-          <div className="flex px-4" style={{ borderBottom: '1px solid var(--vscode-border)', gap: '16px' }}>
+          <div className="vscode-modal-tabs">
             <TabButton active={skillsTab === 'catalog'} onClick={() => setSkillsTab('catalog')}>
               {t('assetStore.tabCatalog', 'Catalog')}
             </TabButton>
@@ -237,7 +229,7 @@ export default function AssetStoreModal({ onClose, projectPath, onWorkspaceChang
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="vscode-modal-content flex-1 overflow-y-auto">
           {!projectPath && (
             <div style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', marginBottom: '12px' }}>
               {assetType === 'template'
@@ -253,7 +245,7 @@ export default function AssetStoreModal({ onClose, projectPath, onWorkspaceChang
           )}
 
           {installMessage && (
-            <div style={{ fontSize: '12px', color: '#4ec9b0', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ fontSize: '12px', color: 'var(--vscode-fg-teal)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Check size={13} /> {installMessage}
             </div>
           )}
@@ -431,7 +423,7 @@ export default function AssetStoreModal({ onClose, projectPath, onWorkspaceChang
         </div>
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '12px 16px', gap: '8px', borderTop: '1px solid var(--vscode-border)', backgroundColor: 'var(--vscode-sidebar-bg)' }}>
+        <div className="vscode-modal-footer">
           <button onClick={onClose} className="vscode-button">{t('assetStore.close', 'Close')}</button>
         </div>
       </div>
