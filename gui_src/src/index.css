@@ -2436,6 +2436,241 @@ input:focus, select:focus, textarea:focus {
   border-top: 1px solid var(--vscode-border);
 }
 
+/* ── Plan review window ───────────────────────────────────────────────────
+   A floating window, deliberately not a modal: approving a plan is the one
+   confirmation that needs the workbench the plan describes, so there is no
+   `.vscode-modal-overlay` behind it and nothing here may capture a pointer
+   event meant for the editor, the explorer or the chat. Position and size come
+   from inline styles (utils/floatingWindow.js owns the geometry); this file
+   only paints it. Its z-index sits above the panels and below the modals — a
+   real modal still has to be answered first. */
+.plan-window {
+  position: fixed;
+  /* The same layer as `.vscode-modal-overlay` and as react-split's gutters, so
+     paint order against both is decided by DOM order — which App.jsx fixes by
+     rendering this at the head of the overlay group: above the workbench and
+     its gutters, below every modal. A modal raised while a plan is pending is
+     a genuine interruption and still has to be answered first. */
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--vscode-sidebar-bg);
+  color: var(--vscode-text-fg);
+  border: 1px solid var(--vscode-border);
+  border-radius: var(--radius-lg, 6px);
+  /* A heavier shadow than a docked panel gets: with no backdrop dimming the
+     IDE, the elevation is the only cue that this floats above it. */
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.light-theme .plan-window {
+  background-color: #ffffff;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+}
+
+.plan-window-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background-color: var(--vscode-titlebar-bg);
+  border-bottom: 1px solid var(--vscode-border);
+  /* The header doubles as the drag handle for the whole window. */
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.plan-window.is-collapsed .plan-window-header {
+  border-bottom: none;
+}
+
+.plan-window.is-gesturing .plan-window-header {
+  cursor: grabbing;
+}
+
+/* While a drag or resize is in flight the pointer regularly leaves the window:
+   nothing under it should highlight or start a text selection. */
+.plan-window.is-gesturing,
+.plan-window.is-gesturing * {
+  user-select: none;
+}
+
+.plan-window-title {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.plan-window-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--vscode-description-fg, #9aa0a6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The agent is parked on a future until this is answered, and with the IDE
+   live behind the window that is easy to forget. The pulse says the wait is
+   still running rather than finished. */
+.plan-window-waiting-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background-color: #d29922;
+  animation: plan-window-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes plan-window-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan-window-waiting-dot { animation: none; }
+}
+
+.plan-window-header-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.plan-window-header-btn {
+  flex: none;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--vscode-text-fg);
+  background: transparent;
+  border: 1px solid var(--vscode-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.plan-window-header-btn:hover {
+  background-color: var(--vscode-hover-bg, rgba(128, 128, 128, 0.15));
+}
+
+.plan-window-header-btn[aria-pressed="true"] {
+  color: var(--vscode-button-fg);
+  background-color: var(--vscode-button-bg);
+  border-color: var(--vscode-button-bg);
+}
+
+.plan-window-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 5px;
+}
+
+.plan-window-prompt {
+  margin: 0;
+  padding: 12px 16px 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--vscode-text-fg);
+}
+
+.plan-window-body {
+  flex: 1;
+  min-height: 0;
+  margin: 0 16px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  font-size: 13px;
+  color: var(--vscode-text-fg);
+  background-color: var(--vscode-editor-bg);
+  border: 1px solid var(--vscode-border);
+  border-radius: 4px;
+  padding: 14px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.plan-window-body.is-editing {
+  padding: 0;
+}
+
+/* The plan is rendered at 13px in a window sized to leave the IDE visible, so
+   the browser's default heading scale (2em for an h1) would spend a third of
+   the visible plan on one line. */
+.plan-window-body h1,
+.plan-window-body h2,
+.plan-window-body h3,
+.plan-window-body h4 {
+  margin: 14px 0 6px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.plan-window-body h1 { font-size: 15px; }
+.plan-window-body h2 { font-size: 14px; }
+.plan-window-body h3,
+.plan-window-body h4 { font-size: 13px; }
+
+.plan-window-body > :first-child {
+  margin-top: 0;
+}
+
+.plan-window-body ul,
+.plan-window-body ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.plan-window-editor {
+  flex: 1;
+  width: 100%;
+  padding: 14px;
+  background: transparent;
+  color: var(--vscode-text-fg);
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 13px;
+  font-family: var(--vscode-editor-font, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.plan-window-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  /* Room for the resize grip, which sits in the same corner. */
+  padding-right: 22px;
+}
+
+.plan-window-reject {
+  background: transparent;
+  border: 1px solid var(--vscode-border);
+  color: var(--vscode-text-fg);
+}
+
+.plan-window-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background:
+    linear-gradient(135deg, transparent 0 50%, var(--vscode-border) 50% 60%, transparent 60% 72%,
+      var(--vscode-border) 72% 82%, transparent 82%);
+}
+
 .vscode-overflow-menu-wrap {
   position: relative;
   display: inline-flex;

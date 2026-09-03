@@ -782,9 +782,19 @@
     "no": "No",
     "yes": "Yes",
     "always": "Always Allow",
-    "cancel": "Cancel",
+    "cancel": "Cancel"
+  },
+  "planReview": {
+    "title": "Plan Review",
+    "waiting": "Waiting for your decision",
     "editPlan": "Edit Plan",
-    "preview": "Preview"
+    "preview": "Preview",
+    "approve": "Approve Plan",
+    "reject": "Reject",
+    "collapse": "Collapse to title bar",
+    "expand": "Expand",
+    "dragHint": "Drag to move this window",
+    "resizeHint": "Drag to resize this window"
   },
   "editModelsModal": {
     "title": "Edit Models / Providers",

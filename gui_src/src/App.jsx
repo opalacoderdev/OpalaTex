@@ -35,6 +35,7 @@ import NewProjectModal from './components/modals/NewProjectModal';
 import EditProjectModal from './components/modals/EditProjectModal';
 import SettingsModal from './components/modals/SettingsModal';
 import ConfirmModal from './components/modals/ConfirmModal';
+import PlanReviewWindow from './components/PlanReviewWindow';
 import AlertModal from './components/modals/AlertModal';
 import InteractiveTerminalModal from './components/modals/InteractiveTerminalModal';
 import AskModal from './components/modals/AskModal';
@@ -452,6 +453,15 @@ export default function App() {
   const [editProjError, setEditProjError] = useState('');
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [confirmRequest, setConfirmRequest] = useState(null);
+  // The plan review gets its own slot rather than sharing `confirmRequest`.
+  // That slot is overwritten by the front-end's own prompts — new file, new
+  // folder, delete, unsaved changes on a project switch — and the user can now
+  // reach every one of them while a plan is pending, precisely because the plan
+  // no longer blocks the IDE. Sharing one slot would drop the plan's request id
+  // on the floor and strand the future the backend is parked on, which
+  // `create_plan` resolves by *approving* when its 24h timeout expires: a lost
+  // window would eventually execute a plan nobody accepted.
+  const [planRequest, setPlanRequest] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
   const [isAssetStoreOpen, setIsAssetStoreOpen] = useState(false);
@@ -2723,6 +2733,7 @@ export default function App() {
       if (res.ok) {
         addLog('info', t('app.interruptSent'));
         setConfirmRequest(null);
+        setPlanRequest(null);
       } else {
         addLog('error', t('app.interruptFailed'));
         setIsInterruptPending(false);
@@ -2795,6 +2806,7 @@ export default function App() {
           timestamp: new Date().toISOString(),
         }]);
         setConfirmRequest(null);
+        setPlanRequest(null);
         break;
       }
       case 'tool_call':
@@ -2948,10 +2960,21 @@ export default function App() {
         addLog('info', t('app.messageBacklog', 'The turn ended before {{count}} queued message(s) were delivered. Sending them as a new turn.', { count: (data.items || []).length }));
         break;
       case 'agent_finished': addLog('info', t('app.processingCompleted', 'Processamento concluído.')); break;
-      case 'input_request':
-        setConfirmRequest({ ...data, id: data.id, prompt: data.prompt, options: data.options || ['yes', 'no'], default: data.default || 'yes', type: data.type || 'confirm' });
+      case 'input_request': {
+        // `markdown_content` is emitted by `create_plan` and by nothing else
+        // (opalatex/tools.py), so it is what tells a plan review apart from an
+        // ordinary tool confirmation. The two are answered in completely
+        // different ways: a plan is judged against the files, the outline and
+        // the compile log it talks about, so the workbench has to stay usable
+        // while it is open (`PlanReviewWindow`), whereas a tool confirmation is
+        // a one-line yes/no raised mid-run, where letting the user edit files
+        // underneath would change the very thing being approved (`ConfirmModal`).
+        const request = { ...data, id: data.id, prompt: data.prompt, options: data.options || ['yes', 'no'], default: data.default || 'yes', type: data.type || 'confirm' };
+        if (data.markdown_content) setPlanRequest(request);
+        else setConfirmRequest(request);
         addLog('info', t('app.waitingConfirmation', '🔔 Aguardando confirmação: {{prompt}}', { prompt: data.prompt }));
         break;
+      }
       case 'error':
         addLog('error', data.message);
         addProblem({ tool: data.agent || t('app.agentTool', 'Agent'), message: data.message, severity: 'error' });
@@ -3437,6 +3460,30 @@ export default function App() {
       supersedeFrom: { messageId, clientMessageId: '' },
       replaceUiIndex: messageIndex,
     });
+  };
+
+  /**
+   * Answer a plan review. Unlike `sendConfirmResponse` this clears the request
+   * only once the backend has taken the answer: the window is the sole place
+   * the decision can be made, and it carries the user's edits to the plan, so
+   * hiding it optimistically would throw those away on a failed POST. The
+   * window disables its own buttons while this is in flight.
+   */
+  const sendPlanResponse = async (value) => {
+    const current = planRequest;
+    if (!current) return;
+    addLog('info', t('app.confirmationValue', { prompt: current.prompt, value }));
+    try {
+      const res = await fetch('/api/opalatex/input_response', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: current.id, value }) });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      setPlanRequest(null);
+    } catch (err) {
+      addLog('error', t('app.confirmationSendError', { error: err.message }));
+      addProblem({ tool: t('app.agentTool', 'Agent'), message: t('app.confirmationRejectedByBackend', { error: err.message }), severity: 'error' });
+    }
   };
 
   const sendConfirmResponse = async (value) => {
@@ -4460,6 +4507,17 @@ export default function App() {
       />
 
       {/* ── Overlays / Modals ── */}
+
+      {/* The plan window is first in this group on purpose. It carries the same
+          z-index as `.vscode-modal-overlay`, so paint order between them is DOM
+          order: coming after the workbench above, it covers the split gutters
+          (which sit at that same z-index); coming before every modal below, a
+          modal opened while a plan is still pending is still drawn on top of
+          it. The key remounts the window per request, so a second plan cannot
+          inherit the first one's edited text. */}
+      {planRequest && (
+        <PlanReviewWindow key={planRequest.id} planRequest={planRequest} onConfirm={sendPlanResponse} />
+      )}
 
       <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
 

@@ -782,9 +782,19 @@
     "no": "Não",
     "yes": "Sim",
     "always": "Sempre Permitir",
-    "cancel": "Cancelar",
+    "cancel": "Cancelar"
+  },
+  "planReview": {
+    "title": "Revisão do Plano",
+    "waiting": "Aguardando sua decisão",
     "editPlan": "Editar Plano",
-    "preview": "Visualizar"
+    "preview": "Visualizar",
+    "approve": "Aprovar Plano",
+    "reject": "Rejeitar",
+    "collapse": "Recolher para a barra de título",
+    "expand": "Expandir",
+    "dragHint": "Arraste para mover esta janela",
+    "resizeHint": "Arraste para redimensionar esta janela"
   },
   "editModelsModal": {
     "title": "Editar Modelos / Provedores",
