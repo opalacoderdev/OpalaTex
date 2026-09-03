@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { EDITOR_LAYOUTS, layoutAfterOpeningFile, layoutShowsEditor } from '../layoutModes.js';
 
 test('the layouts that show the editor are the ones that dock a sidebar', () => {
-  assert.deepEqual(EDITOR_LAYOUTS, ['ide', 'studio', 'document', 'plan']);
+  assert.deepEqual(EDITOR_LAYOUTS, ['ide', 'studio', 'document']);
   for (const mode of EDITOR_LAYOUTS) assert.equal(layoutShowsEditor(mode), true);
 });
 
@@ -25,14 +25,6 @@ test('opening a file keeps a layout that already shows the editor', () => {
   assert.equal(layoutAfterOpeningFile('document'), 'document');
   assert.equal(layoutAfterOpeningFile('studio'), 'studio');
   assert.equal(layoutAfterOpeningFile('ide'), 'ide');
-});
-
-test('opening a file keeps the plan layout, which exists to allow exactly that', () => {
-  // The plan panel replaced a modal that blocked the workbench: checking a
-  // proposed plan against the files it names is the reason the layout exists,
-  // so an explorer click must not close the plan being reviewed.
-  assert.equal(layoutShowsEditor('plan'), true);
-  assert.equal(layoutAfterOpeningFile('plan'), 'plan');
 });
 
 test('opening a file leaves a layout that hides the editor', () => {
