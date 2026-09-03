@@ -19,7 +19,6 @@
     "tutorial": "Tutorial",
     "cloudSync": "Sincronização na nuvem",
     "cloudSyncOn": "Sincronização na nuvem (ativa)",
-    "planPending": "Plano aguardando sua aprovação",
     "editorSettings": "Configurações do editor",
     "editorSettingsBadge": "E",
     "projectSettings": "Configurações do projeto",
@@ -783,15 +782,9 @@
     "no": "Não",
     "yes": "Sim",
     "always": "Sempre Permitir",
-    "cancel": "Cancelar"
-  },
-  "planPanel": {
-    "title": "Plano Proposto",
-    "edit": "Editar",
-    "preview": "Visualizar",
-    "approve": "Aprovar",
-    "reject": "Rejeitar",
-    "rejectHint": "Rejeitar interrompe o turno e volta ao chat, onde você pode dizer o que mudar."
+    "cancel": "Cancelar",
+    "editPlan": "Editar Plano",
+    "preview": "Visualizar"
   },
   "editModelsModal": {
     "title": "Editar Modelos / Provedores",

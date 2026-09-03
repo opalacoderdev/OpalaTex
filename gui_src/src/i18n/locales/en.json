@@ -19,7 +19,6 @@
     "tutorial": "Tutorial",
     "cloudSync": "Cloud sync",
     "cloudSyncOn": "Cloud sync (on)",
-    "planPending": "Plan awaiting your approval",
     "editorSettings": "Editor settings",
     "editorSettingsBadge": "E",
     "projectSettings": "Project settings",
@@ -783,15 +782,9 @@
     "no": "No",
     "yes": "Yes",
     "always": "Always Allow",
-    "cancel": "Cancel"
-  },
-  "planPanel": {
-    "title": "Proposed Plan",
-    "edit": "Edit",
-    "preview": "Preview",
-    "approve": "Approve",
-    "reject": "Reject",
-    "rejectHint": "Rejecting stops the turn and returns to the chat, where you can say what to change."
+    "cancel": "Cancel",
+    "editPlan": "Edit Plan",
+    "preview": "Preview"
   },
   "editModelsModal": {
     "title": "Edit Models / Providers",

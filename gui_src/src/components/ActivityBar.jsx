@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, LayoutGrid, PanelBottom, Terminal, History, Columns2, ClipboardList, Store, GraduationCap, Cloud, CloudOff } from 'lucide-react';
+import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, LayoutGrid, PanelBottom, Terminal, History, Columns2, Store, GraduationCap, Cloud, CloudOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   ACTIVITY_BAR_DEFAULT_DENSITY,
@@ -28,8 +28,6 @@ export default function ActivityBar({
   isTerminalCollapsed,
   setIsTerminalCollapsed,
   setActiveBottomTab,
-  hasPendingPlan,
-  onOpenPlan,
   onOpenProjectSettings,
   hasActiveProject
 }) {
@@ -38,11 +36,10 @@ export default function ActivityBar({
   // can open one without being switched away from.
   const hasDockedSidebar = layoutShowsEditor(layoutMode);
   // Layouts that do not render the chat at all: the chat-first ones (where the
-  // chat *is* the layout and cannot be hidden), the document layout, which is
-  // only the file and its preview, and the plan layout, where the plan holds
-  // the chat's dock. The visibility toggle has nothing to switch in any of
-  // them, so it is disabled rather than silently inert.
-  const isChatToggleDisabled = layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'document' || layoutMode === 'plan';
+  // chat *is* the layout and cannot be hidden) and the document layout, which
+  // is only the file and its preview. The visibility toggle has nothing to
+  // switch in either, so it is disabled rather than silently inert.
+  const isChatToggleDisabled = layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'document';
 
   const barRef = useRef(null);
   const [densityName, setDensityName] = useState(ACTIVITY_BAR_DEFAULT_DENSITY.name);
@@ -109,7 +106,7 @@ export default function ActivityBar({
 
   // A tier change resizes the content, not the bar, so the fades are recomputed
   // after it lands.
-  useEffect(() => { measureFade(); }, [densityName, gitChangesCount, cloudEnabled, hasPendingPlan, measureFade]);
+  useEffect(() => { measureFade(); }, [densityName, gitChangesCount, cloudEnabled, measureFade]);
 
   return (
     <div
@@ -163,27 +160,6 @@ export default function ActivityBar({
           <History size={density.iconSize} />
         </button>
 
-
-        {hasPendingPlan && (
-          <button
-            onClick={onOpenPlan}
-            className={`vscode-activitybar-btn ${layoutMode === 'plan' ? 'active' : ''}`}
-            title={t('activityBar.planPending', 'Plan awaiting your approval')}
-            style={{ position: 'relative' }}
-          >
-            <ClipboardList size={density.iconSize} />
-            <span style={{
-              position: 'absolute',
-              top: '4px',
-              right: '4px',
-              background: 'var(--vscode-fg-gold)',
-              borderRadius: '50%',
-              width: '8px',
-              height: '8px',
-              boxShadow: '0 0 4px rgba(0,0,0,0.5)',
-            }} />
-          </button>
-        )}
 
         <button
           onClick={() => {
