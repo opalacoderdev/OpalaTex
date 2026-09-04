@@ -1,0 +1,6 @@
+desc: 'Rewrites generated text so it stops reading like generated text: removes filler
+  openers, inflated vocabulary, hollow connectives and fake authority, while preserving
+  meaning, citations, numbers and LaTeX markup.'
+id: humanize
+name: humanize
+type: skill
