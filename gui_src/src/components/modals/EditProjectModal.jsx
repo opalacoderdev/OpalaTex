@@ -475,6 +475,21 @@ export default function EditProjectModal({
                         <ParamNumber label={t('editProjectModal.loopDetectionLimit')} min="1" placeholder={t('editProjectModal.defaultLoopDetectionLimit')}
                           value={editingProject.model_params?.loop_detection_limit}
                           onChange={e => setParam('loop_detection_limit', parseNum(e.target.value))} />
+                        {/* Only meaningful while the model ends its own turn: it caps an
+                            unbroken run of narration with no tool call. */}
+                        <ParamNumber label={t('editProjectModal.maxNarrationSteps')} min="1" max="10" placeholder={t('editProjectModal.defaultMaxNarrationSteps')}
+                          value={editingProject.model_params?.max_narration_steps}
+                          onChange={e => setParam('max_narration_steps', parseNum(e.target.value))} />
+
+                        <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.modelControlledTurnEnd')}</label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                            <input type="checkbox"
+                              checked={editingProject.model_params?.model_controlled_turn_end ?? true}
+                              onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, model_controlled_turn_end: e.target.checked } }))} />
+                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
+                          </label>
+                        </div>
                         
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
                           <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.loopDetection')}</label>

@@ -1322,7 +1322,28 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         model=model,
         tools=orchestrator_tools,
         model_kwargs=_llm_kwargs,
-        max_heartbeats=_agent_params.get("max_heartbeats", get_agent_max_heartbeats("memgpt", 20)),
+        # A guardrail against a runaway loop, not a budget the model has to
+        # ration: with model_controlled_turn_end the model decides when the turn
+        # ends, and a turn that legitimately narrates before each of several
+        # actions costs more steps than the old accounting assumed.
+        max_heartbeats=_agent_params.get("max_heartbeats", get_agent_max_heartbeats("memgpt", 30)),
+        # The reported failure this exists for: models ending a plan-mode turn
+        # with "I will now draft the plan" and nothing else. Plain text used to
+        # end the run, so the announcement *was* the turn -- the model was cut off
+        # mid-thought and its narration delivered as the answer. Here the model
+        # ends its own turn, so narrating and then acting is finally expressible.
+        model_controlled_turn_end=bool(
+            _agent_params.get(
+                "model_controlled_turn_end",
+                model_params.get("model_controlled_turn_end", True),
+            )
+        ),
+        max_narration_steps=int(
+            _agent_params.get(
+                "max_narration_steps",
+                model_params.get("max_narration_steps", 2),
+            )
+        ),
         # Not _llm_kwargs.get("num_ctx", ...): that dict is the *sanitized*
         # LiteLLM request, and sanitize_litellm_kwargs_for_model deliberately
         # strips num_ctx for non-Ollama providers before it reaches here (cloud

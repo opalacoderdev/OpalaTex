@@ -162,6 +162,15 @@ class AgentOutput(BaseModel):
     response: str
     tool_calls_made: int = 0
     structured_output: Optional[Any] = None
+    termination_reason: str = ""
+    """Why the run loop stopped, in the loop's own words.
+
+    Every agent block already computes this to build its debug report, and it is
+    the only thing that distinguishes a turn the model chose to end from one the
+    runtime cut short (an exhausted guardrail, a narration fallback, a breaker).
+    Discarding it left a host with no way to tell those apart after the fact, so
+    it is reported rather than printed only under ``debug``. Empty when the block
+    does not report one."""
 
 
 def _print_debug_report(

@@ -148,7 +148,10 @@ _APP_CONFIG = _load_yaml("config.yaml")
 _CORE_AGENT_DEFAULTS = {
     "memgpt": {
         "num_ctx": 16384,
-        "max_heartbeats": 20,
+        # A runaway guardrail, not a budget: the chat orchestrator runs with
+        # model_controlled_turn_end, where the model decides when the turn ends
+        # and a step spent narrating before an action is normal, not waste.
+        "max_heartbeats": 30,
         "debug": False,
     },
     "landscape_planner": {
@@ -240,6 +243,7 @@ _NON_LITELLM_FIELDS = {
     "max_heartbeats", "max_context_tokens", "eviction_threshold",
     "memory_pressure_threshold", "response_mode",
     "empty_response_reasoning_fallback",
+    "model_controlled_turn_end", "max_narration_steps",
     # LLMAgentBlock params
     "max_iterations", "max_tool_calls", "on_max_iterations",
     # Shared
@@ -332,6 +336,9 @@ _MODEL_PARAMS_SCHEMA = {
     "response_mode": {"type": str, "choices": ["last", "all"]},
     "debug": {"type": bool},
     "empty_response_reasoning_fallback": {"type": bool},
+    # Who decides when the orchestrator's turn ends (see MemGPTAgentBlock).
+    "model_controlled_turn_end": {"type": bool},
+    "max_narration_steps": {"type": int, "min": 1, "max": 10},
 }
 
 def sanitize_model_params(params: dict) -> dict:

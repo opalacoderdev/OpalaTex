@@ -189,6 +189,18 @@ export default function NewProjectModal({
                      </div>
                   </div>
                   <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                     <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
+                        <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.maxNarrationSteps')}</label>
+                        <input type="number" min="1" max="10" value={newProjModelParams?.max_narration_steps ?? ''} onChange={e => handleParamChange(setNewProjModelParams, 'max_narration_steps', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 2" />
+                     </div>
+                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', flex: 1 }}>
+                        <input type="checkbox"
+                           checked={newProjModelParams?.model_controlled_turn_end ?? true}
+                           onChange={e => handleParamChange(setNewProjModelParams, 'model_controlled_turn_end', e.target.checked)} />
+                        <span style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.modelControlledTurnEnd')}</span>
+                     </label>
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                         <input type="checkbox"
                            checked={newProjModelParams?.loop_detection ?? true}
