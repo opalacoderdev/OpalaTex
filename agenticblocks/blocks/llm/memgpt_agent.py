@@ -386,17 +386,21 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         if streaming:
             kwargs = {**kwargs, "stream_options": {"include_usage": True}}
 
-        # ollama_chat/ uses Ollama's native /api/chat endpoint which does not support
-        # OpenAI-style image_url content parts. Fall back to ollama/ (OpenAI-compat)
-        # for the first call that contains image data so vision works correctly.
+        # A multimodal request used to be rerouted here from ollama_chat/ to
+        # ollama/, because Ollama's native /api/chat endpoint did not accept
+        # OpenAI-style image_url parts and the OpenAI-compatible route did. That
+        # reroute has since become the more expensive bug: on the ollama/ route a
+        # streamed tool call never arrives as tool_calls at all -- the provider
+        # emits it as plain text, token by token ('{"', 'name', '":"', ...), so
+        # there is nothing for stream_chunk_builder to assemble and the model's
+        # action reaches the caller as prose. An agent that attached an image
+        # therefore lost its ability to act for the whole turn.
+        #
+        # LiteLLM converts image parts for the native route now (verified against
+        # 1.97 with a vision model: the image is described correctly *and* the
+        # tool call arrives native while streaming), so the reroute buys nothing
+        # and costs tool calling. Requests go to the model's own route.
         effective_model = self.model
-        _has_images = any(
-            isinstance(m.get("content"), list)
-            and any(p.get("type") == "image_url" for p in m["content"])
-            for m in messages
-        )
-        if _has_images and effective_model.startswith("ollama_chat/"):
-            effective_model = "ollama/" + effective_model[len("ollama_chat/"):]
 
         if self.use_shared_router:
             router = _get_shared_router(effective_model)
