@@ -1129,7 +1129,10 @@ def create_pptx_file(path: str, slides_json: str, title: str = "") -> str:
         raise ValueError("python-pptx is not installed. Install project dependencies before creating PPTX files directly.")
 
     try:
-        slides = json.loads(_decode_escape_sequences(slides_json))
+        # Parse first, repair only on failure: the escape repair fires on any
+        # string containing \n, \t or \r, so running it over valid JSON turns a
+        # bullet holding `C:\temp` or `\theta` into a tab. See _load_tool_json.
+        slides = _load_tool_json(slides_json, "slides_json")
         if not isinstance(slides, list):
             raise ValueError("slides_json must be a JSON array")
         Path(resolved).parent.mkdir(parents=True, exist_ok=True)
@@ -1158,6 +1161,363 @@ def create_pptx_file(path: str, slides_json: str, title: str = "") -> str:
         return f"Successfully created PPTX file at {_preview(resolved)}."
     except Exception as e:
         raise ValueError(f"Error creating PPTX file {_preview(resolved)}: {e}")
+
+
+# ─── Presentations (.jpt) ─────────────────────────────────────────────────────
+# The native counterpart of create_pptx_file: a .pptx an agent writes is a file
+# it cannot reopen, while a .jpt is the format the IDE's own slide editor edits.
+# Both take a semantic outline rather than coordinates, for the same reason —
+# an author that has to invent geometry produces text past the edge of its box
+# and a title that moves between slides. Everything geometric is computed by
+# opalatex/jpt/layout.py, and the result is checked by opalatex/jpt/lint.py
+# before it reaches disk. See docs/specs/jpt_format.md §17.
+
+_JPT_OUTLINE_HELP = (
+    "outline_json is {\"title\": str, \"slides\": [...]} — or just the array of "
+    "slides. Each slide is {\"layout\": ..., ...} where layout is one of: "
+    "'title' (title, subtitle), 'section' (title, subtitle), 'bullets' (title, "
+    "bullets: an array whose items are strings, or {\"text\": str, \"level\": 0-4} "
+    "for a sub-point — NEVER type a marker character into a bullet, the box "
+    "draws its own; optional 'bulletStyle': disc|dash|number), "
+    "'text' (title, text), 'equation' (title, equation: "
+    "LaTeX WITHOUT $ delimiters, caption), 'image' (title, image: project-relative "
+    "path, caption), 'two_columns' (title, left, right — each an object holding "
+    "ONE of bullets/text/equation/image), 'image_text' (title, image, bullets, "
+    "side: left|right), 'quote' (quote, attribution), 'blank' (title). Any slide "
+    "also takes 'notes' (speaker notes) and 'elements' (raw .jpt elements, an "
+    "escape hatch for what the layouts cannot express). A slide also takes "
+    "'background' (#rrggbb), 'backgroundImage' (a project-relative path or data "
+    "URI, null for none), 'backgroundFit' (cover|contain|fill) and "
+    "'backgroundOpacity' (0-1 — dim a photo to about 0.4 so text stays "
+    "readable over it). Top level also takes 'theme' {background, "
+    "backgroundImage, backgroundFit, backgroundOpacity, color, accent, "
+    "fontFamily} for a deck-wide background, and 'slide_numbers': true. "
+    "Pictures referenced by project path are EMBEDDED into the .jpt, so the deck "
+    "is one self-contained file the user can move or send; the file on disk is "
+    "left where it is, and 'embed_images': false keeps plain references instead. "
+    "NEVER write x/y/w/h or fontSize: the layout computes them."
+)
+
+
+def _load_tool_json(text: str, field: str):
+    """Parse a JSON tool argument without mangling what is inside it.
+
+    `_decode_escape_sequences` exists for models that emit a literal `\\n`
+    where a newline belongs, and it fires on any string containing `\\n`,
+    `\\t` or `\\r`. A JSON document carrying LaTeX contains those by the
+    dozen — `\\top`, `\\rm`, `\\nabla` — and running the repair over valid
+    JSON turns `\\top` into a tab followed by "op". So the repair runs only
+    after a real parse failure, which is the only time it was ever meant to.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as first:
+        try:
+            return json.loads(_decode_escape_sequences(text))
+        except json.JSONDecodeError:
+            raise ValueError(f"{field} is not valid JSON: {first}") from first
+
+
+def _jpt_write(resolved: str, deck: dict, *, verb: str, embed: bool = True) -> str:
+    """Embed the pictures, lint, refuse to write a broken deck, and report.
+
+    Embedding happens before the lint, so a picture that was inlined is no
+    longer a path that could go missing, and it happens for both tools because a
+    deck the agent wrote must be as portable as one the user built by hand: the
+    editor inlines every picture the user picks, and two ways of making the same
+    document should not differ in whether the result survives being moved.
+    """
+    from .jpt import describe, embed_images, format_report, has_errors, lint, serialize
+
+    note = ""
+    if embed:
+        note = describe(embed_images(deck, get_project_path()))
+
+    findings = lint(deck, project_root=get_project_path())
+    if has_errors(findings):
+        # Fail fast and say exactly what is wrong: a deck written with text
+        # spilling off the slide is worse than no deck, because nobody finds
+        # out until it is on a projector.
+        raise ValueError(
+            f"The presentation was NOT written — fix these and call again:\n"
+            f"{format_report(findings)}"
+        )
+
+    text = serialize(deck)
+    Path(resolved).parent.mkdir(parents=True, exist_ok=True)
+    Path(resolved).write_text(text, encoding="utf-8")
+
+    slides = len(deck["slides"])
+    summary = f"{verb} {_preview(resolved)} — {slides} slide{'s' if slides != 1 else ''}."
+    if note:
+        summary += f" {note}"
+    if findings:
+        summary += f"\n{format_report(findings)}"
+    return summary
+
+
+@opalatex_tool(
+    name="create_presentation",
+    is_safe=False,
+    description=(
+        "Create an OpalaTex presentation (.jpt) that opens in the IDE's slide "
+        "editor, from an outline. The layout — position, size and font size of "
+        "every element — is computed for you from a grid, so slides are "
+        "consistent and text always fits. " + _JPT_OUTLINE_HELP + " The deck is "
+        "checked before it is saved: errors (text that cannot fit at a readable "
+        "size, an element off the slide, a missing image, malformed LaTeX) abort "
+        "the write and are reported so you can shorten the text or fix the path. "
+        "Prefer this over create_pptx_file when the user will keep working on "
+        "the deck; .pptx export is available from the editor."
+    ),
+)
+def create_presentation(path: str, outline_json: str, title: str = "") -> str:
+    from .jpt import JptError, compile_outline
+
+    resolved = _resolve_path(path)
+    _require_extension(resolved, {".jpt"})
+    AGENT_PROGRESS.update("create_presentation", f"path={_preview(resolved)}")
+
+    outline = _load_tool_json(outline_json, "outline_json")
+    # The array form is what create_pptx_file takes, so an agent that knows one
+    # tool can use the other without relearning the shape.
+    if isinstance(outline, list):
+        outline = {"slides": outline}
+    if not isinstance(outline, dict):
+        raise ValueError("outline_json must be an object or an array of slides")
+    if title:
+        outline["title"] = title
+    outline.setdefault("title", Path(resolved).stem)
+
+    try:
+        deck = compile_outline(outline)
+    except JptError as error:
+        raise ValueError(f"The outline cannot be laid out: {error}")
+    return _jpt_write(resolved, deck, verb="Created",
+                      embed=outline.get("embed_images", True) is not False)
+
+
+@opalatex_tool(
+    name="edit_presentation",
+    is_safe=False,
+    description=(
+        "Apply a list of edits to an existing .jpt presentation. operations_json "
+        "is an array of objects: "
+        "{\"op\":\"add_slide\",\"at\":<index>,\"slide\":{...outline slide...}}, "
+        "{\"op\":\"delete_slide\",\"slide\":\"<id>\"}, "
+        "{\"op\":\"move_slide\",\"from\":<i>,\"to\":<j>}, "
+        "{\"op\":\"set_notes\",\"slide\":\"<id>\",\"notes\":\"...\"}, "
+        "{\"op\":\"set_background\",\"slide\":\"<id>\",\"background\":\"#rrggbb\","
+        "\"backgroundImage\":\"figures/photo.jpg\",\"backgroundFit\":\"cover\","
+        "\"backgroundOpacity\":0.4} (use \"all\":true instead of \"slide\" to set the "
+        "whole deck's background; backgroundImage null removes it), "
+        "{\"op\":\"update_element\",\"element\":\"<id>\",\"patch\":{...}}, "
+        "{\"op\":\"delete_element\",\"element\":\"<id>\"}, "
+        "{\"op\":\"reorder_element\",\"element\":\"<id>\",\"direction\":\"front|forward|backward|back\"}, "
+        "{\"op\":\"embed_images\"} (pack every picture the deck references into "
+        "the file itself, so it can be moved or sent on its own). "
+        "A slide added this way is laid out by the same engine create_presentation "
+        "uses. Read the file first (read_file) to learn the ids. The edited deck "
+        "is checked before it is saved, exactly as on creation. Pictures added by "
+        "an edit are embedded when the deck's existing pictures are embedded, "
+        "and left as references when the deck keeps references."
+    ),
+)
+def edit_presentation(path: str, operations_json: str) -> str:
+    from . import jpt as jptlib
+    from .jpt import JptError
+
+    resolved = _resolve_path(path)
+    _require_extension(resolved, {".jpt"})
+    AGENT_PROGRESS.update("edit_presentation", f"path={_preview(resolved)}")
+    if not os.path.exists(resolved):
+        raise ValueError(f"No presentation at {_preview(resolved)} — create it first.")
+
+    operations = _load_tool_json(operations_json, "operations_json")
+    if isinstance(operations, dict):
+        operations = [operations]
+    if not isinstance(operations, list) or not operations:
+        raise ValueError("operations_json must be a non-empty array of operations")
+
+    try:
+        deck = jptlib.parse(_read_text_file(resolved))
+    except JptError as error:
+        raise ValueError(f"{_preview(resolved)} is not a usable presentation: {error}")
+
+    # Follow the convention the file already demonstrates. A deck whose pictures
+    # are embedded gets the ones this edit adds embedded too; a deck that keeps
+    # plain references was authored that way on purpose — with
+    # `embed_images: false`, or by hand — and an edit must not quietly reverse
+    # that decision. The `embed_images` operation is how a caller says it wants
+    # that decision changed.
+    keeps_references = any(
+        not jptlib.is_portable(src) for src in jptlib.used_sources(deck)
+    )
+
+    forced_embed = False
+    grid = jptlib.Grid(deck["width"], deck["height"])
+    for index, operation in enumerate(operations, start=1):
+        if not isinstance(operation, dict):
+            raise ValueError(f"operation {index} is not an object")
+        op = operation.get("op")
+        try:
+            if op == "add_slide":
+                slide = jptlib.build_slide(grid, deck["theme"], operation.get("slide") or {})
+                jptlib.add_slide(deck, slide, operation.get("at"))
+            elif op == "delete_slide":
+                jptlib.delete_slide(deck, str(operation["slide"]))
+            elif op == "move_slide":
+                jptlib.move_slide(deck, int(operation["from"]), int(operation["to"]))
+            elif op == "set_notes":
+                jptlib.find_slide(deck, str(operation["slide"]))["notes"] = str(operation.get("notes") or "")
+            elif op == "set_background":
+                # Colour, picture, fit and opacity in one operation, and `all`
+                # writes them onto the theme so every slide follows — the same
+                # two choices the editor's own control offers.
+                target = (deck["theme"] if operation.get("all")
+                          else jptlib.find_slide(deck, str(operation["slide"])))
+                for key, field in (("background", "background"),
+                                   ("backgroundImage", "backgroundImage"),
+                                   ("backgroundFit", "backgroundFit"),
+                                   ("backgroundOpacity", "backgroundOpacity")):
+                    if key in operation:
+                        target[field] = operation[key]
+            elif op == "add_element":
+                raw = dict(operation["element"])
+                jptlib.add_element(deck, str(operation["slide"]),
+                                   jptlib.create_element(raw.pop("type"), **raw))
+            elif op == "update_element":
+                jptlib.update_element(deck, str(operation["element"]), operation.get("patch") or {})
+            elif op == "delete_element":
+                jptlib.delete_element(deck, str(operation["element"]))
+            elif op == "embed_images":
+                forced_embed = True
+            elif op == "reorder_element":
+                jptlib.reorder_element(deck, str(operation["element"]),
+                                       str(operation.get("direction") or "front"))
+            else:
+                raise ValueError(f"unknown op {op!r}")
+        except (JptError, KeyError, TypeError, ValueError) as error:
+            # Nothing has been written yet, so the file on disk is untouched:
+            # the agent gets a diagnostic and the user keeps their deck.
+            raise ValueError(f"operation {index} ({op}) failed: {error}")
+
+    return _jpt_write(resolved, deck, verb="Updated",
+                      embed=forced_embed or not keeps_references)
+
+
+@opalatex_tool(
+    name="set_presentation_theme",
+    is_safe=False,
+    description=(
+        "Give a .jpt presentation a theme — colours, type, an optional background "
+        "picture, and the header/footer bands a Beamer-style theme draws. Pass "
+        "`theme` with the name of a theme from the Asset Store (call it with an "
+        "unknown name to see the catalogue), and/or `fields_json` with explicit "
+        "values to set or override: {\"background\",\"color\",\"accent\","
+        "\"fontFamily\",\"backgroundImage\",\"backgroundFit\",\"backgroundOpacity\","
+        "\"headerHeight\",\"headerColor\",\"titleColor\",\"footerHeight\","
+        "\"footerColor\",\"footerTextColor\",\"footerText\"}. A header band is "
+        "drawn only behind a slide that has a title, and each slide's title is "
+        "marked so it takes the theme's title colour. The deck is checked before "
+        "it is saved, exactly as on creation."
+    ),
+)
+def set_presentation_theme(path: str, theme: str = "", fields_json: str = "") -> str:
+    from . import jpt as jptlib
+    from .jpt import JptError
+    from .assetstore import list_assets, theme_image_path
+
+    resolved = _resolve_path(path)
+    _require_extension(resolved, {".jpt"})
+    AGENT_PROGRESS.update("set_presentation_theme", f"path={_preview(resolved)} theme={theme}")
+    if not os.path.exists(resolved):
+        raise ValueError(f"No presentation at {_preview(resolved)} — create it first.")
+    if not theme and not fields_json:
+        raise ValueError("pass a store theme name, explicit fields_json, or both")
+
+    # A named theme *replaces* the deck's look: every field it does not set goes
+    # back to the format's default. Merging instead would leave the previous
+    # theme's header band standing behind the new theme's colours, which is a
+    # deck that looks like neither. Explicit `fields_json` merges, because that
+    # is a tweak rather than a choice of theme.
+    values: dict = {}
+    applied_name = ""
+    if theme:
+        catalog = list_assets("theme")
+        wanted = theme.strip().lower()
+        match = next(
+            (a for a in catalog
+             if a["id"].lower() == wanted or str(a.get("name", "")).lower() == wanted),
+            None,
+        )
+        if match is None:
+            # The catalogue is the discovery path: an unknown name answers with
+            # what does exist rather than sending the agent hunting for a second
+            # tool that lists them.
+            names = ", ".join(f"{a['id']} ({a['name']})" for a in catalog) or "none installed"
+            raise ValueError(f"no theme called {theme!r}. Available: {names}")
+        values.update(jptlib.DEFAULT_THEME)
+        values.update(match.get("theme") or {})
+        applied_name = match.get("name") or match["id"]
+        image = theme_image_path(match)
+        # Embedded, like every other picture an agent puts in a deck: a path
+        # into the OpalaTex installation would break the moment the deck moved.
+        values["backgroundImage"] = jptlib.to_data_uri(str(image)) if image else ""
+
+    if fields_json:
+        extra = _load_tool_json(fields_json, "fields_json")
+        if not isinstance(extra, dict):
+            raise ValueError("fields_json must be a JSON object of theme fields")
+        unknown = sorted(set(extra) - set(jptlib.THEME_FIELDS))
+        if unknown:
+            raise ValueError(
+                f"not theme fields: {', '.join(unknown)}. "
+                f"Known: {', '.join(sorted(jptlib.THEME_FIELDS))}"
+            )
+        values.update(extra)
+
+    try:
+        deck = jptlib.parse(_read_text_file(resolved))
+        jptlib.apply_theme(deck, values)
+    except JptError as error:
+        raise ValueError(f"the theme could not be applied: {error}")
+
+    keeps_references = any(
+        not jptlib.is_portable(src) for src in jptlib.used_sources(deck)
+    )
+    verb = f"Applied {applied_name} to" if applied_name else "Themed"
+    return _jpt_write(resolved, deck, verb=verb, embed=not keeps_references)
+
+
+@opalatex_tool(
+    name="check_presentation",
+    is_safe=True,
+    description=(
+        "Review a .jpt presentation for the defects an audience would notice: "
+        "text that does not fit its box, elements off the slide or on top of one "
+        "another, type too small to project, low contrast, missing images, "
+        "malformed LaTeX, a title that moves between slides. Read-only. Use it "
+        "after editing a deck by hand, or to check one the user wrote."
+    ),
+)
+def check_presentation(path: str) -> str:
+    from . import jpt as jptlib
+    from .jpt import JptError
+
+    resolved = _resolve_path(path)
+    _require_extension(resolved, {".jpt"})
+    if not os.path.exists(resolved):
+        raise ValueError(f"No presentation at {_preview(resolved)}.")
+    try:
+        deck = jptlib.parse(_read_text_file(resolved))
+    except JptError as error:
+        return f"{_preview(resolved)} is not a usable presentation: {error}"
+
+    findings = jptlib.lint(deck, project_root=get_project_path())
+    slides = len(deck["slides"])
+    header = f"{_preview(resolved)}: {slides} slide{'s' if slides != 1 else ''}."
+    return f"{header}\n{jptlib.format_report(findings)}"
 
 
 import platform
@@ -1756,6 +2116,9 @@ def get_workspace_action_tools():
         replace_content_range,
         create_docx_file,
         create_pptx_file,
+        create_presentation,
+        edit_presentation,
+        set_presentation_theme,
         export_tex_to_docx,
         generate_image,
         run_command,
@@ -1776,6 +2139,7 @@ def get_available_tools():
         read_content_pos,
         analyze_image,
         ask_question,
+        check_presentation,
         get_editor_state,
         *get_workspace_action_tools(),
     ]

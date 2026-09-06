@@ -4036,6 +4036,12 @@ class AsyncHTTPServer:
                         "version": a.get("version", ""),
                         "hasIcon": resolve_asset_icon_path(a) is not None,
                     }
+                    if a.get("type") == "theme":
+                        # The deck-theme fields this asset sets, so the store can
+                        # preview a theme that carries no picture and the editor
+                        # can apply it without a second request.
+                        entry["theme"] = a.get("theme", {})
+                        entry["hasImage"] = resolve_asset_icon_path(a) is not None
                     if a.get("type") == "template" and project_path:
                         # Templates unpack at the project root, so the store has
                         # to say up front which files an install would overwrite.
@@ -5397,21 +5403,56 @@ def start_gui_server(host="127.0.0.1", port=3000):
                         self.webview.setContextMenuPolicy(_Qt.ContextMenuPolicy.NoContextMenu)
                     self.webview.page().loadFinished.connect(_disable_context_menu)
                     
-                    # Handle window.print() triggered from JavaScript
+                    # Handle window.print() triggered from JavaScript.
+                    #
+                    # Two signals, not one. QtWebEngine routes window.print()
+                    # from the top document to printRequested and window.print()
+                    # from a *subframe* to printRequestedByFrame (Qt 6.8+), and
+                    # connecting only the first is why the presentation editor's
+                    # "Export > PDF" did nothing: it prints a hidden iframe
+                    # holding the deck, so its request never reached this code.
+                    #
+                    # The frame is also what must be printed, not the page. The
+                    # page is the whole IDE, and printing it would produce a
+                    # picture of the editor around the slides. QWebEngineFrame
+                    # .printToPdf honours the document's own @page size, which
+                    # is how the deck's aspect ratio survives into the PDF
+                    # instead of being letterboxed onto A4.
                     try:
+                        from PyQt6.QtWidgets import QFileDialog
+
+                        def _save_as_pdf(print_to_pdf, suggested_name=""):
+                            file_path, _ = QFileDialog.getSaveFileName(
+                                self.webview, "Save PDF", suggested_name, "PDF Files (*.pdf)"
+                            )
+                            if not file_path:
+                                return
+                            if not file_path.lower().endswith('.pdf'):
+                                file_path += '.pdf'
+                            print_to_pdf(file_path)
+
                         def _handle_print():
                             try:
-                                from PyQt6.QtWidgets import QFileDialog
-                                file_path, _ = QFileDialog.getSaveFileName(self.webview, "Salvar PDF", "", "PDF Files (*.pdf)")
-                                if file_path:
-                                    if not file_path.lower().endswith('.pdf'):
-                                        file_path += '.pdf'
-                                    self.webview.page().printToPdf(file_path)
-                            except ImportError as e:
-                                pass
-                        self.webview.page().printRequested.connect(_handle_print)
+                                _save_as_pdf(self.webview.page().printToPdf)
+                            except Exception as e:
+                                print(f"[OpalaTex] print to PDF failed: {type(e).__name__}: {e}")
+
+                        def _handle_print_frame(frame):
+                            # The frame's `name` attribute is the file name the
+                            # page suggests for its own PDF — the only channel a
+                            # subframe has to say what it is printing.
+                            try:
+                                _save_as_pdf(frame.printToPdf, frame.htmlName() or "")
+                            except Exception as e:
+                                print(f"[OpalaTex] print frame to PDF failed: {type(e).__name__}: {e}")
+
+                        page = self.webview.page()
+                        page.printRequested.connect(_handle_print)
+                        if hasattr(page, 'printRequestedByFrame'):
+                            page.printRequestedByFrame.connect(_handle_print_frame)
                     except Exception as pe:
-                        pass
+                        print(f"[OpalaTex] could not install the print handler: "
+                              f"{type(pe).__name__}: {pe}")
 
                 _wv_qt2.BrowserView.__init__ = _patched_init
                 

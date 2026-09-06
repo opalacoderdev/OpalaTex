@@ -1,0 +1,15 @@
+name: Madrid
+description: >
+  Beamer's most-used look: a solid blue band carrying the frame title, white on
+  blue, and a footline with the deck title and the slide number.
+theme:
+  background: "#ffffff"
+  color: "#1a1a1a"
+  accent: "#3465a4"
+  headerHeight: 180
+  headerColor: "#3465a4"
+  titleColor: "#ffffff"
+  footerHeight: 40
+  footerColor: "#3465a4"
+  footerTextColor: "#ffffff"
+  footerText: title

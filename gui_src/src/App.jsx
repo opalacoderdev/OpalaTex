@@ -283,6 +283,40 @@ export default function App() {
   const fileContentRef = useRef('');
   const [openFiles, setOpenFiles] = useState([]);
   const [fileContents, setFileContents] = useState({});
+
+  // Applying a store theme to the presentation open in the editor.
+  //
+  // It edits the *buffer*, not the file: the change lands in the deck the user
+  // is looking at and is theirs to save or discard, exactly like a colour they
+  // had picked from the properties panel. A theme's picture, when it has one,
+  // is embedded as a data URI for the reason every other picture in a deck is —
+  // a `.jpt` pointing at a file inside the OpalaTex installation would break the
+  // moment the deck left this machine.
+  const applyDeckTheme = useCallback(async (asset) => {
+    const { DEFAULT_THEME, parseDeck, serializeDeck, applyTheme } = await import('./slides/model.js');
+    const { blobToDataUrl } = await import('./slides/clipboard.js');
+
+    // A theme *replaces* the deck's look rather than merging into it: a theme
+    // that sets no header must not leave the previous theme's band standing.
+    const values = { ...DEFAULT_THEME, ...(asset.theme || {}) };
+    if (asset.hasImage) {
+      const response = await fetch(`/api/assets/icon?id=${encodeURIComponent(asset.id)}`);
+      if (!response.ok) throw new Error(`Could not read the theme picture (HTTP ${response.status})`);
+      const src = await blobToDataUrl(await response.blob());
+      if (!src) throw new Error('Could not read the theme picture');
+      values.backgroundImage = src;
+    } else {
+      // A theme with no picture clears the one the deck had: applying a theme
+      // means the deck looks like that theme, not like a blend of two.
+      values.backgroundImage = '';
+    }
+
+    const text = serializeDeck(applyTheme(parseDeck(fileContent || '{}'), values));
+    setFileContent(text);
+    setFileContents(prev => ({ ...prev, [selectedFile]: text }));
+    return t('assetStore.themeApplied', '{{name}} applied to {{file}}. Save to keep it.',
+      { name: asset.name, file: selectedFile });
+  }, [fileContent, selectedFile, t]);
   const [originalFileContents, setOriginalFileContents] = useState({});
   const [rightClickedNode, setRightClickedNode] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -2231,6 +2265,54 @@ export default function App() {
           if (res.ok) { addLog('info', t('app.fileCreated', { path: filename })); await fetchFiles(); await handleFileSelect(filename); }
           else { const e = await res.json(); addLog('error', t('app.fileCreateError', { error: e.error })); }
         } catch (err) { addLog('error', t('app.fileCreateCallError', { error: err.message })); }
+      }
+    });
+  };
+
+  // Creating a presentation goes through exactly the same prompt and the same
+  // write endpoint as creating any other file — it is the same flow with a
+  // different seed, not a parallel one. Two things are added: the `.jpt`
+  // suffix is appended when the user does not type it (the extension is what
+  // routes the file to the deck editor, and asking the user to remember it
+  // would make this a worse flow than "New file"), and the file is written
+  // with a real starting deck rather than empty, so it opens on a title slide.
+  const handleCreateNewPresentation = (parentPath) => {
+    if (!activeProject) return;
+    setConfirmRequest({
+      type: 'ask',
+      rows: 1,
+      prompt: t('app.newPresentationPrompt'),
+      default: parentPath ? `${parentPath}/` : '',
+      callback: async (rawName) => {
+        if (!rawName) return;
+        const name = rawName.trim();
+        if (!name || name.endsWith('/')) return;
+        const filePath = name.toLowerCase().endsWith('.jpt')
+          ? name
+          : `${name.replace(/\.json$/i, '')}.jpt`;
+        try {
+          const { createDeck, serializeDeck } = await import('./slides/model.js');
+          const title = filePath.replace(/\\/g, '/').split('/').pop().replace(/\.jpt$/i, '');
+          const res = await fetch('/api/file/write', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectPath: activeProject.project_path,
+              filePath,
+              content: serializeDeck(createDeck(title)),
+            }),
+          });
+          if (res.ok) {
+            addLog('info', t('app.fileCreated', { path: filePath }));
+            await fetchFiles();
+            await handleFileSelect(filePath);
+          } else {
+            const e = await res.json();
+            addLog('error', t('app.fileCreateError', { error: e.error }));
+          }
+        } catch (err) {
+          addLog('error', t('app.fileCreateCallError', { error: err.message }));
+        }
       }
     });
   };
@@ -4611,6 +4693,8 @@ export default function App() {
           onClose={() => setIsAssetStoreOpen(false)}
           projectPath={activeProject?.project_path}
           onWorkspaceChanged={refreshWorkspaceFiles}
+          deckFile={selectedFile && selectedFile.toLowerCase().endsWith('.jpt') ? selectedFile : null}
+          onApplyTheme={applyDeckTheme}
         />
       )}
 
@@ -4666,6 +4750,7 @@ export default function App() {
         contextMenu={contextMenu}
         rightClickedNode={rightClickedNode}
         handleCreateNewFile={handleCreateNewFile}
+        handleCreateNewPresentation={handleCreateNewPresentation}
         handleCreateNewDir={handleCreateNewDir}
         handleImportFile={handleImportFile}
         handleRenameNode={handleRenameNode}

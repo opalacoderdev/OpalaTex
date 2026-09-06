@@ -30,6 +30,12 @@ WRITE_TOOLS = {
     "replace_content_range",
     "create_docx_file",
     "create_pptx_file",
+    # Authoring and editing a .jpt presentation writes a project file, so both
+    # sit with the other writers: a direct orchestrator gets them, a delegate
+    # one hands them to the worker.
+    "create_presentation",
+    "edit_presentation",
+    "set_presentation_theme",
     # Generating an image produces a project file like any other write, so it
     # belongs to the same authority: a direct orchestrator gets it, a delegate
     # one hands it to the worker.
