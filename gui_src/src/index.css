@@ -64,6 +64,12 @@
   --vscode-accent: #007acc;
   --vscode-list-activeSelectionBg: #094771;
   --vscode-list-activeSelectionFg: #ffffff;
+  /* Secondary text (paths, hints) drawn on top of an active selection, and
+     the hairline between rows in a dropdown. Both used to be hardcoded white
+     alphas at the call sites, which vanished on the light theme's pale
+     selection band. */
+  --vscode-list-activeSelectionDescriptionFg: rgba(255, 255, 255, 0.7);
+  --vscode-list-separator: rgba(255, 255, 255, 0.03);
   --vscode-errorForeground: #f48771;
   --vscode-errorBackground: rgba(244, 135, 113, 0.08);
   --vscode-editorOverlay: rgba(0, 0, 0, 0.5);
@@ -203,6 +209,8 @@
   --vscode-accent: #005fb8;
   --vscode-list-activeSelectionBg: #cce4f7;
   --vscode-list-activeSelectionFg: #003a80;
+  --vscode-list-activeSelectionDescriptionFg: rgba(0, 58, 128, 0.82);
+  --vscode-list-separator: rgba(0, 0, 0, 0.06);
   --vscode-errorForeground: #b42318;
   --vscode-errorBackground: rgba(180, 35, 24, 0.07);
   --vscode-editorOverlay: rgba(255, 255, 255, 0.72);

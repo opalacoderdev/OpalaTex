@@ -2021,8 +2021,9 @@ export default function App() {
       fileContentRef.current = currentContent;
     }
     if (isUnsupportedSystemFile(filePath)) {
-      handleOpenInSystem(filePath);
-      addLog('info', t('app.openedInSystemApp', { path: filePath }));
+      if (await handleOpenInSystem(filePath)) {
+        addLog('info', t('app.openedInSystemApp', { path: filePath }));
+      }
       return;
     }
     if (isBinaryEditorFile(filePath)) {
@@ -2678,19 +2679,27 @@ export default function App() {
     setContextMenu(viewportPointToApp(e.clientX, e.clientY));
   };
 
+  // Resolves to whether the desktop actually took the file, so a caller never
+  // announces an open that the system opener refused.
   const handleOpenInSystem = async (node) => {
     setContextMenu(null);
-    if (!activeProject || !node) return;
+    if (!activeProject || !node) return false;
     const targetPath = typeof node === 'string' ? node : (node.path || node);
     try {
-      await fetch('/api/file/open-explorer', {
+      const res = await fetch('/api/file/open-explorer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectPath: activeProject.project_path, filePath: targetPath })
       });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail.error || `HTTP ${res.status}`);
+      }
+      return true;
     } catch (err) {
       console.error('Failed to open in system:', err);
       addLog('error', t('app.openSystemError', { error: err.message }));
+      return false;
     }
   };
 

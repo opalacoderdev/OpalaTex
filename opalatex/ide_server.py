@@ -69,6 +69,60 @@ def _normalize_rel_path(path: str) -> str:
     return path.replace("\\", "/").strip("/")
 
 
+def _running_in_snap() -> bool:
+    """True when this process runs inside a strictly confined snap."""
+    return bool(os.environ.get("SNAP_NAME") and os.environ.get("SNAP"))
+
+
+# The snapd shim that hands a path to the host session. Inside confinement it is
+# the only opener that can reach the user's desktop; everything a real xdg-open
+# would delegate to (gio, the browser list, the file manager over D-Bus) is
+# either absent from the snap or blocked by its apparmor profile.
+_SNAP_XDG_OPEN = "/usr/bin/xdg-open"
+
+
+def _desktop_open_command(target_path: str) -> list[str]:
+    """Return the argv that opens ``target_path`` with the desktop's handler.
+
+    Inside a snap, ``$SNAP/usr/bin`` comes before ``/usr/bin`` on PATH, so a bare
+    ``xdg-open`` resolves to any xdg-utils staged in the payload instead of the
+    base snap's shim. That copy runs confined, finds none of the helpers it wants
+    and exits 3 without opening anything, which is why this works from a source
+    checkout but not from the installed snap. Address the shim by full path so the
+    payload cannot shadow it.
+    """
+    if _running_in_snap() and os.path.exists(_SNAP_XDG_OPEN):
+        return [_SNAP_XDG_OPEN, target_path]
+    return ["xdg-open", target_path]
+
+
+# How long to watch a launcher before calling it a success. A desktop launcher
+# hands the path over and exits within milliseconds, so this only has to outlast
+# process startup.
+_DESKTOP_OPEN_FAILURE_WINDOW = 1.5
+
+
+async def _desktop_open_failure(proc, window: float = _DESKTOP_OPEN_FAILURE_WINDOW) -> str | None:
+    """Return a diagnostic if the launcher itself failed, or None if it handed off.
+
+    Watching the launcher for a moment separates "refused" from "handed over"
+    without ever waiting on the application it starts: a launcher still running
+    at the end of the window has forked something and is reported as a success.
+    """
+    if proc is None:
+        return None
+    deadline = time.monotonic() + window
+    while True:
+        code = proc.poll()
+        if code == 0:
+            return None
+        if code is not None:
+            return f"The desktop file opener exited with status {code} without opening the path."
+        if time.monotonic() >= deadline:
+            return None
+        await asyncio.sleep(0.05)
+
+
 async def _chat_context_usage(store, project, chat_id: str) -> dict | None:
     """Return the occupancy to report when a chat is (re)opened, best source first.
 
@@ -1698,32 +1752,44 @@ class AsyncHTTPServer:
             try:
                 import subprocess, platform
                 system = platform.system()
-                
-                # Strip PyInstaller's LD_LIBRARY_PATH so system apps (like nautilus or image viewers) don't crash
+
+                # Strip PyInstaller's LD_LIBRARY_PATH so system apps (like nautilus or image viewers) don't crash.
+                # A snap's LD_LIBRARY_PATH is its own runtime rather than a frozen loader's, and dropping it would
+                # only break the helpers the snap itself ships.
                 env = os.environ.copy()
                 if 'LD_LIBRARY_PATH_ORIG' in env:
                     env['LD_LIBRARY_PATH'] = env['LD_LIBRARY_PATH_ORIG']
-                elif 'LD_LIBRARY_PATH' in env:
+                elif 'LD_LIBRARY_PATH' in env and not _running_in_snap():
                     del env['LD_LIBRARY_PATH']
 
+                proc = None
                 if system == "Windows":
                     os.startfile(target_path)
                 elif system == "Darwin":
-                    subprocess.Popen(["open", target_path], env=env)
+                    proc = subprocess.Popen(["open", target_path], env=env)
                 else:
                     # Check if it's WSL (Windows Subsystem for Linux)
                     release = platform.uname().release.lower()
                     if "microsoft" in release or "wsl" in release:
                         # For WSL, we might need different logic if opening a file vs folder
                         if os.path.isdir(target_path):
-                            subprocess.Popen(["explorer.exe", "."], cwd=target_path, env=env)
+                            proc = subprocess.Popen(["explorer.exe", "."], cwd=target_path, env=env)
                         else:
                             # Not ideal but explorer.exe can open files in WSL if converted to win path, 
                             # easiest is wslview if available, otherwise xdg-open might work inside some WSL distros
-                            subprocess.Popen(["xdg-open", target_path], env=env)
+                            proc = subprocess.Popen(_desktop_open_command(target_path), env=env)
                     else:
-                        subprocess.Popen(["xdg-open", target_path], env=env)
-                self.send_response(writer, 200, b'{"success":true}', "application/json")
+                        proc = subprocess.Popen(_desktop_open_command(target_path), env=env)
+
+                # The launcher forks the real application and returns, so a process still
+                # running is a success. One that has already failed must not be reported as
+                # "opened": that is how a confined xdg-open exiting 3 looked like a working
+                # feature from the UI.
+                failure = await _desktop_open_failure(proc)
+                if failure:
+                    self.send_response(writer, 500, json.dumps({"error": failure}).encode('utf-8'), "application/json")
+                else:
+                    self.send_response(writer, 200, b'{"success":true}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 

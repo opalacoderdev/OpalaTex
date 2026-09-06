@@ -138,7 +138,10 @@ parts:
       - libxss1
       - libxtst6
       - pandoc
-      - xdg-utils
+      # Deliberately no xdg-utils: $SNAP/usr/bin precedes /usr/bin on PATH, so a
+      # staged xdg-open shadows the base snap's shim (`exec snapctl user-open`),
+      # which is the only opener that can reach the host session from inside
+      # confinement. Nothing here calls the other xdg-* tools.
     override-build: |
       set -eu
 

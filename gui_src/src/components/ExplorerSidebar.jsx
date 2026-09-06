@@ -163,7 +163,7 @@ export default function ExplorerSidebar({
                           display: 'flex',
                           flexDirection: 'column',
                           gap: '2px',
-                          borderBottom: '1px solid rgba(255,255,255,0.03)',
+                          borderBottom: '1px solid var(--vscode-list-separator, rgba(255,255,255,0.03))',
                           background: isActive ? 'var(--vscode-list-activeSelectionBackground, var(--vscode-accent, #007acc))' : 'transparent',
                           color: isActive ? 'var(--vscode-list-activeSelectionForeground, #ffffff)' : 'var(--vscode-dropdown-foreground, var(--vscode-input-fg, var(--vscode-text-fg)))',
                         }}
@@ -178,7 +178,7 @@ export default function ExplorerSidebar({
                           {isMissing && <AlertTriangle size={11} style={{ color: 'var(--vscode-fg-gold)', flexShrink: 0 }} />}
                           {p.project_name || p.name}
                         </div>
-                        <div style={{ fontSize: '11px', color: isMissing ? 'var(--vscode-fg-gold)' : (isActive ? 'rgba(255,255,255,0.7)' : 'var(--vscode-text-muted)') }} className="truncate">
+                        <div style={{ fontSize: '11px', color: isMissing ? 'var(--vscode-fg-gold)' : (isActive ? 'var(--vscode-list-activeSelectionDescriptionFg, rgba(255,255,255,0.7))' : 'var(--vscode-text-muted)') }} className="truncate">
                           {isMissing ? t('explorerSidebar.projectPathMissing', 'Not found: {{path}}', { path: p.project_path }) : p.project_path}
                         </div>
                       </div>
@@ -196,11 +196,15 @@ export default function ExplorerSidebar({
                 onClick={async (e) => {
                   e.stopPropagation();
                   try {
-                    await fetch('/api/file/open-explorer', {
+                    const res = await fetch('/api/file/open-explorer', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ projectPath: activeProject.project_path })
                     });
+                    if (!res.ok) {
+                      const detail = await res.json().catch(() => ({}));
+                      throw new Error(detail.error || `HTTP ${res.status}`);
+                    }
                   } catch (err) {
                     console.error('Failed to open explorer:', err);
                   }
