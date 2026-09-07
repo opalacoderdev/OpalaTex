@@ -36,7 +36,11 @@ function ThemePreview({ theme, image }) {
   return (
     <div
       className="theme-card-preview"
-      style={{ background: values.background || '#ffffff', color: values.color || '#1a1a1a' }}
+      style={{
+        background: values.background || '#ffffff',
+        color: values.color || '#1a1a1a',
+        fontFamily: values.fontFamily || undefined,
+      }}
     >
       {image && (
         <img

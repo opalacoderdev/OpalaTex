@@ -55,6 +55,40 @@ from email.policy import default as email_default_policy
 from opalatex.subprocess_utils import utf8_text_kwargs
 
 
+_PDF_EXPORT_FRAME_PREFIX = "opalatex-pdf-v1:"
+_PDF_EXPORT_RESULT_EVENT = "opalatex:pdf-export-result"
+
+
+def _parse_pdf_export_frame_name(frame_name: str):
+    """Return ``(request_id, suggested_name)`` for a deck print frame.
+
+    The frame name is the only caller-controlled field Qt exposes with a
+    subframe print request. Keep the protocol versioned and validate its id so
+    an unrelated iframe can never be mistaken for an OpalaTex export.
+    """
+    value = str(frame_name or "")
+    if not value.startswith(_PDF_EXPORT_FRAME_PREFIX):
+        return None
+    request_id, separator, encoded_name = value[len(_PDF_EXPORT_FRAME_PREFIX):].partition(":")
+    if not separator or not request_id or len(request_id) > 128:
+        return None
+    if not all(character.isalnum() or character in "-_" for character in request_id):
+        return None
+    return request_id, urllib.parse.unquote(encoded_name) or "presentation.pdf"
+
+
+def _pdf_export_result_script(request_id: str, status: str, message: str = "") -> str:
+    """Build the safely encoded browser notification for a Qt PDF result."""
+    detail = {"requestId": request_id, "status": status}
+    if message:
+        detail["message"] = message
+    return (
+        "window.dispatchEvent(new CustomEvent("
+        f"{json.dumps(_PDF_EXPORT_RESULT_EVENT)}, "
+        f"{{detail: {json.dumps(detail, ensure_ascii=False)}}}));"
+    )
+
+
 class GitContextError(ValueError):
     pass
 
@@ -5399,9 +5433,22 @@ def start_gui_server(host="127.0.0.1", port=3000):
 
                 def _patched_init(self, window):
                     _orig_init(self, window)
+                    page = self.webview.page()
+                    frame_print_supported = (
+                        hasattr(page, 'printRequestedByFrame')
+                        and hasattr(page, 'pdfPrintingFinished')
+                    )
+
                     def _disable_context_menu(_ok=None):
                         self.webview.setContextMenuPolicy(_Qt.ContextMenuPolicy.NoContextMenu)
-                    self.webview.page().loadFinished.connect(_disable_context_menu)
+                        # The front-end treats an explicit false as a hard
+                        # compatibility error. An absent marker means a normal
+                        # web browser, whose own print dialog remains valid.
+                        page.runJavaScript(
+                            "window.__opalatexPdfPrintHost = "
+                            f"Object.freeze({{supported: {str(frame_print_supported).lower()}}});"
+                        )
+                    page.loadFinished.connect(_disable_context_menu)
                     
                     # Handle window.print() triggered from JavaScript.
                     #
@@ -5421,15 +5468,61 @@ def start_gui_server(host="127.0.0.1", port=3000):
                     try:
                         from PyQt6.QtWidgets import QFileDialog
 
-                        def _save_as_pdf(print_to_pdf, suggested_name=""):
-                            file_path, _ = QFileDialog.getSaveFileName(
-                                self.webview, "Save PDF", suggested_name, "PDF Files (*.pdf)"
-                            )
-                            if not file_path:
+                        pending_exports = {}
+
+                        def _path_key(file_path):
+                            return os.path.normcase(os.path.abspath(str(file_path)))
+
+                        def _notify_export(request_id, status, message=""):
+                            if request_id:
+                                page.runJavaScript(
+                                    _pdf_export_result_script(request_id, status, message)
+                                )
+
+                        def _remove_pending(file_path, request_id):
+                            key = _path_key(file_path)
+                            queue = pending_exports.get(key, [])
+                            if request_id in queue:
+                                queue.remove(request_id)
+                            if not queue:
+                                pending_exports.pop(key, None)
+
+                        def _save_as_pdf(print_to_pdf, suggested_name="", request_id=None):
+                            file_path = ""
+                            try:
+                                file_path, _ = QFileDialog.getSaveFileName(
+                                    self.webview, "Save PDF", suggested_name, "PDF Files (*.pdf)"
+                                )
+                                if not file_path:
+                                    _notify_export(request_id, "cancelled")
+                                    return
+                                if not file_path.lower().endswith('.pdf'):
+                                    file_path += '.pdf'
+                                if request_id:
+                                    pending_exports.setdefault(_path_key(file_path), []).append(request_id)
+                                print_to_pdf(file_path)
+                            except Exception as exc:
+                                if file_path and request_id:
+                                    _remove_pending(file_path, request_id)
+                                _notify_export(
+                                    request_id,
+                                    "failed",
+                                    f"{type(exc).__name__}: {exc}",
+                                )
+                                raise
+
+                        def _handle_pdf_finished(file_path, success):
+                            key = _path_key(file_path)
+                            queue = pending_exports.get(key, [])
+                            if not queue:
                                 return
-                            if not file_path.lower().endswith('.pdf'):
-                                file_path += '.pdf'
-                            print_to_pdf(file_path)
+                            request_id = queue.pop(0)
+                            if not queue:
+                                pending_exports.pop(key, None)
+                            if success:
+                                _notify_export(request_id, "success")
+                            else:
+                                _notify_export(request_id, "failed", "Qt could not write the PDF file.")
 
                         def _handle_print():
                             try:
@@ -5438,17 +5531,23 @@ def start_gui_server(host="127.0.0.1", port=3000):
                                 print(f"[OpalaTex] print to PDF failed: {type(e).__name__}: {e}")
 
                         def _handle_print_frame(frame):
-                            # The frame's `name` attribute is the file name the
-                            # page suggests for its own PDF — the only channel a
-                            # subframe has to say what it is printing.
+                            # The versioned frame name carries the suggested
+                            # name plus the id used for the completion reply.
                             try:
-                                _save_as_pdf(frame.printToPdf, frame.htmlName() or "")
+                                frame_name = frame.htmlName() or ""
+                                request = _parse_pdf_export_frame_name(frame_name)
+                                if request:
+                                    request_id, suggested_name = request
+                                    _save_as_pdf(frame.printToPdf, suggested_name, request_id)
+                                else:
+                                    _save_as_pdf(frame.printToPdf, frame_name)
                             except Exception as e:
                                 print(f"[OpalaTex] print frame to PDF failed: {type(e).__name__}: {e}")
 
-                        page = self.webview.page()
                         page.printRequested.connect(_handle_print)
-                        if hasattr(page, 'printRequestedByFrame'):
+                        if hasattr(page, 'pdfPrintingFinished'):
+                            page.pdfPrintingFinished.connect(_handle_pdf_finished)
+                        if frame_print_supported:
                             page.printRequestedByFrame.connect(_handle_print_frame)
                     except Exception as pe:
                         print(f"[OpalaTex] could not install the print handler: "

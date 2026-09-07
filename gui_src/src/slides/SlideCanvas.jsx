@@ -49,6 +49,7 @@ import {
   resizeRotatedRect, round, snapTargets,
 } from './geometry.js';
 import { backgroundOf, textColorOf } from './model.js';
+import { fontFamilyWithMathFallback } from './fonts.js';
 
 // Below this, a pointer movement is a click that wobbled rather than a drag.
 const DRAG_SLOP_PX = 3;
@@ -643,7 +644,7 @@ function SlideCanvas({
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[el.valign] ?? 'flex-start',
-                  fontFamily: el.fontFamily || deck.theme.fontFamily,
+                  fontFamily: fontFamilyWithMathFallback(el.fontFamily || deck.theme.fontFamily),
                   fontSize: `${el.fontSize}px`,
                   lineHeight: el.lineHeight ?? 1.3,
                   color: textColorOf(el, deck.theme),

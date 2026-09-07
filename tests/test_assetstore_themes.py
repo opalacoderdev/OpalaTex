@@ -67,7 +67,9 @@ def test_a_theme_needs_no_picture():
     madrid = _theme("madrid")
     assert theme_image_path(madrid) is None
     assert resolve_asset_icon_path(madrid) is None
-    assert madrid["theme"]["headerHeight"] == 180
+    assert madrid["theme"]["headerHeight"] == 132
+    assert madrid["theme"]["footerHeight"] == 24
+    assert madrid["theme"]["fontFamily"].startswith("Latin Modern Sans")
     assert madrid["theme"]["titleColor"] == "#ffffff"
     assert madrid["theme"]["footerText"] == "title"
 
@@ -140,7 +142,7 @@ async def test_the_assets_endpoint_serves_the_theme_catalog():
     madrid = next(a for a in assets if a["id"] == "madrid")
     assert madrid["hasImage"] is False
     # The store draws a preview from these when there is no picture to show.
-    assert madrid["theme"]["headerColor"] == "#3465a4"
+    assert madrid["theme"]["headerColor"] == "#3333b3"
 
     arcs = next(a for a in assets if a["id"] == "blue-arcs")
     assert arcs["hasImage"] is True and arcs["hasIcon"] is True

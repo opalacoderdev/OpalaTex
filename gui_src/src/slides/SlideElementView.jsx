@@ -22,6 +22,7 @@ import {
   isEmbeddedVideo, videoEmbedUrl, videoFileUrl, videoLabelOf, videoSourceOf,
 } from './video.js';
 import { insetPolygon, polygonPoints, trianglePoints } from './geometry.js';
+import { fontFamilyWithMathFallback } from './fonts.js';
 
 // Text is laid out with flexbox so `valign` is a real vertical alignment
 // rather than a hand-computed top offset that drifts as the box resizes.
@@ -102,7 +103,7 @@ function TextBody({ el, theme, placeholder }) {
         justifyContent: VALIGN_TO_FLEX[el.valign] ?? 'flex-start',
         width: '100%',
         height: '100%',
-        fontFamily: el.fontFamily || theme.fontFamily,
+        fontFamily: fontFamilyWithMathFallback(el.fontFamily || theme.fontFamily),
         fontSize: `${el.fontSize}px`,
         lineHeight: el.lineHeight ?? 1.3,
         color: isEmpty && placeholder ? '#9aa0a6' : textColorOf(el, theme),
@@ -404,7 +405,7 @@ export function SlideChrome({ deck, slide, index }) {
             color: chrome.footerTextColor,
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: `0 ${inset}px`, boxSizing: 'border-box',
-            fontFamily: deck.theme.fontFamily,
+            fontFamily: fontFamilyWithMathFallback(deck.theme.fontFamily),
             fontSize: `${footerFont}px`,
             pointerEvents: 'none', overflow: 'hidden', whiteSpace: 'nowrap',
           }}

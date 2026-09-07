@@ -28,6 +28,7 @@ import {
   videoMimeOf, videoSourceOf, videoWatchUrl,
 } from './video.js';
 import { latexToOmml } from './omml.js';
+import { fontFamilyWithMathFallback } from './fonts.js';
 
 // Equations travel as MathML, laid out by the reading browser itself. That is
 // what makes an exported deck self-contained: no stylesheet beside it, no font
@@ -41,6 +42,15 @@ const EXPORT_MATH_CSS = `
   .katex { font-size: 1em; }
   math { font-family: 'STIX Two Math', 'Cambria Math', 'Latin Modern Math', KaTeX_Main, serif; margin: 0; }
 `;
+
+// The editor loads these faces in index.html. An iframe is a separate document
+// and does not inherit its parent's @font-face rules, so the PDF document must
+// request the same stylesheet or an Inter deck reflows in a platform fallback
+// immediately before it is printed.
+const EDITOR_FONT_LINKS = `
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Outfit:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet">`;
 
 // PPTX measures in inches. A 16:9 deck is 10in wide by convention, so one deck
 // unit is 10/width inches — the single conversion every mapping below uses.
@@ -810,12 +820,14 @@ function videoToHtml(deck, el, resolveSrc, live) {
   const inner = poster
     ? `<img style="width:100%;height:100%;object-fit:${el.fit || 'contain'};display:block;"`
       + ` src="${escapeHtml(poster)}" alt="${escapeHtml(el.alt)}">`
-    : `<div style="width:100%;height:100%;background:#101216;"></div>`;
+    : '<div style="width:100%;height:100%;background:'
+      + 'repeating-linear-gradient(-45deg,rgba(255,255,255,.035) 0 12px,'
+      + 'rgba(255,255,255,0) 12px 24px),#101216;"></div>';
   const label = `<div style="position:absolute;left:0;right:0;bottom:0;padding:4px 8px;`
     + `background:rgba(0,0,0,.55);color:#e8eaed;font:12px system-ui,sans-serif;`
     + `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">`
     + `${escapeHtml(videoLabelOf(el))}</div>`;
-  const badge = '<svg viewBox="0 0 24 24" width="44" height="44" style="position:absolute;'
+  const badge = '<svg viewBox="0 0 24 24" width="34" height="34" style="position:absolute;'
     + 'left:50%;top:50%;transform:translate(-50%,-50%);">'
     + '<circle cx="12" cy="12" r="11" fill="rgba(0,0,0,.55)"/>'
     + '<polygon points="9.5,7 17,12 9.5,17" fill="#ffffff"/></svg>';
@@ -861,7 +873,7 @@ function elementToHtml(deck, el, resolveSrc, live = false) {
   if (el.type === 'text') {
     const align = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[el.valign] ?? 'flex-start';
     const style = `${box}display:flex;flex-direction:column;justify-content:${align};`
-      + `font-family:${el.fontFamily || deck.theme.fontFamily};font-size:${el.fontSize}px;`
+      + `font-family:${fontFamilyWithMathFallback(el.fontFamily || deck.theme.fontFamily)};font-size:${el.fontSize}px;`
       + `line-height:${el.lineHeight ?? 1.3};color:${textColorOf(el, deck.theme)};`
       + `font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};`
       + `text-decoration:${el.underline ? 'underline' : 'none'};text-align:${el.align};`
@@ -902,7 +914,8 @@ function elementToHtml(deck, el, resolveSrc, live = false) {
         end ? `<polygon points="${el.w},${y} ${el.w - head},${y - head * 0.55} ${el.w - head},${y + head * 0.55}" fill="${color}"/>` : '',
       ].join('');
       return `<svg class="el" style="${box}" viewBox="0 0 ${el.w} ${el.h}" preserveAspectRatio="none">`
-        + `<line x1="${x1}" y1="${y}" x2="${Math.max(x1, x2)}" y2="${y}" stroke="${color}" stroke-width="${width}"/>`
+        + `<line x1="${x1}" y1="${y}" x2="${Math.max(x1, x2)}" y2="${y}" stroke="${color}" stroke-width="${width}"`
+        + ` stroke-linecap="${start || end ? 'butt' : 'round'}"/>`
         + `${heads}</svg>`;
     }
     if (el.shape === 'triangle') {
@@ -940,7 +953,7 @@ export function deckToHtml(deck, { resolveSrc } = {}) {
 <title>${escapeHtml(deck.title)}</title>
 <style>
   :root { color-scheme: light; }
-  html,body { margin:0; height:100%; background:#111; overflow:hidden; font-family:${deck.theme.fontFamily}; }
+  html,body { margin:0; height:100%; background:#111; overflow:hidden; font-family:${fontFamilyWithMathFallback(deck.theme.fontFamily)}; }
   #stage { position:absolute; inset:0; display:grid; place-items:center; }
   .slide {
     position:relative; width:${deck.width}px; height:${deck.height}px;
@@ -1019,19 +1032,49 @@ export async function exportPdf(deck, options = {}) {
   // dialog opens on the iframe's `load`, and an image still in flight prints
   // as a blank box. A data URI has nothing left to wait for.
   const { deck: printable, inlined, failed } = await inlineDeckAssets(deck, options);
-  await printDeck(printable, options.fileName);
-  return { inlined, failed };
+  const printResult = await printDeck(printable, options.fileName);
+  return { inlined, failed, ...printResult };
 }
 
-// The frame the last print used.
-//
-// It is kept rather than removed on a timer, because removing it is what can
-// cancel the print. In the packaged app the print is not a dialog the user
-// dismisses: the window's Qt host answers the request by asking for a file name
-// and then writing the PDF *asynchronously*, and a frame torn down a second
-// later takes the document being written with it. One hidden, empty iframe
-// living until the next export costs nothing; a truncated PDF costs the export.
-let printFrame = null;
+export const PDF_EXPORT_RESULT_EVENT = 'opalatex:pdf-export-result';
+export const PDF_EXPORT_FRAME_PREFIX = 'opalatex-pdf-v1:';
+
+let pdfRequestSequence = 0;
+let browserPrintFrame = null;
+let pdfResultListenerInstalled = false;
+const pendingHostPrints = new Map();
+
+function nextPdfRequestId() {
+  pdfRequestSequence += 1;
+  return `${Date.now().toString(36)}-${pdfRequestSequence.toString(36)}`;
+}
+
+/** The versioned frame name consumed by the Qt print bridge. */
+export function pdfExportFrameName(requestId, fileName) {
+  return `${PDF_EXPORT_FRAME_PREFIX}${requestId}:${encodeURIComponent(fileName)}`;
+}
+
+function installPdfResultListener() {
+  if (pdfResultListenerInstalled) return;
+  window.addEventListener(PDF_EXPORT_RESULT_EVENT, (event) => {
+    const detail = event?.detail || {};
+    const pending = pendingHostPrints.get(detail.requestId);
+    if (!pending) return;
+
+    pendingHostPrints.delete(detail.requestId);
+    pending.frame.remove();
+    if (detail.status === 'success') {
+      pending.resolve({ saved: true });
+    } else if (detail.status === 'cancelled') {
+      pending.resolve({ cancelled: true });
+    } else {
+      const error = new Error(detail.message || 'The PDF file could not be written.');
+      error.code = 'PDF_WRITE_FAILED';
+      pending.reject(error);
+    }
+  });
+  pdfResultListenerInstalled = true;
+}
 
 /**
  * The deck as a print document: one page per slide, at the deck's own size.
@@ -1053,9 +1096,10 @@ export function deckToPrintHtml(deck) {
 
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title>
+${EDITOR_FONT_LINKS}
 <style>
   @page { size: ${pageW}px ${pageH}px; margin: 0; }
-  html,body { margin:0; padding:0; background:#fff; font-family:${deck.theme.fontFamily}; }
+  html,body { margin:0; padding:0; background:#fff; font-family:${fontFamilyWithMathFallback(deck.theme.fontFamily)}; }
   .slide {
     position:relative; width:${pageW}px; height:${pageH}px; overflow:hidden;
     page-break-after:always; break-after:page;
@@ -1079,18 +1123,33 @@ ${EXPORT_MATH_CSS}
 
 async function printDeck(deck, fileName) {
   const html = deckToPrintHtml(deck);
+  const host = window.__opalatexPdfPrintHost;
+  if (host?.supported === false) {
+    const error = new Error('PDF_FRAME_PRINT_UNSUPPORTED');
+    error.code = 'PDF_FRAME_PRINT_UNSUPPORTED';
+    throw error;
+  }
+  const hostManaged = host?.supported === true;
+  const suggestedName = fileName
+    || `${(deck.title || 'presentation').replace(/[^\w.-]+/g, '_')}.pdf`;
+  const requestId = nextPdfRequestId();
 
-  if (printFrame) printFrame.remove();
+  // A regular browser owns the complete, blocking print-dialog lifecycle, so
+  // the previous frame is safe to discard on the next request. The Qt host
+  // writes asynchronously and acknowledges completion; those frames are kept
+  // independently until their own result arrives.
+  if (!hostManaged && browserPrintFrame) browserPrintFrame.remove();
   const frame = document.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
-  // The frame's name is how the deck tells the desktop window what this PDF
-  // should be called: a subframe's print request carries no document title, and
-  // the `name` attribute is the one field that reaches the host.
-  frame.setAttribute('name', fileName
-    || `${(deck.title || 'presentation').replace(/[^\w.-]+/g, '_')}.pdf`);
+  // A subframe print request carries no custom payload. Its versioned `name`
+  // gives the Qt host both the suggested file name and a request id it can use
+  // to report save, cancellation, or an asynchronous write failure.
+  frame.setAttribute('name', hostManaged
+    ? pdfExportFrameName(requestId, suggestedName)
+    : suggestedName);
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
   document.body.appendChild(frame);
-  printFrame = frame;
+  if (!hostManaged) browserPrintFrame = frame;
 
   await new Promise((resolve) => {
     frame.onload = () => resolve();
@@ -1108,6 +1167,28 @@ async function printDeck(deck, fileName) {
     // print a formula in the fallback face.
   }
 
-  frame.contentWindow.focus();
-  frame.contentWindow.print();
+  let hostResult;
+  if (hostManaged) {
+    installPdfResultListener();
+    hostResult = new Promise((resolve, reject) => {
+      pendingHostPrints.set(requestId, { frame, resolve, reject });
+    });
+  }
+
+  try {
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+  } catch (error) {
+    pendingHostPrints.delete(requestId);
+    frame.remove();
+    if (browserPrintFrame === frame) browserPrintFrame = null;
+    throw error;
+  }
+
+  // Browser print() returning means only that its dialog closed; the browser
+  // does not disclose whether the user printed or cancelled. Do not call that
+  // a successful export. The desktop bridge, on the other hand, resolves only
+  // after QWebEnginePage.pdfPrintingFinished reports the actual file result.
+  if (!hostManaged) return { printDialogClosed: true };
+  return hostResult;
 }

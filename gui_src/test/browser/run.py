@@ -926,7 +926,8 @@ async def check_store_theme(page: Page, check: Checks) -> None:
     check("a theme with no picture still previews its colours",
           await page.js("(() => { const p = document.querySelectorAll('.theme-card-preview')[0];"
                         "  return !!p && !p.querySelector('img')"
-                        "    && getComputedStyle(p.children[0]).backgroundColor === 'rgb(52, 101, 164)'; })()"))
+                        "    && getComputedStyle(p.children[0]).backgroundColor === 'rgb(51, 51, 179)'"
+                        "    && getComputedStyle(p).fontFamily.includes('Latin Modern Sans'); })()"))
     # A theme that has a picture asks for its own. Whether those bytes decode is
     # a question for the server, and `tests/test_assetstore_themes.py` answers
     # it: an `<img src>` is a real network request, which the stubbed `fetch`
@@ -951,7 +952,7 @@ async def check_store_theme(page: Page, check: Checks) -> None:
     await asyncio.sleep(0.8)
 
     after = await page.js("window.__deck().theme")
-    check("applying writes the theme into the deck", after.get("headerHeight") == 180,
+    check("applying writes the theme into the deck", after.get("headerHeight") == 132,
           f"headerHeight={after.get('headerHeight')}")
     check("and marks the slide's title so it takes the theme colour",
           await page.js("window.__deck().slides[1].elements[0].role") == "title")

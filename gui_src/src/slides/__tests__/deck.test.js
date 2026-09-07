@@ -31,8 +31,9 @@ import {
 } from '../geometry.js';
 import {
   deckToHtml, deckToPrintHtml, escapeBareAmpersands, inlineDeckAssets,
-  pptxParagraphs,
+  pdfExportFrameName, pptxParagraphs,
 } from '../export.js';
+import { fontFamilyWithMathFallback } from '../fonts.js';
 import { fitRect, sizeFromBytes } from '../imageSize.js';
 import { latexToOmml, mathmlToOmml, parseXml } from '../omml.js';
 import { videoEmbedUrl, videoFileUrl, videoSourceOf } from '../video.js';
@@ -693,12 +694,40 @@ test('HTML export draws arrowheads and carries rotation', () => {
   const html = deckToHtml(deck);
   assert.equal((html.match(/<polygon/g) || []).length, 2, 'a head at each end');
   assert.ok(html.includes('rotate(45deg)'));
+  assert.match(html, /stroke-linecap="butt"/, 'an arrow shaft stops under its heads');
 });
 
 test('HTML export omits heads a line does not have', () => {
   let deck = createDeck('Plain');
   deck = addElement(deck, deck.slides[0].id, createElement('shape', { shape: 'line', w: 300, h: 24 }));
-  assert.ok(!deckToHtml(deck).includes('<polygon'));
+  const html = deckToHtml(deck);
+  assert.ok(!html.includes('<polygon'));
+  assert.match(html, /stroke-linecap="round"/, 'a plain line has the canvas rounded ends');
+});
+
+test('text keeps its prose face and falls back to the bundled math font for missing glyphs', () => {
+  const stack = fontFamilyWithMathFallback('Inter, Segoe UI, system-ui, sans-serif');
+  assert.equal(
+    stack,
+    "Inter, Segoe UI, system-ui, 'STIX Two Math', 'Noto Sans Math', 'Cambria Math', 'DejaVu Math TeX Gyre', sans-serif",
+  );
+  assert.equal(fontFamilyWithMathFallback(stack), stack, 'the resolver is idempotent');
+
+  let deck = createDeck('Unicode math in prose');
+  deck = addElement(deck, deck.slides[0].id, createElement('text', {
+    text: 'n⃗ = (P − C)/r',
+  }));
+  const html = deckToPrintHtml(deck);
+  assert.match(html, /font-family:Inter, Segoe UI, system-ui, 'STIX Two Math'/);
+  assert.match(html, /fonts\.googleapis\.com\/css2\?family=/,
+    'the print iframe loads the same web faces as the editor');
+});
+
+test('the Qt PDF frame protocol preserves a suggested name', () => {
+  assert.equal(
+    pdfExportFrameName('m1-2', 'Aula 02: vetores.pdf'),
+    'opalatex-pdf-v1:m1-2:Aula%2002%3A%20vetores.pdf',
+  );
 });
 
 test('HTML export inlines the deck dimensions so it presents standalone', () => {
@@ -1383,6 +1412,10 @@ test('the HTML export plays a video and the print document does not', () => {
   assert.doesNotMatch(print, /<iframe|<video/, 'paper cannot play');
   assert.match(print, /<a href="https:\/\/www\.youtube\.com\/watch\?v=abc123def"/,
     'but it can carry the link');
+  assert.match(print, /repeating-linear-gradient/,
+    'the no-poster still matches the striped canvas placeholder');
+  assert.match(print, /width="34" height="34"/,
+    'the printed play badge matches the canvas badge');
 });
 
 test('a video contributes its poster and its file to what a deck would lose', () => {

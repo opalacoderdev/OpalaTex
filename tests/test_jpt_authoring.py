@@ -769,7 +769,9 @@ def test_set_presentation_theme_applies_a_store_theme(tmp_path):
     assert "Madrid" in out
 
     deck = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))
-    assert deck["theme"]["headerHeight"] == 180
+    assert deck["theme"]["headerHeight"] == 132
+    assert deck["theme"]["footerHeight"] == 24
+    assert deck["theme"]["fontFamily"].startswith("Latin Modern Sans")
     assert deck["theme"]["footerText"] == "title"
     assert jpt.title_element_of(deck["slides"][1])["role"] == "title"
 
@@ -799,7 +801,7 @@ def test_explicit_fields_tweak_the_theme_instead_of_replacing_it(tmp_path):
 
     theme = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))["theme"]
     assert theme["headerColor"] == "#aa3355"
-    assert theme["headerHeight"] == 180, "a tweak must not undo the theme"
+    assert theme["headerHeight"] == 132, "a tweak must not undo the theme"
 
 
 def test_an_unknown_theme_answers_with_the_catalogue(tmp_path):

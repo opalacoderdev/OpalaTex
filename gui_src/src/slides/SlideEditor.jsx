@@ -603,6 +603,14 @@ export default function SlideEditor({
     setExportNote(t('deck.exporting'));
     try {
       const result = await run();
+      if (result?.cancelled) {
+        setExportNote(t('deck.exportCancelled', { label }));
+        return;
+      }
+      if (result?.printDialogClosed) {
+        setExportNote(t('deck.printDialogClosed', { label }));
+        return;
+      }
       const failed = result?.failed?.length ?? 0;
       // An equation the LaTeX-to-OMML conversion could not handle still
       // exports — as its source, which is what this export did for every
@@ -614,7 +622,10 @@ export default function SlideEditor({
         setExportNote(t('deck.exportedWithSourceEquations', { label, count: asSource }));
       } else setExportNote(t('deck.exported', { label }));
     } catch (error) {
-      setExportNote(t('deck.exportFailed', { message: error?.message || String(error) }));
+      const message = error?.code === 'PDF_FRAME_PRINT_UNSUPPORTED'
+        ? t('deck.pdfFramePrintUnsupported')
+        : (error?.message || String(error));
+      setExportNote(t('deck.exportFailed', { message }));
     }
   }, [t]);
 

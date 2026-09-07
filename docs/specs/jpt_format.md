@@ -392,6 +392,14 @@ font-size: 1em }` neutralizes it in the app, and the exports emit the same rule.
 Any future element that borrows a global stylesheet inherits this problem and
 MUST solve it the same way.
 
+Ordinary text may contain Unicode mathematical characters without becoming an
+`equation` element. Every CSS renderer MUST pass its selected prose stack
+through `fontFamilyWithMathFallback`: the prose face remains first, while STIX
+Two Math and platform math faces sit before the final generic family. This is
+what makes combining accents and operators such as `n⃗` and `−` render as
+characters rather than missing-glyph rectangles. The PDF wrapper MUST declare
+the bundled STIX face and wait for `document.fonts.ready` before printing.
+
 ### 10.2 Editing chrome
 
 Handles, guides, outlines and inline fields are drawn *inside* the scaled
@@ -433,7 +441,7 @@ and "it silently disappears" is not one of them.
 | Target | Obligation |
 | --- | --- |
 | HTML (`deckToHtml`) | Draw it with inline CSS/SVG/MathML only. No external stylesheet, no font file, no script. Anything the element loads by URL must be reachable from `inlineDeckAssets`, which fetches every project reference and embeds it before the export is written — a new field naming a file belongs in that walk, or the exported deck breaks the moment it is sent to someone. |
-| PDF (`exportPdf`) | Same markup as HTML, printed from a hidden iframe, with `live` false — the page is paper, so anything that plays or animates MUST have a still. Same-origin assets may be referenced by URL (the math font's `@font-face` does). |
+| PDF (`exportPdf`) | Same element markup as HTML, printed from a hidden iframe, with `live` false — the page is paper, so anything that plays or animates MUST have a still. The wrapper loads the editor's web-font stylesheet and may reference same-origin assets (the math font's `@font-face` does). In the desktop host, success means `pdfPrintingFinished` reported a completed write; closing or merely opening a dialog MUST NOT be reported as success. |
 | PPTX (`exportPptx`) | Map it to a real PowerPoint object where one exists. Where none exists, export the **source** in the box the element occupied and record the gap in §2.18 of PROJECT_DESIGN.md. Never rasterize something the deck stores as source (I8). |
 
 What each type answers today:

@@ -36,9 +36,10 @@ const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAFklEQVR4nGP8//8/A
             id: 'madrid', type: 'theme', name: 'Madrid', desc: "Beamer's most-used look",
             version: '', hasIcon: false, hasImage: false,
             theme: {
-              background: '#ffffff', color: '#1a1a1a', accent: '#3465a4',
-              headerHeight: 180, headerColor: '#3465a4', titleColor: '#ffffff',
-              footerHeight: 40, footerColor: '#3465a4', footerText: 'title',
+              background: '#ffffff', color: '#000000', accent: '#3333b3',
+              fontFamily: 'Latin Modern Sans, Nimbus Sans, Helvetica Neue, Arial, sans-serif',
+              headerHeight: 132, headerColor: '#3333b3', titleColor: '#ffffff',
+              footerHeight: 24, footerColor: '#3333b3', footerText: 'title',
             },
           },
           {

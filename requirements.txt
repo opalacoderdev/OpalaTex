@@ -15,8 +15,8 @@ tree-sitter-language-pack>=1.8.0
 chromadb>=0.4.0
 pywebview>=4.0
 pywinpty>=2.0.0; sys_platform == "win32"
-PyQt6>=6.0.0
-PyQt6-WebEngine>=6.0.0
+PyQt6>=6.8.0
+PyQt6-WebEngine>=6.8.0
 qtpy>=2.4.0
 ddgs>=1.0.0
 pymupdf4llm>=0.0.17
