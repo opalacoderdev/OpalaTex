@@ -279,7 +279,7 @@ def _check_slide_background(deck: dict[str, Any], slide: dict[str, Any], number:
     if not image:
         return findings
 
-    if not image.startswith(("data:", "http:", "https:", "blob:")) and project_root:
+    if not image.startswith(("data:", "jpt:", "http:", "https:", "blob:")) and project_root:
         path = image if os.path.isabs(image) else os.path.join(project_root, image)
         if not os.path.exists(path):
             findings.append(Finding(
@@ -454,7 +454,7 @@ def _check_image(element: dict[str, Any], number: int,
     if not src:
         return [Finding("error", "missing-image",
                         "the image element has no src", number, element["id"])]
-    if src.startswith(("data:", "http:", "https:", "blob:")):
+    if src.startswith(("data:", "jpt:", "http:", "https:", "blob:")):
         return []
     if project_root:
         path = src if os.path.isabs(src) else os.path.join(project_root, src)
@@ -485,7 +485,7 @@ def _check_video(element: dict[str, Any], number: int,
 
     if source["kind"] == "file":
         src = source["url"]
-        if not src.startswith(("data:", "http:", "https:", "blob:")):
+        if not src.startswith(("data:", "jpt:", "http:", "https:", "blob:")):
             if project_root:
                 path = src if os.path.isabs(src) else os.path.join(project_root, src)
                 if not os.path.exists(path):

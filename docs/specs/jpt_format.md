@@ -23,10 +23,12 @@ Read in this order:
 | Writing a tool or agent that edits a deck | §7, §9, §13, §17 |
 | Deciding whether something is a format change at all | §11, §12.4 |
 
-The normative source is [`gui_src/src/slides/model.js`](../../gui_src/src/slides/model.js).
-Where this document and that file disagree, the file is right and this document
-is a bug. Every behaviour stated below was checked against the running code, and
-the invariants in §6 are covered by the suites in §14.
+The normative sources are
+[`gui_src/src/slides/model.js`](../../gui_src/src/slides/model.js) for the deck
+model and [`opalatex/jpt/package.py`](../../opalatex/jpt/package.py) for its
+on-disk container. Where this document and those files disagree, the code is
+right and this document is a bug. Every behaviour stated below is covered by
+the suites in §14.
 
 ## 1. Conformance language
 
@@ -39,15 +41,51 @@ emits one. The editor is both.
 | Property | Value |
 | --- | --- |
 | Extension | `.jpt` — one suffix, not `.deck.json`. It is what routes the file to the deck editor, and what makes a presentation name, sort, filter and round-trip through a file dialog like every other document. |
-| Encoding | UTF-8, no BOM. |
-| Syntax | JSON. One deck object per file. A `.jpt` is *not* a generic JSON document: it opens on a canvas, never in Monaco. |
-| Syntax highlighting | `utils/language.js` maps `jpt` to the JSON grammar, so surfaces that do show it as text (a diff, a checkpoint preview) still colour it. |
-| Trailing newline | Exactly one. `serializeDeck` appends `\n`. |
-| Indentation | Two spaces (`JSON.stringify(deck, null, 2)`). |
+| Encoding | Binary ZIP/ZIP64 container. `deck.json` is UTF-8 without BOM. |
+| Media type | `application/vnd.opalatex.presentation+zip`, repeated verbatim in the uncompressed `mimetype` member. |
+| Syntax | The package layout in §2.1, containing one deck object in `deck.json`. A `.jpt` is *not* a generic ZIP or JSON document: it opens on a canvas, never in Monaco. |
+| Syntax highlighting | Surfaces that expose the logical `deck.json` (a diff, checkpoint preview or agent read) map `jpt` to the JSON grammar. |
+| JSON trailing newline | Exactly one. `serializeDeck` appends `\n`. |
+| JSON indentation | Two spaces (`JSON.stringify(deck, null, 2)`). |
 
-An empty file is legal on disk and means "not written yet": the editor writes a
-default deck out on first mount, so the next tool to read the file never sees
-`''`.
+### 2.1 Package layout
+
+```text
+mimetype                         stored, ASCII media type
+assets/<sha256>.<extension>      stored, zero or more image/video payloads
+deck.json                        deflated, canonical deck JSON
+```
+
+An internal binary is addressed from the deck as
+`jpt:assets/<sha256>.<extension>`. The digest is lowercase SHA-256 of the
+uncompressed bytes, so the same asset referenced ten times is present once.
+Image sources, video sources and posters, and theme/slide background images all
+participate. Assets use ZIP's **stored** method: PNG, JPEG and video are already
+compressed, and storing them lets `/api/jpt/asset` seek to a video byte range
+without inflating everything before it. `deck.json` is last so a small text edit
+does not shift the large member data that precedes it.
+
+A conforming writer MUST:
+
+- replace every `data:` URI and project-local path in an asset-bearing field
+  with an internal `jpt:` reference;
+- abort atomically when a local asset is missing, escapes the project root, or
+  an internal reference has no member;
+- use fixed member timestamps, stable member order and canonical JSON, so the
+  same logical input produces the same bytes;
+- reject duplicate, encrypted, absolute or traversal member names; and
+- preserve safe members in unknown namespaces while treating `mimetype`,
+  `deck.json` and `assets/` as reserved.
+
+HTTP(S) player URLs such as YouTube and Vimeo identify network services rather
+than files and remain URLs. Such playback necessarily requires that service;
+all local file dependencies are inside the JPT.
+
+Readers MUST accept the legacy serialization in which the whole `.jpt` is
+plain UTF-8 JSON. Writers always emit the package form, so the first save
+upgrades a legacy deck atomically. An empty legacy file is a creation-state
+input and becomes a packaged default deck when written; packaged files always
+contain `deck.json`.
 
 ## 3. Document model
 
@@ -186,7 +224,7 @@ in an export, and a dashed prompt in the editor.
 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `src` | string | `''` | A `data:` URI, an `http(s):` URL, or a path relative to the project root. Data URIs are what the editor produces, and what the authoring tools embed on the way in (§17.4), because they make a deck one self-contained file that survives being moved. A project path stays legal and still renders in the app; it just does not travel. |
+| `src` | string | `''` | Canonically, a `jpt:assets/…` member or an `http(s):` URL. Readers also accept a `data:` URI or project-relative path as migration/editing input; the package writer internalizes it on save (§17.4). |
 | `alt` | string | `''` | |
 | `fit` | `contain` \| `cover` \| `fill` | `contain` | CSS `object-fit`. |
 
@@ -194,7 +232,7 @@ in an export, and a dashed prompt in the editor.
 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `src` | non-empty string | — | Either a link to a video *page* — YouTube or Vimeo — or a video *file*: a `data:` URI, an `http(s):` URL, or a path relative to the project root. |
+| `src` | non-empty string | — | Either a link to a video *page* — YouTube or Vimeo — or a video *file*: canonically a `jpt:assets/…` member; readers also accept `data:`, `http(s):` and project paths as inputs. Local files are internalized on save. |
 | `poster` | string | `''` | A still shown wherever the video cannot play. `''` means none, and the surfaces draw a placeholder instead. |
 | `alt` | string | `''` | |
 | `fit` | `contain` \| `cover` \| `fill` | `contain` | CSS `object-fit`, applied to the poster and to a file player. An embedded provider's player fills its box; the provider letterboxes inside it. |
@@ -265,11 +303,14 @@ exactly that.
 
 These are the rules a change may not break. Each is covered by a test (§14).
 
-- **I1 — Byte-exact round-trip.** Parsing a deck and serializing it straight
-  back MUST reproduce the file byte for byte. A deck editor that rewrites a
-  file on open makes every save a spurious diff. A corollary: legacy spellings
-  are *read* through a helper (`arrowsOf`, `borderOf`, `isLineShape`) and never
-  normalized away at parse time.
+- **I1 — Exact logical and deterministic physical round-trip.** Parsing
+  `deck.json` and serializing it straight back MUST reproduce its bytes exactly.
+  Rewriting an already-canonical package with no logical change MUST reproduce
+  the package bytes exactly. A corollary: legacy model spellings are *read*
+  through a helper (`arrowsOf`, `borderOf`, `isLineShape`) and never normalized
+  away at parse time. The one intentional migration is a legacy plain-JSON JPT
+  or a noncanonical local/data asset reference becoming a package reference on
+  save.
 - **I2 — Unknown keys survive.** A deck, slide, theme or element key this build
   does not know MUST round-trip unchanged. This is what lets a newer build, or
   an agent, set a field without an older build destroying it.
@@ -278,10 +319,11 @@ These are the rules a change may not break. Each is covered by a test (§14).
   `ELEMENT_KEY_ORDER`, then anything else in insertion order. New keys MUST be
   added to the relevant list, or they sort after everything and diffs get
   noisy.
-- **I4 — The JSON is the document.** There is no derived representation to keep
-  in sync: parsing is `JSON.parse` and the model *is* the file. Nothing may
-  introduce a second source of truth (a cache of rendered output, a
-  denormalized index, a `z` field beside array order).
+- **I4 — `deck.json` is the model source of truth.** Binary package members are
+  opaque payloads named by its asset references, not a second model. There is
+  no derived slide representation to keep in sync: parsing the logical model is
+  `JSON.parse`. Nothing may introduce a rendered cache, denormalized index, or
+  a `z` field beside array order.
 - **I5 — Repair, never reject.** A structurally odd but parseable deck MUST be
   repaired (§7). Only malformed JSON, and a top-level value that is not an
   object, may throw. A hand-edited file must never lock the user out of their
@@ -307,10 +349,12 @@ These are the rules a change may not break. Each is covered by a test (§14).
 
 ## 7. Reading a deck
 
-`parseDeck(text)` throws only on malformed JSON, or when the top-level value is
-not a JSON object (message: `deck file must contain a JSON object`). Everything
-else is repaired. The table is the measured behaviour, and a reader that is not
-the editor SHOULD reproduce it:
+The backend container reader first extracts `deck.json` (or passes through a
+legacy plain-JSON file) without reading packaged media into memory.
+`parseDeck(text)` then throws only on malformed JSON, or when the top-level
+value is not a JSON object (message: `deck file must contain a JSON object`).
+Everything else is repaired. The table is the measured behaviour, and a reader
+that is not the editor SHOULD reproduce it:
 
 | Input | Result |
 | --- | --- |
@@ -330,9 +374,11 @@ the editor SHOULD reproduce it:
 
 ## 8. Writing a deck
 
-`serializeDeck(deck)` is the only sanctioned writer. It reorders keys (I3),
-pretty-prints with two spaces, and appends one newline. A writer that is not
-the editor MUST produce a document that satisfies
+`serializeDeck(deck)` is the only sanctioned writer of the logical JSON. It
+reorders keys (I3), pretty-prints with two spaces, and appends one newline.
+`write_packaged_jpt()` is the sanctioned physical writer: it internalizes
+assets and writes the verified package to a temporary file before replacing
+the destination. A writer that is not the editor MUST produce `deck.json` that satisfies
 [`jpt.schema.json`](jpt.schema.json), which describes what a conforming writer
 emits for format version 1. (The schema is deliberately stricter than the
 reader: the reader repairs, the writer has no excuse.)
@@ -340,8 +386,8 @@ reader: the reader repairs, the writer has no excuse.)
 Validate with any Draft 2020-12 validator, for example:
 
 ```bash
-python3 -c "import json,jsonschema;jsonschema.Draft202012Validator(
-  json.load(open('docs/specs/jpt.schema.json'))).validate(json.load(open('deck.jpt')))"
+unzip -p deck.jpt deck.json | python3 -c "import sys,json,jsonschema;jsonschema.Draft202012Validator(
+  json.load(open('docs/specs/jpt.schema.json'))).validate(json.load(sys.stdin))"
 ```
 
 ## 9. The operation vocabulary
@@ -561,6 +607,9 @@ What belongs where:
   rule in §7, the invariants of each operation, geometry, clipboard payloads,
   and the *markup* an export produces (`deckToHtml` is a pure function of the
   deck).
+- **`tests/test_jpt_package.py` and `tests/test_jpt_api.py`** — deterministic
+  container layout, content-addressed assets, atomic failure, traversal
+  rejection, legacy migration, the logical file API, and video byte ranges.
 - **`test/browser/run.py`** — what only a real browser can answer: whether a
   click reaches an element, whether focus survives the press that opened an
   editor, whether a box fitted to measured content is actually the size of that
@@ -570,8 +619,8 @@ What belongs where:
 
 ## 15. A complete deck
 
-Verbatim output of `serializeDeck`, showing all four element types. This is
-what a conforming writer produces.
+Verbatim `deck.json` output of `serializeDeck`, showing all five element types.
+This is the logical model a conforming package writer includes.
 
 ```json
 {
@@ -699,6 +748,7 @@ valid file and an unusable presentation, so it does not get to pick them.
 | Intent → geometry | `layout.py` | The grid, the ten layouts, auto-fitted type |
 | The check | `lint.py` | Every defect an audience would notice |
 | The format | `model.py` | Construction, strict validation, byte-exact `serialize()` |
+| The package | `package.py` | Atomic ZIP writing, internal asset addressing, legacy reading |
 | Estimation | `metrics.py` | Text and formula sizes, without a browser |
 
 ### 17.1 The three tools
@@ -797,34 +847,30 @@ Three rules an author must not break:
 the findings instead. Warnings are written and reported, because the author is
 better placed than the linter to know whether nine bullets are the point.
 
-### 17.4 Pictures are embedded, not referenced
+### 17.4 Local assets are always packaged
 
-A deck the user builds by hand holds its pictures as data URIs, because that is
-what the editor's picker and paste produce. A deck an agent writes by naming
-`figures/plot.png` looks identical in the app and is a different kind of file:
-move it, send it, or sync it without the figures directory and the slides are
-empty. Two ways of producing one document must not differ in whether the result
-survives being moved, so `create_presentation` and `edit_presentation` embed
-every project-relative picture — image elements and backgrounds alike — before
-writing.
+A deck the user builds by hand initially holds picked pictures as data URIs; an
+agent commonly names `figures/plot.png` or `media/demo.mp4`. Both are editing
+inputs, not canonical storage. Every save walks image elements, video files and
+posters, and theme/slide backgrounds, copies their bytes into `assets/`, and
+replaces the source with a content-addressed `jpt:` URI. Thus a JPT with local
+media is one movable file without putting base64 films in the JSON the editor
+parses.
 
-- The file on disk is **left where it is**. It is the source the user re-renders
-  or re-edits, not a temporary.
-- The same source used on ten slides is read and embedded **once**.
-- A picture over `MAX_EMBED_BYTES` (4 MB) keeps its reference and the tool says
-  so: base64 costs a third more than the bytes it carries, and a `.jpt` is a
-  file a human diffs, a checkpoint stores and the cloud mirror uploads.
-- A picture that cannot be read keeps its reference too — the linter already
-  reports it by name as `missing-image`, and failing here would report the same
-  problem twice, in a worse place.
-- `"embed_images": false` in the outline keeps plain references, and
-  `{"op": "embed_images"}` packs a deck that was keeping them — explicit, so it
-  overrides the rule below. The editor offers the same thing from its status
-  strip, which shows how many pictures the file would lose if it were moved.
-- **An edit follows the convention the file already shows**: a deck whose
-  pictures are embedded gets the ones an edit adds embedded too, and a deck that
-  keeps references is left keeping them. An edit must not quietly reverse a
-  decision the author made.
+- Source files on disk are **left where they are**. They remain inputs the user
+  may re-render or edit; the package owns a snapshot of their bytes.
+- Identical sources used any number of times become one member. There is no
+  4 MB exception: large local video is precisely why assets live as stored ZIP
+  members instead of data URIs.
+- A missing file, a path outside the project, a `blob:` URL, or a dangling
+  `jpt:` member aborts the atomic write. A document promised as self-contained
+  cannot silently retain a broken local dependency.
+- `"embed_images": false` no longer disables packaging. It is accepted in old
+  outlines but has no effect. `{"op": "embed_images"}` remains as an
+  idempotent compatibility operation; every save already performs it for all
+  supported local media.
+- YouTube/Vimeo and other HTTP(S) services stay URLs. They are links to a remote
+  player, not local files, and playback therefore still needs the network.
 
 ### 17.5 What it deliberately does not do
 

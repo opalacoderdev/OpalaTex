@@ -120,13 +120,9 @@ export default function EditorPanel({
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
   const isHtmlFile = selectedFile && /\.(html|htm)$/i.test(selectedFile);
   const isMarkdownFile = !!selectedFile && selectedFile.toLowerCase().endsWith('.md');
-  // Presentations are JSON, but they are edited on a canvas rather than in
-  // Monaco, so they need an extension of their own — a plain `.json` must stay
-  // a text file. `.jpt` (JSON PresenTation) is that extension: one suffix, so
-  // "name.jpt" reads and sorts like every other document in the explorer, and
-  // unambiguous, so nothing else can claim it. The content is still JSON, and
-  // utils/language.js maps the extension to the JSON grammar for every surface
-  // that shows it as text.
+  // Presentations have a JSON model but are edited on a canvas and stored as a
+  // package with their media. `.jpt` routes that document to this surface; a
+  // plain `.json` stays a text file in Monaco.
   const isDeckFile = !!selectedFile && selectedFile.toLowerCase().endsWith('.jpt');
   // Files that have a rendered preview at all — the only ones the preview
   // buttons are offered for, in either full or side-by-side layout.
@@ -1775,6 +1771,7 @@ export default function EditorPanel({
               key={selectedFile}
               source={fileContent}
               activeProjectPath={activeProject?.project_path}
+              deckFilePath={selectedFile}
               uiScale={uiScale}
               onChange={setFileContent}
             />

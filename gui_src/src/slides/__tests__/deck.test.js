@@ -1275,6 +1275,7 @@ test('a cover exports without an empty band', () => {
 
 test('a source that travels with the file is not external', () => {
   assert.ok(isPortableSource('data:image/png;base64,iVBORw0KGgo='));
+  assert.ok(isPortableSource(`jpt:assets/${'a'.repeat(64)}.png`));
   assert.ok(isPortableSource('https://example.com/a.png'));
   assert.ok(isPortableSource(''));
   assert.ok(!isPortableSource('figures/a.png'));

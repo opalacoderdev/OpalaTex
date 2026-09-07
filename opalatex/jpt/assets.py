@@ -1,11 +1,9 @@
-"""Embedding a deck's pictures into the deck.
+"""Legacy data-URI helpers for presentation assets.
 
-The editor inlines every picture the user picks or pastes, which is what makes a
-`.jpt` one self-contained file that survives being moved, copied to another
-machine, or sent to someone. A deck an agent wrote by referencing
-`figures/plot.png` looks identical in the app and is not the same thing at all:
-move the file and the slide is empty. Two ways of creating the same document
-should not differ in whether the result is portable, so the tools embed too.
+Canonical `.jpt` files now use `package.py`: local pictures and films live as
+content-addressed ZIP members rather than base64 in `deck.json`. These helpers
+remain for export/staging compatibility and for callers that explicitly need a
+data URI; they do not define the current on-disk package contract.
 
 Two limits, both deliberate and both reported rather than silent:
 
@@ -41,7 +39,7 @@ MIME_BY_EXTENSION = {
 }
 
 # Sources that already travel with the file, or that resolve anywhere.
-PORTABLE_PREFIXES = ("data:", "http:", "https:", "blob:")
+PORTABLE_PREFIXES = ("data:", "jpt:", "http:", "https:", "blob:")
 
 
 def is_portable(src: str | None) -> bool:
@@ -138,4 +136,9 @@ def used_sources(deck: dict[str, Any]) -> list[str]:
         for element in slide.get("elements") or []:
             if element.get("type") == "image" and element.get("src"):
                 sources.append(element["src"])
+            elif element.get("type") == "video":
+                if element.get("src"):
+                    sources.append(element["src"])
+                if element.get("poster"):
+                    sources.append(element["poster"])
     return sources

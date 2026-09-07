@@ -46,7 +46,7 @@ import {
 import {
   clampEquationFont, EMPTY_EQUATION_SIZE, equationScaleFactor, measureEquation,
 } from './equation.js';
-import { exportHtml, exportPdf, exportPptx, inlineDeckAssets } from './export.js';
+import { exportHtml, exportPdf, exportPptx } from './export.js';
 import { isUnplayableVideoFile, videoLabelOf, videoSourceOf } from './video.js';
 import './slides.css';
 
@@ -115,6 +115,7 @@ function measureImage(src, maxW) {
 export default function SlideEditor({
   source,
   activeProjectPath,
+  deckFilePath,
   uiScale = 1,
   onChange,
 }) {
@@ -277,9 +278,14 @@ export default function SlideEditor({
   const resolveSrc = useCallback((src) => {
     if (!src) return '';
     if (/^(data:|blob:|https?:)/.test(src)) return src;
+    if (src.startsWith('jpt:')) {
+      if (!activeProjectPath || !deckFilePath) return '';
+      return `/api/jpt/asset?projectPath=${encodeURIComponent(activeProjectPath)}`
+        + `&filePath=${encodeURIComponent(deckFilePath)}&src=${encodeURIComponent(src)}`;
+    }
     if (!activeProjectPath) return src;
     return `/api/file/raw?projectPath=${encodeURIComponent(activeProjectPath)}&filePath=${encodeURIComponent(src)}`;
-  }, [activeProjectPath]);
+  }, [activeProjectPath, deckFilePath]);
 
   // ─── zoom to fit ───────────────────────────────────────────────────────────
   // The canvas is never scrolled: it always shows the whole slide, scaled to
@@ -491,10 +497,9 @@ export default function SlideEditor({
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    // Images are inlined as data URIs so a deck is one self-contained file that
-    // survives being moved, and so every export path works without resolving
-    // anything. Large photos make the JSON large — a deliberate trade of size
-    // for never showing a broken image.
+    // A data URI keeps the picked bytes in the unsaved buffer without creating
+    // a project sidecar. The backend moves them to a binary package member on
+    // save, so large images do not remain base64 in deck.json.
     const src = await blobToDataUrl(file);
     if (!src) return;
     const box = await measureImage(src, deck.width * PASTED_IMAGE_MAX_WIDTH);
@@ -552,52 +557,11 @@ export default function SlideEditor({
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    // Inlined as a data URI for the reason every other picture in a deck is:
-    // one self-contained file that survives being moved, and exports that need
-    // to resolve nothing.
+    // Kept in the live buffer as a data URI, then moved to a package member by
+    // the backend on save.
     const src = await blobToDataUrl(file);
     if (src) patchSlide({ backgroundImage: src });
   }, [patchSlide]);
-
-  // Packing the deck's pictures into the deck.
-  //
-  // The one thing about a deck's portability the user cannot see by looking at
-  // it: a picture referenced from the project and a picture embedded in the
-  // file draw identically on the slide, and only one of them survives the deck
-  // being sent to someone. The exports already inline on the way out — this is
-  // for the file itself, so the `.jpt` in the explorer is the whole
-  // presentation.
-  const packImages = useCallback(async () => {
-    const before = deck;
-    setExportNote(t('deck.packing'));
-    try {
-      const { deck: packed, inlined, failed } = await inlineDeckAssets(before, { resolveSrc });
-      if (!inlined) {
-        setExportNote(failed.length
-          ? t('deck.packFailed', { count: failed.length })
-          : t('deck.packNothing'));
-        return;
-      }
-      // One history entry, and only if the deck is still the one that was
-      // packed: the fetches are asynchronous and the user may have kept editing.
-      //
-      // Whether it *was* still the same is read from the ref rather than from a
-      // flag set inside the updater — React runs that updater on its own
-      // schedule, so the flag is always still false by the time the message is
-      // chosen, and the message would report a stale deck on every successful
-      // pack. The updater keeps its own guard: the ref decides what to say, the
-      // updater decides what to write.
-      const current = deckRef.current;
-      apply(latest => (latest === before ? packed : latest));
-      setExportNote(current !== before
-        ? t('deck.packStale')
-        : (failed.length
-          ? t('deck.packedWithFailures', { count: inlined, failed: failed.length })
-          : t('deck.packed', { count: inlined })));
-    } catch (error) {
-      setExportNote(t('deck.packFailed', { count: '?', message: error?.message }));
-    }
-  }, [apply, deck, resolveSrc, t]);
 
   const runExport = useCallback(async (label, run) => {
     setExportNote(t('deck.exporting'));
@@ -1098,15 +1062,13 @@ export default function SlideEditor({
             </span>
             <span className="deck-status-item deck-status-dim">{Math.round(scale * 100)}%</span>
             {externalSources.length > 0 && (
-              <button
-                type="button"
-                className="deck-status-btn"
+              <span
+                className="deck-status-item deck-status-dim"
                 title={t('deck.packHint', { files: externalSources.slice(0, 4).join(', ') })}
-                onClick={packImages}
               >
                 <Package size={12} />
-                <span>{t('deck.packImages', { count: externalSources.length })}</span>
-              </button>
+                <span>{t('deck.packOnSave', { count: externalSources.length })}</span>
+              </span>
             )}
             {exportNote && <span className="deck-status-item deck-status-note">{exportNote}</span>}
             <span className="deck-spacer" />

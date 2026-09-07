@@ -885,7 +885,11 @@ class AsyncHTTPServer:
             pass
 
     def send_response(self, writer, status_code, body, content_type="text/plain"):
-        status_msg = "OK" if status_code == 200 else ("Not Found" if status_code == 404 else "Error")
+        status_msg = {
+            200: "OK", 206: "Partial Content", 400: "Bad Request",
+            403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
+            500: "Internal Server Error",
+        }.get(status_code, "Error")
         if (content_type.startswith("text/") or 
             content_type in ("application/javascript", "application/json", "image/svg+xml")):
             if "charset=" not in content_type:
@@ -902,7 +906,11 @@ class AsyncHTTPServer:
         writer.close()
 
     def send_response_with_headers(self, writer, status_code, body, content_type="text/plain", extra_headers=None):
-        status_msg = "OK" if status_code == 200 else ("Not Found" if status_code == 404 else "Error")
+        status_msg = {
+            200: "OK", 206: "Partial Content", 400: "Bad Request",
+            403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
+            500: "Internal Server Error",
+        }.get(status_code, "Error")
         if (content_type.startswith("text/") or
             content_type in ("application/javascript", "application/json", "image/svg+xml")):
             if "charset=" not in content_type:
@@ -920,6 +928,34 @@ class AsyncHTTPServer:
         headers.append("Connection: close")
         writer.write(("\r\n".join(headers) + "\r\n\r\n").encode('utf-8'))
         writer.write(body)
+        writer.close()
+
+    async def send_streaming_response(
+        self, writer, status_code, chunks, content_length,
+        content_type="application/octet-stream", extra_headers=None,
+    ):
+        """Send a known-length body without assembling it in memory."""
+        status_msg = {
+            200: "OK", 206: "Partial Content", 400: "Bad Request",
+            403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
+            500: "Internal Server Error",
+        }.get(status_code, "Error")
+        response_headers = [
+            f"HTTP/1.1 {status_code} {status_msg}",
+            f"Content-Type: {content_type}",
+            f"Content-Length: {content_length}",
+            "Access-Control-Allow-Origin: *",
+        ]
+        for name, value in (extra_headers or {}).items():
+            if "\r" in name or "\n" in name or "\r" in value or "\n" in value:
+                continue
+            response_headers.append(f"{name}: {value}")
+        response_headers.append("Connection: close")
+        writer.write(("\r\n".join(response_headers) + "\r\n\r\n").encode("utf-8"))
+        await writer.drain()
+        for chunk in chunks:
+            writer.write(chunk)
+            await writer.drain()
         writer.close()
 
     def send_cors(self, writer):
@@ -1465,16 +1501,98 @@ class AsyncHTTPServer:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath are required"}', "application/json")
                 return
             full_path = os.path.abspath(os.path.join(project_path, file_path))
-            if not full_path.startswith(os.path.abspath(project_path)):
+            if not _is_path_within(full_path, project_path):
                 self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
                 return
             if not os.path.exists(full_path) or os.path.isdir(full_path):
                 self.send_response(writer, 404, b'{"error":"File not found"}', "application/json")
                 return
             try:
-                with open(full_path, 'r', encoding='utf-8', newline='') as f:
-                    content = f.read()
-                self.send_response(writer, 200, json.dumps({"content": content}).encode('utf-8'), "application/json")
+                if file_path.lower().endswith('.jpt'):
+                    from opalatex.jpt import read_jpt
+
+                    document = read_jpt(full_path)
+                    payload = {"content": document.text, "jptPackaged": document.packaged}
+                else:
+                    with open(full_path, 'r', encoding='utf-8', newline='') as f:
+                        content = f.read()
+                    payload = {"content": content}
+                self.send_response(writer, 200, json.dumps(payload).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 2.1 Read an asset stored inside a packaged JPT. Browsers use byte
+        # ranges when seeking video, so serve a single inclusive range without
+        # inflating or materializing the rest of the package.
+        elif path == '/api/jpt/asset' and method == 'GET':
+            project_path = query.get('projectPath', [None])[0]
+            file_path = query.get('filePath', [None])[0]
+            asset_ref = query.get('src', [None])[0]
+            if not project_path or not file_path or not asset_ref:
+                self.send_response(writer, 400, b'{"error":"projectPath, filePath and src are required"}', "application/json")
+                return
+            project_abs = os.path.abspath(project_path)
+            full_path = os.path.abspath(os.path.join(project_abs, file_path))
+            if not _is_path_within(full_path, project_abs):
+                self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
+                return
+            if not file_path.lower().endswith('.jpt') or not os.path.isfile(full_path):
+                self.send_response(writer, 404, b'{"error":"JPT file not found"}', "application/json")
+                return
+
+            try:
+                import re
+                from opalatex.jpt import (
+                    JptPackageError, get_asset_info, iter_asset,
+                )
+
+                asset_info = get_asset_info(full_path, asset_ref)
+                total = asset_info.size
+                range_value = headers.get('range', '')
+                start = 0
+                end = total - 1
+                partial = bool(range_value)
+                if range_value:
+                    match = re.fullmatch(r'bytes=(\d*)-(\d*)', range_value.strip())
+                    if not match or (not match.group(1) and not match.group(2)):
+                        raise JptPackageError("malformed asset byte range")
+                    if match.group(1):
+                        start = int(match.group(1))
+                        end = int(match.group(2)) if match.group(2) else total - 1
+                    else:
+                        suffix = int(match.group(2))
+                        if suffix <= 0:
+                            raise JptPackageError("malformed asset byte range")
+                        start = max(0, total - suffix)
+                        end = total - 1
+                    if start >= total or end < start:
+                        raise JptPackageError(
+                            f"asset byte range {start}-{end} is outside a {total}-byte asset"
+                        )
+                    end = min(end, total - 1)
+
+                content_length = 0 if total == 0 else end - start + 1
+                response_headers = {
+                    "Accept-Ranges": "bytes",
+                    "Cache-Control": "private, max-age=31536000, immutable",
+                }
+                if partial and total:
+                    response_headers["Content-Range"] = f"bytes {start}-{end}/{total}"
+                chunks = iter_asset(full_path, asset_ref, start=start, end=end)
+                await self.send_streaming_response(
+                    writer, 206 if partial else 200, chunks, content_length,
+                    asset_info.mime,
+                    response_headers,
+                )
+            except JptPackageError as e:
+                status = 416 if "byte range" in str(e) else 400
+                extra = {"Accept-Ranges": "bytes"}
+                if status == 416 and 'total' in locals():
+                    extra["Content-Range"] = f"bytes */{total}"
+                self.send_response_with_headers(
+                    writer, status, json.dumps({"error": str(e)}).encode('utf-8'),
+                    "application/json", extra,
+                )
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
@@ -1537,14 +1655,26 @@ class AsyncHTTPServer:
                 import subprocess
                 git_ctx = _resolve_git_context(project_path, use_shadow, git_root_path)
                 norm_file_path = _project_path_to_repo_path(file_path, git_ctx)
-                result = subprocess.run(
-                    git_ctx["git_cmd"] + ["show", f"HEAD:{norm_file_path}"],
-                    capture_output=True, cwd=git_ctx["cwd"], **utf8_text_kwargs()
-                )
+                command = git_ctx["git_cmd"] + ["show", f"HEAD:{norm_file_path}"]
+                if file_path.lower().endswith('.jpt'):
+                    result = subprocess.run(
+                        command, capture_output=True, cwd=git_ctx["cwd"]
+                    )
+                else:
+                    result = subprocess.run(
+                        command, capture_output=True, cwd=git_ctx["cwd"],
+                        **utf8_text_kwargs()
+                    )
                 source = git_ctx["source"]
                     
                 if result.returncode == 0:
-                    self.send_response(writer, 200, json.dumps({"content": result.stdout, "source": source}).encode('utf-8'), "application/json")
+                    if file_path.lower().endswith('.jpt'):
+                        from opalatex.jpt import read_jpt_bytes
+
+                        content = read_jpt_bytes(result.stdout).text
+                    else:
+                        content = result.stdout
+                    self.send_response(writer, 200, json.dumps({"content": content, "source": source}).encode('utf-8'), "application/json")
                     return
                 else:
                     self.send_response(writer, 200, b'{"error":"Not found in git"}', "application/json")
@@ -1574,14 +1704,29 @@ class AsyncHTTPServer:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath are required"}', "application/json")
                 return
             full_path = os.path.abspath(os.path.join(project_path, file_path))
-            if not full_path.startswith(os.path.abspath(project_path)):
+            if not _is_path_within(full_path, project_path):
                 self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
                 return
             try:
                 dir_path = os.path.dirname(full_path)
                 os.makedirs(dir_path, exist_ok=True)
-                with open(full_path, 'w', encoding='utf-8', newline='') as f:
-                    f.write(content)
+                response_payload = {"success": True}
+                if file_path.lower().endswith('.jpt'):
+                    from opalatex.jpt import write_packaged_jpt
+
+                    result = write_packaged_jpt(
+                        full_path, content, project_root=project_path
+                    )
+                    response_payload.update({
+                        "content": result.text,
+                        "jptPackaged": True,
+                        "assets": result.assets,
+                        "assetBytes": result.asset_bytes,
+                        "externalUrls": list(result.external_urls),
+                    })
+                else:
+                    with open(full_path, 'w', encoding='utf-8', newline='') as f:
+                        f.write(content)
                 
                 # If writing an SVG file, automatically generate a PDF copy alongside it using PyMuPDF
                 if file_path.endswith('.svg'):
@@ -1601,7 +1746,7 @@ class AsyncHTTPServer:
                         print(f"Error converting SVG to PDF: {ex}")
                 
                 self._notify_cloud_change(project_path)
-                self.send_response(writer, 200, b'{"success":true}', "application/json")
+                self.send_response(writer, 200, json.dumps(response_payload).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
@@ -3577,6 +3722,69 @@ class AsyncHTTPServer:
                 git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 git_cmd = git_ctx["git_cmd"]
                 diff = ""
+                if file_path_param and file_path_param.lower().endswith('.jpt'):
+                    # Git sees the container as binary. Present the canonical
+                    # deck.json diff instead; asset hashes in that JSON still
+                    # make binary additions/replacements visible.
+                    import difflib
+                    from opalatex.jpt import read_jpt, read_jpt_bytes
+
+                    repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
+
+                    def revision_text(revision):
+                        shown = subprocess.run(
+                            git_cmd + ["show", f"{revision}:{repo_file_path}"],
+                            cwd=git_ctx["cwd"], capture_output=True,
+                        )
+                        if shown.returncode != 0:
+                            return ""
+                        return read_jpt_bytes(shown.stdout).text
+
+                    if commit_hash:
+                        verify = subprocess.run(
+                            git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
+                            cwd=git_ctx["cwd"], capture_output=True,
+                            **utf8_text_kwargs(),
+                        )
+                        if verify.returncode != 0:
+                            self.send_response(writer, 400, b'{"error":"Invalid commit"}', "application/json")
+                            return
+                        end_commit_hash = query.get('endCommit', [None])[0]
+                        if end_commit_hash:
+                            verify_end = subprocess.run(
+                                git_cmd + ["rev-parse", "--verify", f"{end_commit_hash}^{{commit}}"],
+                                cwd=git_ctx["cwd"], capture_output=True,
+                                **utf8_text_kwargs(),
+                            )
+                            if verify_end.returncode != 0:
+                                self.send_response(writer, 400, b'{"error":"Invalid endCommit"}', "application/json")
+                                return
+                            before = revision_text(commit_hash)
+                            after = revision_text(end_commit_hash)
+                        else:
+                            parent = subprocess.run(
+                                git_cmd + ["rev-parse", "--verify", f"{commit_hash}^"],
+                                cwd=git_ctx["cwd"], capture_output=True,
+                                **utf8_text_kwargs(),
+                            )
+                            before = revision_text(f"{commit_hash}^") if parent.returncode == 0 else ""
+                            after = revision_text(commit_hash)
+                    else:
+                        before = revision_text("HEAD")
+                        full_path = os.path.join(project_path, file_path_param)
+                        after = read_jpt(full_path).text if os.path.isfile(full_path) else ""
+
+                    diff = "".join(difflib.unified_diff(
+                        before.splitlines(keepends=True),
+                        after.splitlines(keepends=True),
+                        fromfile=f"a/{file_path_param}::deck.json",
+                        tofile=f"b/{file_path_param}::deck.json",
+                    ))
+                    self.send_response(
+                        writer, 200, json.dumps({"diff": diff}).encode('utf-8'),
+                        "application/json",
+                    )
+                    return
                 if commit_hash:
                     verify = subprocess.run(
                         git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],

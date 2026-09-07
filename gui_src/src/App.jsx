@@ -2161,9 +2161,18 @@ export default function App() {
         body: JSON.stringify({ projectPath: activeProject.project_path, filePath: selectedFile, content: currentContent }),
       });
       if (res.ok) {
+        const response = await res.json().catch(() => ({}));
+        // A JPT save replaces data/project references with canonical jpt:
+        // members. Keep the live buffer aligned with what the package contains
+        // so media resolves through the package endpoint immediately.
+        const savedContent = typeof response.content === 'string'
+          ? response.content
+          : currentContent;
         addLog('info', t('app.fileSaved', { path: selectedFile }));
-        diskFileContentsRef.current[selectedFile] = currentContent;
-        setFileContents(prev => ({ ...prev, [selectedFile]: currentContent }));
+        fileContentRef.current = savedContent;
+        setFileContent(savedContent);
+        diskFileContentsRef.current[selectedFile] = savedContent;
+        setFileContents(prev => ({ ...prev, [selectedFile]: savedContent }));
 
         fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)
           .then(r => r.ok ? r.json() : null)

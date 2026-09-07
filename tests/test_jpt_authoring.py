@@ -20,7 +20,8 @@ from opalatex.jpt import layout, metrics
 # the same name — so the module's other helpers are imported by name.
 from opalatex.jpt.lint import MIN_CONTRAST, check_latex, contrast_ratio
 from opalatex.tools import (
-    check_presentation, create_presentation, edit_presentation, set_project_context,
+    check_presentation, create_presentation, edit_presentation, read_file,
+    set_project_context, write_content_pos, write_file,
 )
 
 
@@ -31,6 +32,10 @@ def _raw(tool):
 def _run(tool, tmp_path, **kwargs):
     set_project_context(SimpleNamespace(project_path=str(tmp_path), mode="auto"))
     return asyncio.run(_raw(tool)(**kwargs))
+
+
+def _deck_of(path):
+    return jpt.parse(jpt.read_jpt(path).text)
 
 
 LONG = ("Kolmogorov complexity is the length of the shortest program that "
@@ -352,7 +357,7 @@ def test_create_presentation_writes_a_deck_the_editor_can_open(tmp_path):
         ],
     }))
     assert "2 slides" in out
-    deck = jpt.parse((tmp_path / "talk.jpt").read_text(encoding="utf-8"))
+    deck = _deck_of(tmp_path / "talk.jpt")
     assert deck["title"] == "A talk" and len(deck["slides"]) == 2
 
 
@@ -361,7 +366,7 @@ def test_the_array_form_of_create_pptx_file_is_accepted_too(tmp_path):
     should not have to relearn the other."""
     _run(create_presentation, tmp_path, path="d.jpt", outline_json=json.dumps(
         [{"title": "One", "bullets": ["a", "b"]}]))
-    deck = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))
+    deck = _deck_of(tmp_path / "d.jpt")
     assert len(deck["slides"]) == 1
 
 
@@ -387,10 +392,27 @@ def test_the_path_must_be_a_jpt(tmp_path):
         _run(create_presentation, tmp_path, path="deck.pptx", outline_json="[]")
 
 
+def test_generic_file_tools_use_the_logical_jpt_document(tmp_path):
+    deck = jpt.compile_outline({
+        "slides": [{"layout": "blank", "title": "Generic write"}],
+    })
+    out = _run(write_file, tmp_path, path="generic.jpt", content=jpt.serialize(deck))
+    assert "packaged JPT" in out
+    assert jpt.is_packaged_jpt(tmp_path / "generic.jpt")
+
+    logical = _run(read_file, tmp_path, path="generic.jpt")
+    assert json.loads(logical)["slides"][0]["elements"][0]["text"] == "Generic write"
+    with pytest.raises(ValueError, match="cannot be edited by line position"):
+        _run(
+            write_content_pos, tmp_path,
+            path="generic.jpt", content="not valid here", pos=1,
+        )
+
+
 def test_edit_presentation_applies_operations_and_re_checks(tmp_path):
     _run(create_presentation, tmp_path, path="d.jpt", outline_json=json.dumps({
         "slides": [{"layout": "bullets", "title": "One", "bullets": ["a"]}]}))
-    deck = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))
+    deck = _deck_of(tmp_path / "d.jpt")
     slide_id = deck["slides"][0]["id"]
 
     out = _run(edit_presentation, tmp_path, path="d.jpt", operations_json=json.dumps([
@@ -399,7 +421,7 @@ def test_edit_presentation_applies_operations_and_re_checks(tmp_path):
         {"op": "set_notes", "slide": slide_id, "notes": "remember the pause"},
     ]))
     assert "2 slides" in out
-    after = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))
+    after = _deck_of(tmp_path / "d.jpt")
     assert after["slides"][0]["notes"] == "remember the pause"
     assert after["slides"][1]["elements"][1]["type"] == "equation"
 
@@ -407,22 +429,22 @@ def test_edit_presentation_applies_operations_and_re_checks(tmp_path):
 def test_a_failed_operation_leaves_the_file_untouched(tmp_path):
     _run(create_presentation, tmp_path, path="d.jpt", outline_json=json.dumps({
         "slides": [{"layout": "bullets", "title": "One", "bullets": ["a"]}]}))
-    before = (tmp_path / "d.jpt").read_text(encoding="utf-8")
+    before = (tmp_path / "d.jpt").read_bytes()
     with pytest.raises(ValueError, match="operation 2"):
         _run(edit_presentation, tmp_path, path="d.jpt", operations_json=json.dumps([
-            {"op": "set_notes", "slide": jpt.parse(before)["slides"][0]["id"], "notes": "ok"},
+            {"op": "set_notes", "slide": _deck_of(tmp_path / "d.jpt")["slides"][0]["id"], "notes": "ok"},
             {"op": "delete_element", "element": "does-not-exist"},
         ]))
-    assert (tmp_path / "d.jpt").read_text(encoding="utf-8") == before
+    assert (tmp_path / "d.jpt").read_bytes() == before
 
 
 def test_check_presentation_reads_without_writing(tmp_path):
     _run(create_presentation, tmp_path, path="d.jpt", outline_json=json.dumps({
         "slides": [{"layout": "bullets", "title": "One", "bullets": ["a"]}]}))
-    before = (tmp_path / "d.jpt").read_text(encoding="utf-8")
+    before = (tmp_path / "d.jpt").read_bytes()
     out = _run(check_presentation, tmp_path, path="d.jpt")
     assert "1 slide" in out and "No problems found" in out
-    assert (tmp_path / "d.jpt").read_text(encoding="utf-8") == before
+    assert (tmp_path / "d.jpt").read_bytes() == before
 
 
 def test_check_presentation_reports_a_hand_broken_deck(tmp_path):
@@ -450,7 +472,7 @@ def test_latex_survives_the_tool_boundary(tmp_path):
     _run(create_presentation, tmp_path, path="math.jpt", outline_json=json.dumps({
         "slides": [{"layout": "equation", "title": "Attention", "equation": formula}],
     }))
-    deck = jpt.parse((tmp_path / "math.jpt").read_text(encoding="utf-8"))
+    deck = _deck_of(tmp_path / "math.jpt")
     stored = next(el for el in deck["slides"][0]["elements"] if el["type"] == "equation")
     assert stored["latex"] == formula
     assert "\t" not in stored["latex"], "a tab means the escape repair ran over valid JSON"
@@ -589,7 +611,7 @@ def test_set_background_reaches_one_slide_or_the_whole_deck(tmp_path):
     (tmp_path / "figures" / "bg.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     _run(create_presentation, tmp_path, path="d.jpt", outline_json=json.dumps({
         "slides": [{"layout": "blank", "title": "One"}, {"layout": "blank", "title": "Two"}]}))
-    deck = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))
+    deck = _deck_of(tmp_path / "d.jpt")
     second = deck["slides"][1]["id"]
 
     _run(edit_presentation, tmp_path, path="d.jpt", operations_json=json.dumps([
@@ -598,18 +620,16 @@ def test_set_background_reaches_one_slide_or_the_whole_deck(tmp_path):
         {"op": "set_background", "slide": second, "backgroundImage": None,
          "background": "#101010"},
     ]))
-    after = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))
-    # Embedded on the way in, like every other picture an agent references.
-    assert jpt.background_of(after, after["slides"][0])["image"].startswith("data:image/png")
+    after = _deck_of(tmp_path / "d.jpt")
+    # Packaged on the way in, like every other local asset an agent references.
+    assert jpt.background_of(after, after["slides"][0])["image"].startswith("jpt:assets/")
     assert jpt.background_of(after, after["slides"][1])["image"] == ""
     assert after["theme"]["backgroundOpacity"] == 0.4
 
 
 # ─── portability ─────────────────────────────────────────────────────────────
-# The editor inlines every picture the user picks, so a `.jpt` is one file that
-# survives being moved. A deck an agent wrote by referencing `figures/plot.png`
-# looks the same in the app and is not the same thing: move it and the slide is
-# empty. Two ways of making one document must not differ in that.
+# Every local asset becomes a package member, so a `.jpt` survives being moved.
+# A deck authored by an agent and one built in the editor follow one contract.
 
 def _figure(tmp_path, name="figures/plot.png", size=(120, 80)):
     pymupdf = pytest.importorskip("pymupdf")
@@ -624,7 +644,7 @@ def _figure(tmp_path, name="figures/plot.png", size=(120, 80)):
 
 
 def _images_of(path):
-    deck = jpt.parse(path.read_text(encoding="utf-8"))
+    deck = _deck_of(path)
     return [el["src"] for slide in deck["slides"] for el in slide["elements"]
             if el["type"] == "image"]
 
@@ -635,10 +655,10 @@ def test_a_created_deck_embeds_the_pictures_it_references(tmp_path):
         "theme": {"backgroundImage": figure},
         "slides": [{"layout": "image", "title": "A figure", "image": figure}],
     }))
-    assert "Embedded 1 picture" in out, out
-    deck = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))
-    assert deck["theme"]["backgroundImage"].startswith("data:image/png;base64,")
-    assert _images_of(tmp_path / "d.jpt")[0].startswith("data:image/png;base64,")
+    assert "Packaged 1 internal asset" in out, out
+    deck = _deck_of(tmp_path / "d.jpt")
+    assert deck["theme"]["backgroundImage"].startswith("jpt:assets/")
+    assert _images_of(tmp_path / "d.jpt")[0].startswith("jpt:assets/")
     # The file it came from is left where it is: it is the source the user
     # re-renders or re-edits, not a temporary.
     assert (tmp_path / figure).exists()
@@ -650,21 +670,19 @@ def test_the_same_picture_used_twice_is_embedded_once(tmp_path):
         "slides": [{"layout": "image", "title": "One", "image": figure},
                    {"layout": "image", "title": "Two", "image": figure}],
     }))
-    assert "Embedded 1 picture" in out
+    assert "Packaged 1 internal asset" in out
 
 
-def test_embedding_can_be_declined(tmp_path):
+def test_self_containment_cannot_be_declined(tmp_path):
     figure = _figure(tmp_path)
     _run(create_presentation, tmp_path, path="d.jpt", outline_json=json.dumps({
         "embed_images": False,
         "slides": [{"layout": "image", "title": "One", "image": figure}],
     }))
-    assert _images_of(tmp_path / "d.jpt") == [figure]
+    assert _images_of(tmp_path / "d.jpt")[0].startswith("jpt:assets/")
 
 
-def test_an_edit_follows_the_convention_the_file_already_shows(tmp_path):
-    """A deck that keeps references was authored that way on purpose, and an
-    edit must not quietly reverse the decision."""
+def test_an_edit_keeps_the_deck_self_contained(tmp_path):
     figure = _figure(tmp_path)
     for embed in (True, False):
         name = f"{embed}.jpt"
@@ -675,7 +693,7 @@ def test_an_edit_follows_the_convention_the_file_already_shows(tmp_path):
             {"op": "add_slide", "slide": {"layout": "image", "title": "Two", "image": figure}}]))
         sources = _images_of(tmp_path / name)
         assert len(sources) == 2
-        assert all(src.startswith("data:") == embed for src in sources), sources
+        assert all(src.startswith("jpt:assets/") for src in sources), sources
 
 
 def test_a_picture_over_the_size_limit_keeps_its_reference_and_says_so(tmp_path):
@@ -768,7 +786,7 @@ def test_set_presentation_theme_applies_a_store_theme(tmp_path):
     out = _run(set_presentation_theme, tmp_path, path="d.jpt", theme="madrid")
     assert "Madrid" in out
 
-    deck = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))
+    deck = _deck_of(tmp_path / "d.jpt")
     assert deck["theme"]["headerHeight"] == 132
     assert deck["theme"]["footerHeight"] == 24
     assert deck["theme"]["fontFamily"].startswith("Latin Modern Sans")
@@ -786,9 +804,9 @@ def test_a_named_theme_replaces_the_look_rather_than_blending_into_it(tmp_path):
     _run(set_presentation_theme, tmp_path, path="d.jpt", theme="madrid")
     _run(set_presentation_theme, tmp_path, path="d.jpt", theme="blue-arcs")
 
-    theme = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))["theme"]
+    theme = _deck_of(tmp_path / "d.jpt")["theme"]
     assert theme["headerHeight"] == 0 and theme["titleColor"] is None
-    assert theme["backgroundImage"].startswith("data:image/jpeg")
+    assert theme["backgroundImage"].startswith("jpt:assets/")
 
 
 def test_explicit_fields_tweak_the_theme_instead_of_replacing_it(tmp_path):
@@ -799,7 +817,7 @@ def test_explicit_fields_tweak_the_theme_instead_of_replacing_it(tmp_path):
     _run(set_presentation_theme, tmp_path, path="d.jpt", theme="madrid")
     _run(set_presentation_theme, tmp_path, path="d.jpt", fields_json='{"headerColor": "#aa3355"}')
 
-    theme = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))["theme"]
+    theme = _deck_of(tmp_path / "d.jpt")["theme"]
     assert theme["headerColor"] == "#aa3355"
     assert theme["headerHeight"] == 132, "a tweak must not undo the theme"
 
@@ -823,19 +841,18 @@ def test_a_misspelled_theme_field_is_refused_with_the_known_ones(tmp_path):
         _run(set_presentation_theme, tmp_path, path="d.jpt", fields_json='{"headerHight": 10}')
 
 
-def test_embed_images_packs_a_deck_that_was_keeping_references(tmp_path):
-    """The explicit operation overrides the convention rule: it is how a caller
-    says it wants that decision changed."""
+def test_embed_images_is_an_idempotent_compatibility_operation(tmp_path):
     figure = _figure(tmp_path)
     _run(create_presentation, tmp_path, path="d.jpt", outline_json=json.dumps({
         "embed_images": False,
         "slides": [{"layout": "image", "title": "One", "image": figure}]}))
-    assert _images_of(tmp_path / "d.jpt") == [figure]
+    before = _images_of(tmp_path / "d.jpt")[0]
+    assert before.startswith("jpt:assets/")
 
     out = _run(edit_presentation, tmp_path, path="d.jpt",
                operations_json=json.dumps([{"op": "embed_images"}]))
-    assert "Embedded 1 picture" in out
-    assert _images_of(tmp_path / "d.jpt")[0].startswith("data:image/png")
+    assert "Packaged 1 internal asset" in out
+    assert _images_of(tmp_path / "d.jpt")[0] == before
 
 
 def test_packing_covers_backgrounds_as_well_as_elements(tmp_path):
@@ -846,6 +863,6 @@ def test_packing_covers_backgrounds_as_well_as_elements(tmp_path):
         "slides": [{"layout": "bullets", "title": "One", "bullets": ["a"]}]}))
     _run(edit_presentation, tmp_path, path="d.jpt",
          operations_json=json.dumps([{"op": "embed_images"}]))
-    deck = jpt.parse((tmp_path / "d.jpt").read_text(encoding="utf-8"))
-    assert deck["theme"]["backgroundImage"].startswith("data:image/png")
+    deck = _deck_of(tmp_path / "d.jpt")
+    assert deck["theme"]["backgroundImage"].startswith("jpt:assets/")
     assert not [src for src in jpt.used_sources(deck) if not jpt.is_portable(src)]

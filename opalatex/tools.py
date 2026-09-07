@@ -335,6 +335,15 @@ def _read_text_file(path: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _read_logical_text_file(path: str) -> str:
+    """Read a text file, or the JSON document inside a packaged JPT."""
+    if Path(path).suffix.lower() == ".jpt":
+        from .jpt import read_jpt
+
+        return read_jpt(path).text
+    return _read_text_file(path)
+
+
 def _decode_escape_sequences(s: str) -> str:
     """Fix content where the model emitted literal \\n \\t \\r instead of real control chars.
 
@@ -567,7 +576,8 @@ def _binary_read_error(resolved: str) -> str | None:
         "Read the contents of a file in the project workspace. Relative paths are resolved "
         "from the project directory. PDF, DOCX, PPTX and XLSX files are supported: their text "
         "is extracted automatically, so read them with this tool instead of asking the user to "
-        "convert them by hand."
+        "convert them by hand. For a packaged .jpt, this returns its logical deck.json rather "
+        "than ZIP bytes or internal media."
     ),
 )
 def read_file(path: str) -> str:
@@ -624,6 +634,12 @@ def read_file(path: str) -> str:
     # check) treats it exactly like any other document, instead of refusing a
     # file whose content OpalaTex can actually produce.
     extracted = None
+    logical_text = None
+    if Path(resolved).suffix.lower() == ".jpt":
+        try:
+            logical_text = _read_logical_text_file(resolved)
+        except Exception as error:
+            raise ValueError(f"Error reading JPT package '{_preview(resolved)}': {error}")
     if os.path.splitext(resolved)[1].lower() in _DOC_EXTS:
         from .attachments import extract_document_text_from_path
 
@@ -648,9 +664,10 @@ def read_file(path: str) -> str:
             )
 
     if extracted is None:
-        binary_error = _binary_read_error(resolved)
-        if binary_error:
-            raise ValueError(binary_error)
+        if logical_text is None:
+            binary_error = _binary_read_error(resolved)
+            if binary_error:
+                raise ValueError(binary_error)
     else:
         budget_chars = free_context_chars()
         if budget_chars > 0 and len(extracted) > budget_chars:
@@ -692,7 +709,8 @@ def read_file(path: str) -> str:
     # file rather than having its request quietly turned into a partial one.
     budget_chars = free_context_chars()
     try:
-        size = os.path.getsize(resolved)
+        size = (len(logical_text.encode("utf-8")) if logical_text is not None
+                else os.path.getsize(resolved))
     except OSError:
         size = 0
     if size > budget_chars:
@@ -746,7 +764,7 @@ def read_file(path: str) -> str:
         )
 
     try:
-        return _read_text_file(resolved)
+        return logical_text if logical_text is not None else _read_text_file(resolved)
     except Exception as e:
         raise ValueError(f"Error reading {_preview(resolved)}: {e}")
 
@@ -998,7 +1016,7 @@ async def generate_image(
         f"inside a figure environment."
     )
 
-@opalatex_tool(name="write_file", is_safe=False, description="Write or overwrite a file inside the project directory. Relative paths are resolved from the project directory. Creates parent directories if needed. ALWAYS use this tool to save file content — never use run_command with echo/printf/cat to write files, as shell quoting will break with multi-line or HTML/JSON content.")
+@opalatex_tool(name="write_file", is_safe=False, description="Write or overwrite a file inside the project directory. Relative paths are resolved from the project directory. Creates parent directories if needed. For a .jpt, pass the complete logical deck JSON; this tool writes the validated package and internalizes all local assets. ALWAYS use this tool to save file content — never use run_command with echo/printf/cat to write files, as shell quoting will break with multi-line or HTML/JSON content.")
 def write_file(path: str, content: str) -> str:
     try:
         resolved = _resolve_path(path)
@@ -1015,15 +1033,27 @@ def write_file(path: str, content: str) -> str:
         raise ValueError(f"Error: invalid path argument ({e.strerror}).")
 
     try:
-        content = _decode_escape_sequences(content)
-        with open(resolved, "w", encoding="utf-8", newline="") as f:
-            f.write(content)
+        if Path(resolved).suffix.lower() == ".jpt":
+            from .jpt import write_packaged_jpt
+
+            result = write_packaged_jpt(
+                resolved, content, project_root=get_project_path()
+            )
+        else:
+            content = _decode_escape_sequences(content)
+            with open(resolved, "w", encoding="utf-8", newline="") as f:
+                f.write(content)
         try:
             from .code_index import CODE_INDEX
             CODE_INDEX.rebuild_file(resolved)
         except Exception:
             pass
-            
+
+        if Path(resolved).suffix.lower() == ".jpt":
+            return (
+                f"Successfully wrote packaged JPT to {_preview(resolved)} "
+                f"with {result.assets} internal asset(s)."
+            )
         return f"Successfully wrote to {_preview(resolved)}."
     except Exception as e:
         raise ValueError(f"Error writing {_preview(resolved)}: {e}")
@@ -1192,9 +1222,12 @@ _JPT_OUTLINE_HELP = (
     "readable over it). Top level also takes 'theme' {background, "
     "backgroundImage, backgroundFit, backgroundOpacity, color, accent, "
     "fontFamily} for a deck-wide background, and 'slide_numbers': true. "
-    "Pictures referenced by project path are EMBEDDED into the .jpt, so the deck "
-    "is one self-contained file the user can move or send; the file on disk is "
-    "left where it is, and 'embed_images': false keeps plain references instead. "
+    "Pictures and video files referenced by project path are PACKAGED inside the "
+    ".jpt, so the deck is one self-contained file the user can move or send; "
+    "the source files on disk are left where they are. Web-player URLs such as "
+    "YouTube remain links to their network services. The file on disk is a ZIP "
+    "package containing deck.json and jpt:assets/... members; read_file exposes "
+    "the logical JSON, and line-position tools must not be used on it. "
     "NEVER write x/y/w/h or fontSize: the layout computes them."
 )
 
@@ -1218,20 +1251,9 @@ def _load_tool_json(text: str, field: str):
             raise ValueError(f"{field} is not valid JSON: {first}") from first
 
 
-def _jpt_write(resolved: str, deck: dict, *, verb: str, embed: bool = True) -> str:
-    """Embed the pictures, lint, refuse to write a broken deck, and report.
-
-    Embedding happens before the lint, so a picture that was inlined is no
-    longer a path that could go missing, and it happens for both tools because a
-    deck the agent wrote must be as portable as one the user built by hand: the
-    editor inlines every picture the user picks, and two ways of making the same
-    document should not differ in whether the result survives being moved.
-    """
-    from .jpt import describe, embed_images, format_report, has_errors, lint, serialize
-
-    note = ""
-    if embed:
-        note = describe(embed_images(deck, get_project_path()))
+def _jpt_write(resolved: str, deck: dict, *, verb: str) -> str:
+    """Lint and atomically write a self-contained JPT package."""
+    from .jpt import format_report, has_errors, lint, write_packaged_jpt
 
     findings = lint(deck, project_root=get_project_path())
     if has_errors(findings):
@@ -1243,14 +1265,23 @@ def _jpt_write(resolved: str, deck: dict, *, verb: str, embed: bool = True) -> s
             f"{format_report(findings)}"
         )
 
-    text = serialize(deck)
     Path(resolved).parent.mkdir(parents=True, exist_ok=True)
-    Path(resolved).write_text(text, encoding="utf-8")
+    result = write_packaged_jpt(
+        resolved, deck, project_root=get_project_path()
+    )
 
     slides = len(deck["slides"])
     summary = f"{verb} {_preview(resolved)} — {slides} slide{'s' if slides != 1 else ''}."
-    if note:
-        summary += f" {note}"
+    summary += (
+        f" Packaged {result.assets} internal asset"
+        f"{'s' if result.assets != 1 else ''} ({result.asset_bytes:,} bytes)."
+    )
+    if result.external_urls:
+        summary += (
+            " Web-player/network URLs remain external services: "
+            + ", ".join(result.external_urls)
+            + "."
+        )
     if findings:
         summary += f"\n{format_report(findings)}"
     return summary
@@ -1293,8 +1324,7 @@ def create_presentation(path: str, outline_json: str, title: str = "") -> str:
         deck = compile_outline(outline)
     except JptError as error:
         raise ValueError(f"The outline cannot be laid out: {error}")
-    return _jpt_write(resolved, deck, verb="Created",
-                      embed=outline.get("embed_images", True) is not False)
+    return _jpt_write(resolved, deck, verb="Created")
 
 
 @opalatex_tool(
@@ -1314,13 +1344,12 @@ def create_presentation(path: str, outline_json: str, title: str = "") -> str:
         "{\"op\":\"update_element\",\"element\":\"<id>\",\"patch\":{...}}, "
         "{\"op\":\"delete_element\",\"element\":\"<id>\"}, "
         "{\"op\":\"reorder_element\",\"element\":\"<id>\",\"direction\":\"front|forward|backward|back\"}, "
-        "{\"op\":\"embed_images\"} (pack every picture the deck references into "
-        "the file itself, so it can be moved or sent on its own). "
+        "{\"op\":\"embed_images\"} is accepted as an idempotent compatibility "
+        "operation; every save already packages all local pictures and videos. "
         "A slide added this way is laid out by the same engine create_presentation "
         "uses. Read the file first (read_file) to learn the ids. The edited deck "
-        "is checked before it is saved, exactly as on creation. Pictures added by "
-        "an edit are embedded when the deck's existing pictures are embedded, "
-        "and left as references when the deck keeps references."
+        "is checked before it is saved, exactly as on creation. Every local asset "
+        "added by an edit is packaged into the .jpt on save."
     ),
 )
 def edit_presentation(path: str, operations_json: str) -> str:
@@ -1340,21 +1369,9 @@ def edit_presentation(path: str, operations_json: str) -> str:
         raise ValueError("operations_json must be a non-empty array of operations")
 
     try:
-        deck = jptlib.parse(_read_text_file(resolved))
-    except JptError as error:
+        deck = jptlib.parse(jptlib.read_jpt(resolved).text)
+    except (JptError, jptlib.JptPackageError) as error:
         raise ValueError(f"{_preview(resolved)} is not a usable presentation: {error}")
-
-    # Follow the convention the file already demonstrates. A deck whose pictures
-    # are embedded gets the ones this edit adds embedded too; a deck that keeps
-    # plain references was authored that way on purpose — with
-    # `embed_images: false`, or by hand — and an edit must not quietly reverse
-    # that decision. The `embed_images` operation is how a caller says it wants
-    # that decision changed.
-    keeps_references = any(
-        not jptlib.is_portable(src) for src in jptlib.used_sources(deck)
-    )
-
-    forced_embed = False
     grid = jptlib.Grid(deck["width"], deck["height"])
     for index, operation in enumerate(operations, start=1):
         if not isinstance(operation, dict):
@@ -1391,7 +1408,8 @@ def edit_presentation(path: str, operations_json: str) -> str:
             elif op == "delete_element":
                 jptlib.delete_element(deck, str(operation["element"]))
             elif op == "embed_images":
-                forced_embed = True
+                # Compatibility with older callers. Packaging is unconditional.
+                pass
             elif op == "reorder_element":
                 jptlib.reorder_element(deck, str(operation["element"]),
                                        str(operation.get("direction") or "front"))
@@ -1402,8 +1420,7 @@ def edit_presentation(path: str, operations_json: str) -> str:
             # the agent gets a diagnostic and the user keeps their deck.
             raise ValueError(f"operation {index} ({op}) failed: {error}")
 
-    return _jpt_write(resolved, deck, verb="Updated",
-                      embed=forced_embed or not keeps_references)
+    return _jpt_write(resolved, deck, verb="Updated")
 
 
 @opalatex_tool(
@@ -1478,16 +1495,12 @@ def set_presentation_theme(path: str, theme: str = "", fields_json: str = "") ->
         values.update(extra)
 
     try:
-        deck = jptlib.parse(_read_text_file(resolved))
+        deck = jptlib.parse(jptlib.read_jpt(resolved).text)
         jptlib.apply_theme(deck, values)
-    except JptError as error:
+    except (JptError, jptlib.JptPackageError) as error:
         raise ValueError(f"the theme could not be applied: {error}")
-
-    keeps_references = any(
-        not jptlib.is_portable(src) for src in jptlib.used_sources(deck)
-    )
     verb = f"Applied {applied_name} to" if applied_name else "Themed"
-    return _jpt_write(resolved, deck, verb=verb, embed=not keeps_references)
+    return _jpt_write(resolved, deck, verb=verb)
 
 
 @opalatex_tool(
@@ -1510,8 +1523,8 @@ def check_presentation(path: str) -> str:
     if not os.path.exists(resolved):
         raise ValueError(f"No presentation at {_preview(resolved)}.")
     try:
-        deck = jptlib.parse(_read_text_file(resolved))
-    except JptError as error:
+        deck = jptlib.parse(jptlib.read_jpt(resolved).text)
+    except (JptError, jptlib.JptPackageError) as error:
         return f"{_preview(resolved)} is not a usable presentation: {error}"
 
     findings = jptlib.lint(deck, project_root=get_project_path())
@@ -1711,7 +1724,7 @@ def search_code(
         for candidate in candidates:
             searched += 1
             try:
-                text = _read_text_file(str(candidate))
+                text = _read_logical_text_file(str(candidate))
             except Exception:
                 continue
             if "\x00" in text[:4096]:
@@ -1860,7 +1873,9 @@ def get_project_overview(max_depth:int = 5) -> str:
         "Insert content into an EXISTING file starting at a specific line number (1-indexed). "
         "The new content will be inserted just before the specified line. "
         "The file must already exist: use write_file to create a new file, and "
-        "replace_content_range when you need to replace or remove existing lines."
+        "replace_content_range when you need to replace or remove existing lines. This tool "
+        "cannot edit packaged .jpt files; use edit_presentation or a full read_file/write_file "
+        "round-trip for them."
     )
 )
 def write_content_pos(path: str, content: str, pos: int) -> str:
@@ -1882,6 +1897,13 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
             )
     except OSError as e:
         raise ValueError(f"Error: invalid path argument ({e.strerror}).")
+
+    if Path(resolved).suffix.lower() == ".jpt":
+        raise ValueError(
+            "Packaged .jpt files cannot be edited by line position. Use "
+            "edit_presentation, or read_file followed by write_file for a full "
+            "validated deck rewrite."
+        )
 
     try:
         content = _decode_escape_sequences(content)
@@ -1914,7 +1936,9 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
     description=(
         "Replace an inclusive 1-indexed line range in an existing file. "
         "Use this for surgical edits to large files instead of rewriting the entire file. "
-        "Pass an empty content string to delete the selected lines."
+        "Pass an empty content string to delete the selected lines. This tool cannot edit "
+        "packaged .jpt files; use edit_presentation or a full read_file/write_file round-trip "
+        "for them."
     )
 )
 def replace_content_range(path: str, start_pos: int, end_pos: int, content: str) -> str:
@@ -1939,6 +1963,13 @@ def replace_content_range(path: str, start_pos: int, end_pos: int, content: str)
             )
     except OSError as e:
         raise ValueError(f"Error: invalid path argument ({e.strerror}).")
+
+    if Path(resolved).suffix.lower() == ".jpt":
+        raise ValueError(
+            "Packaged .jpt files cannot be edited by line range. Use "
+            "edit_presentation, or read_file followed by write_file for a full "
+            "validated deck rewrite."
+        )
 
     if start_pos < 1 or end_pos < 1:
         raise ValueError("start_pos and end_pos must be 1-indexed positive integers.")
@@ -2014,7 +2045,7 @@ def read_content_pos(path: str, start_pos: int, end_pos: int) -> str:
         raise ValueError("end_pos must be greater than or equal to start_pos.")
 
     try:
-        lines = _read_text_file(resolved).splitlines(keepends=True)
+        lines = _read_logical_text_file(resolved).splitlines(keepends=True)
         total_lines = len(lines)
 
         start_idx = start_pos - 1

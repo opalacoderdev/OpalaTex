@@ -50,6 +50,12 @@ from .model import (
     delete_element, delete_slide, find_element, find_slide, move_slide, parse,
     reorder_element, serialize, update_element,
 )
+from .package import (
+    ASSET_URI_PREFIX, DECK_MEMBER, MIMETYPE_MEMBER, PACKAGE_MIMETYPE,
+    AssetInfo, JptDocument, JptPackageError, PackageWriteResult, asset_member,
+    get_asset_info, is_packaged_jpt, iter_asset, read_asset, read_jpt,
+    read_jpt_bytes, write_packaged_jpt,
+)
 
 __all__ = [
     "BACKGROUND_FITS", "BULLET_STYLES", "DECK_H", "DECK_W", "DEFAULT_THEME",
@@ -64,4 +70,8 @@ __all__ = [
     "create_slide", "delete_element", "delete_slide", "find_element",
     "find_slide", "format_report", "has_errors", "lint", "move_slide", "parse",
     "reorder_element", "serialize", "update_element", "video_source_of",
+    "ASSET_URI_PREFIX", "DECK_MEMBER", "MIMETYPE_MEMBER", "PACKAGE_MIMETYPE",
+    "AssetInfo", "JptDocument", "JptPackageError", "PackageWriteResult",
+    "asset_member", "get_asset_info", "is_packaged_jpt", "iter_asset",
+    "read_asset", "read_jpt", "read_jpt_bytes", "write_packaged_jpt",
 ]

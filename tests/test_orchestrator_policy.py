@@ -323,6 +323,29 @@ def test_direct_body_documents_write_file(tmp_path, monkeypatch):
     assert "write_file" in prompt
 
 
+@pytest.mark.parametrize(
+    "profile,policy",
+    [
+        ("full", "direct"),
+        ("light", "direct"),
+        ("full", "delegate"),
+        ("light", "delegate"),
+    ],
+)
+def test_every_orchestrator_prompt_understands_packaged_jpt(
+    tmp_path, monkeypatch, profile, policy
+):
+    project = _catalog(
+        tmp_path, monkeypatch, f"ollama/{profile}-{policy}",
+        prompt_profile=profile, orchestrator_policy=policy,
+    )
+    prompt = build_chat_orchestrator(project, None).system_prompt
+
+    assert "deck.json" in prompt
+    assert "jpt:assets/" in prompt
+    assert "line-position" in prompt
+
+
 # ── The no-delegation-target guard ───────────────────────────────────────────
 
 def test_delegate_without_any_target_says_so(tmp_path, monkeypatch):

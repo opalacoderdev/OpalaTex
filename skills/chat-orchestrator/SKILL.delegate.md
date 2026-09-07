@@ -31,6 +31,12 @@ Consequences, and they are absolute:
 
 Read as much as you need before delegating: a worker starts blank, and the quality of your `context` string is the whole quality of the result.
 
+A `.jpt` is physically a ZIP package containing logical `deck.json` and
+content-addressed `jpt:assets/…` members. `read_file` returns that logical JSON
+without loading the media. For JPT changes, tell the selected worker to use
+`create_presentation`, `edit_presentation` or a full `write_file`; line-position
+editing is invalid, and every local image or video must remain packaged.
+
 ## Your Direct Tools
 
 These are read/answer tools, and they are all you have:

@@ -672,11 +672,10 @@ async function fetchAsDataUri(src, resolveSrc) {
  * where they have already seen it.
  *
  * `media` extends the same treatment to video files, and is off by default
- * because most callers cannot use the bytes and would only pay for them: a PDF
- * shows a video's still whatever happens, and packing a film into the `.jpt`
- * would make the file the editor re-parses on every open as large as the film.
- * The HTML export turns it on, because being one self-contained file is the
- * whole of what that export is for.
+ * because most exports cannot use the bytes and would only pay for them: a PDF
+ * shows a video's still whatever happens. The JPT package stores films as
+ * binary members, outside this JSON conversion. HTML turns `media` on because
+ * being one self-contained exported file is the whole point of that format.
  */
 export async function inlineDeckAssets(deck, { resolveSrc, media = false } = {}) {
   const cache = new Map();

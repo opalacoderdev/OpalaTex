@@ -3,8 +3,9 @@
 //
 // The deck document model: a plain JSON tree of slides holding absolutely
 // positioned elements. Unlike the LaTeX modes, which derive a model from a
-// source file they must write back byte-for-byte, here the JSON *is* the
-// document — the file on disk is this model, pretty-printed.
+// source file they must write back byte-for-byte, here the JSON is the logical
+// document. The backend stores it as deck.json beside binary assets in the JPT
+// package; this module deliberately knows only the model it edits.
 //
 // Two properties shape every function below:
 //
@@ -949,18 +950,17 @@ export function backgroundOf(deck, slide) {
   };
 }
 
-/** True for a picture source that already travels with the file. */
+/** True for an asset source that already travels with the file or is a service URL. */
 export function isPortableSource(src) {
-  return !src || /^(data:|https?:|blob:)/.test(src);
+  return !src || /^(data:|jpt:|https?:|blob:)/.test(src);
 }
 
 /**
- * Every picture the deck refers to by a path it cannot carry, de-duplicated.
+ * Every asset the deck refers to by a local path it cannot yet carry, de-duplicated.
  *
- * The editor uses this to say how many pictures a deck would lose if it were
- * moved, which is the one thing about a deck's portability the user cannot see
- * by looking at it: an image referenced from the project and an image embedded
- * in the file draw identically on the slide.
+ * The editor uses this to say which assets will be moved into the JPT package
+ * on save. A project reference and an internal member draw identically, so the
+ * status strip is the only visible difference before that save.
  */
 export function externalSourcesOf(deck) {
   const out = new Set();

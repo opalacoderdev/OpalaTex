@@ -62,9 +62,14 @@ def test_the_skill_manifest_parses_and_declares_itself():
     assert meta["name"] == "tex-to-jpt"
     assert "jpt" in meta["description"].lower()
     body = meta["body"] if isinstance(meta.get("body"), str) else ""
-    for topic in ("tikz_to_image.py", "create_presentation", "edit_presentation",
-                  "check_presentation", "displayMode", "aligned"):
+    for topic in (
+        "tikz_to_image.py", "create_presentation", "edit_presentation",
+        "check_presentation", "displayMode", "aligned", "deck.json",
+        "jpt:assets/", "ZIP/ZIP64", "write_content_pos",
+    ):
         assert topic in body, f"the skill body never mentions {topic}"
+
+    assert "it is JSON" not in body
 
 
 def test_the_worked_example_in_the_body_is_a_deck_that_lints_clean():

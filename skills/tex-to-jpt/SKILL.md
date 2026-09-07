@@ -1,6 +1,6 @@
 ---
 name: tex-to-jpt
-description: Converts a LaTeX or Beamer presentation into an editable .jpt deck — mapping frames to slides, rendering TikZ/PGFPlots pictures to PNG, and carrying the mathematics across as real equations. Also the reference for the .jpt outline format, its LaTeX equation support, and the create/edit/check presentation tools.
+description: Converts a LaTeX or Beamer presentation into a self-contained editable .jpt package — mapping frames to slides, packaging rendered pictures, and carrying mathematics across as real equations. Also the reference for the .jpt outline format and presentation tools.
 ---
 
 # Converting a `.tex` presentation into a `.jpt` deck
@@ -10,6 +10,14 @@ deck is a *canvas*: absolutely positioned boxes the user drags. The conversion
 is therefore a re-authoring, not a translation, and the way to get it right is
 to extract what each frame **says** and let the layout engine decide where it
 goes.
+
+The model you author is JSON, but the `.jpt` file on disk is not a plain JSON
+file. It is a ZIP/ZIP64 package containing `deck.json` plus content-addressed
+members such as `assets/<sha256>.png`, referenced from the model as
+`jpt:assets/<sha256>.png`. `read_file` deliberately returns the logical
+`deck.json`, so agents can inspect the deck without loading packaged media.
+Use the presentation tools to write it; never unzip/rebuild the package or use
+line-position tools on a `.jpt`.
 
 You never write coordinates. Not once. If you find yourself computing an `x`,
 you have taken a wrong turn — see §2.
@@ -72,9 +80,11 @@ python3 skills/tex-to-jpt/scripts/tikz_to_image.py --tex slides.tex --index 3 --
 ```
 
 Run it with `run_python_script`. It prints one path per picture; those paths go
-straight into the outline's `image` fields — `create_presentation` embeds the
-pictures into the `.jpt` as it writes, so the deck the user ends up with is one
-self-contained file while the PNGs stay on disk as the source to re-render from.
+straight into the outline's `image` fields — `create_presentation` packages the
+pictures as content-addressed internal assets and writes `jpt:` references into
+`deck.json`. The deck the user ends up with is one self-contained file while the
+PNGs stay on disk as the source to re-render from.
+
 Notes:
 
 - **300 dpi** is the right default: a slide is 1280 units wide and a projector
@@ -203,7 +213,7 @@ options, in order of preference:
 3. **Rephrase**: "the square of x" reads better on a slide than `x^2` does in
    the middle of a line anyway.
 
-## 6. Writing and fixing
+## 6. Writing, reading and fixing
 
 ```
 create_presentation(path="talk.jpt", outline_json="{…}")
@@ -216,6 +226,14 @@ create_presentation(path="talk.jpt", outline_json="{…}")
 - **Warnings mean it was written.** Too many bullets, low contrast, a wordy
   slide, math left in a text box. Judge each one and tell the user what you
   left as it is.
+- **Local assets are always packaged.** Project paths and `data:` sources used
+  by images, backgrounds, video posters or video files become internal `jpt:`
+  members on every save. There is no size exemption and no opt-out. A missing
+  file, path outside the project, `blob:` source or dangling internal reference
+  aborts the atomic write instead of leaving a broken dependency.
+- **Hosted players remain services.** YouTube, Vimeo and other HTTP(S) player
+  URLs are links, not local package members, so playback still needs the
+  corresponding network service.
 
 To change a deck that already exists, use `edit_presentation` rather than
 rewriting the file — the user may have edited it since:
@@ -228,9 +246,14 @@ rewriting the file — the user may have edited it since:
  {"op": "reorder_element", "element": "<element id>", "direction": "front"}]
 ```
 
-`read_file` the `.jpt` first to learn the ids — it is JSON, and the ids are the
-`id` fields. A failed operation writes nothing at all, so the user's deck is
-never left half-edited.
+`read_file` the `.jpt` first to learn the ids. It returns the package's logical
+JSON model, whose `id` fields are the identifiers needed by these operations;
+it does not return ZIP bytes or expand the packaged media. Prefer
+`edit_presentation`, because it preserves internal members and rewrites the
+package atomically. A full `read_file`/`write_file` round-trip is supported when
+the whole model must change, but `read_content_pos`, `write_content_pos` and
+`replace_content_range` are not valid for a packaged `.jpt`. A failed operation
+writes nothing at all, so the user's deck is never left half-edited.
 
 ## 7. A worked fragment
 

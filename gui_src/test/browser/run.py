@@ -970,47 +970,21 @@ async def check_store_theme(page: Page, check: Checks) -> None:
 
 
 
-async def check_packing(page: Page, check: Checks) -> None:
-    """Packing the deck's pictures into the deck.
-
-    The status strip offers this only when there is something to pack, which is
-    the point: a referenced picture and an embedded one draw identically on the
-    slide, so the count is the only way the user learns the file would not
-    survive being sent. What only a browser can answer is whether the button
-    appears at all, whether the fetch reaches the picture, and whether the
-    result is one undoable edit rather than a rewrite the user cannot take back.
-    """
+async def check_packaging_status(page: Page, check: Checks) -> None:
+    """The strip explains that local references are packaged on save."""
     await page.reload()
-    button = await page.js(
-        "(() => { const b = [...document.querySelectorAll('.deck-status-btn')]"
-        "   .find(x => /Pack|Empacotar/.test(x.textContent));"
-        "  if (!b) return null; const r = b.getBoundingClientRect();"
-        "  return {label: b.textContent, x: r.left + r.width / 2, y: r.top + r.height / 2}; })()"
+    status = await page.js(
+        "(() => { const item = [...document.querySelectorAll('.deck-status-item')]"
+        "   .find(x => /packaged on save|empacotado ao salvar/i.test(x.textContent));"
+        "  return item ? item.textContent : null; })()"
     )
-    if not check("the strip offers to pack what is external", button is not None):
+    if not check("the strip says external assets will be packaged on save", status is not None):
         return
-    check("and says how many", "1" in button["label"], f"label={button['label']!r}")
+    check("and says how many", "1" in status, f"label={status!r}")
 
     before = await page.js("window.__element('external').src")
     check("the picture starts as a project reference", before == "figures/plot.png",
           f"src={before!r}")
-
-    await page.click(button["x"], button["y"])
-    await asyncio.sleep(1.0)
-    after = await page.js("window.__element('external').src")
-    check("packing embeds it into the deck", after.startswith("data:image/png;base64,"),
-          f"src={after[:32]!r}")
-    check("and the offer goes away", await page.js(
-        "![...document.querySelectorAll('.deck-status-btn')]"
-        ".some(x => /Pack|Empacotar/.test(x.textContent))"))
-    check("the deck says what happened",
-          await page.js("!!document.body.textContent.match(/packed|embutida/i)"))
-
-    # One edit, not a rewrite: a user who did not mean it must be able to undo.
-    await page.chord("z", "KeyZ", 90)
-    await asyncio.sleep(0.5)
-    check("packing is a single undoable edit",
-          await page.js("window.__element('external').src") == "figures/plot.png")
 
 
 
@@ -1546,7 +1520,7 @@ SUITE = (
     check_clipboard,
     check_equation,
     check_background,
-    check_packing,
+    check_packaging_status,
     check_store_theme,
     check_bullets,
     check_text_commands,
