@@ -122,7 +122,8 @@ Both tabs offer:
     channel and leaves the visible response channel empty, OpalaTex publishes the
     reasoning content as the final answer instead of failing or spending extra turns
     asking the model to repeat itself.
-  - `response_mode` — `last` (visible final response only) or `all`.
+  - `max_idle_heartbeats` — how many times in a row the model may call `new_heartbeat`
+    (keep the turn open without acting) before OpalaTex asks it for the answer outright.
   - `debug` — enables verbose agent execution logs.
   - Worker-specific limits: `max_iterations` and `max_tool_calls`.
 

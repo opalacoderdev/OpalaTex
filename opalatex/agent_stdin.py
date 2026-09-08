@@ -62,8 +62,8 @@ from agenticblocks.blocks.llm.inbox import (
 # Hook to intercept event prints (e.g. for Python GUI server)
 event_hook = None
 
-# Worker send_message calls are emitted as info events. Keep the latest worker
-# messages only as context for corrective retries when the orchestrator finishes
+# Worker reports are emitted as info events. Keep the latest worker messages
+# only as context for corrective retries when the orchestrator finishes
 # silently; they must not become a final assistant response by themselves.
 _LAST_WORKER_MESSAGES: list[str] = []
 _LAST_INTERMEDIATE_AGENT_RESPONSE = ""
@@ -403,7 +403,7 @@ def clear_worker_message_buffer() -> None:
 
 
 def record_worker_message(message: str) -> None:
-    """Record a worker send_message for corrective retry context."""
+    """Record a worker report for corrective retry context."""
     text = str(message or "").strip()
     if text:
         _LAST_WORKER_MESSAGES.append(text)
@@ -413,10 +413,6 @@ def _worker_summary_response(agent) -> str:
     """Return the latest worker-facing summary for corrective retry context."""
     if _LAST_INTERMEDIATE_AGENT_RESPONSE.strip():
         return _LAST_INTERMEDIATE_AGENT_RESPONSE.strip()
-
-    worker_response = str(getattr(agent, "_last_worker_chat_response", "") or "").strip()
-    if worker_response:
-        return worker_response
 
     messages = [
         str(m).strip()
@@ -461,6 +457,65 @@ def _response_with_thought(response: str, thought_chunks: list[str]) -> str:
     """Return the content safe to persist in chat history."""
     text = _strip_empty_think_blocks(str(response or "")).strip()
     return _visible_chat_response(text)
+
+
+def _mark_turn_without_answer(resp_obj, response: str) -> str:
+    """Say so when the run stopped before the model ever answered.
+
+    A turn that hits the runaway guardrail mid-work breaks out with whatever the
+    model said on the way -- "I will inspect now." and nothing else. That text is
+    real and must not be dropped, but it is an announcement, and persisting it as
+    the assistant's reply hands the user work nobody did: the exact failure the
+    idle allowance exists to prevent, arriving through the other exit. The block
+    already reports the difference (`final_text` empty while `narration` is not),
+    so the turn is delivered with its progress intact and labelled for what it is.
+    """
+    if not str(response or "").strip():
+        return response
+    if str(getattr(resp_obj, "final_text", "") or "").strip():
+        return response
+    if not (getattr(resp_obj, "narration", None) or []):
+        return response
+    return f"{response}\n\n{TURN_CUT_SHORT_MARKER}"
+
+
+PROGRESS_FENCE_LANG = "opalatex-progress"
+"""Deliberately not ``progress``: the fence is stripped before an assistant turn
+is replayed to the model, and a bare ``progress`` tag is something a model can
+legitimately write when a user asks it for one. The namespaced tag makes the
+markup this host's own, so stripping it can never eat the model's content."""
+
+
+def _fold_turn_progress(resp_obj, response: str) -> str:
+    """Group mid-turn progress into a collapsed block above the answer.
+
+    The model speaks while it works and again when it is done, and both reach the
+    user -- that is the whole point of the single text channel. This is layout on
+    top of that, never a filter: every character of *response* survives, the
+    progress simply stops sitting between the reader and the deliverable.
+
+    The split is applied to the already-sanitized text and only where the boundary
+    is still verifiable in it, so nothing bypasses sanitization. If the tail no
+    longer matches (a correction rewrote it) or the progress carries a fence of
+    its own, the response is returned whole: showing it unfolded is a cosmetic
+    loss, and dropping it is the defect this protocol was rewritten to remove.
+    """
+    narration = [
+        str(t).strip()
+        for t in (getattr(resp_obj, "narration", None) or [])
+        if str(t).strip()
+    ]
+    final_text = str(getattr(resp_obj, "final_text", "") or "")
+    text = str(response or "")
+    # Compared raw, never stripped: the answer may legitimately open with
+    # indentation (a Markdown code block), and trimming it here would move the
+    # boundary and hand that indentation to the progress block instead.
+    if not narration or not final_text.strip() or not text.endswith(final_text):
+        return response
+    progress = text[: len(text) - len(final_text)].strip()
+    if not progress or "```" in progress:
+        return response
+    return f"```{PROGRESS_FENCE_LANG}\n{progress}\n```\n\n{final_text}"
 
 
 def _visible_chat_response(response: str) -> str:
@@ -748,7 +803,7 @@ def _empty_response_retry_prompt(worker_summary: str = "") -> str:
 
 
 def _empty_response_failure_message() -> str:
-    """Return the localized hard failure for missing final send_message."""
+    """Return the localized hard failure for a turn that produced no answer."""
     from opalatex.i18n import _
 
     return _("empty_response_unresolved_error")
@@ -853,6 +908,17 @@ async def _correct_serialized_tool_calls(agent, response, thought_chunks, meta_o
 # conversation (PROJECT_DESIGN 2.5).
 _PERSISTED_ACTIVITY_EVENTS = {"thought", "reflection", "stream_chunk", "error"}
 INTERRUPTED_AGENT_HISTORY_MARKER = "[INTERRUPTED] The user interrupted the agent execution."
+TURN_CUT_SHORT_MARKER = (
+    "[TURN-CUT-SHORT] The runaway guardrail stopped this turn before the model "
+    "gave a final answer. The text above is work in progress, not a reply."
+)
+"""Stable, unlocalised, appended after the progress a cut-short turn produced.
+
+Mirrors ``INTERRUPTED_AGENT_HISTORY_MARKER``: the marker is what gets persisted
+and what the model reads back, while the front-end matches it and renders the
+localised notice plus the continue action. Persisting the translated prose
+instead would make the match depend on which language was active when the turn
+ran, so the button would vanish for anyone who later switched languages."""
 
 
 def _record_interrupted_agent_turn(agent_type: str) -> None:
@@ -2269,8 +2335,6 @@ async def handle_run(data: dict):
                 clear_worker_message_buffer()
                 agent._current_worker_messages = []
                 agent._last_worker_summary = ""
-                agent._last_worker_chat_response = ""
-                agent._worker_response_emitted = False
 
             #print(f"\n{'='*30} [DIAGNOSTIC: ORCHESTRATOR TURN START] {'='*30}")
             #print(f"[DIAGNOSTIC] Agent: {agent_type} | Model: {getattr(agent, 'model', 'unknown')}")
@@ -2325,6 +2389,12 @@ async def handle_run(data: dict):
 
             if not response:
                 raise RuntimeError(_empty_response_failure_message())
+
+            if agent_type in ("orchestrator", "chat_orchestrator") and not data.get(
+                "inline_response_contract"
+            ):
+                response = _mark_turn_without_answer(resp_obj, response)
+                response = _fold_turn_progress(resp_obj, response)
 
             persisted_response = _response_with_thought(response, thought_chunks)
             assistant_message_id = None

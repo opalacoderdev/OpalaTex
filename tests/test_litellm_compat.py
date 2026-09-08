@@ -141,16 +141,16 @@ def test_sanitize_tool_call_messages_moves_interleaved_system_alert_past_tool_bl
     """A system alert must never split an assistant tool_calls message from its results."""
     from opalatex.litellm_compat import sanitize_tool_call_messages
 
-    alert = {"role": "system", "content": "SYSTEM ALERT: The legacy send_message call was empty."}
+    alert = {"role": "system", "content": "SYSTEM ALERT: the tool call was empty."}
     assistant = {
         "role": "assistant",
         "content": "",
         "tool_calls": [
-            {"id": "c1", "type": "function", "function": {"name": "send_message", "arguments": "{}"}},
+            {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
             {"id": "c2", "type": "function", "function": {"name": "read_file", "arguments": "{}"}},
         ],
     }
-    first_result = {"role": "tool", "tool_call_id": "c1", "name": "send_message", "content": "err"}
+    first_result = {"role": "tool", "tool_call_id": "c1", "name": "read_file", "content": "err"}
     second_result = {"role": "tool", "tool_call_id": "c2", "name": "read_file", "content": "ok"}
 
     sanitized = sanitize_tool_call_messages([
@@ -372,18 +372,18 @@ def test_wrap_agent_litellm_compat_preserves_stream_and_tools_for_ollama():
         [{"role": "user", "content": "hi"}],
         stream=True,
         stream_options={"include_usage": True},
-        tools=[{"type": "function", "function": {"name": "send_message"}}],
+        tools=[{"type": "function", "function": {"name": "read_file"}}],
     ))
 
     assert result == "ok"
     assert calls["kwargs"]["stream"] is True
-    assert calls["kwargs"]["tools"] == [{"type": "function", "function": {"name": "send_message"}}]
+    assert calls["kwargs"]["tools"] == [{"type": "function", "function": {"name": "read_file"}}]
 
 
 def test_sanitize_litellm_kwargs_preserves_ollama_tool_schema():
     from opalatex.config import sanitize_litellm_kwargs_for_model
 
-    tools = [{"type": "function", "function": {"name": "send_message"}}]
+    tools = [{"type": "function", "function": {"name": "read_file"}}]
 
     cleaned = sanitize_litellm_kwargs_for_model(
         "ollama/gemma4:26b",

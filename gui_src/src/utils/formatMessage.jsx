@@ -150,6 +150,29 @@ const BASE_COMPONENTS = {
         />
       );
     }
+    if (lang === 'opalatex-progress') {
+      // What the model said while it was still working. It is delivered like any
+      // other text -- the single text channel is what stopped answers from being
+      // dropped -- but it is not the deliverable, so it is folded away instead of
+      // sitting between the reader and the answer. The summary carries the first
+      // line and the size, because a model can put something substantial here and
+      // a bare label would make that look like chatter worth skipping.
+      const progressBody = String(children ?? '');
+      const firstLine = progressBody.trim().split('\n')[0] || '';
+      const preview = firstLine.length > 72 ? `${firstLine.slice(0, 72)}…` : firstLine;
+      return (
+        <details style={{ margin: '8px 0', border: '1px solid var(--vscode-widget-border)', borderRadius: '4px', background: 'var(--titlebar-bg)' }}>
+          <summary style={{ padding: '6px 10px', fontSize: '11px', cursor: 'pointer', userSelect: 'none', color: 'var(--vscode-descriptionForeground)' }}>
+            {i18n.t('chatPanel.turnProgress', 'Turn progress')}
+            {` · ${progressBody.length}`}
+            {preview ? ` · ${preview}` : ''}
+          </summary>
+          <div style={{ margin: 0, padding: '10px', fontSize: '12px', lineHeight: '1.5', color: 'var(--vscode-descriptionForeground)', borderTop: '1px solid var(--vscode-widget-border)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {children}
+          </div>
+        </details>
+      );
+    }
     if (lang === 'thought') {
       return (
         <details style={{ margin: '8px 0', border: '1px solid var(--vscode-widget-border, #3c3c3c)', borderRadius: '4px', background: 'var(--titlebar-bg, #252526)' }}>

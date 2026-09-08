@@ -180,8 +180,6 @@ async def test_a_real_turn_writes_the_measurement_to_the_database(tmp_path, monk
         internal_history = []
         _current_worker_messages = []
         _last_worker_summary = ""
-        _last_worker_chat_response = ""
-        _worker_response_emitted = False
 
         async def _acompletion(self, *args, **kwargs):
             return None

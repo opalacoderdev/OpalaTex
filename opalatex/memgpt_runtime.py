@@ -6,11 +6,8 @@ uses to delegate work to skills:
   - ``build_run_skill_tool(memgpt, project_path)`` returns a ``run_skill`` tool
     bound to a MemGPT instance. When the MemGPT calls it, an ephemeral sub-agent
     (LLMAgentBlock) is spawned with the skill's SKILL.md body as its system prompt
-    and the workflow tools available, plus an **intercepted** ``send_message``.
-  - The interceptor (a wrapper around the sub-agent's ``send_message``) records
-    worker messages as diagnostic info and buffers them for the ``run_skill`` tool
-    result. The chat-orchestrator remains responsible for the final user-facing
-    ``send_message``.
+    and the workflow tools available. The worker reports back as normal text,
+    which ``run_skill`` buffers into its tool result.
   - ``build_chat_orchestrator(project, store)`` builds the MemGPT itself: the
     framework ``MemGPTAgentBlock`` primed with the ``chat-orchestrator`` SKILL.md,
     the Level-1 metadata of the active skills, the ``run_skill`` tool, and the
@@ -57,7 +54,6 @@ from .config import (
     get_agent_llm_kwargs,
     get_agent_max_heartbeats,
     get_agent_model,
-    get_agent_response_mode,
     get_project_agent_params,
 )
 from .skills import (
@@ -355,38 +351,6 @@ def resolve_skill_model(skill_meta: dict, project_model: str | None,
 
 
 # ---------------------------------------------------------------------------
-# Legacy compatibility interceptor
-# ---------------------------------------------------------------------------
-
-def make_intercepted_send_message(memgpt: MemGPTAgentBlock, skill_name: str):
-    """Return the deprecated worker-report tool for backwards-compatible callers.
-
-    New workers are not given this tool: they return their final report as normal text.
-    """
-
-    @as_tool(
-        name="send_message",
-        description="Legacy compatibility report tool. New workers should return normal text instead.",
-    )
-    def send_message(message: str) -> str:
-        if hasattr(memgpt, "_current_worker_messages"):
-            memgpt._current_worker_messages.append(message)
-        memgpt._last_worker_chat_response = message
-        memgpt._worker_response_emitted = False
-        info_message = f"[{skill_name}] {message}"
-        try:
-            from . import agent_stdin as stdin_mod
-            stdin_mod.record_worker_message(message)
-            stdin_mod.print_event("info", {"message": info_message})
-        except Exception:
-            import json
-            print(json.dumps({"event": "info", "message": info_message}), flush=True)
-        T.console.print(f"\n[bold green]OpalaTex ({skill_name}):[/bold green] {message}\n")
-        return "[DONE] legacy message recorded for orchestrator"
-
-    return send_message
-
-# ---------------------------------------------------------------------------
 # run_skill tool
 # ---------------------------------------------------------------------------
 
@@ -609,7 +573,7 @@ def build_run_skill_tool(
         )
 
         # Workers receive action tools only and return their final report as normal text.
-        tools = [t for t in get_available_tools() if t.name != "send_message"]
+        tools = list(get_available_tools())
         memgpt._current_worker_messages = []
 
         from .config import get_project_agent_params
@@ -924,6 +888,22 @@ def derive_context_usage_from_state(project, store) -> dict | None:
     return record
 
 
+_PROGRESS_FENCE_RE = re.compile(r"\A\s*```opalatex-progress\n.*?\n```\s*", re.DOTALL)
+
+
+def _strip_progress_fence(content: str) -> str:
+    """Drop the host's progress block before replaying an answer to the model.
+
+    The fence is markup ``agent_stdin`` adds when it renders a turn, not anything
+    the model wrote. A model reads its own last turn as an example and imitates it
+    -- the empty-response marker taught that lesson the expensive way -- so
+    replaying the markup would teach it to emit the markup. What it removes is the
+    turn's progress chatter, never the answer, and the model's own working state
+    keeps the chatter verbatim whenever that state is restored instead of seeded.
+    """
+    return _PROGRESS_FENCE_RE.sub("", str(content or ""), count=1)
+
+
 def seed_chat_orchestrator_history(memgpt: MemGPTAgentBlock, project) -> None:
     """Seed the working context from persisted history.
 
@@ -947,6 +927,8 @@ def seed_chat_orchestrator_history(memgpt: MemGPTAgentBlock, project) -> None:
         # with it, which is how it got persisted in the first place.
         if role == "assistant" and is_empty_response_placeholder(content):
             continue
+        if role == "assistant":
+            content = _strip_progress_fence(content)
         memgpt.internal_history.append({"role": role, "content": content})
 
 
@@ -1267,8 +1249,19 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         wrap_tool(search_conversation_history),
         wrap_tool(web_search),
         wrap_tool(analyze_image),
-        wrap_tool(create_plan),
     ]
+
+    # `create_plan` halts the turn on an approval dialog, which only means
+    # something where the mode is "propose, then execute". In `auto` the mode's
+    # own contract is that action is pre-authorized *without* confirmation
+    # dialogs, and in `edit` the affordance for a question is `ask_question`; the
+    # tool's description has always said "in plan mode", and a model that reached
+    # for it anyway in `auto` answered a request to *show* a plan by opening an
+    # approval dialog and then summarising what it had shown. Withheld by
+    # composing the list, for the reason given below: the shared mode gate in
+    # `opalatex_tool` wraps the same function object the worker uses.
+    if str(getattr(project, "mode", "auto") or "auto").strip().lower() == "plan":
+        orchestrator_tools.append(wrap_tool(create_plan))
 
     # Enforced by composing the tool list per role, not by the mode gate in
     # `opalatex_tool`: that gate reads the shared project mode and wraps the very
@@ -1323,25 +1316,16 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         tools=orchestrator_tools,
         model_kwargs=_llm_kwargs,
         # A guardrail against a runaway loop, not a budget the model has to
-        # ration: with model_controlled_turn_end the model decides when the turn
-        # ends, and a turn that legitimately narrates before each of several
-        # actions costs more steps than the old accounting assumed.
+        # ration: the turn continues for as long as tool calls are pending, and a
+        # turn that legitimately speaks before each of several actions costs more
+        # steps than the old accounting assumed.
         max_heartbeats=_agent_params.get("max_heartbeats", get_agent_max_heartbeats("memgpt", 30)),
-        # The reported failure this exists for: models ending a plan-mode turn
-        # with "I will now draft the plan" and nothing else. Plain text used to
-        # end the run, so the announcement *was* the turn -- the model was cut off
-        # mid-thought and its narration delivered as the answer. Here the model
-        # ends its own turn, so narrating and then acting is finally expressible.
-        model_controlled_turn_end=bool(
+        # Bounds the one thing that can spin under a single-channel protocol: a
+        # model asking to keep its turn open without ever acting.
+        max_idle_heartbeats=int(
             _agent_params.get(
-                "model_controlled_turn_end",
-                model_params.get("model_controlled_turn_end", True),
-            )
-        ),
-        max_narration_steps=int(
-            _agent_params.get(
-                "max_narration_steps",
-                model_params.get("max_narration_steps", 2),
+                "max_idle_heartbeats",
+                model_params.get("max_idle_heartbeats", 2),
             )
         ),
         # Not _llm_kwargs.get("num_ctx", ...): that dict is the *sanitized*
@@ -1357,7 +1341,6 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         memory_pressure_threshold=_agent_params.get("memory_pressure_threshold", 0.7),
         debug=_agent_params.get("debug", False),
         use_shared_router=_agent_params.get("use_shared_router", True),
-        response_mode=_agent_params.get("response_mode", get_agent_response_mode("memgpt")),
         loop_detection=_agent_params.get("loop_detection", model_params.get("loop_detection", True)),
         loop_detection_limit=_agent_params.get(
             "loop_detection_limit", model_params.get("loop_detection_limit", 3)

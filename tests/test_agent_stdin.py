@@ -275,17 +275,6 @@ def test_worker_summary_response_falls_back_to_last_worker_summary():
     assert _worker_summary_response(Agent()) == "Worker finished the requested task."
 
 
-def test_worker_summary_response_prefers_last_worker_chat_response():
-    clear_worker_message_buffer()
-
-    class Agent:
-        _last_worker_chat_response = "Visible worker response."
-        _current_worker_messages = []
-        _last_worker_summary = "older summary"
-
-    assert _worker_summary_response(Agent()) == "Visible worker response."
-
-
 def test_worker_summary_response_prefers_visible_intermediate_agent_response():
     clear_worker_message_buffer()
 
@@ -333,14 +322,14 @@ def test_worker_summary_response_extracts_run_skill_tool_result():
 
 def test_worker_summary_response_uses_recorded_worker_message_when_agent_has_no_summary():
     clear_worker_message_buffer()
-    record_worker_message("Worker send_message reached stdout.")
+    record_worker_message("Worker report reached stdout.")
 
     class Agent:
         _current_worker_messages = []
         _last_worker_summary = ""
         internal_history = []
 
-    assert _worker_summary_response(Agent()) == "Worker send_message reached stdout."
+    assert _worker_summary_response(Agent()) == "Worker report reached stdout."
     clear_worker_message_buffer()
 
 
@@ -537,7 +526,6 @@ async def test_handle_run_retries_orchestrator_before_using_worker_summary(monke
 @pytest.mark.asyncio
 async def test_handle_run_does_not_promote_worker_message_without_orchestrator_response(monkeypatch, tmp_path):
     import opalatex.agent_stdin as stdin_mod
-    from opalatex.memgpt_runtime import make_intercepted_send_message
 
     events = []
     saved_messages = []
@@ -566,8 +554,6 @@ async def test_handle_run_does_not_promote_worker_message_without_orchestrator_r
         internal_history = []
         _current_worker_messages = []
         _last_worker_summary = ""
-        _last_worker_chat_response = ""
-        _worker_response_emitted = False
         calls = 0
 
         async def _acompletion(self, *args, **kwargs):
@@ -576,9 +562,9 @@ async def test_handle_run_does_not_promote_worker_message_without_orchestrator_r
         async def run(self, agent_input):
             self.calls += 1
             if self.calls == 1:
-                send_message = make_intercepted_send_message(self, "command-line")
-                raw = getattr(send_message, "_func", None) or send_message
-                raw("Worker created test.tex successfully.")
+                # A worker reported, and the orchestrator itself said nothing. The
+                # report must not be promoted into the user-facing answer.
+                stdin_mod.record_worker_message("Worker created test.tex successfully.")
                 self._current_worker_messages = []
                 self._last_worker_summary = ""
                 return SimpleNamespace(response="")
@@ -640,8 +626,6 @@ async def test_handle_run_reports_error_when_orchestrator_never_sends_message(mo
         internal_history = []
         _current_worker_messages = []
         _last_worker_summary = ""
-        _last_worker_chat_response = ""
-        _worker_response_emitted = False
 
         async def _acompletion(self, *args, **kwargs):
             return None
@@ -700,8 +684,6 @@ async def test_handle_run_does_not_duplicate_user_message_on_failed_retries(monk
         internal_history = []
         _current_worker_messages = []
         _last_worker_summary = ""
-        _last_worker_chat_response = ""
-        _worker_response_emitted = False
 
         async def _acompletion(self, *args, **kwargs):
             return None

@@ -46,14 +46,34 @@ def _response(content="", tool_calls=None):
 # 1. Tool-block adjacency
 # ---------------------------------------------------------------------------
 
-def test_empty_send_message_alert_is_flushed_after_the_tool_block():
-    """An empty send_message in a batch must not push its alert between results."""
-    agent = MemGPTAgentBlock(name="chat_orchestrator", model="fake/model", max_heartbeats=1)
+def test_in_batch_corrections_never_split_the_tool_block():
+    """A correction raised while processing one call is delivered as a tool result.
+
+    OpenAI-compatible endpoints require every "tool" result to follow its assistant
+    tool_calls message with nothing in between, so a correction that entered the
+    history as a system message would break the very request it is fixing. Every
+    in-batch correction the loop can raise -- an exceeded tool_call_limit, a blocked
+    repeat, an unknown tool -- is therefore answered in the tool channel.
+    """
+    from agenticblocks.core.function_block import as_tool
+
+    @as_tool(name="noop", description="does nothing")
+    def noop() -> str:
+        return "ok"
+
+    agent = MemGPTAgentBlock(
+        name="chat_orchestrator",
+        model="fake/model",
+        max_heartbeats=2,
+        tools=[noop],
+        tool_call_limits={"noop": 1},
+    )
 
     responses = [
         _response(tool_calls=[
-            _tool_call("c1", "send_message", json.dumps({"message": ""})),
-            _tool_call("c2", "send_message", json.dumps({"message": "done"})),
+            _tool_call("c1", "noop"),
+            # Over the limit: corrected while the batch is still being processed.
+            _tool_call("c2", "noop"),
         ]),
         _response(content="final answer"),
     ]
@@ -66,13 +86,13 @@ def test_empty_send_message_alert_is_flushed_after_the_tool_block():
 
     roles = [m["role"] for m in agent.internal_history]
     assistant_index = roles.index("assistant")
-    # Every tool result of the batch comes before any system alert.
-    following = roles[assistant_index + 1:]
-    tool_positions = [i for i, role in enumerate(following) if role == "tool"]
-    system_positions = [i for i, role in enumerate(following) if role == "system"]
-    assert tool_positions, "the tool results must be recorded"
-    assert system_positions, "the empty send_message must still raise an alert"
-    assert max(tool_positions) < min(system_positions)
+    # Both results follow the assistant message directly, correction included.
+    assert roles[assistant_index + 1:assistant_index + 3] == ["tool", "tool"]
+    corrections = [
+        m["content"] for m in agent.internal_history
+        if m["role"] == "tool" and "maximum limit" in str(m.get("content", ""))
+    ]
+    assert corrections, "the exceeded limit must still be reported to the model"
 
 
 # ---------------------------------------------------------------------------

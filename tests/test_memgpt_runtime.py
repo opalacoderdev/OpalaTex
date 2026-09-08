@@ -4,7 +4,6 @@ Verifies assembly and wiring WITHOUT invoking any LLM:
   - resolve_skill_model maps default/worker/explicit/absent correctly
   - build_chat_orchestrator produces a framework MemGPTAgentBlock with run_skill
     and the memory tools, and embeds Level-1 skill metadata in the system prompt
-  - the intercepted send_message records into the MemGPT internal history
   - run_skill returns an error for an unknown skill (no LLM needed)
 """
 
@@ -17,7 +16,6 @@ from opalatex.memgpt_runtime import (
     resolve_skill_model,
     build_chat_orchestrator,
     build_run_skill_tool,
-    make_intercepted_send_message,
     _current_date_instruction,
     _is_failed_worker_result,
     _recent_failed_delegations,
@@ -245,35 +243,6 @@ def test_uses_framework_memgpt_block(tmp_path):
     from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
     m = build_chat_orchestrator(_project(tmp_path), None)
     assert isinstance(m, MemGPTAgentBlock)
-
-
-def test_intercepted_send_message_records_into_memgpt(tmp_path):
-    from opalatex.agent_stdin import clear_worker_message_buffer, _worker_summary_response
-    import opalatex.agent_stdin as stdin_mod
-
-    clear_worker_message_buffer()
-    events = []
-    m = build_chat_orchestrator(_project(tmp_path), None)
-    before = len(m.internal_history)
-    sm = make_intercepted_send_message(m, "implement-feature")
-    # FunctionBlock wraps the function; call the underlying callable.
-    raw = getattr(sm, "_func", None) or sm
-    m._current_worker_messages = []
-    original_hook = stdin_mod.event_hook
-    stdin_mod.event_hook = lambda payload: events.append(payload)
-    try:
-        result = raw("Created hello.txt with the requested content.")
-    finally:
-        stdin_mod.event_hook = original_hook
-    assert "DONE" in result
-    assert len(m.internal_history) == before
-    assert m._current_worker_messages == ["Created hello.txt with the requested content."]
-    assert _worker_summary_response(m) == "Created hello.txt with the requested content."
-    assert {
-        "event": "info",
-        "message": "[implement-feature] Created hello.txt with the requested content.",
-    } in events
-    clear_worker_message_buffer()
 
 
 def test_run_skill_unknown_skill_returns_error(tmp_path):
@@ -612,17 +581,10 @@ def test_memgpt_retries_ollama_invalid_json_tool_call_with_heartbeat():
                 "Ollama_chatException - error parsing tool call: "
                 "invalid character ',' in string escape code"
             )
-        tool_call = SimpleNamespace(
-            id="call_1",
-            function=SimpleNamespace(
-                name="send_message",
-                arguments='{"message":"Recovered response","request_heartbeat":false}',
-            ),
-        )
         message = SimpleNamespace(
-            content="",
+            content="Recovered response",
             reasoning_content=None,
-            tool_calls=[tool_call],
+            tool_calls=None,
         )
         return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
 
@@ -638,7 +600,7 @@ def test_memgpt_returns_plain_json_content_without_tool_recovery():
     from agenticblocks.blocks.llm.agent import AgentInput
     from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
 
-    response_text = '```json\n{"name":"send_message","arguments":{"message":"example"}}\n```'
+    response_text = '```json\n{"name":"read_file","arguments":{"path":"example"}}\n```'
     agent = MemGPTAgentBlock(
         name="json-response-test",
         model="test/model",

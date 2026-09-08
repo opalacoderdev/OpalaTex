@@ -148,9 +148,9 @@ _APP_CONFIG = _load_yaml("config.yaml")
 _CORE_AGENT_DEFAULTS = {
     "memgpt": {
         "num_ctx": 16384,
-        # A runaway guardrail, not a budget: the chat orchestrator runs with
-        # model_controlled_turn_end, where the model decides when the turn ends
-        # and a step spent narrating before an action is normal, not waste.
+        # A runaway guardrail, not a budget: the turn runs for as long as tool
+        # calls are pending, and a step spent speaking before an action is
+        # normal work, not waste.
         "max_heartbeats": 30,
         "debug": False,
     },
@@ -241,9 +241,9 @@ _NON_LITELLM_FIELDS = {
     "model", "strategy",
     # MemGPTAgentBlock params
     "max_heartbeats", "max_context_tokens", "eviction_threshold",
-    "memory_pressure_threshold", "response_mode",
+    "memory_pressure_threshold",
     "empty_response_reasoning_fallback",
-    "model_controlled_turn_end", "max_narration_steps",
+    "max_idle_heartbeats",
     # LLMAgentBlock params
     "max_iterations", "max_tool_calls", "on_max_iterations",
     # Shared
@@ -333,12 +333,10 @@ _MODEL_PARAMS_SCHEMA = {
     "max_tool_calls": {"type": int, "min": 1},
     "loop_detection": {"type": bool},
     "loop_detection_limit": {"type": int, "min": 1},
-    "response_mode": {"type": str, "choices": ["last", "all"]},
     "debug": {"type": bool},
     "empty_response_reasoning_fallback": {"type": bool},
-    # Who decides when the orchestrator's turn ends (see MemGPTAgentBlock).
-    "model_controlled_turn_end": {"type": bool},
-    "max_narration_steps": {"type": int, "min": 1, "max": 10},
+    # Consecutive new_heartbeat requests granted with no action in between.
+    "max_idle_heartbeats": {"type": int, "min": 1, "max": 10},
 }
 
 def sanitize_model_params(params: dict) -> dict:
@@ -571,12 +569,6 @@ def get_agent_heartbeats_scale_factor(agent_name: str, default: float = 2.0) -> 
 def get_agent_debug(agent_name: str, default: bool = False) -> bool:
     """Return debug flag configured for *agent_name* in agents.yaml, or *default*."""
     return bool(_get_agent_overrides().get(agent_name, {}).get("debug", default))
-
-
-def get_agent_response_mode(agent_name: str, default: str = "last") -> str:
-    """Return response_mode for *agent_name*: per-agent override > config.yaml global > default."""
-    global_mode = _APP_CONFIG.get("response_mode", _get_agents_config().get("response_mode", default))
-    return str(_get_agent_overrides().get(agent_name, {}).get("response_mode", global_mode))
 
 
 def get_agent_model(agent_name: str, default: str | None = None) -> str:

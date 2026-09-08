@@ -128,10 +128,27 @@ def test_delegate_policy_keeps_reading_and_delegation(tmp_path, monkeypatch):
     names = _tool_names(project)
     assert {
         "run_skill", "read_file", "read_content_pos", "search_code",
-        "get_project_overview", "ask_question", "create_plan",
+        "get_project_overview", "ask_question",
     } <= names
     # Core-memory writes are not file writes and stay available.
     assert {"read_core_memory", "append_core_memory"} <= names
+
+
+def test_the_two_gates_are_independent(tmp_path, monkeypatch):
+    """Policy decides who may write; mode decides whether a plan is proposed.
+
+    `create_plan` used to be listed above as a non-write tool the delegate policy
+    keeps. It is absent from this project not because writes were withheld but
+    because the project is in `auto`, so the assertion would have conflated the
+    two gates the moment either one moved.
+    """
+    project = _catalog(tmp_path, monkeypatch, "ollama/m", orchestrator_policy="delegate")
+    assert "create_plan" not in _tool_names(project)
+
+    project.mode = "plan"
+    names = _tool_names(project)
+    assert "create_plan" in names
+    assert "write_file" not in names, "the delegate policy still withholds writes"
 
 
 def test_direct_policy_grants_command_execution(tmp_path, monkeypatch):

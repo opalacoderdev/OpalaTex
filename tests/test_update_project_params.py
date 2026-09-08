@@ -53,7 +53,7 @@ AGENT_PARAMS = {
     "memory_pressure_threshold": 0.6,
     "max_iterations":           5,
     "max_tool_calls":           20,
-    "response_mode":            "last",
+    "max_idle_heartbeats":      2,
     "debug":                    False,
 }
 

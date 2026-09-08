@@ -127,7 +127,8 @@ O projeto configura modelos e parâmetros de execução separados para o **Orque
     pensamento (thinking) e deixe o canal visível em branco, o OpalaTex publica o
     conteúdo do raciocínio como a resposta final em vez de falhar ou gastar turnos extras
     pedindo a resposta de novo.
-  - `response_mode` — `last` (apenas a resposta final) ou `all`.
+  - `max_idle_heartbeats` — quantas vezes seguidas o modelo pode chamar `new_heartbeat`
+    (manter o turno aberto sem agir) antes de o OpalaTex exigir a resposta.
   - `debug` — ativa logs detalhados de execução.
   - Limites específicos do Worker: `max_iterations` e `max_tool_calls`.
 

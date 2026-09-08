@@ -158,6 +158,19 @@ class AgentInput(BaseModel):
     other than "user".
     """
 
+def compose_visible_response(parts: List[str], final: str = "") -> str:
+    """Join everything the model addressed to the user, in order and verbatim.
+
+    One rule, shared by every agent block, so the two cannot drift into treating
+    the same output differently. Each part is kept exactly as the model wrote it:
+    leading whitespace is content, not padding, and stripping it turned a
+    Markdown indented code block into ordinary prose. Parts are separated by a
+    blank line, and only a wholly blank part is dropped.
+    """
+    chunks = [p for p in [*parts, final] if p and p.strip()]
+    return "\n\n".join(chunks)
+
+
 class AgentOutput(BaseModel):
     response: str
     tool_calls_made: int = 0
@@ -171,6 +184,20 @@ class AgentOutput(BaseModel):
     Discarding it left a host with no way to tell those apart after the fact, so
     it is reported rather than printed only under ``debug``. Empty when the block
     does not report one."""
+    narration: List[str] = Field(default_factory=list)
+    """User-facing text the model wrote *while still working*, in order.
+
+    A model that speaks beside a tool call is reporting progress, not answering.
+    ``response`` already contains this text -- it is the whole answer, joined and
+    lossless, so a caller that ignores this field keeps every word. The split is
+    offered on top of that, for a host that wants to present the progress and the
+    deliverable differently, and never as the only place the text exists: making
+    presentation the difference between shown and lost is the defect this whole
+    protocol was rewritten to remove. Empty when the block does not report one."""
+    final_text: str = ""
+    """The text that ended the turn: the answer, without the progress above it.
+
+    Empty when the block does not report one; ``response`` is always complete."""
 
 
 def _print_debug_report(
@@ -524,6 +551,10 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
         self._current_tool_call_count = 0
         iteration_count = 0
         last_response: str = ""
+        # Text the model addressed to the user while a tool call was still
+        # pending. Composed into every exit below, so no path can return the
+        # last thing said and drop the rest.
+        visible_texts: List[str] = []
         tool_usage: Dict[str, int] = defaultdict(int)
         tool_call_signatures: Dict[str, int] = defaultdict(int)
         termination_reason: str = "unknown"
@@ -585,15 +616,20 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                                 print(f"[DEBUG] Schema validation failed: {e}")
                     
                     output = AgentOutput(
-                        response=content,
+                        response=compose_visible_response(visible_texts, content),
                         tool_calls_made=tool_call_count,
                         structured_output=structured_obj,
+                        narration=list(visible_texts),
+                        final_text=content,
                     )
                 else:
                     termination_reason = "max_iterations reached → stopped"
                     output = AgentOutput(
-                        response="Agent stopped: Max iterations reached.",
-                        tool_calls_made=tool_call_count
+                        response=compose_visible_response(
+                            visible_texts, "Agent stopped: Max iterations reached."
+                        ),
+                        tool_calls_made=tool_call_count,
+                        narration=list(visible_texts),
                     )
 
                 await self._invoke_on_iteration(iteration_count, messages)
@@ -656,6 +692,13 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
             # Track the last text produced by the LLM (used by on_max_iterations="return_last").
             if content:
                 last_response = content
+
+            # One text channel here too. A worker that writes its report beside a
+            # tool call and then says "report delivered above" used to hand the
+            # orchestrator the pointer and drop the report: the same discard the
+            # chat loop was rewritten to remove, on the delegation path.
+            if message.tool_calls and content and content.strip():
+                visible_texts.append(content)
 
             # Build the assistant message dict manually: model_dump() deserialises
             # `arguments` into a dict, corrupting the history (the API requires
@@ -723,9 +766,11 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                                 print(f"[DEBUG] Schema validation failed on fallback: {e}")
                 
                 output = AgentOutput(
-                    response=content,
+                    response=compose_visible_response(visible_texts, content),
                     tool_calls_made=tool_call_count,
                     structured_output=structured_obj,
+                    narration=list(visible_texts),
+                    final_text=content,
                 )
                 
                 await self._invoke_on_iteration(iteration_count, messages)
@@ -788,8 +833,10 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                                 elapsed_seconds=time.monotonic() - start_time,
                             )
                         return AgentOutput(
-                            response=tool_result_content,
+                            response=compose_visible_response(visible_texts, tool_result_content),
                             tool_calls_made=tool_call_count,
+                            narration=list(visible_texts),
+                            final_text=tool_result_content,
                         )
                     continue
 
@@ -832,8 +879,10 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                             elapsed_seconds=time.monotonic() - start_time,
                         )
                     return AgentOutput(
-                        response=tool_result_content,
+                        response=compose_visible_response(visible_texts, tool_result_content),
                         tool_calls_made=tool_call_count,
+                        narration=list(visible_texts),
+                        final_text=tool_result_content,
                     )
 
             # If the tool-call limit was reached, force a final response without tools.
@@ -880,9 +929,11 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                             print(f"[DEBUG] Schema validation failed: {e}")
 
                 output = AgentOutput(
-                    response=content,
+                    response=compose_visible_response(visible_texts, content),
                     tool_calls_made=tool_call_count,
                     structured_output=structured_obj,
+                    narration=list(visible_texts),
+                    final_text=content,
                 )
                 
                 await self._invoke_on_iteration(iteration_count, messages)

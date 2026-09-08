@@ -10,7 +10,7 @@ import litellm
 from agenticblocks.core.agent import AgentBlock
 from agenticblocks.blocks.llm.agent import (
     AgentInput, AgentOutput, _get_shared_router, _print_debug_report,
-    _tool_call_signature, _loop_block_message
+    _tool_call_signature, _loop_block_message, compose_visible_response
 )
 from agenticblocks.blocks.llm.inbox import InboxItem, MessageInbox
 from agenticblocks.utils.messages import build_user_content, history_accepts_user_message
@@ -33,12 +33,16 @@ DEFAULT_RECURSIVE_SUMMARY = "No history has been evicted yet."
 EMPTY_RESPONSE_PLACEHOLDER = "(removed: empty response)"
 
 
-_NARRATION_ALERT = (
-    "SYSTEM ALERT: Your last message arrived as plain text with no native tool call attached, so "
-    "nothing you described has happened yet. No tool call was received and none was rejected: text "
-    "is never a tool call. Issue it now through the provider's native tool-calling protocol, or end "
-    "the turn by calling send_message with request_heartbeat=false."
-)
+HEARTBEAT_TOOL_NAME = "new_heartbeat"
+"""Name of the tool a model calls to keep its turn open without acting.
+
+The turn protocol has exactly one text channel and one continuation rule:
+assistant ``content`` is always the user-facing answer, and the run continues
+only while the model has something pending. A native tool call continues it
+implicitly -- the result has to be delivered -- so this tool exists solely for
+the remaining case: the model wants to think or speak in one step and act in
+the next. It is rarely the right call, which is why it is a separate, explicit
+request rather than a flag riding on the message that carries the answer."""
 
 
 def is_empty_response_placeholder(text: Any) -> bool:
@@ -77,9 +81,12 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     """
     An autonomous LLM agent with bounded MemGPT-style heartbeats and memory tools.
 
-    Native provider `tool_calls` execute actions and consume heartbeats. A non-empty
-    text response without tool calls is the final user-facing response. Text is never
-    recovered or interpreted as a tool call.
+    There is one text channel and one continuation rule. Assistant ``content`` is
+    always user-facing: every non-empty text the model produces during a run is
+    delivered, in order, whether or not tool calls rode along with it. The run
+    continues while a native tool call is pending, or while the model asks for
+    another heartbeat through ``new_heartbeat``; a response that does neither ends
+    the turn. Text is never recovered or interpreted as a tool call.
     """
     description: str = "MemGPT style Agent with strict heartbeat limits and context management."
     model: str = "ollama/gemma4:latest"
@@ -92,8 +99,6 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     tool_call_limits: Dict[str, int] = Field(default_factory=dict)
     response_schema: Optional[type[BaseModel]] = None
     """Optional Pydantic model class to enforce a structured response schema."""
-    response_mode: str = "all"
-    """Controls collection of legacy ``send_message`` compatibility calls."""
     debug: bool = False
     loop_detection: bool = True
     """When True, block a tool call that repeats an identical (name, arguments)
@@ -106,34 +111,19 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     asking the model to repeat itself in the visible channel. Off by default: the
     reasoning channel is a draft space, so publishing it as the user-facing answer
     is a semantic decision the caller has to opt into."""
-    model_controlled_turn_end: bool = False
-    """When True, the model decides when its turn ends, as in classic MemGPT.
+    max_idle_heartbeats: int = 2
+    """Consecutive ``new_heartbeat`` requests granted with no action in between.
 
-    By default a response carrying visible text and no tool call ends the run.
-    That rule cannot tell a final answer apart from a model announcing what it is
-    about to do next -- "I will now read the file and draft the plan" is cut off
-    mid-thought and delivered as if it were the answer, and from the model's side
-    it *was* continuing. The decision point already exists (``request_heartbeat``
-    on ``send_message``) but is unreachable while plain text short-circuits it.
+    ``new_heartbeat`` is the one way to keep a turn open without doing anything,
+    which makes it the one way to spin: a model can ask to continue, say nothing
+    it has not already said, and ask again. A model that acts between requests is
+    working normally, so the count resets on every other tool call; only an
+    unbroken run of idle heartbeats means the model is not going to act.
 
-    With this on, plain text is narration: it is recorded, streamed and kept in
-    the history, but the run continues so the model can take the step it just
-    announced. The turn ends when the model says so, by calling ``send_message``
-    with ``request_heartbeat=False``. ``max_heartbeats`` stops being a budget the
-    model has to ration and becomes a runaway guardrail; ``max_narration_steps``
-    keeps a model that never issues a tool call from spending it all.
-
-    Off by default: it changes what ends a run, which every existing caller's
-    prompts and expectations are written against."""
-    max_narration_steps: int = 2
-    """Consecutive narration-only responses tolerated under ``model_controlled_turn_end``.
-
-    A model that narrates, acts, narrates, acts is working normally, so the count
-    resets on every tool call: only an unbroken run of text with no action means
-    the model is not going to act. When the run is that long the last narration is
-    accepted as the final answer, which bounds the worst case -- a model that
-    cannot issue tool calls at all costs one extra call per turn, not the whole
-    heartbeat guardrail."""
+    Spending the allowance must not deliver the failure it exists to stop. The
+    last call is not accepted as the answer -- that hands the user "I will now
+    read the file" as a result -- it is answered by asking for the answer, with
+    tool calls off the table, so the turn cannot end on one more intention."""
     use_shared_router: bool = True
     model_kargs: Dict[str, Any] = Field(default_factory=dict)
     """LiteLLM/Model keyword arguments (HTTP clients, timeouts, temperature, etc.)."""
@@ -381,46 +371,11 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
             tool_descriptions_list.append(desc)
         tool_descriptions = "\n".join(tool_descriptions_list)
         
-        if self.model_controlled_turn_end:
-            # Under model-controlled turn end these two rules are not merely
-            # unhelpful, they teach the failure: a model told that plain text is
-            # how a turn ends has been instructed to end its turn by narrating.
-            send_message_line = (
-                "- **send_message**: Ends your turn. Delivers the final message to the user "
-                "and hands control back to them."
-            )
-            response_contract = (
-                "1. **RESPONSE CONTRACT**: Use native provider tool calls for actions. Plain text is "
-                "narration: it is shown to the user and kept in your history, but it does NOT end your "
-                "turn, so you may announce an action in one step and perform it in the next. JSON, "
-                "Markdown, code blocks, examples, and questions in text are never tool calls."
-            )
-            heartbeat_rule = (
-                "2. **HEARTBEATS**: You decide when the turn ends. After narration or a tool call you are "
-                "called again automatically, for as long as you keep working. To end the turn, call "
-                "`send_message` with `request_heartbeat=false`; the message you pass is what the user "
-                "reads. The heartbeat limit is a runaway guardrail, not a budget to ration."
-            )
-            legacy_rule = (
-                "5. **FINISHING**: Never stop by simply writing that you are done or that you are about to "
-                "do something. A turn ends only through `send_message` with `request_heartbeat=false`."
-            )
-        else:
-            send_message_line = "- **send_message**: Legacy compatibility tool. Prefer a normal text final response."
-            response_contract = (
-                "1. **RESPONSE CONTRACT**: Use native provider tool calls only for actions. When no action "
-                "remains, return the final answer as normal text. JSON, Markdown, code blocks, examples, "
-                "and questions in text are never tool calls."
-            )
-            heartbeat_rule = (
-                "2. **HEARTBEATS**: Every native tool call consumes one heartbeat. You can chain multiple "
-                "calls (for example, search memory and then analyze). Do not request additional heartbeats "
-                "when no immediate action remains."
-            )
-            legacy_rule = (
-                "5. **LEGACY COMPATIBILITY**: If a caller still invokes `send_message`, treat it as an "
-                "ordinary compatibility action; it is never required to finish a turn."
-            )
+        heartbeat_line = (
+            f"- **{HEARTBEAT_TOOL_NAME}**: Keeps your turn open for one more step without "
+            "performing an action. Needed only when you want to speak now and act next: an "
+            "ordinary tool call already keeps the turn open on its own."
+        )
 
         memgpt_rules = f"""
 \n\n---
@@ -430,14 +385,14 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
 
 ## AVAILABLE MEMORY TOOLS
 {tool_descriptions}
-{send_message_line}
+{heartbeat_line}
 
 ## CORE RULES
-{response_contract}
-{heartbeat_rule}
+1. **RESPONSE CONTRACT**: Every piece of normal text you write is delivered to the user exactly as written, including text you write in the same response as a tool call. There is no separate delivery tool and no second channel. Use native provider tool calls for actions; JSON, Markdown, code blocks, examples and questions written as text are never tool calls.
+2. **HEARTBEATS**: Your turn continues on its own while a tool call is pending, so chain as many steps as the work needs. It ends when you reply with text and no tool call, and that reply is your final answer. To speak before acting, call `{HEARTBEAT_TOOL_NAME}` in the same response to hold the turn open. The heartbeat limit is a runaway guardrail, not a budget to ration.
 3. **MEMORY PRESSURE**: If you see a SYSTEM ALERT about Memory Pressure, your Main Context is almost full. Be concise and rely on memory tools instead of keeping everything in context.
 4. **NO HALLUCINATION**: If the user asks about past interactions or facts you don't know, ALWAYS use your memory tools to retrieve the information before answering.
-{legacy_rule}
+5. **FINISHING**: Never finish by writing that you are about to do something. Either do it in the same response through a native tool call, or hold the turn open with `{HEARTBEAT_TOOL_NAME}`. Text with no tool call is read as your finished answer.
 """
         return self.system_prompt + memgpt_rules
 
@@ -541,18 +496,22 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
 
         agent_tools = self.tools.copy()
         
-        send_message_description = (
-            "End your turn: deliver the final message to the user and hand control back to them. "
-            "Set request_heartbeat=true to keep working after the message instead of ending the turn."
-            if self.model_controlled_turn_end
-            else "Legacy compatibility message tool. Prefer a normal text final response when no action remains."
+        @as_tool(
+            name=HEARTBEAT_TOOL_NAME,
+            description=(
+                "Keep your turn open for one more step without performing an action. Use it "
+                "only when you want to speak now and act next: any ordinary tool call already "
+                "keeps the turn open, and text with no tool call ends the turn as your answer."
+            ),
         )
+        def new_heartbeat() -> str:
+            # Declared for its schema only: the loop answers this call itself, so
+            # that granting a heartbeat and counting it as idle stay one decision.
+            # It takes no reason argument on purpose -- text is the channel now,
+            # so a model with something to say writes it and the user reads it.
+            return "Heartbeat granted. Your turn stays open: take the next step."
 
-        @as_tool(name="send_message", description=send_message_description)
-        def send_message(message: str, request_heartbeat: bool = False) -> str:
-            return "Message recorded."
-            
-        agent_tools.append(send_message)
+        agent_tools.append(new_heartbeat)
         litellm_tools = [block_to_tool_schema(b) for b in agent_tools]
 
         # Build user content — plain string or multimodal list (vision models).
@@ -577,10 +536,17 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         tool_usage: Dict[str, int] = defaultdict(int)
         tool_call_signatures: Dict[str, int] = defaultdict(int)
         termination_reason = "unknown"
-        narration_steps = 0
+        idle_heartbeats = 0
         force_final_answer = False
-        direct_final_response = None
-        accumulated_responses = []
+        # Every non-empty assistant text of this run, in order. One text channel
+        # means nothing the model writes is dropped for having travelled beside a
+        # tool call: the answer is what it said, from the first word to the last.
+        visible_texts: List[str] = []
+        # The same text, split by what the model was doing when it wrote it, for a
+        # host that wants to show progress and answer differently. `visible_texts`
+        # stays the whole of it: this split is a view, never the only copy.
+        narration_texts: List[str] = []
+        final_text_only = ""
         
         while True:
             # Messages submitted while this turn is in flight enter the history
@@ -628,11 +594,10 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             kwargs["tools"] = litellm_tools
             
             if force_final_answer:
-                # The model has spent its narration allowance without acting.
-                # Promoting that narration to the final answer would deliver an
-                # announcement as if it were the result -- the exact failure
-                # model_controlled_turn_end exists to stop -- so the answer is
-                # asked for explicitly instead, with tool calls off the table.
+                # The model has spent its idle allowance without acting. Accepting
+                # what it last said as the answer would deliver an announcement as
+                # if it were the result, so the answer is asked for explicitly
+                # instead, with tool calls off the table.
                 kwargs["tool_choice"] = "none"
                 messages.append({
                     "role": "system",
@@ -675,7 +640,15 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             content = message.content or ""
             reasoning = getattr(message, "reasoning_content", None)
             if not reasoning and content:
-                reasoning, content = split_inline_reasoning(content)
+                # Only replace the visible text when reasoning was actually found:
+                # the splitter strips what it returns, so reassigning content
+                # unconditionally reshaped every answer that had no <think> tag at
+                # all -- a Markdown indented code block arrived as ordinary prose.
+                # `LLMAgentBlock` has always guarded this the same way.
+                inline_reasoning, visible_content = split_inline_reasoning(content)
+                if inline_reasoning:
+                    reasoning = inline_reasoning
+                    content = visible_content
 
             if not kwargs.get("stream", False):
                 await self._invoke_on_thinking(reasoning or "")
@@ -693,6 +666,14 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             self.internal_history.append(assistant_msg_raw)
             messages.append(assistant_msg_raw)
 
+            # One text channel: text the model wrote beside a tool call is the
+            # same user-facing text as any other, and dropping it here is how a
+            # whole answer used to disappear while the run reported success.
+            if message.tool_calls and content.strip() and not is_empty_response_placeholder(content):
+                visible_texts.append(content)
+                # Spoken while still working: progress, not the answer.
+                narration_texts.append(content)
+
             if not message.tool_calls:
                 visible_text = content.strip()
                 if is_empty_response_placeholder(visible_text):
@@ -702,44 +683,14 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                     # so this counts as the empty response it describes.
                     visible_text = ""
                 if visible_text:
-                    # Whether this text ends the run is the whole question. By
-                    # default it does. Under model-controlled turn end it is
-                    # narration, and the model is called again so it can take the
-                    # step it just announced -- unless it has narrated this many
-                    # times with no action, or the guardrail is spent and the
-                    # request above already forbade tool calls, in which case
-                    # there is no next step to wait for.
-                    ends_the_turn = (
-                        not self.model_controlled_turn_end
-                        or force_final_answer
-                        or heartbeats_left <= 0
-                    )
-                    if ends_the_turn:
-                        direct_final_response = content
-                        termination_reason = (
-                            "model returned a final text response (no tool calls)"
-                            if not self.model_controlled_turn_end
-                            else "final answer after "
-                                 + ("the heartbeat guardrail was spent" if heartbeats_left <= 0
-                                    else f"{narration_steps} narration steps with no tool call")
-                        )
-                        break
-
-                    narration_steps += 1
-                    # Counted like any other model call: the guardrail exists to
-                    # bound the run, and a narration step costs exactly as much as
-                    # a tool-call step.
-                    heartbeats_used += 1
-                    if narration_steps >= self.max_narration_steps:
-                        # Out of allowance. The next call asks for the answer
-                        # itself rather than accepting this announcement as one.
-                        force_final_answer = True
-                        continue
-                    self.internal_history.append({
-                        "role": "system",
-                        "content": _NARRATION_ALERT,
-                    })
-                    continue
+                    # Text with no tool call is the finished answer: the model was
+                    # told exactly that, and it is the convention every provider
+                    # already follows. Wanting to speak and keep working is a
+                    # different intention, and it has its own tool to express it.
+                    visible_texts.append(content)
+                    final_text_only = content
+                    termination_reason = "model returned a final text response (no tool calls)"
+                    break
 
                 # Nothing visible was said: drop the turn instead of describing it in
                 # the assistant's own voice. Any stand-in text here is read back by
@@ -751,9 +702,10 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                 if is_empty_response_placeholder(fallback_text):
                     fallback_text = ""
                 if self.empty_response_reasoning_fallback and fallback_text:
-                    direct_final_response = fallback_text
+                    visible_texts.append(fallback_text)
+                    final_text_only = fallback_text
                     self.internal_history.append(
-                        {"role": "assistant", "content": direct_final_response}
+                        {"role": "assistant", "content": fallback_text}
                     )
                     termination_reason = (
                         "model wrote its answer in the reasoning channel only; "
@@ -765,23 +717,21 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                     termination_reason = "model returned an empty response with no heartbeats remaining"
                     break
 
-                if self.model_controlled_turn_end:
-                    # A response that is all reasoning and no action is the same
-                    # failure as narration, and it used to be bounded only by the
-                    # whole heartbeat guardrail: the observed trace burned 24 calls
-                    # repeating one thought (the branch above drops the message, so
-                    # the model never reads its own attempt back and writes it
-                    # again). It shares the narration allowance for that reason.
-                    if force_final_answer:
-                        termination_reason = (
-                            "model produced no answer: only reasoning, and no tool call was ever issued"
-                        )
-                        break
-                    narration_steps += 1
-                    if narration_steps >= self.max_narration_steps:
-                        force_final_answer = True
-                        heartbeats_used += 1
-                        continue
+                # A response that is all reasoning and no action spends the same
+                # allowance as an idle heartbeat: it is the same model-did-not-act
+                # step, and it was once bounded only by the whole guardrail. The
+                # branch above drops the message, so the model never reads its own
+                # attempt back -- it writes the identical thought again instead.
+                if force_final_answer:
+                    termination_reason = (
+                        "model produced no answer: only reasoning, and no tool call was ever issued"
+                    )
+                    break
+                idle_heartbeats += 1
+                if idle_heartbeats >= self.max_idle_heartbeats:
+                    force_final_answer = True
+                    heartbeats_used += 1
+                    continue
 
                 self.internal_history.append({
                     "role": "system",
@@ -797,18 +747,11 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                     break
                 continue
             heartbeats_used += 1
-            # The model acted, so whatever it narrated before was a preamble to
-            # this call, not a model going in circles. Only an unbroken run of
-            # narration means it is never going to act.
-            narration_steps = 0
             force_final_answer = False
-            wants_heartbeat = False
-            empty_send_message_violation = False
-            # OpenAI-compatible endpoints require every "tool" result to follow its
-            # assistant tool_calls message with nothing in between. Corrective
-            # alerts raised while processing one call are buffered and flushed
-            # after the whole batch, so they never split the tool block.
-            pending_system_alerts: List[Dict[str, Any]] = []
+            # Whether this batch carried real work rather than nothing but a
+            # request to keep going. Only the second kind can spin, so only the
+            # second kind spends the idle allowance.
+            acted_this_round = False
 
             for tool_call in message.tool_calls:
                 tool_call_count += 1
@@ -824,12 +767,12 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                     }
                     self.internal_history.append(err_res)
                     messages.append(err_res)
-                    wants_heartbeat = True
                     continue
 
-                # Break verbatim retry loops before the call is executed. send_message is
-                # exempt: it is a communication pseudo-tool handled below, not an action.
-                if self.loop_detection and function_name != "send_message":
+                # Break verbatim retry loops before the call is executed.
+                # new_heartbeat is exempt: it is a continuation request handled
+                # below, not an action, and its own allowance already bounds it.
+                if self.loop_detection and function_name != HEARTBEAT_TOOL_NAME:
                     signature = _tool_call_signature(function_name, tool_call.function.arguments)
                     tool_call_signatures[signature] += 1
                     if tool_call_signatures[signature] > self.loop_detection_limit:
@@ -841,58 +784,28 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                         }
                         self.internal_history.append(err_res)
                         messages.append(err_res)
-                        wants_heartbeat = True
                         continue
 
-                if function_name == "send_message":
-                    try:
-                        args = json.loads(tool_call.function.arguments)
-                        msg_text = args.get("message", "")
-                        if isinstance(msg_text, str) and msg_text.strip():
-                            accumulated_responses.append(msg_text)
-                        else:
-                            empty_send_message_violation = True
-                            wants_heartbeat = True
-                            tool_result = {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "name": function_name,
-                                "content": json.dumps({
-                                    "error": (
-                                        "SYSTEM ALERT: The legacy send_message call was empty. "
-                                        "Return a non-empty final response in normal text instead."
-                                    )
-                                })
-                            }
-                            self.internal_history.append(tool_result)
-                            messages.append(tool_result)
-                            pending_system_alerts.append({
-                                "role": "system",
-                                "content": (
-                                    "SYSTEM ALERT: The legacy send_message call was empty. "
-                                    "Return a non-empty final response in normal text, or issue a native tool call "
-                                    "if an action is still required."
-                                )
-                            })
-                            continue
-                        
-                        hb_req = args.get("request_heartbeat", False)
-                        if hb_req: wants_heartbeat = True
-                        
-                        tool_result = {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": function_name,
-                            "content": f"Message recorded. Heartbeats remaining: {self.max_heartbeats - heartbeats_used}."
-                        }
-                        self.internal_history.append(tool_result)
-                        messages.append(tool_result)
-                    except Exception as e:
-                        err_res = {"role": "tool", "tool_call_id": tool_call.id, "name": function_name, "content": json.dumps({"error": str(e)})}
-                        self.internal_history.append(err_res)
-                        messages.append(err_res)
+                if function_name == HEARTBEAT_TOOL_NAME:
+                    # Granted, always: refusing it would strand a model that has
+                    # something to say before it acts, which is the case the tool
+                    # exists for. It is bounded after the batch instead, by the
+                    # idle allowance, because only a run of these with no work in
+                    # between means the model is not going to act.
+                    hb_left = self.max_heartbeats - heartbeats_used
+                    tool_result = {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": function_name,
+                        "content": (
+                            "Heartbeat granted. Your turn stays open: take the next step. "
+                            f"[System: You have {hb_left} heartbeats remaining.]"
+                        ),
+                    }
+                    self.internal_history.append(tool_result)
+                    messages.append(tool_result)
                 else:
-                    wants_heartbeat = True
+                    acted_this_round = True
                     matched_block = next((b for b in agent_tools if b.name == function_name), None)
                     if not matched_block:
                         err_res = {"role": "tool", "tool_call_id": tool_call.id, "name": function_name, "content": json.dumps({"error": f"Tool '{function_name}' not found."})}
@@ -927,30 +840,25 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                         self.internal_history.append(err_res)
                         messages.append(err_res)
 
-            # The tool block is complete: it is now safe to add corrective alerts.
-            for alert in pending_system_alerts:
-                self.internal_history.append(alert)
-                messages.append(alert)
+            # A batch that did real work clears the idle count: narrate-act-
+            # narrate-act is ordinary work, not a model going in circles. A batch
+            # that only asked to keep going spends the allowance, and spending it
+            # ends in a request for the answer rather than one more intention.
+            if acted_this_round:
+                idle_heartbeats = 0
+            else:
+                idle_heartbeats += 1
+                if idle_heartbeats >= self.max_idle_heartbeats:
+                    force_final_answer = True
 
-            if empty_send_message_violation:
-                if heartbeats_used > self.max_heartbeats:
-                    termination_reason = "model repeatedly called send_message with empty message"
-                    break
-                continue
-
-            if not wants_heartbeat:
-                termination_reason = "send_message called with request_heartbeat=false"
-                break
-            
             if heartbeats_used >= self.max_heartbeats:
                 termination_reason = f"max_heartbeats ({self.max_heartbeats}) reached"
                 break
-        if self.response_mode == "last":
-            final_text = accumulated_responses[-1] if accumulated_responses else ""
-        else:
-            final_text = "\n".join(accumulated_responses)
-        if direct_final_response is not None:
-            final_text = direct_final_response
+
+        # Everything the model said this run, in the order it said it, through the
+        # rule both blocks share. Joining is not a formatting choice: any other
+        # rule here silently discards or reshapes text addressed to the user.
+        final_text = compose_visible_response(visible_texts)
         structured_obj = None
 
         if self.response_schema and final_text:
@@ -992,7 +900,9 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             response=final_text,
             tool_calls_made=tool_call_count,
             termination_reason=termination_reason,
-            structured_output=structured_obj
+            structured_output=structured_obj,
+            narration=list(narration_texts),
+            final_text=final_text_only,
         )
 
         if self.debug:

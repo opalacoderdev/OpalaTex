@@ -2401,19 +2401,77 @@ def _record_mode_event(content: str) -> None:
         pass  # never let history recording crash the tool
 
 
+def _persist_approved_plan(plan_text: str) -> None:
+    """Keep an approved plan readable after the approval dialog closes.
+
+    The plan is presented through a transient ``input_request``: the user reads
+    it, answers, and it is gone. That made the deliverable live in a channel that
+    does not survive the turn -- observed with `openrouter/openai/gpt-5.6-luna`,
+    which handed the user a 5 817-character plan in the dialog and persisted an
+    857-character summary of it, so reopening the chat left a summary of a plan
+    nobody could read any more. It is the pointer-shaped answer the single text
+    channel exists to prevent, one layer up.
+
+    Unlike the approval *decision*, which is an audit entry and belongs in
+    ``project_activity`` (PROJECT_DESIGN 2.5), the plan is model-authored text
+    addressed to the user: it is conversation, so it goes to ``project_history``
+    and the model reads its own plan back like any other answer it gave. Only an
+    approved plan is persisted -- replaying a rejected one would teach the model
+    that the answer the user turned down was acceptable.
+
+    Fire-and-forget: it must never raise, because a failure here would surface as
+    a tool error on a plan the user already approved.
+    """
+    text = str(plan_text or "").strip()
+    if not text or not _PROJECT_SESSION or not _PROJECT_STORE:
+        return
+    try:
+        _PROJECT_STORE.append_message(_PROJECT_SESSION, "assistant", text)
+    except Exception as exc:
+        # Never raised: the user already approved this plan and a store failure
+        # must not surface as a tool error on it. But it is never silent either --
+        # swallowing it puts the plan back in a channel that does not survive the
+        # turn, which is the whole defect, with nothing to show it happened.
+        try:
+            from opalatex.agent_stdin import print_event
+
+            print_event("error", {
+                "message": f"The approved plan could not be saved to the chat history: {exc}",
+                "trace": "",
+            })
+        except Exception:
+            pass
+
+
 @opalatex_tool(
     name="create_plan",
     is_safe=True,
     description=(
-        "Presents a proposed implementation plan to the user for approval. "
-        "Use this tool when you are in 'plan' mode and have gathered enough context to propose a plan. "
-        "This tool halts execution and waits for the user to approve or reject the plan."
+        "Presents a proposed implementation plan to the user for approval, and is "
+        "available only in 'plan' mode. Use it when you have gathered enough context "
+        "to propose work you are about to carry out. It halts execution and waits for "
+        "the user to approve or reject the plan. It is not how you show a plan the "
+        "user asked to see: a plan that is itself the answer is written as normal text."
     )
 )
 async def create_plan(plan_content: str) -> str:
     AGENT_PROGRESS.update("create_plan")
     if not _PROJECT_SESSION:
         return "Failed: No active session."
+
+    # The tool list is composed once per turn, so withholding this tool in
+    # non-plan modes cannot cover the case where the mode changes *during* a
+    # turn: approving a plan flips the session to auto for the execution phase,
+    # and the already-built list still carries the tool. Without this check the
+    # model can open a second approval dialog in the middle of executing the
+    # plan the user just approved.
+    _mode = str(getattr(_PROJECT_SESSION, "mode", "") or "").strip().lower()
+    if _mode != "plan":
+        return (
+            f"Failed: create_plan is only available in 'plan' mode (current mode: '{_mode}'). "
+            "If the plan is the answer the user asked for, write it as normal text. "
+            "If you are executing an approved plan, carry on with the work."
+        )
     
     T.info("Presenting Proposed Plan to user for approval...")
     
@@ -2468,6 +2526,7 @@ async def create_plan(plan_content: str) -> str:
             f"Temporary mode for this turn: '{prev_mode}' -> 'auto'. "
             "The project mode must be restored at the end of the turn."
         )
+        _persist_approved_plan(edited_plan)
         return f"The user APPROVED the plan. The system is temporarily in 'auto' mode for this turn only. Proceed to execute the plan.\n\nPlan Content:\n{edited_plan}"
     else:
         # Record rejection immediately in chat history

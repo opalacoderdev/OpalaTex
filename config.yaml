@@ -2,7 +2,6 @@
 # Agent model/LLM settings live in agents.yaml
 
 git_strategy: auto
-response_mode: "last"
 heartbeats_scale_factor: 1
 
 vector_index:

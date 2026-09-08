@@ -8,6 +8,13 @@ import { base64ImageToFile, clipboardHasText, extractClipboardFiles, pastedImage
 import { isLocalModelId } from '../utils/models.js';
 import { stripInlineReasoning } from '../utils/thinkTags.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
+
+// Kept byte-for-byte in step with `agent_stdin.TURN_CUT_SHORT_MARKER`. The
+// backend appends it after the work a guardrail-stopped turn did produce, so
+// the text survives; this side splits it off and offers the continue action.
+const TURN_CUT_SHORT_MARKER =
+  '[TURN-CUT-SHORT] The runaway guardrail stopped this turn before the model ' +
+  'gave a final answer. The text above is work in progress, not a reply.';
 import TextContextMenu from './TextContextMenu.jsx';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
 import ModelSelect from './ModelSelect.jsx';
@@ -1645,9 +1652,20 @@ export default function ChatPanel({
             interruptionProbe.startsWith('Interrupted:') ||
             interruptionProbe.startsWith('Interrompido:')
           );
+          // A turn the runaway guardrail stopped before the model answered. The
+          // backend appends a stable, unlocalised marker after the work the model
+          // did produce -- that text is real and is never dropped -- so the marker
+          // is split off here and shown as the localised notice instead, next to
+          // the same continue action an interrupted turn offers. Matching the
+          // translated prose would break for anyone who changed language after
+          // the turn ran.
+          const isTurnCutShort = !isUser && String(msg.content || '').includes(TURN_CUT_SHORT_MARKER);
           let displayContent = isUser && isInternalResumePrompt(msg.content)
             ? t('chatPanel.continue', 'Continue')
             : msg.content;
+          if (isTurnCutShort) {
+            displayContent = String(msg.content).split(TURN_CUT_SHORT_MARKER).join('').trimEnd();
+          }
           if (isInterrupted) {
             displayContent = t('app.interruptionNotice');
           }
@@ -1907,6 +1925,35 @@ export default function ChatPanel({
                   >
                     <RefreshCw size={14} /> {t('chatPanel.tryAgain', 'Tentar Novamente')}
                   </button>
+                )}
+                {isTurnCutShort && isLastUserOrAssistantMessage && !isAgentRunning && (
+                  <div style={{ marginTop: '10px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', marginBottom: '6px' }}>
+                      ⚠️ {t('app.turnCutShortNotice')}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => runChatAction(() => handleSendMessage(null, null, {
+                        resumeInterrupted: true,
+                        displayText: t('chatPanel.continue', 'Continue'),
+                      }))}
+                      style={{
+                        padding: '6px 10px',
+                        background: 'var(--vscode-button-background)',
+                        color: 'var(--vscode-button-foreground)',
+                        border: 'none',
+                        borderRadius: '3px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        width: 'fit-content'
+                      }}
+                    >
+                      <ArrowRight size={14} /> {t('chatPanel.continue', 'Continue')}
+                    </button>
+                  </div>
                 )}
                 {isInterrupted && isLastUserOrAssistantMessage && !isAgentRunning && (
                   <button

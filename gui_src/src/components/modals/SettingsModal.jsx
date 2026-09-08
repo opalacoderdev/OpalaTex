@@ -651,15 +651,6 @@ export default function SettingsModal({
                     </select>
                   </div>
                   <div className="flex flex-col" style={{ gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.ephemeralResponseMode', 'Response Mode')}</label>
-                    <select className="vscode-settings-input"
-                      value={ephemeralParams?.response_mode || 'last'}
-                      onChange={e => updateEphemeralParam('response_mode', e.target.value)}>
-                      <option value="last">{t('settingsModal.ephemeralLastDefault', 'last (default)')}</option>
-                      <option value="all">{t('common.optionAll', 'All')}</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col" style={{ gap: '4px' }}>
                     <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.ephemeralMaxIterations')}</label>
                     <input type="number" min="1" className="vscode-settings-input" placeholder="10"
                       value={ephemeralParams?.max_iterations || ''}
