@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const backendTarget = process.env.OPALATEX_BACKEND_URL || 'http://localhost:3000';
 
 export default defineConfig({
   plugins: [react()],
@@ -20,8 +21,17 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
-        changeOrigin: true
+        target: backendTarget,
+        changeOrigin: true,
+        configure(proxy) {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            // Preserve same-origin semantics across the development proxy.
+            // A foreign Origin is kept verbatim so the backend refuses it.
+            if (req.headers.origin === `http://${req.headers.host}`) {
+              proxyReq.setHeader('origin', new URL(backendTarget).origin);
+            }
+          });
+        }
       }
     }
   },

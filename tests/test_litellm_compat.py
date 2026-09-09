@@ -515,6 +515,106 @@ def test_single_tool_validation_error_does_not_trip_loop_breaker():
     assert not _has_repeated_tool_validation_errors(messages)
 
 
+def test_repeated_validation_disables_only_the_rejected_tool():
+    """A bad search call must not take read_file or create_plan out with it."""
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    captured = {}
+
+    class FakeAgent:
+        model = "ollama/glm-5.3:cloud"
+        name = "chat_orchestrator"
+        tools = []
+
+        async def _acompletion(self, messages, **kwargs):
+            captured["messages"] = messages
+            captured["kwargs"] = kwargs
+            return "ok"
+
+    messages = [{"role": "user", "content": "Read the source file"}]
+    for index in range(2):
+        call_id = f"bad-{index}"
+        messages.extend([
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "search_code",
+                        "arguments": '{"path":"source.py"}',
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": call_id,
+                "name": "search_code",
+                "content": "1 validation error for SearchCodeInput\nquery\n Field required",
+            },
+        ])
+    schemas = [
+        {"type": "function", "function": {"name": name}}
+        for name in ("search_code", "read_file", "create_plan")
+    ]
+    agent = wrap_agent_litellm_compat(FakeAgent())
+
+    import asyncio
+
+    assert asyncio.run(agent._acompletion(
+        messages, tools=schemas, tool_choice="auto"
+    )) == "ok"
+    assert captured["kwargs"]["tool_choice"] == "auto"
+    assert [
+        item["function"]["name"] for item in captured["kwargs"]["tools"]
+    ] == ["read_file", "create_plan"]
+    alert = captured["messages"][-1]["content"]
+    assert "search_code" in alert
+    assert "read_file(path)" in alert
+    assert "create_plan" in alert
+
+
+def test_repeated_validation_reports_each_offending_tool():
+    from opalatex.litellm_compat import _repeated_tool_validation_error_names
+
+    messages = []
+    for name in ("search_code", "read_file"):
+        messages.extend([
+            {"role": "tool", "name": name, "content": "1 validation error\npath\n Field required"},
+            {"role": "tool", "name": name, "content": "1 validation error\npath\n Field required"},
+        ])
+
+    assert _repeated_tool_validation_error_names(messages) == {"search_code", "read_file"}
+
+
+def test_repeated_validation_is_scoped_to_the_current_user_turn():
+    from opalatex.litellm_compat import _repeated_tool_validation_error_names
+
+    error = {
+        "role": "tool",
+        "name": "search_code",
+        "content": "1 validation error\nquery\n Field required",
+    }
+    messages = [error, error, {"role": "user", "content": "Try a different task"}]
+
+    assert _repeated_tool_validation_error_names(messages) == set()
+
+
+def test_function_tool_schema_omits_adapter_implementation_docs():
+    from agenticblocks.core.function_block import as_tool
+    from agenticblocks.tools.a2a_bridge import block_to_tool_schema
+
+    @as_tool(name="read_file", description="Read one file by path.")
+    def read_file(path: str) -> str:
+        return path
+
+    description = block_to_tool_schema(read_file)["function"]["description"]
+
+    assert description == "Read one file by path."
+    assert "thread pool" not in description
+
+
 def test_analyze_image_resanitizes_kwargs_for_final_model(monkeypatch):
     import opalatex.tools as tools
 

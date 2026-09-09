@@ -103,13 +103,23 @@ def test_live_subscribers_still_receive_data(session):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX pty path only")
-def test_real_session_buffers_shell_output(tmp_path):
+@pytest.mark.parametrize("high_descriptor", [False, True])
+def test_real_session_buffers_shell_output(tmp_path, high_descriptor):
     """End-to-end: a real PTY session records what the shell prints."""
     import asyncio
 
     async def run():
         term = TerminalSession(str(tmp_path))
         try:
+            if high_descriptor:
+                import fcntl
+                import os
+                import resource
+                if resource.getrlimit(resource.RLIMIT_NOFILE)[0] <= 1100:
+                    pytest.skip("The descriptor limit is too low for the high-FD regression.")
+                descriptor = fcntl.fcntl(term.master_fd, fcntl.F_DUPFD, 1100)
+                os.close(term.master_fd)
+                term.master_fd = descriptor
             term.start_reading(asyncio.get_running_loop())
             term.write("echo opalatex-scrollback-marker\n")
             for _ in range(50):
@@ -123,3 +133,22 @@ def test_real_session_buffers_shell_output(tmp_path):
             term.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX pty path only")
+def test_reader_closes_cleanly_after_event_loop_shutdown(tmp_path):
+    import asyncio
+
+    term = TerminalSession(str(tmp_path))
+    loop = asyncio.new_event_loop()
+    loop.close()
+    term.loop = loop
+    try:
+        term.write("echo shutdown-marker\n")
+        # Execute the reader directly so any shutdown exception fails the test.
+        term._thread_read_loop()
+        assert not term.is_running
+        assert term.master_fd is None
+        term._thread_read_loop()  # Late/repeated shutdown is also harmless.
+    finally:
+        term.close()

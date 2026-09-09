@@ -145,12 +145,11 @@ def test_oversized_extracted_text_never_points_at_read_content_pos(tmp_path, mon
     message = str(excinfo.value)
     assert "does not fit the remaining context budget" in message
     assert "do not call read_content_pos on it" in message
-    # The route is landing the extracted text in the project as a text file;
-    # who runs the extraction depends on the caller's own toolset.
-    assert "Use run_command to extract it" in message
+    # Document paging is available without execution authority.
+    assert "Use read_document" in message
 
 
-def test_oversized_extracted_text_routes_a_delegate_orchestrator_to_a_worker(tmp_path, monkeypatch):
+def test_oversized_extracted_text_routes_a_delegate_orchestrator_to_document_paging(tmp_path, monkeypatch):
     target = _make_xlsx(tmp_path / "big.xlsx",
                         rows=[[f"row {i}", "x" * 60] for i in range(4000)])
     _prepare(monkeypatch, target, num_ctx=8000, used=7000)
@@ -160,7 +159,7 @@ def test_oversized_extracted_text_routes_a_delegate_orchestrator_to_a_worker(tmp
         _read_file(str(target))
     message = str(excinfo.value)
     assert "do not call read_content_pos on it" in message
-    assert "command-line" in message
+    assert "Use read_document" in message
 
 
 # ---------------------------------------------------------------------------

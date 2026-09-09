@@ -395,6 +395,12 @@ def opalatex_tool(name: str, description: str, is_safe: bool = False):
             # Auto mode or safe tool -> always execute
             if mode == "auto" or is_safe:
                 return True
+
+            # Planning never grants execution authority, including permissions
+            # remembered from an earlier edit-mode turn. Memory tools are safe
+            # and intentionally remain available above.
+            if mode == "plan":
+                return "Execution blocked: In 'plan' mode, only reading, memory and communication tools are available."
                 
             # Check if this tool was set to 'always allow'
             if _PROJECT_SESSION and hasattr(_PROJECT_SESSION, "results"):
@@ -622,7 +628,7 @@ def read_file(path: str) -> str:
 
     try:
         if os.path.isdir(resolved):
-            raise ValueError(f"Error: '{_preview(resolved)}' is a directory, not a file. Use run_command with 'ls' or get_project_overview() to view contents.")
+            raise ValueError(f"Error: '{_preview(resolved)}' is a directory, not a file. Use get_project_overview() to view contents.")
         if not os.path.exists(resolved):
             raise ValueError(f"Error: file not found: {_preview(resolved)}. If you are trying to write code, use 'write_file' instead.")
     except OSError as e:
@@ -671,22 +677,7 @@ def read_file(path: str) -> str:
     else:
         budget_chars = free_context_chars()
         if budget_chars > 0 and len(extracted) > budget_chars:
-            # read_content_pos cannot page this: it would read the raw bytes of a
-            # binary container. The reachable route is to land the extracted text
-            # in the project as a text file and work on that.
-            if caller_has_terminal():
-                how = (
-                    "Use run_command to extract it to a .txt/.md file in the project "
-                    "(pymupdf4llm for PDF, openpyxl for XLSX, python-docx/python-pptx are "
-                    "installed), then search_code + read_content_pos that file."
-                )
-            else:
-                how = (
-                    "Delegate to the 'command-line' skill with run_skill: have it extract the "
-                    "document to a .txt/.md file in the project, then use search_code + "
-                    "read_content_pos on that file. In plan mode run_skill is blocked, so ask "
-                    "the user for the part they need instead."
-                )
+            how = "Use read_document(path, offset=0, limit=10000) and follow next_offset to read the extracted text without creating files."
             raise ValueError(
                 f"Error: the text extracted from '{_preview(resolved)}' is {len(extracted):,} "
                 f"characters and does not fit the remaining context budget "
@@ -1580,25 +1571,31 @@ async def run_background_command(command: str) -> str:
     AGENT_PROGRESS.update("background_cmd", f"$ {_preview(command)}")
     cwd = get_project_path()
 
-    try:
+    def send():
+        from .local_auth import local_api_connection
+        base_url, cookie = local_api_connection()
         req = urllib.request.Request(
-            "http://127.0.0.1:3000/api/terminal/input",
+            base_url + "/api/terminal/input",
             data=json.dumps({
-                "action": "input",
-                "text": f"{command}\r",
-                "term_id": "main",
-                "projectPath": cwd
-            }).encode('utf-8'),
-            headers={'Content-Type': 'application/json'},
-            method='POST'
+                "action": "input", "text": f"{command}\r",
+                "term_id": "main", "projectPath": cwd,
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Cookie": cookie},
+            method="POST",
         )
         with urllib.request.urlopen(req, timeout=2.0) as response:
-            if response.status == 200:
-                return f"SUCCESS: The command '{command}' has been sent to the main background terminal and is now running."
-            else:
-                return f"FAILED to start background command: HTTP {response.status}"
+            return response.status
+
+    try:
+        # The HTTP server shares this event loop. Blocking urlopen here would
+        # prevent it from accepting the very request the tool is waiting for.
+        status = await asyncio.to_thread(send)
+        if status == 200:
+            return f"SUCCESS: The command '{command}' has been sent to the main background terminal and is now running."
+        return f"FAILED to start background command: HTTP {status}"
     except Exception as e:
         return f"FAILED to send command to background terminal: {str(e)}"
+
 
 
 @opalatex_tool(name="run_python_script", is_safe=False, description="Execute a Python script securely. It automatically uses the correct Python interpreter for the environment. Provide the script path and any optional arguments.")
@@ -1662,7 +1659,10 @@ async def run_interactive_command(command: str) -> str:
     description=(
         "Search for text or a regular expression in project files using Python, "
         "returning relative file paths, 1-indexed line numbers, and matching lines. "
-        "Use this to locate sections, labels, definitions, or other markers before "
+        "query is mandatory; to read a known file without searching, call read_file(path) "
+        "or read_content_pos(path, start_pos, end_pos) instead. "
+        "Use offset to page matches, context_lines for surrounding text, include_logs for build logs, "
+        "and include_hidden for hidden directories. Use this to locate sections, labels, definitions, or other markers before "
         "calling read_content_pos or replace_content_range."
     ),
 )
@@ -1673,6 +1673,10 @@ def search_code(
     case_sensitive: bool = False,
     max_results: int = 50,
     file_pattern: str = "*",
+    offset: int = 0,
+    context_lines: int = 0,
+    include_hidden: bool = False,
+    include_logs: bool = False,
 ) -> str:
     try:
         resolved = _resolve_path(path)
@@ -1685,6 +1689,8 @@ def search_code(
         raise ValueError("query must not be empty.")
     if max_results < 1:
         raise ValueError("max_results must be a positive integer.")
+    if offset < 0 or not 0 <= context_lines <= 20:
+        raise ValueError("offset must be non-negative and context_lines must be between 0 and 20.")
 
     root = Path(get_project_path()).resolve()
     target = Path(resolved).resolve()
@@ -1694,6 +1700,8 @@ def search_code(
         ".jpg", ".jpeg", ".log", ".mp3", ".mp4", ".pdf", ".png", ".pyc", ".so",
         ".synctex.gz", ".zip",
     }
+    if include_logs:
+        skipped_exts.difference_update({".log", ".aux", ".bbl", ".blg"})
 
     try:
         if target.is_file():
@@ -1701,8 +1709,8 @@ def search_code(
         elif target.is_dir():
             candidates = []
             for dirpath, dirnames, filenames in os.walk(target):
-                dirnames[:] = [d for d in dirnames if d not in skipped_dirs and not d.startswith(".")]
-                for filename in filenames:
+                dirnames[:] = sorted(d for d in dirnames if d not in skipped_dirs and (include_hidden or not d.startswith(".")))
+                for filename in sorted(filenames):
                     candidate = Path(dirpath) / filename
                     if candidate.suffix.lower() in skipped_exts:
                         continue
@@ -1720,6 +1728,8 @@ def search_code(
         pattern = re.compile(query if use_regex else re.escape(query), flags)
         matches: list[str] = []
         searched = 0
+        match_index = 0
+        returned = 0
 
         for candidate in candidates:
             searched += 1
@@ -1730,13 +1740,19 @@ def search_code(
             if "\x00" in text[:4096]:
                 continue
             rel_path = os.path.relpath(candidate, root)
-            for line_number, line in enumerate(text.splitlines(), start=1):
+            lines = text.splitlines()
+            for line_number, line in enumerate(lines, start=1):
                 if pattern.search(line):
-                    matches.append(f"{rel_path}:{line_number}: {line.strip()}")
-                    if len(matches) >= max_results:
+                    match_index += 1
+                    if match_index <= offset:
+                        continue
+                    for index in range(max(0, line_number - 1 - context_lines), min(len(lines), line_number + context_lines)):
+                        matches.append(f"{rel_path}:{index + 1}: {lines[index].strip()}")
+                    returned += 1
+                    if returned >= max_results:
                         return (
                             "\n".join(matches)
-                            + f"\n[search_code] Stopped after {max_results} matches."
+                            + f"\n[search_code] Stopped after {max_results} matches. Continue with offset={offset + returned}."
                         )
 
         if not matches:
@@ -2126,6 +2142,61 @@ def _rel(path: str, root: str) -> str:
     except ValueError:
         return path
 
+@opalatex_tool(name="inspect_project", is_safe=True, description=(
+    "Read environment metadata or statically inspect a Python file without importing or executing it. "
+    "operation is environment or python; python requires path. Returns JSON."))
+def inspect_project(operation: str, path: str = "") -> str:
+    from .diagnostics import inspect_environment, inspect_python
+    if operation == "environment":
+        result = inspect_environment()
+    elif operation == "python":
+        if not path:
+            raise ValueError("path is required for Python inspection.")
+        result = inspect_python(_resolve_path(path))
+    else:
+        raise ValueError("operation must be environment or python.")
+    text = json.dumps(result, ensure_ascii=False)
+    if len(text) > free_context_chars():
+        raise ValueError("Inspection output exceeds the remaining context budget. Read targeted source ranges with read_content_pos instead.")
+    return text
+
+
+@opalatex_tool(name="inspect_git", is_safe=True, description=(
+    "Read Git status, diff, staged_diff, or log using fixed queries with no shell or project code execution. "
+    "Project filters and submodule inspection are disabled. Optional path restricts the query. "
+    "Page output by character offset and limit; follow next_offset."))
+def inspect_git(operation: str = "status", path: str = "", offset: int = 0, limit: int = 10000) -> str:
+    from .diagnostics import inspect_git as inspect
+    budget = free_context_chars()
+    if budget <= 0:
+        raise ValueError("The context window is exhausted. Summarize before reading further.")
+    return json.dumps(inspect(get_project_path(), operation, path, offset, min(limit, budget)))
+
+
+@opalatex_tool(name="read_document", is_safe=True, description=(
+    "Extract and page text from PDF, DOCX, PPTX or XLSX without writing files or executing code. "
+    "offset is a zero-based character offset; follow next_offset until null. Formatting is not preserved."))
+def read_document(path: str, offset: int = 0, limit: int = 10000) -> str:
+    from .attachments import extract_document_text_from_path
+    if Path(path).suffix.lower() not in _DOC_EXTS:
+        raise ValueError("read_document supports PDF, DOCX, PPTX and XLSX. Use read_content_pos for text files.")
+    if offset < 0 or not 1 <= limit <= 50000:
+        raise ValueError("offset must be non-negative and limit must be between 1 and 50000.")
+    budget = free_context_chars()
+    if budget <= 0:
+        raise ValueError("The context window is exhausted. Summarize before reading further.")
+    content = extract_document_text_from_path(_resolve_path(path))
+    if not content.strip():
+        raise ValueError("The document contains no extractable text.")
+    end = min(len(content), offset + min(limit, budget))
+    return json.dumps({"content": content[offset:end], "total_chars": len(content),
+                       "next_offset": end if end < len(content) else None}, ensure_ascii=False)
+
+
+def get_diagnostic_tools():
+    return [inspect_project, inspect_git, read_document, check_presentation]
+
+
 def get_workspace_action_tools():
     """Tools that act on the workspace: file writes and command execution.
 
@@ -2170,7 +2241,7 @@ def get_available_tools():
         read_content_pos,
         analyze_image,
         ask_question,
-        check_presentation,
+        *get_diagnostic_tools(),
         get_editor_state,
         *get_workspace_action_tools(),
     ]
@@ -2491,7 +2562,7 @@ async def create_plan(plan_content: str) -> str:
         "markdown_content": plan_content,
         "type": "confirm",
         "options": ["yes", "no"],
-        "default": "yes"
+        "default": "no"
     })
     
     try:
@@ -2509,10 +2580,13 @@ async def create_plan(plan_content: str) -> str:
             
         approved = approved_str.lower() in ("yes", "y", "s", "sim", "true", "1")
     except asyncio.TimeoutError:
-        approved = True
-        edited_plan = plan_content
+        _record_mode_event("[PLAN EXPIRED] No approval was received. Execution remains blocked.")
+        raise ValueError("Plan approval expired without a response. The plan was NOT approved; do not execute it.")
     finally:
         _gui_input_pending.pop(req_id, None)
+        print_event("input_request_closed", {"id": req_id})
+        if not fut.done():
+            fut.cancel()
     
     if approved:
         prev_mode = getattr(_PROJECT_SESSION, "_initial_mode", "plan")

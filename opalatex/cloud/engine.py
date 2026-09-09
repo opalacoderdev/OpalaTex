@@ -20,7 +20,10 @@ saying something the author never wrote.
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
@@ -34,7 +37,7 @@ from .base import (
     hash_file,
     local_path_for,
 )
-from .scanner import LocalEntry, ScanResult, scan_project
+from .scanner import DEFAULT_MAX_FILE_SIZE, ExclusionPolicy, LocalEntry, ScanResult, scan_project
 from .state import CloudSettings, CloudState
 
 # Sync directions.
@@ -226,7 +229,16 @@ class SyncEngine:
 
         # A conflict copy created by an earlier pass is a normal file from here
         # on: it uploads like any other, so both machines can see the divergence.
-        plan = sorted(set(local) | set(remote) | set(base))
+        policy = ExclusionPolicy(self.settings)
+        plan = []
+        for path in sorted(set(local) | set(remote) | set(base)):
+            reason = policy.reason_to_skip(path) or scan.skipped.get(path)
+            if not reason and path in remote and remote[path].size > DEFAULT_MAX_FILE_SIZE:
+                reason = "too-large"
+            if reason:
+                report.skipped[path] = reason
+                continue
+            plan.append(path)
 
         self._guard_bulk_delete(plan, local, remote, base)
 
@@ -401,26 +413,25 @@ class SyncEngine:
         if dry_run:
             report.uploaded.append(rel_path)
             return
-        absolute = local_path_for(self.project_path, rel_path)
         condition = expected_rev if self._capabilities.conditional_writes else None
         try:
-            entry = self.provider.upload(self.state.root, rel_path, absolute, condition)
+            with self._upload_snapshot(rel_path) as (absolute, sent):
+                entry = self.provider.upload(self.state.root, rel_path, absolute, condition)
         except CloudPreconditionFailed:
             # The remote moved between the listing and this write. Re-fetch its
             # current state and reconcile again rather than overwriting a change
             # this pass never saw.
             current = self._refetch(rel_path)
             if current is None:
-                entry = self.provider.upload(self.state.root, rel_path, absolute, None)
+                with self._upload_snapshot(rel_path) as (absolute, sent):
+                    entry = self.provider.upload(self.state.root, rel_path, absolute, None)
             else:
                 self._resolve_conflict(rel_path, local, current, report, dry_run)
                 return
-        # Uploading rewrites nothing locally, but the file may have been edited
-        # while it was in flight; re-stat so the baseline records what was
-        # actually sent rather than a hash that is already stale.
-        size, mtime = _stat_or(absolute, local.size, local.mtime)
+        # Keep the metadata from the snapshot, never from a later local edit.
+        # A later edit must miss the scanner's hash cache on the next pass.
         self.state.record(
-            rel_path, hash_=local.hash, size=size, mtime=mtime, remote_rev=entry.remote_rev
+            rel_path, hash_=sent.hash, size=sent.size, mtime=sent.mtime, remote_rev=entry.remote_rev
         )
         report.uploaded.append(rel_path)
 
@@ -509,13 +520,27 @@ class SyncEngine:
 
         # The working copy wins the canonical path, so the user's open editor
         # buffer keeps matching the file on disk.
-        absolute = local_path_for(self.project_path, rel_path)
-        entry = self.provider.upload(self.state.root, rel_path, absolute, None)
-        size, mtime = _stat_or(absolute, local.size, local.mtime)
+        with self._upload_snapshot(rel_path) as (absolute, sent):
+            entry = self.provider.upload(self.state.root, rel_path, absolute, None)
         self.state.record(
-            rel_path, hash_=local.hash, size=size, mtime=mtime, remote_rev=entry.remote_rev
+            rel_path, hash_=sent.hash, size=sent.size, mtime=sent.mtime, remote_rev=entry.remote_rev
         )
         report.uploaded.append(rel_path)
+
+    @contextmanager
+    def _upload_snapshot(self, rel_path: str):
+        """Send stable bytes and record the metadata of that same version."""
+        source = local_path_for(self.project_path, rel_path)
+        before = os.stat(source)
+        with tempfile.TemporaryDirectory(prefix="opalatex-upload-") as directory:
+            snapshot = os.path.join(directory, os.path.basename(source))
+            shutil.copyfile(source, snapshot)
+            after = os.stat(source)
+            signature = lambda stat: (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino)
+            if signature(before) != signature(after):
+                raise CloudError(f"File changed while preparing upload: {rel_path}. Retry the sync.")
+            sent = LocalEntry(rel_path, before.st_size, before.st_mtime, hash_file(snapshot))
+            yield snapshot, sent
 
     def _refetch(self, rel_path: str) -> Optional[RemoteEntry]:
         """Re-read one path's current remote state after a lost race."""

@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 from .base import hash_file, normalize_rel_path
-from .state import CloudSettings, SyncEntry
+from .state import CHATS_EXPORT_REL_PATH, CloudSettings, SyncEntry
 
 # Never mirrored, under any setting. These are machine-local, regenerable, or
 # would break the sync itself if copied between machines.
@@ -121,6 +121,10 @@ class ExclusionPolicy:
 
     def reason_to_skip(self, rel_path: str) -> Optional[str]:
         """Return why `rel_path` is excluded, or None when it should be synced."""
+        if any(part in PRUNED_DIRS for part in rel_path.split("/")[:-1]):
+            return "excluded"
+        if not self.settings.include_chats and rel_path == CHATS_EXPORT_REL_PATH:
+            return "chats"
         name = rel_path.rsplit("/", 1)[-1]
         if not self.settings.include_dotenv and (name == ".env" or name.startswith(".env.")):
             # Project API keys live here; copying them into cloud storage is a

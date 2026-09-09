@@ -17,6 +17,14 @@ def block_to_tool_schema(block: Block) -> Dict[str, Any]:
         class_doc = ""
         
     run_doc = inspect.getdoc(block.run)
+
+    # FunctionBlock is only an adapter. Its class/run docstrings describe how
+    # Python functions are wrapped and add no information about the callable
+    # tool. Appending them to every schema bloats the prompt and distracts small
+    # models from the actual tool contract stored in block.description.
+    if block.__class__.__name__ == "FunctionBlock":
+        class_doc = ""
+        run_doc = ""
     
     doc_parts = []
     if getattr(block, "description", None):

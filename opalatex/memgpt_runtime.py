@@ -1232,7 +1232,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     enable_achievements = model_params.get("enable_achievements", True)
     
     from .agent_stdin import wrap_tool
-    from .tools import create_plan, ask_question
+    from .tools import create_plan, ask_question, get_diagnostic_tools
 
     # Read/answer tools the orchestrator keeps under every policy. The memory
     # tools write, but only to core memory -- never to the user's files -- so
@@ -1249,6 +1249,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         wrap_tool(search_conversation_history),
         wrap_tool(web_search),
         wrap_tool(analyze_image),
+        *(wrap_tool(tool) for tool in get_diagnostic_tools()),
     ]
 
     # `create_plan` halts the turn on an approval dialog, which only means
@@ -1260,8 +1261,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     # approval dialog and then summarising what it had shown. Withheld by
     # composing the list, for the reason given below: the shared mode gate in
     # `opalatex_tool` wraps the same function object the worker uses.
-    if str(getattr(project, "mode", "auto") or "auto").strip().lower() == "plan":
-        orchestrator_tools.append(wrap_tool(create_plan))
+    planning_tools = [*orchestrator_tools, wrap_tool(create_plan)]
 
     # Enforced by composing the tool list per role, not by the mode gate in
     # `opalatex_tool`: that gate reads the shared project mode and wraps the very
@@ -1285,7 +1285,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     # (PROJECT_DESIGN 2.6), so it is recorded from the same policy decision that
     # composes the tool list and can never contradict it.
     from .tools import set_orchestrator_terminal_access
-    set_orchestrator_terminal_access(orchestrator_policy != "delegate")
+    set_orchestrator_terminal_access(orchestrator_policy != "delegate" and project.mode != "plan")
     if orchestrator_policy != "delegate":
         from .tools import get_workspace_action_tools
         orchestrator_tools.extend(
@@ -1294,6 +1294,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     if enable_achievements:
         from .tools import update_achievements_memory
         orchestrator_tools.append(wrap_tool(update_achievements_memory))
+        planning_tools.append(wrap_tool(update_achievements_memory))
 
     from .config import resolve_model_route, resolve_effective_num_ctx
     model = resolve_model_route(model, _llm_kwargs)
@@ -1408,6 +1409,21 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         _project_ref=project,
         _store_ref=store,
     )
-    memgpt.tools = list(memgpt.tools) + [wrap_tool(run_skill)]
+    execution_tools = [*orchestrator_tools, wrap_tool(run_skill)]
+
+    prompt_mode = str(getattr(project, "mode", "auto")).strip().lower()
+
+    def available_tools():
+        nonlocal prompt_mode
+        mode = str(getattr(project, "mode", "auto")).strip().lower()
+        if mode != prompt_mode:
+            memgpt.system_prompt = chat_orchestrator_system_prompt(project, store)
+            prompt_mode = mode
+        planning = mode == "plan"
+        set_orchestrator_terminal_access(not planning and orchestrator_policy != "delegate")
+        return planning_tools if planning else execution_tools
+
+    memgpt.tools_provider = available_tools
+    memgpt.tools = list(available_tools())
 
     return memgpt

@@ -43,7 +43,7 @@ def _full_mode_instructions(mode: str) -> str:
         return (
             "\n🚨 **SYSTEM ALERT: You are currently in 'plan' mode.**\n"
             "INSTRUCTIONS: Your goal is to gather context and propose a plan. "
-            "You MUST NOT execute modifying tools (like editing files or running terminal commands). "
+            "Shell commands, Python scripts and all workspace writes are unavailable, even for diagnostics. Memory writes remain allowed. Use inspect_git, inspect_project, read_document, search_code and read_content_pos to investigate. Tests and project code execution require explicit plan approval. "
             "You MUST NOT call run_skill in plan mode because workers can modify files. "
             "Once you have enough context, you MUST use the `create_plan` tool to present your plan for user approval.\n"
         )
@@ -131,7 +131,7 @@ def _full_achievements_instructions() -> str:
 
 def _light_mode_instructions(mode: str) -> str:
     if mode == "plan":
-        return "\nMode: plan. Gather context only, no file edits or run_skill. Call create_plan when ready.\n"
+        return "\nMode: plan. Read and diagnose only; no workspace writes, shell, Python execution or run_skill. Memory writes remain allowed. Use inspect_git, inspect_project, read_document and search_code. Call create_plan when ready; execution tools become available only after explicit approval.\n"
     if mode == "edit":
         return "\nMode: edit. Focus on file edits and questions; ask before terminal execution or long tasks.\n"
     if mode == "auto":

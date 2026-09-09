@@ -767,6 +767,8 @@ class AsyncHTTPServer:
         self.host = host
         self.port = port
         self.static_dir = static_dir
+        from .local_auth import LocalSession
+        self.local_session = LocalSession(host, port)
         self.active_queues = []
         self.active_terminal = None
         self.temp_terminals = {}
@@ -783,9 +785,15 @@ class AsyncHTTPServer:
 
     async def start(self):
         self.server = await asyncio.start_server(self.handle_request, self.host, self.port)
+        self.port = self.server.sockets[0].getsockname()[1]
+        self.local_session.port = self.port
+        from .local_auth import register_local_api
+        register_local_api(self.host, self.port, self.local_session)
         print(f"[IDE Backend] Python Async server running on http://{self.host}:{self.port}")
 
     def stop(self):
+        from .local_auth import unregister_local_api
+        unregister_local_api(self.local_session)
         # Fecha o terminal principal
         if self.active_terminal:
             try:
@@ -842,6 +850,28 @@ class AsyncHTTPServer:
                     k, v = line.split(':', 1)
                     headers[k.strip().lower()] = v.strip()
                 
+            if not self.local_session.trusted_request(headers):
+                self.send_response(writer, 403, b'{"error":"Untrusted request origin or host."}', "application/json")
+                return
+
+            # Bootstrap is a same-origin POST with a custom header. A foreign
+            # page cannot issue it without a preflight, which is refused below.
+            if path == '/api/session' and method == 'POST':
+                if headers.get('x-opalatex-bootstrap') != '1':
+                    self.send_response(writer, 403, b'{"error":"Invalid session bootstrap."}', "application/json")
+                    return
+                self.send_response_with_headers(writer, 200, b'{"success":true}', "application/json", {
+                    "Set-Cookie": self.local_session.cookie(), "Cache-Control": "no-store",
+                })
+                return
+
+            if path.startswith('/api/') and not self.local_session.authenticated(headers):
+                self.send_response(writer, 401, b'{"error":"Local session required. Reload the application."}', "application/json")
+                return
+            if path == '/api/session' and method == 'GET':
+                self.send_response(writer, 200, b'{"success":true}', "application/json")
+                return
+
             # Read body if Content-Length exists
             body = b""
             if 'content-length' in headers:
@@ -887,7 +917,7 @@ class AsyncHTTPServer:
     def send_response(self, writer, status_code, body, content_type="text/plain"):
         status_msg = {
             200: "OK", 206: "Partial Content", 400: "Bad Request",
-            403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
+            401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
             500: "Internal Server Error",
         }.get(status_code, "Error")
         if (content_type.startswith("text/") or 
@@ -898,7 +928,8 @@ class AsyncHTTPServer:
             f"HTTP/1.1 {status_code} {status_msg}\r\n"
             f"Content-Type: {content_type}\r\n"
             f"Content-Length: {len(body)}\r\n"
-            f"Access-Control-Allow-Origin: *\r\n"
+            f"Cache-Control: no-store\r\n"
+            f"X-Frame-Options: SAMEORIGIN\r\n"
             f"Connection: close\r\n\r\n"
         )
         writer.write(headers.encode('utf-8'))
@@ -908,7 +939,7 @@ class AsyncHTTPServer:
     def send_response_with_headers(self, writer, status_code, body, content_type="text/plain", extra_headers=None):
         status_msg = {
             200: "OK", 206: "Partial Content", 400: "Bad Request",
-            403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
+            401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
             500: "Internal Server Error",
         }.get(status_code, "Error")
         if (content_type.startswith("text/") or
@@ -919,7 +950,6 @@ class AsyncHTTPServer:
             f"HTTP/1.1 {status_code} {status_msg}",
             f"Content-Type: {content_type}",
             f"Content-Length: {len(body)}",
-            "Access-Control-Allow-Origin: *",
         ]
         for name, value in (extra_headers or {}).items():
             if "\r" in name or "\n" in name or "\r" in value or "\n" in value:
@@ -937,14 +967,13 @@ class AsyncHTTPServer:
         """Send a known-length body without assembling it in memory."""
         status_msg = {
             200: "OK", 206: "Partial Content", 400: "Bad Request",
-            403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
+            401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
             500: "Internal Server Error",
         }.get(status_code, "Error")
         response_headers = [
             f"HTTP/1.1 {status_code} {status_msg}",
             f"Content-Type: {content_type}",
             f"Content-Length: {content_length}",
-            "Access-Control-Allow-Origin: *",
         ]
         for name, value in (extra_headers or {}).items():
             if "\r" in name or "\n" in name or "\r" in value or "\n" in value:
@@ -961,9 +990,6 @@ class AsyncHTTPServer:
     def send_cors(self, writer):
         headers = (
             "HTTP/1.1 200 OK\r\n"
-            "Access-Control-Allow-Origin: *\r\n"
-            "Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n"
-            "Access-Control-Allow-Headers: Content-Type\r\n"
             "Connection: close\r\n\r\n"
         )
         writer.write(headers.encode('utf-8'))
@@ -998,7 +1024,7 @@ class AsyncHTTPServer:
                 if "charset=" not in mime_type:
                     mime_type += "; charset=utf-8"
             
-            headers = f"HTTP/1.1 200 OK\r\nContent-Type: {mime_type}\r\nContent-Length: {len(content)}\r\nConnection: close\r\n\r\n"
+            headers = f"HTTP/1.1 200 OK\r\nContent-Type: {mime_type}\r\nContent-Length: {len(content)}\r\nX-Frame-Options: SAMEORIGIN\r\nContent-Security-Policy: frame-ancestors 'self'\r\nConnection: close\r\n\r\n"
             writer.write(headers.encode('utf-8'))
             writer.write(content)
             await writer.drain()
@@ -3315,7 +3341,6 @@ class AsyncHTTPServer:
                 "Content-Type: text/event-stream\r\n"
                 "X-Content-Type-Options: nosniff\r\n"
                 "Transfer-Encoding: chunked\r\n"
-                "Access-Control-Allow-Origin: *\r\n"
                 "Cache-Control: no-cache\r\n"
                 "Connection: keep-alive\r\n\r\n"
             )
@@ -3479,7 +3504,6 @@ class AsyncHTTPServer:
             headers = (
                 "HTTP/1.1 200 OK\r\n"
                 "Content-Type: text/event-stream\r\n"
-                "Access-Control-Allow-Origin: *\r\n"
                 "Cache-Control: no-cache\r\n"
                 "Connection: keep-alive\r\n\r\n"
             )
@@ -4112,7 +4136,6 @@ class AsyncHTTPServer:
                 "Content-Type: text/event-stream\r\n"
                 "X-Content-Type-Options: nosniff\r\n"
                 "Transfer-Encoding: chunked\r\n"
-                "Access-Control-Allow-Origin: *\r\n"
                 "Cache-Control: no-cache\r\n"
                 "Connection: keep-alive\r\n\r\n"
             )

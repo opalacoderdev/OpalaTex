@@ -52,7 +52,9 @@ def test_resolve_skill_model():
 
 
 def test_build_chat_orchestrator_has_run_skill_and_memory_tools(tmp_path):
-    m = build_chat_orchestrator(_project(tmp_path), None)
+    project = _project(tmp_path)
+    project.mode = "auto"
+    m = build_chat_orchestrator(project, None)
     names = {getattr(t, "name", None) for t in m.tools}
     assert "run_skill" in names
     assert {"read_core_memory", "append_core_memory", "search_conversation_history"} <= names
@@ -106,7 +108,9 @@ def test_reasoning_fallback_setting_never_reaches_litellm(tmp_path):
 
 
 def test_chat_orchestrator_exposes_surgical_edit_tools(tmp_path):
-    m = build_chat_orchestrator(_project(tmp_path), None)
+    project = _project(tmp_path)
+    project.mode = "auto"
+    m = build_chat_orchestrator(project, None)
     names = {getattr(t, "name", None) for t in m.tools}
     assert {"search_code", "read_content_pos", "replace_content_range", "write_content_pos"} <= names
     assert "replace_content_range" in m.system_prompt
@@ -122,7 +126,9 @@ def test_chat_orchestrator_exposes_search_code_for_targeted_search(tmp_path):
 
 
 def test_chat_orchestrator_exposes_document_creation_tools(tmp_path):
-    m = build_chat_orchestrator(_project(tmp_path), None)
+    project = _project(tmp_path)
+    project.mode = "auto"
+    m = build_chat_orchestrator(project, None)
     names = {getattr(t, "name", None) for t in m.tools}
     assert {"create_docx_file", "create_pptx_file"} <= names
     assert "You can use `create_docx_file`" in m.system_prompt

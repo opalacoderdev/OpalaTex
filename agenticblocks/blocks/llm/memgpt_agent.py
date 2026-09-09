@@ -149,6 +149,13 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                 data["litellm_kwargs"] = val
                 data["litellm_kargs"] = val
         return data
+    tools_provider: Optional[Callable[[], List[Block]]] = Field(default=None, exclude=True)
+    """Optional capability resolver, evaluated before each model request.
+
+    Each response is dispatched against the tools advertised for that request.
+    Hosts can grant or revoke capabilities between requests without restarting
+    the conversation. Without a provider, the existing tools list is used.
+    """
     on_iteration: Optional[Callable[[int, List[Dict[str, Any]]], Any]] = None
     """Optional callback invoked at the start of each loop iteration for debugging. 
     Signature: `def callback(iteration: int, messages: List[Dict[str, Any]]) -> Any`.
@@ -494,8 +501,6 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
     async def run(self, input: AgentInput) -> AgentOutput:
         start_time = time.monotonic()
 
-        agent_tools = self.tools.copy()
-        
         @as_tool(
             name=HEARTBEAT_TOOL_NAME,
             description=(
@@ -511,7 +516,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             # so a model with something to say writes it and the user reads it.
             return "Heartbeat granted. Your turn stays open: take the next step."
 
-        agent_tools.append(new_heartbeat)
+        agent_tools = [*self.tools, new_heartbeat]
         litellm_tools = [block_to_tool_schema(b) for b in agent_tools]
 
         # Build user content — plain string or multimodal list (vision models).
@@ -549,6 +554,12 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         final_text_only = ""
         
         while True:
+            # Capabilities can change after an approval or revocation. Resolve
+            # once per request: calls in its response use that exact snapshot.
+            if self.tools_provider is not None:
+                self.tools = list(self.tools_provider())
+                agent_tools = [*self.tools, new_heartbeat]
+                litellm_tools = [block_to_tool_schema(b) for b in agent_tools]
             # Messages submitted while this turn is in flight enter the history
             # here, before the request is assembled and before eviction runs, so
             # the model sees them on its next call and the newest of them becomes

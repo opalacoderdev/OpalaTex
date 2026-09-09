@@ -264,3 +264,35 @@ def test_orchestrator_state_is_dropped_when_a_message_is_superseded(tmp_path):
 
     rebuilt = MemGPTAgentBlock(name="chat_orchestrator", model="fake/model")
     assert restore_chat_orchestrator_state(rebuilt, project, store) is False
+
+
+def test_dynamic_tools_change_between_requests_not_within_a_response():
+    """Approval cannot authorize a write the model bundled before it knew its tools."""
+    from agenticblocks.core.function_block import as_tool
+    enabled, written, advertised = [], [], []
+
+    @as_tool
+    def approve() -> str:
+        enabled.append(True)
+        return "approved"
+
+    @as_tool
+    def write() -> str:
+        written.append(True)
+        return "written"
+
+    agent = MemGPTAgentBlock(name="dynamic", model="fake/model", max_heartbeats=4,
+                            tools_provider=lambda: [write] if enabled else [approve])
+    responses = [
+        _response(tool_calls=[_tool_call("a", "approve"), _tool_call("b", "write")]),
+        _response(tool_calls=[_tool_call("c", "write")]),
+        _response(content="done"),
+    ]
+    async def completion(messages, **kwargs):
+        advertised.append({item["function"]["name"] for item in kwargs["tools"]})
+        return responses.pop(0)
+    agent._acompletion = completion
+    asyncio.run(agent.run(AgentInput(prompt="work")))
+    assert "approve" in advertised[0] and "write" not in advertised[0]
+    assert "write" in advertised[1] and "approve" not in advertised[1]
+    assert written == [True]

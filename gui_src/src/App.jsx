@@ -1,3 +1,4 @@
+import { createFileSaveQueue, contentAfterSave } from './utils/fileSave.js';
 import React, { useState, useEffect, useMemo, useRef, useCallback, useTransition } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import { useTranslation } from 'react-i18next';
@@ -275,12 +276,15 @@ export default function App() {
   const [editorTextStats, setEditorTextStats] = useState(null);
   const [selectedNodes, setSelectedNodes] = useState(new Set());
   const [renamingNodePath, setRenamingNodePath] = useState(null);
-  const [fileContent, setFileContent] = useState('');
-  // Always-current ref for fileContent — used in async closures and useEffect
-  // callbacks where capturing fileContent directly would produce a stale value.
-  // Assigning here (outside any hook) keeps it in sync on every render without
-  // adding fileContent to useEffect dependency arrays.
+  const [fileContent, setFileContentState] = useState('');
+  // Every editor surface updates the ref synchronously, so an HTTP response
+  // cannot observe the previous render's text between typing and an effect.
   const fileContentRef = useRef('');
+  const setFileContent = useCallback(value => {
+    const next = typeof value === 'function' ? value(fileContentRef.current) : value;
+    fileContentRef.current = next;
+    setFileContentState(next);
+  }, []);
   const [openFiles, setOpenFiles] = useState([]);
   const [fileContents, setFileContents] = useState({});
 
@@ -648,17 +652,17 @@ export default function App() {
   const monacoRef = useRef(null);
   const saveFileRef = useRef(null);
   const diskFileContentsRef = useRef({});
+  const fileSaveQueueRef = useRef(createFileSaveQueue());
+  const pendingSaveCountRef = useRef(0);
+  const documentContextRef = useRef(null);
+  documentContextRef.current = {
+    projectPath: activeProject?.project_path, selectedFile,
+    getContent: getCurrentTextFileContent,
+  };
   const gitStatusRequestRef = useRef(null);
   const lastEditorInputAtRef = useRef(0);
   const importFileInputRef = useRef(null);
   const importTargetPathRef = useRef('');
-
-  // Keep fileContentRef in sync with committed React state. During active
-  // Monaco typing it is updated directly from the editor to avoid stale
-  // render values overwriting freshly typed text.
-  useEffect(() => {
-    fileContentRef.current = fileContent;
-  }, [fileContent]);
 
   function getCurrentTextFileContent() {
     if (selectedFile && !isBinaryEditorFile(selectedFile)) {
@@ -2147,69 +2151,90 @@ export default function App() {
     if (currentContent !== fileContent) {
       setFileContent(currentContent);
     }
-    const savedDiskContent = diskFileContentsRef.current[selectedFile];
-    if (typeof savedDiskContent === 'string' && savedDiskContent === currentContent) {
-      setFileContents(prev => (
-        prev[selectedFile] === currentContent ? prev : { ...prev, [selectedFile]: currentContent }
-      ));
-      return true;
-    }
+    const projectPath = activeProject.project_path;
+    const filePath = selectedFile;
+    const diskCache = diskFileContentsRef.current;
+    const sameProject = () => documentContextRef.current?.projectPath === projectPath
+      && diskFileContentsRef.current === diskCache;
+    setFileContents(prev => ({ ...prev, [filePath]: currentContent }));
+    pendingSaveCountRef.current += 1;
     setIsSaving(true);
-    try {
-      const res = await fetch('/api/file/write', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectPath: activeProject.project_path, filePath: selectedFile, content: currentContent }),
-      });
-      if (res.ok) {
-        const response = await res.json().catch(() => ({}));
-        // A JPT save replaces data/project references with canonical jpt:
-        // members. Keep the live buffer aligned with what the package contains
-        // so media resolves through the package endpoint immediately.
-        const savedContent = typeof response.content === 'string'
-          ? response.content
-          : currentContent;
-        addLog('info', t('app.fileSaved', { path: selectedFile }));
-        fileContentRef.current = savedContent;
-        setFileContent(savedContent);
-        diskFileContentsRef.current[selectedFile] = savedContent;
-        setFileContents(prev => ({ ...prev, [selectedFile]: savedContent }));
-
-        fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)
-          .then(r => r.ok ? r.json() : null)
-          .then(gitData => {
-            if (gitData && gitData.content !== undefined) {
-              setOriginalFileContents(prev => ({ ...prev, [selectedFile]: gitData.content }));
-            } else {
-              setOriginalFileContents(prev => ({ ...prev, [selectedFile]: '' }));
-            }
-          })
-          .catch(() => {
-            // Do not overwrite originalFileContents on error or 404 if it's unwanted, but actually we should set to empty if untracked.
-            setOriginalFileContents(prev => ({ ...prev, [selectedFile]: '' }));
-          });
-        fetchGitStatus();
-        fetchProblems();
-        if (!suppressCompile && selectedFile && selectedFile.toLowerCase().match(/\.(tex|cls|sty|bib)$/)) {
-          const compileFull = activeProject.compile_on_save_full === true;
-          const compilePartial = activeProject.compile_on_save_partial !== false;
-          if (compileFull || compilePartial) {
-            setTriggerCompileRequest({
-              id: Date.now(),
-              partial: !compileFull && compilePartial,
-            });
+    return fileSaveQueueRef.current.run(projectPath, filePathKey(filePath), async () => {
+      try {
+        // Check only once preceding saves have completed. A queued older write
+        // may otherwise overwrite the version this save thought was on disk.
+        if (diskCache[filePath] === currentContent) return true;
+        const res = await fetch('/api/file/write', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectPath: activeProject.project_path, filePath: selectedFile, content: currentContent }),
+        });
+        if (res.ok) {
+          const response = await res.json().catch(() => ({}));
+          // A JPT save replaces data/project references with canonical jpt:
+          // members. Keep the live buffer aligned with what the package contains
+          // so media resolves through the package endpoint immediately.
+          const savedContent = typeof response.content === 'string'
+            ? response.content
+            : currentContent;
+          if (!sameProject()) return true;
+          addLog('info', t('app.fileSaved', { path: filePath }));
+          diskCache[filePath] = savedContent;
+          const live = documentContextRef.current;
+          const activeDocument = sameFilePath(live.selectedFile, filePath);
+          const liveContent = activeDocument ? live.getContent() : undefined;
+          if (activeDocument && liveContent === currentContent) {
+            fileContentRef.current = savedContent;
+            setFileContent(savedContent);
           }
+          setFileContents(prev => {
+            // Closing/renaming a tab must not resurrect it when a save returns.
+            if (!Object.hasOwn(prev, filePath)) return prev;
+            const current = activeDocument ? liveContent : prev[filePath];
+            return { ...prev, [filePath]: contentAfterSave(current, currentContent, savedContent) };
+          });
+
+          fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(gitData => {
+              if (!sameProject()) return;
+              if (gitData && gitData.content !== undefined) {
+                setOriginalFileContents(prev => ({ ...prev, [selectedFile]: gitData.content }));
+              } else {
+                setOriginalFileContents(prev => ({ ...prev, [selectedFile]: '' }));
+              }
+            })
+            .catch(() => {
+              if (!sameProject()) return;
+              // Do not overwrite originalFileContents on error or 404 if it's unwanted, but actually we should set to empty if untracked.
+              setOriginalFileContents(prev => ({ ...prev, [selectedFile]: '' }));
+            });
+          fetchGitStatus();
+          fetchProblems();
+          if (activeDocument && !suppressCompile && selectedFile && selectedFile.toLowerCase().match(/\.(tex|cls|sty|bib)$/)) {
+            const compileFull = activeProject.compile_on_save_full === true;
+            const compilePartial = activeProject.compile_on_save_partial !== false;
+            if (compileFull || compilePartial) {
+              setTriggerCompileRequest({
+                id: Date.now(),
+                partial: !compileFull && compilePartial,
+              });
+            }
+          }
+          return true;
         }
-        return true;
-      }
-      else {
-        addLog('error', t('app.fileSaveFailedPath', { path: selectedFile }));
+        else {
+          addLog('error', t('app.fileSaveFailedPath', { path: selectedFile }));
+          return false;
+        }
+      } catch (err) {
+        addLog('error', t('app.writeError', { error: err.message }));
         return false;
       }
-    } catch (err) {
-      addLog('error', t('app.writeError', { error: err.message }));
-      return false;
-    }
-    finally { setIsSaving(false); }
+      finally {
+        pendingSaveCountRef.current -= 1;
+        setIsSaving(pendingSaveCountRef.current > 0);
+      }
+    });
   };
 
   useEffect(() => { saveFileRef.current = saveFile; }, [saveFile]);
@@ -3060,6 +3085,10 @@ export default function App() {
         addLog('info', t('app.messageBacklog', 'The turn ended before {{count}} queued message(s) were delivered. Sending them as a new turn.', { count: (data.items || []).length }));
         break;
       case 'agent_finished': addLog('info', t('app.processingCompleted', 'Processamento concluído.')); break;
+      case 'input_request_closed':
+        setPlanRequest(prev => prev?.id === data.id ? null : prev);
+        setConfirmRequest(prev => prev?.id === data.id ? null : prev);
+        break;
       case 'input_request': {
         // `markdown_content` is emitted by `create_plan` and by nothing else
         // (opalatex/tools.py), so it is what tells a plan review apart from an

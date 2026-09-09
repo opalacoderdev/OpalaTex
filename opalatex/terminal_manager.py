@@ -3,6 +3,7 @@ import sys
 import subprocess
 import asyncio
 import threading
+import selectors
 
 # Maximum amount of raw PTY output kept in memory per session so that a client
 # that reconnects (tab switch, React remount, dropped SSE stream) can restore
@@ -68,7 +69,15 @@ class TerminalSession:
         t.start()
 
     def _thread_read_loop(self):
+        selector = None
         try:
+            if not self.is_running:
+                return
+            if sys.platform != "win32":
+                # select.select cannot handle descriptors >= FD_SETSIZE, even
+                # when only one PTY is watched. epoll/kqueue/poll can.
+                selector = selectors.DefaultSelector()
+                selector.register(self.master_fd, selectors.EVENT_READ)
             while self.is_running:
                 if sys.platform == "win32":
                     try:
@@ -81,9 +90,7 @@ class TerminalSession:
                     data = data_str.encode('utf-8')
                 else:
                     try:
-                        import select
-                        r, _, _ = select.select([self.master_fd], [], [], 0.5)
-                        if not r:
+                        if not selector.select(0.5):
                             continue
                         data = os.read(self.master_fd, 4096)
                         if not data:
@@ -94,7 +101,12 @@ class TerminalSession:
                         break
 
                 if self.loop and self.is_running:
-                    self.loop.call_soon_threadsafe(self._forward_data, data)
+                    try:
+                        self.loop.call_soon_threadsafe(self._forward_data, data)
+                    except RuntimeError:
+                        if self.loop.is_closed():
+                            break
+                        raise
         except Exception as e:
             # Only log unexpected errors, not normal close-related ones
             err_str = str(e)
@@ -102,10 +114,18 @@ class TerminalSession:
                 import traceback
                 print(f"[Terminal] Read loop error: {e}\n{traceback.format_exc()}")
         finally:
-            if self.loop:
-                self.loop.call_soon_threadsafe(self.close)
-            else:
-                self.close()
+            if selector is not None:
+                selector.close()
+            if self.is_running:
+                if self.loop:
+                    try:
+                        self.loop.call_soon_threadsafe(self.close)
+                    except RuntimeError:
+                        if not self.loop.is_closed():
+                            raise
+                        self.close()
+                else:
+                    self.close()
 
     def _forward_data(self, data):
         self._append_to_buffer(data)

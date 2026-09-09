@@ -170,16 +170,28 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
         kwargs.setdefault("drop_params", True)
         sanitize_agent_state(agent)
         cleaned_messages = sanitize_tool_call_messages(messages)
-        if _has_repeated_tool_validation_errors(cleaned_messages):
+        invalid_tools = _repeated_tool_validation_error_names(cleaned_messages)
+        if invalid_tools:
+            names = ", ".join(sorted(invalid_tools))
             cleaned_messages = cleaned_messages + [{
                 "role": "system",
                 "content": (
-                    "SYSTEM ALERT: Repeated invalid native tool-call arguments were detected. "
-                    "Stop attempting actions for this turn and return a concise normal-text "
-                    "response explaining that the active model could not produce valid tool arguments."
+                    "SYSTEM ALERT: Repeated invalid arguments were rejected for these tools: "
+                    f"{names}. They are unavailable for the rest of this turn. Continue with a "
+                    "different available tool whose declared schema matches the task. Do not "
+                    "repeat or rename the rejected call, and do not claim that all tools are "
+                    "unavailable. For whole-file content use read_file(path); search_code always "
+                    "requires query. In plan mode, finish by calling create_plan when ready."
                 ),
             }]
-            kwargs["tool_choice"] = "none"
+            # Disable only the tool whose schema the model repeatedly violated.
+            # Keeping the remaining schemas lets it recover with a real read tool
+            # and still reach create_plan. This is a loop breaker, not a semantic
+            # fallback: the rejected call is never rewritten or executed.
+            kwargs["tools"] = [
+                schema for schema in kwargs.get("tools", [])
+                if _litellm_tool_name(schema) not in invalid_tools
+            ]
         if model_requires_single_system_message(model):
             cleaned_messages = consolidate_leading_system_messages(cleaned_messages)
         try:
@@ -386,9 +398,17 @@ def tool_accepts_args(tool_name: str, args_dict: dict, tools: list) -> bool:
     return False
 
 
-def _has_repeated_tool_validation_errors(messages: list[dict[str, Any]], *, threshold: int = 2) -> bool:
+def _repeated_tool_validation_error_names(
+    messages: list[dict[str, Any]], *, threshold: int = 2
+) -> set[str]:
     seen: dict[str, int] = {}
+    repeated: set[str] = set()
     for msg in reversed(messages[-12:]):
+        # A new user message starts a new opportunity to call the tool. Without
+        # this boundary, two mistakes near the end of one turn could keep a read
+        # tool hidden at the start of the next turn as well.
+        if msg.get("role") == "user":
+            break
         if msg.get("role") != "tool":
             continue
         content = str(msg.get("content") or "")
@@ -399,8 +419,23 @@ def _has_repeated_tool_validation_errors(messages: list[dict[str, Any]], *, thre
         name = str(msg.get("name") or "unknown")
         seen[name] = seen.get(name, 0) + 1
         if seen[name] >= threshold:
-            return True
-    return False
+            repeated.add(name)
+    return repeated
+
+
+def _has_repeated_tool_validation_errors(messages: list[dict[str, Any]], *, threshold: int = 2) -> bool:
+    """Compatibility predicate retained for callers that only need yes/no."""
+    return bool(_repeated_tool_validation_error_names(messages, threshold=threshold))
+
+
+def _litellm_tool_name(schema: Any) -> str:
+    """Return a function name from a LiteLLM/OpenAI tool schema."""
+    if not isinstance(schema, dict):
+        return ""
+    function = schema.get("function")
+    if not isinstance(function, dict):
+        return ""
+    return str(function.get("name") or "")
 
 
 def _tool_name_available(tools: list, name: str) -> bool:

@@ -1,4 +1,6 @@
 import React, { Suspense } from 'react';
+import i18next from 'i18next';
+import { establishLocalSession } from './utils/localSession.js';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import { CustomDialogProvider } from './components/modals/CustomDialogProvider.jsx';
@@ -116,14 +118,26 @@ import './mathFont.css';
   syncFindWidgets();
 })();
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <Suspense fallback={null}>
-      <CustomDialogProvider>
-        <ModelCatalogProvider>
-          <App />
-        </ModelCatalogProvider>
-      </CustomDialogProvider>
-    </Suspense>
-  </React.StrictMode>
-);
+const root = ReactDOM.createRoot(document.getElementById('root'));
+async function startApplication() {
+  try {
+    await establishLocalSession();
+    root.render(
+      <React.StrictMode>
+        <Suspense fallback={null}>
+          <CustomDialogProvider>
+            <ModelCatalogProvider><App /></ModelCatalogProvider>
+          </CustomDialogProvider>
+        </Suspense>
+      </React.StrictMode>
+    );
+  } catch (error) {
+    root.render(
+      <div role="alert" style={{ padding: 24 }}>
+        <p>{i18next.t('app.localSessionFailed', 'Could not connect to the local application. Check that the backend is running and try again.')}</p>
+        <button onClick={startApplication}>{i18next.t('app.localSessionRetry', 'Try again')}</button>
+      </div>
+    );
+  }
+}
+startApplication();
