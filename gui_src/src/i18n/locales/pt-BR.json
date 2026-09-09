@@ -648,7 +648,11 @@
     "forceVisionTitle": "Habilite para modelos de visão locais do Ollama que o LiteLLM não detecta automaticamente",
     "contextualSkillsLoadError": "Erro ao carregar contextual skills",
     "advancedOrchestrator": "Parâmetros avançados (Orquestrador)",
-    "advancedWorker": "Parâmetros avançados (Worker)"
+    "advancedWorker": "Parâmetros avançados (Worker)",
+    "tabPrompt": "Prefixo de prompt",
+    "promptPrefixLabel": "Prefixo do prompt de usuário",
+    "promptPrefixHelp": "Estas regras são incluídas em cada chamada de LLM deste projeto, incluindo os workers. Elas ficam separadas do histórico de chat e da memória do agente. Salve as alterações para aplicá-las às novas execuções. Deixe vazio para desativar.",
+    "promptPrefixPlaceholder": "Digite as regras a aplicar ao longo deste projeto…"
   },
   "settingsModal": {
     "title": "CONFIGURAÇÕES DA IDE",

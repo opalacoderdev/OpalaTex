@@ -581,6 +581,7 @@ def build_run_skill_tool(
 
         sub_agent = LLMAgentBlock(
             name=f"skill_{skill_name}",
+            user_prompt_prefix=getattr(_project_ref, "user_prompt_prefix", ""),
             system_prompt=system,
             model=model,
             tools=tools,
@@ -862,6 +863,7 @@ def derive_context_usage_from_state(project, store) -> dict | None:
         probe = MemGPTAgentBlock(
             name="chat_orchestrator",
             system_prompt=chat_orchestrator_system_prompt(project, store),
+            user_prompt_prefix=getattr(project, "user_prompt_prefix", ""),
             model=model,
         )
         probe.load_state(state)
@@ -1358,6 +1360,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     )
     from .litellm_compat import wrap_agent_litellm_compat
     from .token_usage import attach_usage_tracking
+    memgpt.user_prompt_prefix = project.user_prompt_prefix
     wrap_agent_litellm_compat(memgpt)
     # Report real context occupancy for the CLI path too, not only for runs that
     # go through agent_stdin.

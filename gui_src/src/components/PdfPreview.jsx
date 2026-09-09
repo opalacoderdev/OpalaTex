@@ -713,6 +713,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: snippet,
+          project_name: activeProject?.name,
           target_lang: targetLang,
           model: activeProject?.model || '',
         }),

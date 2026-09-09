@@ -2014,6 +2014,7 @@ async def handle_run(data: dict):
             **agent_kwargs
         )
     from opalatex.litellm_compat import wrap_agent_litellm_compat
+    agent.user_prompt_prefix = getattr(current_project, "user_prompt_prefix", "")
     wrap_agent_litellm_compat(agent)
     attach_usage_tracking(agent)
 

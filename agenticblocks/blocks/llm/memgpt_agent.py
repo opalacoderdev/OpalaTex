@@ -90,6 +90,8 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     """
     description: str = "MemGPT style Agent with strict heartbeat limits and context management."
     model: str = "ollama/gemma4:latest"
+    user_prompt_prefix: str = ""
+    """Fixed user instructions reapplied to every provider request, outside memory."""
     system_prompt: str = "You are a helpful AI assistant with extended memory capabilities."
     tools: List[Block] = []
     max_heartbeats: int = 10
@@ -312,7 +314,8 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
 
     def count_context_tokens(self) -> int:
         """Return the token count of the current main context, for this model."""
-        return self._estimate_tokens(self.build_request_messages())
+        from agenticblocks.utils.messages import prepend_user_prompt
+        return self._estimate_tokens(prepend_user_prompt(self.build_request_messages(), self.user_prompt_prefix))
 
     def _get_safe_eviction_index(self, history: List[Dict[str, Any]], target_count: int) -> int:
         """Finds a safe index to evict up to, ensuring we don't split tool calls from their results.
@@ -419,7 +422,8 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             if "reasoning_content" in m:
                 m.pop("reasoning_content")
             cleaned_messages.append(m)
-        messages = cleaned_messages
+        from agenticblocks.utils.messages import prepend_user_prompt
+        messages = prepend_user_prompt(cleaned_messages, self.user_prompt_prefix)
 
         streaming = kwargs.get("stream", False)
         if streaming:
@@ -569,7 +573,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             # --- Gerenciamento de Contexto (FIFO Queue & Summarization) ---
             messages = self.build_request_messages()
 
-            current_tokens = self._estimate_tokens(messages)
+            current_tokens = self.count_context_tokens()
 
             # Evictação FIFO
             if current_tokens > self.max_context_tokens * self.eviction_threshold:
@@ -587,7 +591,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                     self.recursive_summary = await self._summarize(to_evict)
                     
                     messages = self.build_request_messages()
-                    current_tokens = self._estimate_tokens(messages)
+                    current_tokens = self.count_context_tokens()
                 else:
                     if self.debug: print("[DEBUG] Falha ao evictar: impossível quebrar o histórico de forma segura.")
 

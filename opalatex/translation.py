@@ -101,6 +101,7 @@ async def execute_translation(
     target_language: str,
     model: str | None = None,
     max_tokens: int = 4096,
+    user_prompt_prefix: str = "",
 ) -> str:
     """Translate *text* into *target_language* and return the translated text.
 
@@ -135,6 +136,7 @@ async def execute_translation(
     agent = _agent_mod.LLMAgentBlock(
         name="snippet_translation",
         system_prompt=build_translation_system_prompt(target_language),
+        user_prompt_prefix=user_prompt_prefix,
         model=selected_model,
         model_kwargs=model_kwargs,
     )

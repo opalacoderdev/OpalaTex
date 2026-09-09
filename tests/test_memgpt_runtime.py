@@ -467,7 +467,9 @@ def test_run_skill_worker_disables_shared_router(tmp_path, monkeypatch):
     project = _project(tmp_path)
     project.mode = "auto"
     project.worker_model = "ollama/gemma4:26b"
+    project.user_prompt_prefix = "Preserve citations."
     m = build_chat_orchestrator(project, None)
+    assert m.user_prompt_prefix == project.user_prompt_prefix
     run_skill = build_run_skill_tool(
         m,
         str(tmp_path),
@@ -480,6 +482,7 @@ def test_run_skill_worker_disables_shared_router(tmp_path, monkeypatch):
     result = asyncio.run(raw("command-line", "inspect the project"))
 
     assert "done" in result
+    assert captured["user_prompt_prefix"] == project.user_prompt_prefix
     assert captured["model"] == "ollama_chat/gemma4:26b"
     assert captured["use_shared_router"] is False
     assert "search_code" in {getattr(tool, "name", None) for tool in captured["tools"]}

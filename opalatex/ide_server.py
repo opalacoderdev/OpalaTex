@@ -288,11 +288,25 @@ def clean_evolved_prompt(
     return evolved_prompt
 
 
+def _request_project_prompt_prefix(data: dict) -> str:
+    """Resolve auxiliary calls by explicit project identity, never global state."""
+    name = data.get("project_name")
+    if not name:
+        return ""
+    from opalatex.config import DEFAULT_DB_PATH
+    from opalatex.project import ProjectStore
+    store = ProjectStore(db_path=DEFAULT_DB_PATH)
+    if not isinstance(name, str) or not store.exists(name):
+        raise ValueError("Unknown project")
+    return store.load(name).user_prompt_prefix
+
+
 async def _execute_prompt_evolution(
     prompt: str,
     iterations: int = 1,
     model: str | None = None,
     max_tokens: int = 4096,
+    user_prompt_prefix: str = "",
 ) -> str:
     """Refine and evolve a prompt iteratively using LLMAgentBlock."""
     import agenticblocks.blocks.llm.agent as _agent_mod
@@ -324,6 +338,7 @@ async def _execute_prompt_evolution(
         agent = _agent_mod.LLMAgentBlock(
             name="prompt_evolution",
             system_prompt=system_prompt,
+            user_prompt_prefix=user_prompt_prefix,
             model=selected_model,
             model_kwargs=model_kwargs,
             response_schema=PromptEvolutionResult,
@@ -3088,6 +3103,12 @@ class AsyncHTTPServer:
             # the default chat instead of trusting a client-supplied chat id.
             project = store.load(project_name)
 
+            if "user_prompt_prefix" in data:
+                if not isinstance(data["user_prompt_prefix"], str):
+                    self.send_response(writer, 400, b'{"error":"user_prompt_prefix must be a string"}', "application/json")
+                    return
+                project.user_prompt_prefix = data["user_prompt_prefix"]
+
             # Patch only supplied fields
             if "display_name" in data:
                 project.project_name = data["display_name"]
@@ -3229,6 +3250,7 @@ class AsyncHTTPServer:
                 "worker_model": project.worker_model,
                 "mode": project.mode,
                 "description": project.description,
+                "user_prompt_prefix": project.user_prompt_prefix,
                 "model_params": project.model_params,
                 "worker_model_params": project.worker_model_params,
                 "effective_num_ctx": resolve_display_num_ctx(project.model, project.model_params),
@@ -5303,6 +5325,7 @@ class AsyncHTTPServer:
                 selected_model = str(data.get("model") or "").strip()
                 evolved = await _execute_prompt_evolution(
                     prompt_text,
+                    user_prompt_prefix=_request_project_prompt_prefix(data),
                     iterations=iterations,
                     model=selected_model or None,
                     max_tokens=max(1, min(65536, int(cfg.get("prompt_evolution_max_tokens", 4096)))),
@@ -5363,6 +5386,7 @@ class AsyncHTTPServer:
                 translated_text = await execute_translation(
                     snippet,
                     target_language,
+                    user_prompt_prefix=_request_project_prompt_prefix(data),
                     model=str(data.get("model") or "").strip() or None,
                 )
                 self.send_response(writer, 200, json.dumps({

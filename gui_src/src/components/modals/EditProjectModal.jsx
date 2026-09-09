@@ -113,7 +113,8 @@ export default function EditProjectModal({
   const tabs = [
     { id: 'geral', label: t('editProjectModal.tabGeneral') },
     { id: 'orquestrador', label: t('editProjectModal.tabOrchestrator') },
-    { id: 'worker', label: t('editProjectModal.tabWorker') }
+    { id: 'worker', label: t('editProjectModal.tabWorker') },
+    { id: 'prompt', label: t('editProjectModal.tabPrompt', 'Prompt prefix') }
   ];
   return (
     <div className="vscode-modal-overlay">
@@ -144,6 +145,26 @@ export default function EditProjectModal({
         </div>
 
         <form onSubmit={onSubmit} className="vscode-modal-content flex flex-col overflow-y-auto flex-1" style={{ gap: '14px' }}>
+
+          {activeTab === 'prompt' && (
+            <div className="flex flex-col" style={{ gap: '8px' }}>
+              <label htmlFor="project-user-prompt-prefix" className="vscode-sidebar-section-title" style={{ padding: 0 }}>
+                {t('editProjectModal.promptPrefixLabel', 'User prompt prefix')}
+              </label>
+              <p id="project-user-prompt-prefix-help" style={{ margin: 0, fontSize: '12px', color: 'var(--vscode-descriptionForeground)', lineHeight: 1.5 }}>
+                {t('editProjectModal.promptPrefixHelp', 'These rules are included in every LLM call for this project, including workers. They remain separate from chat history and agent memory. Save changes to apply them to new runs. Leave empty to disable.')}
+              </p>
+              <textarea
+                id="project-user-prompt-prefix"
+                aria-describedby="project-user-prompt-prefix-help"
+                value={editingProject.user_prompt_prefix || ''}
+                onChange={e => setEditingProject(p => ({ ...p, user_prompt_prefix: e.target.value }))}
+                placeholder={t('editProjectModal.promptPrefixPlaceholder', 'Enter the rules to apply throughout this project…')}
+                rows={12}
+                style={{ resize: 'vertical', minHeight: '180px' }}
+              />
+            </div>
+          )}
 
           {/* GERAL TAB */}
           {activeTab === 'geral' && (

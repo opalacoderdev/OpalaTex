@@ -320,6 +320,10 @@ def _init_schema(db_path: str) -> None:
         except sqlite3.OperationalError:
             pass
 
+        # Project prompt rules are separate from chat and editable core memory.
+        if "user_prompt_prefix" not in {row[1] for row in conn.execute("PRAGMA table_info(projects)")}:
+            conn.execute("ALTER TABLE projects ADD COLUMN user_prompt_prefix TEXT NOT NULL DEFAULT ''")
+
         # Migração: main_file
         try:
             conn.execute("ALTER TABLE projects ADD COLUMN main_file TEXT NOT NULL DEFAULT ''")
@@ -461,6 +465,7 @@ class ProjectData:
     api_base: str = ""
     worker_api_key: str = ""
     worker_api_base: str = ""
+    user_prompt_prefix: str = ""
     main_file: str = ""
     git_root_path: str = ""
     compile_on_save_partial: bool = True
@@ -550,7 +555,7 @@ class ProjectStore:
     def list_projects(self) -> list[dict]:
         with _conn(self.db_path) as conn:
             rows = conn.execute(
-                "SELECT name, project_name, project_path, created_at, updated_at, mode, model, worker_model, description, model_params, worker_model_params, use_shared_memory, main_file, git_root_path, compile_on_save_partial, compile_on_save_full FROM projects ORDER BY updated_at DESC"
+                "SELECT name, project_name, project_path, created_at, updated_at, mode, model, worker_model, description, model_params, worker_model_params, use_shared_memory, main_file, git_root_path, compile_on_save_partial, compile_on_save_full, user_prompt_prefix FROM projects ORDER BY updated_at DESC"
             ).fetchall()
             res = []
             for r in rows:
@@ -901,6 +906,7 @@ class ProjectStore:
                 api_base=api_base,
                 worker_api_key=worker_api_key,
                 worker_api_base=worker_api_base,
+                user_prompt_prefix=row["user_prompt_prefix"],
                 main_file=row["main_file"] if "main_file" in row.keys() else "",
                 git_root_path=row["git_root_path"] if "git_root_path" in row.keys() else "",
                 compile_on_save_partial=compile_partial,
@@ -969,7 +975,7 @@ class ProjectStore:
         with _conn(self.db_path) as conn:
             conn.execute(
                 """UPDATE projects SET updated_at=?, mode=?, model=?, worker_model=?, project_name=?, project_path=?,
-                   skills=?, description=?, request=?, plan_text=?, subplans=?, results=?, core_memory=?, model_params=?, worker_model_params=?, use_shared_memory=?, main_file=?, git_root_path=?, compile_on_save_partial=?, compile_on_save_full=? WHERE name=?""",
+                   skills=?, description=?, request=?, plan_text=?, subplans=?, results=?, core_memory=?, model_params=?, worker_model_params=?, use_shared_memory=?, main_file=?, git_root_path=?, compile_on_save_partial=?, compile_on_save_full=?, user_prompt_prefix=? WHERE name=?""",
                 (
                     now,
                     project.mode,
@@ -991,6 +997,7 @@ class ProjectStore:
                     getattr(project, "git_root_path", ""),
                     int(compile_partial),
                     int(compile_full),
+                    project.user_prompt_prefix,
                     project.name,
                 ),
             )

@@ -112,7 +112,7 @@ async def test_evolve_prompt_endpoint(tmp_path, monkeypatch):
     # Mock _execute_prompt_evolution
     endpoint_call = {}
 
-    async def mock_execute(prompt, iterations=1, model=None, max_tokens=4096):
+    async def mock_execute(prompt, iterations=1, model=None, max_tokens=4096, user_prompt_prefix=""):
         endpoint_call["model"] = model
         endpoint_call["max_tokens"] = max_tokens
         return f"Evolved {iterations}x: {prompt}"
@@ -167,9 +167,11 @@ async def test_execute_prompt_evolution_invokes_agent(monkeypatch):
         "Short prompt",
         iterations=1,
         model=selected_model,
+        user_prompt_prefix="Keep citations intact.",
         max_tokens=4096,
     )
     assert result == "Detailed Evolved Prompt"
+    assert agent_kwargs["user_prompt_prefix"] == "Keep citations intact."
     assert agent_kwargs["model"] == selected_model
     assert agent_kwargs["model_kwargs"]["think"] is True
     assert agent_kwargs["model_kwargs"]["max_tokens"] == 4096
@@ -206,7 +208,7 @@ async def test_cancel_evolve_prompt_endpoint(tmp_path, monkeypatch):
     hanging_event = asyncio.Event()
     cancelled_observed = False
 
-    async def mock_slow_execute(prompt, iterations=1, model=None, max_tokens=4096):
+    async def mock_slow_execute(prompt, iterations=1, model=None, max_tokens=4096, user_prompt_prefix=""):
         nonlocal cancelled_observed
         try:
             await hanging_event.wait()

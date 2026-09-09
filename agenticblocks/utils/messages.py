@@ -73,3 +73,25 @@ def _tool_call_id(call: Any) -> Optional[str]:
     if isinstance(call, dict):
         return call.get("id")
     return getattr(call, "id", None)
+
+
+def prepend_user_prompt(messages: List[Dict[str, Any]], prefix: str) -> List[Dict[str, Any]]:
+    """Apply fixed user instructions to a request copy, never to stored history."""
+    if not prefix:
+        return messages
+    result = [dict(message) for message in messages]
+    for message in result:
+        if message.get("role") == "user":
+            content = message.get("content")
+            if isinstance(content, list):
+                message["content"] = [{"type": "text", "text": prefix + "\n\n"}, *content]
+            elif content is None or isinstance(content, str):
+                message["content"] = prefix + "\n\n" + (content or "")
+            else:
+                raise TypeError("User message content must be text or a list of content parts")
+            return result
+    index = 0
+    while index < len(result) and result[index].get("role") in ("system", "developer"):
+        index += 1
+    result.insert(index, {"role": "user", "content": prefix})
+    return result

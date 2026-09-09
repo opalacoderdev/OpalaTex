@@ -278,6 +278,8 @@ def _get_shared_router(model: str) -> litellm.Router:
 class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     description: str = "Autonomous LLM-based Agent managing its own tool loop."
     model: str = "ollama/gemma4:latest"
+    user_prompt_prefix: str = ""
+    """Fixed user instructions reapplied to every provider request, outside memory."""
     system_prompt: str = "You are a helpful Analyst and Router Agent. Use the available tools when you lack context."
     tools: List[Block] = []
     termination_tools: List[str] = []
@@ -439,7 +441,8 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
             if "reasoning_content" in m:
                 m.pop("reasoning_content")
             cleaned_messages.append(m)
-        messages = cleaned_messages
+        from agenticblocks.utils.messages import prepend_user_prompt
+        messages = prepend_user_prompt(cleaned_messages, self.user_prompt_prefix)
 
         streaming = kwargs.get("stream", False)
         if streaming:

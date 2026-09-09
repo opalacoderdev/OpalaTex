@@ -648,7 +648,11 @@
     "forceVisionTitle": "Enable for local Ollama vision models that LiteLLM does not detect automatically",
     "contextualSkillsLoadError": "Error loading contextual skills",
     "advancedOrchestrator": "Advanced Parameters (Orchestrator)",
-    "advancedWorker": "Advanced Parameters (Worker)"
+    "advancedWorker": "Advanced Parameters (Worker)",
+    "tabPrompt": "Prompt prefix",
+    "promptPrefixLabel": "User prompt prefix",
+    "promptPrefixHelp": "These rules are included in every LLM call for this project, including workers. They remain separate from chat history and agent memory. Save changes to apply them to new runs. Leave empty to disable.",
+    "promptPrefixPlaceholder": "Enter the rules to apply throughout this project…"
   },
   "settingsModal": {
     "title": "SETTINGS",

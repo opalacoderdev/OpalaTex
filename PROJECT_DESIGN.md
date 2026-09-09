@@ -47,6 +47,12 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
   - `create_presentation`, `edit_presentation` and `check_presentation` (backed by `opalatex/jpt/`) are the same idea for the IDE's own presentation format — see §2.19.
 - **Cloud Project Mirroring (`opalatex/cloud/`)**: An opt-in, per-project mirror of a project to cloud storage, behind a provider-neutral facade (`CloudStorageProvider`). Disabled by default; nothing leaves the machine until a user turns it on for a specific project. See §2.15.
 
+### Project user prompt prefix
+
+Project settings include a separate **Prompt prefix** tab (English and Brazilian Portuguese). `ProjectData.user_prompt_prefix` is persisted in the projects table with an empty default and migrated for existing databases. The update endpoint validates it as text; listing and saving settings preserve it verbatim, including whitespace. Clearing the field disables it.
+
+Both AgenticBlocks agent types expose the general-purpose `user_prompt_prefix` field. At each completion boundary, shared `prepend_user_prompt` adds it to the first user message in a request copy, preserving multimodal parts and tool-call ordering; requests without a user message receive one after leading system/developer messages. The prefix never enters persisted conversation or editable core memory and is reapplied after eviction, on heartbeats, summarization and final synthesis. OpalaTex snapshots it into orchestrators and workers when constructed. Translation and prompt evolution resolve it from the explicit project identity sent by the UI, avoiding leakage from another active project. Saved changes apply to newly constructed runs; an already running agent retains its snapshot. These are user-role instructions, not a guarantee of model compliance or an override of system instructions.
+
 ### 2.2 Offline by Default & Open-Source (MIT)
 The OpalaTex repository contains no cloud proxy calls, no account tracking, and no credit-meter logic. All editing and AI features function via Ollama and user-configured third-party providers (API key + optional base URL). The previous private `OpalaTexCloud` overlay project and its `opalatex_cloud` extension package have been discontinued and are no longer built or referenced from this repository.
 
