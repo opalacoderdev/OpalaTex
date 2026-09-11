@@ -145,6 +145,7 @@ export default function GitSidebar({
   onClearGitRoot,
   reviewMode = false,
   onAfterRestore,
+  checkpointRevision = 0,
 }) {
   const { t } = useTranslation();
   const { showConfirm, showAlert } = useCustomDialog();
@@ -201,7 +202,7 @@ export default function GitSidebar({
 
   useEffect(() => {
     if ((reviewMode || activeTab === 'log') && projectPath) fetchLog();
-  }, [activeTab, projectPath, fetchLog, effectiveUseShadowGit, gitRootPath, reviewMode]);
+  }, [activeTab, projectPath, fetchLog, effectiveUseShadowGit, gitRootPath, reviewMode, checkpointRevision]);
 
   useEffect(() => {
     if (reviewMode) return;

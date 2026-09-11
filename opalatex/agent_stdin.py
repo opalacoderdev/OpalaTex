@@ -2179,9 +2179,23 @@ async def handle_run(data: dict):
     from opalatex.tools import TURN_ACHIEVEMENTS
     import opalatex.tools as tools_mod
 
-    # Open the out-of-band inbox for this turn. Only the conversation agents take
-    # one: a worker or an inline edit is not a conversation the user can talk
-    # into, and the composer that produces these messages belongs to the chat.
+    if agent_type == "chat_orchestrator":
+        tools_mod.TURN_ACHIEVEMENTS = ""
+
+    turn_checkpoint = None
+    if agent_type in ("orchestrator", "chat_orchestrator") and current_project and current_project.project_path:
+        try:
+            from opalatex.config import get_git_strategy
+            if get_git_strategy().lower() != "none":
+                from opalatex.vcs import AsyncAgentTurnCheckpoint
+                turn_checkpoint = AsyncAgentTurnCheckpoint(current_project.project_path)
+                await turn_checkpoint.begin()
+        except Exception:
+            turn_checkpoint = None
+
+    # Open the out-of-band inbox only after the cancellation-safe checkpoint has
+    # started.  A cancellation while Git is taking the initial snapshot therefore
+    # cannot leave a live inbox attached to a turn that never began execution.
     turn_inbox = None
     if agent_type in ("orchestrator", "chat_orchestrator"):
         turn_inbox = _open_turn_inbox(
@@ -2190,20 +2204,6 @@ async def handle_run(data: dict):
             project_path=getattr(current_project, "project_path", "") or "",
             chat_id=str(data.get("chat_id") or ""),
         )
-    if agent_type == "chat_orchestrator":
-        tools_mod.TURN_ACHIEVEMENTS = ""
-
-    turn_checkpoint_project_path = None
-    turn_checkpoint_id = None
-    if agent_type in ("orchestrator", "chat_orchestrator") and current_project and current_project.project_path:
-        try:
-            from opalatex.config import get_git_strategy
-            if get_git_strategy().lower() != "none":
-                from opalatex.vcs import begin_agent_turn_checkpoint
-                turn_checkpoint_project_path = current_project.project_path
-                turn_checkpoint_id = await asyncio.to_thread(begin_agent_turn_checkpoint, turn_checkpoint_project_path)
-        except Exception:
-            turn_checkpoint_id = None
 
     import opalatex.terminal as T
     orig_async_confirm_hook = getattr(T, "_async_confirm_hook", None)
@@ -2433,6 +2433,7 @@ async def handle_run(data: dict):
             user_msg = _friendly_llm_error(e, current_project)
             print_event("error", {"message": user_msg, "trace": err_msg})
     finally:
+        checkpoint_cancelled_during_cleanup = False
         # Close the message channel before anything else in the cleanup: from
         # here on nothing will drain it, so a message still accepted would be
         # accepted into a turn that can no longer deliver it.
@@ -2451,12 +2452,47 @@ async def handle_run(data: dict):
         # failed turn already consumed the window it reports.
         if agent_type in TOKEN_CONTEXT_AGENTS:
             _persist_context_usage(data.get("chat_id"))
-        if turn_checkpoint_id and turn_checkpoint_project_path:
+        if turn_checkpoint is not None and turn_checkpoint.start_checkpoint:
             try:
-                from opalatex.vcs import finalize_agent_turn_checkpoint
-                await asyncio.to_thread(finalize_agent_turn_checkpoint, turn_checkpoint_project_path, turn_checkpoint_id)
+                checkpoint_saved = await turn_checkpoint.finalize()
+                print_event("checkpoint_finalized", {
+                    "agent": agent_type,
+                    "success": checkpoint_saved,
+                })
+                if not checkpoint_saved:
+                    from opalatex.i18n import _
+                    print_event("problem", {
+                        "agent": agent_type,
+                        "severity": "error",
+                        "message": _("checkpoint_finalize_failed"),
+                    })
+            except asyncio.CancelledError:
+                # AsyncAgentTurnCheckpoint propagates cancellation only after its
+                # shielded Git cleanup has completed.  Defer propagation until the
+                # remaining synchronous cleanup below has also run.
+                print_event("checkpoint_finalized", {
+                    "agent": agent_type,
+                    "success": bool(turn_checkpoint.finalize_result),
+                })
+                if not turn_checkpoint.finalize_result:
+                    from opalatex.i18n import _
+                    print_event("problem", {
+                        "agent": agent_type,
+                        "severity": "error",
+                        "message": _("checkpoint_finalize_failed"),
+                    })
+                checkpoint_cancelled_during_cleanup = True
             except Exception:
-                pass
+                from opalatex.i18n import _
+                print_event("checkpoint_finalized", {
+                    "agent": agent_type,
+                    "success": False,
+                })
+                print_event("problem", {
+                    "agent": agent_type,
+                    "severity": "error",
+                    "message": _("checkpoint_finalize_failed"),
+                })
         # The activity connection is kept open for the whole turn because it is
         # written once per streamed token; outside a turn there is nothing to
         # gain from holding the database file open, so release it here.
@@ -2473,6 +2509,8 @@ async def handle_run(data: dict):
             locals().get("initial_project_mode"),
             locals().get("agent_type", ""),
         )
+        if checkpoint_cancelled_during_cleanup:
+            raise asyncio.CancelledError
 
     if agent_type != "inline_editor":
         print_event("agent_finished", {})

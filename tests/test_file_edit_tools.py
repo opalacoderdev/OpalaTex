@@ -2,6 +2,7 @@ from types import SimpleNamespace
 import asyncio
 import shutil
 import subprocess
+import threading
 
 import pytest
 
@@ -300,6 +301,112 @@ def test_labeled_agent_turn_without_changes_removes_start_and_end(tmp_path):
 
     assert "Agent turn start checkpoint: worker:command-line" not in log
     assert "Agent turn end checkpoint: worker:command-line" not in log
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.asyncio
+async def test_agent_turn_cancelled_during_start_does_not_leave_orphan(monkeypatch, tmp_path):
+    import opalatex.vcs as vcs
+
+    start_committed = threading.Event()
+    release_start = threading.Event()
+    real_begin = vcs.begin_agent_turn_checkpoint
+
+    def delayed_begin(project_path, agent_label=None):
+        checkpoint_id = real_begin(project_path, agent_label)
+        start_committed.set()
+        release_start.wait(timeout=5)
+        return checkpoint_id
+
+    monkeypatch.setattr(vcs, "begin_agent_turn_checkpoint", delayed_begin)
+    checkpoint = vcs.AsyncAgentTurnCheckpoint(str(tmp_path))
+    task = asyncio.create_task(checkpoint.begin())
+
+    assert await asyncio.to_thread(start_committed.wait, 5)
+    task.cancel()
+    release_start.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    log = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "log",
+            "--format=%s",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    assert "Agent turn start checkpoint" not in log
+    assert "Agent turn end checkpoint" not in log
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.asyncio
+async def test_agent_turn_finalization_survives_repeated_cancellation(monkeypatch, tmp_path):
+    import opalatex.vcs as vcs
+
+    checkpoint = vcs.AsyncAgentTurnCheckpoint(str(tmp_path))
+    assert await checkpoint.begin()
+    (tmp_path / "partial.tex").write_text("partial change\n", encoding="utf-8")
+
+    finalize_started = threading.Event()
+    release_finalize = threading.Event()
+    real_finalize = vcs.finalize_agent_turn_checkpoint
+
+    def delayed_finalize(project_path, start_checkpoint=None, agent_label=None):
+        finalize_started.set()
+        release_finalize.wait(timeout=5)
+        return real_finalize(project_path, start_checkpoint, agent_label)
+
+    monkeypatch.setattr(vcs, "finalize_agent_turn_checkpoint", delayed_finalize)
+    task = asyncio.create_task(checkpoint.finalize())
+
+    assert await asyncio.to_thread(finalize_started.wait, 5)
+    task.cancel()
+    await asyncio.sleep(0)
+    task.cancel()
+    release_finalize.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    log = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "log",
+            "--format=%s",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    status = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "status",
+            "--porcelain",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    assert "Agent turn start checkpoint" in log
+    assert "Agent turn end checkpoint" in log
+    assert status == ""
 
 
 

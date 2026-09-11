@@ -694,20 +694,18 @@ def build_run_skill_tool(
             previous_runs_block = f"\n[PREVIOUS ATTEMPTS HISTORY]\nYou have been called before in this session for the '{skill_name}' skill. Do NOT repeat failed approaches. Here are your previous attempts:\n{previous_runs}"
 
         prompt = f"RECENT CHAT HISTORY:\n{recent_history}{achievements_block}{previous_runs_block}\n\nMEMGPT CONTEXT/INSTRUCTIONS:\n{context}"
-        worker_checkpoint_id = None
-        worker_checkpoint_project_path = None
+        worker_checkpoint = None
         try:
             from opalatex.config import get_git_strategy
             if get_git_strategy().lower() != "none":
-                from opalatex.vcs import begin_agent_turn_checkpoint
-                worker_checkpoint_project_path = project_path
-                worker_checkpoint_id = await asyncio.to_thread(
-                    begin_agent_turn_checkpoint,
-                    worker_checkpoint_project_path,
+                from opalatex.vcs import AsyncAgentTurnCheckpoint
+                worker_checkpoint = AsyncAgentTurnCheckpoint(
+                    project_path,
                     f"worker:{skill_name}",
                 )
+                await worker_checkpoint.begin()
         except Exception:
-            worker_checkpoint_id = None
+            worker_checkpoint = None
         from .tools import set_worker_context
         set_worker_context(True)
         try:
@@ -725,17 +723,35 @@ def build_run_skill_tool(
 
         finally:
             set_worker_context(False)
-            if worker_checkpoint_id and worker_checkpoint_project_path:
+            if worker_checkpoint is not None and worker_checkpoint.start_checkpoint:
                 try:
-                    from opalatex.vcs import finalize_agent_turn_checkpoint
-                    await asyncio.to_thread(
-                        finalize_agent_turn_checkpoint,
-                        worker_checkpoint_project_path,
-                        worker_checkpoint_id,
-                        f"worker:{skill_name}",
-                    )
+                    checkpoint_saved = await worker_checkpoint.finalize()
+                    if not checkpoint_saved:
+                        from opalatex.agent_stdin import print_event
+                        from opalatex.i18n import _
+                        print_event("problem", {
+                            "agent": f"worker:{skill_name}",
+                            "severity": "error",
+                            "message": _("checkpoint_finalize_failed"),
+                        })
+                except asyncio.CancelledError:
+                    if not worker_checkpoint.finalize_result:
+                        from opalatex.agent_stdin import print_event
+                        from opalatex.i18n import _
+                        print_event("problem", {
+                            "agent": f"worker:{skill_name}",
+                            "severity": "error",
+                            "message": _("checkpoint_finalize_failed"),
+                        })
+                    raise
                 except Exception:
-                    pass
+                    from opalatex.agent_stdin import print_event
+                    from opalatex.i18n import _
+                    print_event("problem", {
+                        "agent": f"worker:{skill_name}",
+                        "severity": "error",
+                        "message": _("checkpoint_finalize_failed"),
+                    })
 
         #if "<<NEED_INPUT>>" in out_text:
         #    parts = out_text.split("<<NEED_INPUT>>", 1)

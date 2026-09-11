@@ -1096,6 +1096,140 @@ async def test_handle_run_finalizes_checkpoint_when_agent_errors(monkeypatch, tm
     assert (tmp_path / "partial.tex").read_text(encoding="utf-8") == "partial change\n"
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.asyncio
+async def test_handle_run_finalizes_checkpoint_when_cancelled(monkeypatch, tmp_path):
+    import opalatex.agent_stdin as stdin_mod
+    import opalatex.vcs as vcs
+    import threading
+
+    changed = asyncio.Event()
+    events = []
+    finalize_started = threading.Event()
+    release_finalize = threading.Event()
+    real_finalize = vcs.finalize_agent_turn_checkpoint
+
+    def delayed_finalize(project_path, start_checkpoint=None, agent_label=None):
+        finalize_started.set()
+        release_finalize.wait(timeout=5)
+        return real_finalize(project_path, start_checkpoint, agent_label)
+
+    class FakeProject:
+        name = "proj"
+        mode = "auto"
+        project_path = str(tmp_path)
+        model = "fake/model"
+        model_params = {}
+        current_chat_id = "main"
+        user_prompt_prefix = ""
+
+    class FakeStore:
+        closed = False
+
+        def append_message(self, _project, role, content, attachments=None, **_kwargs):
+            return 1
+
+        def append_activity(self, _project, event, content="", agent="", payload=None):
+            pass
+
+        def save(self, _project):
+            pass
+
+        def close_activity_connection(self):
+            self.closed = True
+
+    class FakeMemGPT:
+        model = "fake/model"
+        model_kargs = {}
+        internal_history = []
+        _current_worker_messages = []
+        _last_worker_summary = ""
+        system_prompt = ""
+
+        async def _acompletion(self, *args, **kwargs):
+            return None
+
+        async def run(self, _agent_input):
+            (tmp_path / "cancelled.tex").write_text("partial change\n", encoding="utf-8")
+            changed.set()
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
+    monkeypatch.setattr(stdin_mod, "current_memgpt", FakeMemGPT())
+    monkeypatch.setattr(stdin_mod, "current_project", FakeProject())
+    store = FakeStore()
+    monkeypatch.setattr(stdin_mod, "current_store", store)
+    monkeypatch.setattr(vcs, "finalize_agent_turn_checkpoint", delayed_finalize)
+
+    task = asyncio.create_task(stdin_mod.handle_run({
+        "agent": "chat_orchestrator",
+        "prompt": "create a partial file",
+        "chat_id": "main",
+    }))
+    await asyncio.wait_for(changed.wait(), timeout=5)
+    task.cancel()
+    assert await asyncio.to_thread(finalize_started.wait, 5)
+    task.cancel()
+    release_finalize.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    log = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "log",
+            "--format=%s",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    status = subprocess.run(
+        [
+            "git",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
+            f"--work-tree={tmp_path}",
+            "status",
+            "--porcelain",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    assert "Agent turn start checkpoint" in log
+    assert "Agent turn end checkpoint" in log
+    assert status == ""
+    assert store.closed is True
+    assert ("checkpoint_finalized", {"agent": "chat_orchestrator", "success": True}) in events
+
+
+@pytest.mark.asyncio
+async def test_server_interrupt_acknowledges_immediately_and_cancels_once():
+    from opalatex.ide_server import AsyncHTTPServer
+
+    server = AsyncHTTPServer()
+    event_queue = asyncio.Queue()
+    blocker = asyncio.Event()
+    agent_task = asyncio.create_task(blocker.wait())
+
+    server._emit_agent_cancelled_once(agent_task, event_queue)
+    event = event_queue.get_nowait()
+
+    assert event["event"] == "cancelled"
+    assert not agent_task.done()
+    assert server._request_agent_cancel_once(agent_task) is True
+    assert server._request_agent_cancel_once(agent_task) is False
+
+    with pytest.raises(asyncio.CancelledError):
+        await agent_task
+
+
 @pytest.mark.asyncio
 async def test_project_handlers(tmp_path, monkeypatch):
     """Test project listing, creation, and deletion via stdin handlers."""

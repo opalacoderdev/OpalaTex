@@ -367,6 +367,10 @@ export default function App() {
   const [queuedMessages, setQueuedMessages] = useState([]);
   const [isInterruptPending, setIsInterruptPending] = useState(false);
   const [isInlineRunning, setIsInlineRunning] = useState(false);
+  // Refreshes an already-open Review panel after the backend has safely closed
+  // an agent checkpoint, including a turn whose cancellation was acknowledged
+  // before its Git cleanup completed.
+  const [checkpointRevision, setCheckpointRevision] = useState(0);
 
   // ── Bottom panel ──────────────────────────────────────────────────────────
   const [terminalLogs, setTerminalLogs] = useState([]);
@@ -3084,6 +3088,9 @@ export default function App() {
         addLog('info', t('app.messageBacklog', 'The turn ended before {{count}} queued message(s) were delivered. Sending them as a new turn.', { count: (data.items || []).length }));
         break;
       case 'agent_finished': addLog('info', t('app.processingCompleted', 'Processamento concluído.')); break;
+      case 'checkpoint_finalized':
+        setCheckpointRevision(value => value + 1);
+        break;
       case 'input_request_closed':
         setPlanRequest(prev => prev?.id === data.id ? null : prev);
         setAskRequest(prev => prev?.id === data.id ? null : prev);
@@ -4302,6 +4309,7 @@ export default function App() {
                 gitRootPath={currentGitRootPath}
                 onPickGitRoot={() => openDirPicker('git-root', currentGitRootPath || activeProject?.project_path || '~')}
                 onClearGitRoot={() => updateActiveGitRoot('')}
+                checkpointRevision={checkpointRevision}
               />
             )}
           </aside>
@@ -4396,6 +4404,7 @@ export default function App() {
               onClearGitRoot={() => {}}
               reviewMode
               onAfterRestore={handleCheckpointRestored}
+              checkpointRevision={checkpointRevision}
             />
           )}
 

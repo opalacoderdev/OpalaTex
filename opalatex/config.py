@@ -151,7 +151,7 @@ _CORE_AGENT_DEFAULTS = {
         # A runaway guardrail, not a budget: the turn runs for as long as tool
         # calls are pending, and a step spent speaking before an action is
         # normal work, not waste.
-        "max_heartbeats": 50,
+        "max_heartbeats": 100,
         "debug": False,
     },
     "landscape_planner": {
@@ -162,7 +162,7 @@ _CORE_AGENT_DEFAULTS = {
     },
     "orchestrator": {
         "num_ctx": 16384,
-        "max_heartbeats": 20,
+        "max_heartbeats": 100,
         "debug": False,
         "strategy": "workflow",
     },

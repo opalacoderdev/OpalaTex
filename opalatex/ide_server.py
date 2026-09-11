@@ -798,6 +798,15 @@ class AsyncHTTPServer:
         agent_task._opalatex_cancel_event_emitted = True
         event_queue.put_nowait({"event": "cancelled", "message": "Agent execution was interrupted."})
 
+    @staticmethod
+    def _request_agent_cancel_once(agent_task):
+        """Request work cancellation once while protected cleanup is allowed to finish."""
+        if getattr(agent_task, "_opalatex_cancel_requested", False):
+            return False
+        agent_task._opalatex_cancel_requested = True
+        agent_task.cancel()
+        return True
+
     async def start(self):
         self.server = await asyncio.start_server(self.handle_request, self.host, self.port)
         self.port = self.server.sockets[0].getsockname()[1]
@@ -3407,23 +3416,17 @@ class AsyncHTTPServer:
                     send_chunk(json.dumps(event) + "\n")
                     await writer.drain()
                     if event.get("event") == "cancelled":
-                        # Close the HTTP stream immediately once the interrupt
-                        # has been forwarded to the client, without waiting for
-                        # the background agent task to finish winding down (it
-                        # may still be blocked in a non-cooperative call for a
-                        # while after cancel() is requested).
+                        # The acknowledgement reaches the UI immediately, but the
+                        # stream stays alive until run_agent publishes its terminal
+                        # sentinel after cancellation-safe checkpoint cleanup.
                         cancelled_by_event = True
-                        break
             except asyncio.CancelledError:
                 cancelled_by_event = True
                 if not agent_task.done():
-                    agent_task.cancel()
+                    self._request_agent_cancel_once(agent_task)
             except Exception as e:
                 print(f"Streaming error: {e}")
             finally:
-                if self.active_agent_task == agent_task:
-                    self.active_agent_task = None
-                    self.active_agent_event_queue = None
                 if event_queue in self.active_queues:
                     self.active_queues.remove(event_queue)
                 # An agent turn writes through its own file tools rather than
@@ -3438,17 +3441,22 @@ class AsyncHTTPServer:
                     writer.close()
                 except Exception:
                     pass
-                # Wait for the agent task with a bounded timeout.
-                # If it takes too long (e.g. stuck in an LLM call), cancel it
-                # and detach so the UI is not held hostage.
+                # The response stream is already closing, so waiting here does not
+                # delay the interrupt acknowledgement.  Keep ownership of the task
+                # until its checkpoint cleanup finishes; otherwise a new turn can
+                # overwrite the active slot and interleave start/end commits.
                 if not agent_task.done():
-                    if cancelled_by_event and not agent_task.cancelled():
-                        agent_task.cancel()
+                    if cancelled_by_event:
+                        self._request_agent_cancel_once(agent_task)
                     try:
                         await asyncio.wait_for(asyncio.shield(agent_task), timeout=5.0)
                     except asyncio.TimeoutError:
                         if not agent_task.done():
-                            agent_task.cancel()
+                            self._request_agent_cancel_once(agent_task)
+                            try:
+                                await asyncio.shield(agent_task)
+                            except (asyncio.CancelledError, Exception):
+                                pass
                     except (asyncio.CancelledError, Exception):
                         pass
                 else:
@@ -3456,6 +3464,9 @@ class AsyncHTTPServer:
                         await agent_task
                     except (asyncio.CancelledError, Exception):
                         pass
+                if self.active_agent_task == agent_task:
+                    self.active_agent_task = None
+                    self.active_agent_event_queue = None
 
         # 7b2. Interrupt Agent
         elif path == '/api/opalatex/interrupt' and method == 'POST':
@@ -3467,7 +3478,7 @@ class AsyncHTTPServer:
                         self.active_agent_task,
                         self.active_agent_event_queue,
                     )
-                self.active_agent_task.cancel()
+                self._request_agent_cancel_once(self.active_agent_task)
                 self.send_response(writer, 200, b'{"success":true,"message":"Agent execution interrupted"}', "application/json")
             else:
                 self.send_response(writer, 200, b'{"success":false,"message":"No active agent running"}', "application/json")

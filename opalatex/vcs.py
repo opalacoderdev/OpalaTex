@@ -1,5 +1,6 @@
 """Version Control System (VCS) strategies for OpalaTex."""
 
+import asyncio
 import os
 import shlex
 import shutil
@@ -408,6 +409,81 @@ def finalize_agent_turn_checkpoint(
             return diff.returncode == 1
         except Exception:
             return False
+
+
+async def _await_checkpoint_operation(operation, *args):
+    """Finish a shadow-Git operation even if the caller is cancelled.
+
+    ``asyncio.to_thread`` does not stop its worker when the awaiting task is
+    cancelled.  Losing the awaiter is particularly dangerous for a checkpoint:
+    the Git operation can create a commit after the caller has already forgotten
+    its id.  Keep the worker in a shielded task and absorb repeated cancellation
+    requests until its result is known.  The caller re-propagates cancellation
+    only after the checkpoint lifecycle is safe.
+    """
+    task = asyncio.create_task(asyncio.to_thread(operation, *args))
+    was_cancelled = False
+    while True:
+        try:
+            return await asyncio.shield(task), was_cancelled
+        except asyncio.CancelledError:
+            was_cancelled = True
+            if task.done():
+                return task.result(), was_cancelled
+
+
+class AsyncAgentTurnCheckpoint:
+    """Cancellation-safe owner of one agent turn's start/end checkpoints."""
+
+    def __init__(self, project_path: str, agent_label: str | None = None):
+        self.project_path = project_path
+        self.agent_label = agent_label
+        self.start_checkpoint: str | None = None
+        self.finalize_result: bool | None = None
+        self._begin_finished = False
+        self._finalize_finished = False
+
+    async def begin(self) -> str | None:
+        if self._begin_finished:
+            return self.start_checkpoint
+
+        result, was_cancelled = await _await_checkpoint_operation(
+            begin_agent_turn_checkpoint,
+            self.project_path,
+            self.agent_label,
+        )
+        self.start_checkpoint = result
+        self._begin_finished = True
+
+        if was_cancelled:
+            # ``begin`` may already have committed in its worker thread.  Close or
+            # remove that checkpoint before allowing cancellation to escape.
+            await self.finalize()
+            raise asyncio.CancelledError
+
+        return self.start_checkpoint
+
+    async def finalize(self) -> bool:
+        if self._finalize_finished:
+            return bool(self.finalize_result)
+        if not self._begin_finished or not self.start_checkpoint:
+            self.finalize_result = False
+            self._finalize_finished = True
+            return False
+
+        result, was_cancelled = await _await_checkpoint_operation(
+            finalize_agent_turn_checkpoint,
+            self.project_path,
+            self.start_checkpoint,
+            self.agent_label,
+        )
+        self.finalize_result = bool(result)
+        self._finalize_finished = True
+
+        if was_cancelled:
+            raise asyncio.CancelledError
+
+        return bool(self.finalize_result)
 
 
 def git_status() -> str:
