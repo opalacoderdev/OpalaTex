@@ -1144,11 +1144,19 @@
   },
   "askModal": {
     "title": "Input Required",
-    "placeholder": "Type your answer here...",
+    "waiting": "Waiting for your answer",
+    "placeholder": "Type your answer here…",
     "send": "Send",
     "optionsTitle": "Select an option:",
+    "optionsTitleMultiple": "Select one or more options:",
     "otherOption": "Other (write in below)",
-    "otherPlaceholder": "Type your custom response..."
+    "otherPlaceholder": "Describe what you want…",
+    "otherInputLabel": "Custom response",
+    "answerInputLabel": "Answer",
+    "collapse": "Collapse to title bar",
+    "expand": "Expand",
+    "dragHint": "Drag to move this window",
+    "resizeHint": "Drag to resize this window"
   },
   "interactiveTerminalModal": {
     "title": "Interactive Terminal:",

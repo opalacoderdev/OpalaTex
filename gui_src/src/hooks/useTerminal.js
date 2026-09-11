@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { useTranslation } from 'react-i18next';
+import { terminalRenderFontSize } from '../utils/terminalScale.js';
 
 // Terminal font size, adjustable per panel on top of the global interface
 // scale (see utils/uiScale.js): the global scale sets a comfortable baseline
@@ -51,7 +52,7 @@ const DARK_TERMINAL_THEME = {
 };
 
 // Hook that initialises an xterm.js terminal and connects it to the backend SSE stream.
-export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, fitAddonRef, eventSourceRef, activeBottomTab, bottomPanelHeight, isTerminalCollapsed, theme, termId = 'main', isActive = true, fontSize = TERMINAL_FONT_SIZE_DEFAULT, onZoomIn, onZoomOut, onZoomReset }) {
+export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, fitAddonRef, eventSourceRef, activeBottomTab, bottomPanelHeight, isTerminalCollapsed, theme, termId = 'main', isActive = true, fontSize = TERMINAL_FONT_SIZE_DEFAULT, uiScale = 1, onZoomIn, onZoomOut, onZoomReset }) {
   const { t } = useTranslation();
   // The terminal effect must not be torn down just because the language changed,
   // so `t` is read through a ref instead of being an effect dependency.
@@ -73,6 +74,8 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
   // visible scrollback, which depending on `fontSize` in the mount effect would.
   const fontSizeRef = useRef(fontSize);
   fontSizeRef.current = fontSize;
+  const uiScaleRef = useRef(uiScale);
+  uiScaleRef.current = uiScale;
   // The key handler is installed once with the terminal; reading the callbacks
   // through a ref keeps it from going stale when the panel re-renders.
   const zoomHandlersRef = useRef({});
@@ -119,9 +122,9 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
   useEffect(() => {
     const term = terminalInstanceRef.current;
     if (!term) return;
-    term.options.fontSize = fontSize;
+    term.options.fontSize = terminalRenderFontSize(fontSize, uiScale);
     syncTerminalSize();
-  }, [fontSize, syncTerminalSize, terminalInstanceRef]);
+  }, [fontSize, uiScale, syncTerminalSize, terminalInstanceRef]);
 
   // Initialise / tear-down terminal when the active project changes.
   useEffect(() => {
@@ -145,7 +148,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
 
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: fontSizeRef.current,
+      fontSize: terminalRenderFontSize(fontSizeRef.current, uiScaleRef.current),
       fontFamily: 'Consolas, "Courier New", monospace',
       theme: termTheme,
     });

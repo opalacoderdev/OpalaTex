@@ -13,6 +13,7 @@ export default function TerminalInstance({
   isActive,
   onMount,
   fontSize,
+  uiScale,
   onZoomIn,
   onZoomOut,
   onZoomReset
@@ -36,6 +37,7 @@ export default function TerminalInstance({
     termId,
     isActive,
     fontSize,
+    uiScale,
     onZoomIn,
     onZoomOut,
     onZoomReset
@@ -60,7 +62,7 @@ export default function TerminalInstance({
         overflow: 'hidden'
       }}
     >
-      <div ref={terminalRef} style={{ width: '100%', height: '100%' }} />
+      <div ref={terminalRef} className="xterm-coordinate-space" />
       {isScrolledUp && (
         <button
           onClick={scrollToBottom}

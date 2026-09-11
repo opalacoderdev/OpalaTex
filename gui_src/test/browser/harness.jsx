@@ -32,6 +32,13 @@ import '../../src/i18n/index.js';
 import '../../src/index.css';
 import SlideEditor from '../../src/slides/SlideEditor.jsx';
 import { addElement, createDeck, createElement, serializeDeck } from '../../src/slides/model.js';
+import TerminalInstance from '../../src/components/TerminalInstance.jsx';
+
+// The terminal fixture exercises only the browser-side xterm integration. Its
+// backend transport is inert so the harness stays deterministic and offline.
+window.EventSource = class HarnessEventSource {
+  close() {}
+};
 
 // The stand-in for main.jsx's clipboard bridge. `window.__clipboard()` is what
 // the suite asserts on: the text the editor handed to the system, which is what
@@ -58,6 +65,9 @@ import { addElement, createDeck, createElement, serializeDeck } from '../../src/
     if (String(input).includes('/api/file/raw')) {
       return new Response(Uint8Array.from(atob(PIXEL), c => c.charCodeAt(0)),
         { status: 200, headers: { 'content-type': 'image/png' } });
+    }
+    if (String(input).includes('/api/terminal/')) {
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
     }
     return real(input, init);
   };
@@ -136,6 +146,27 @@ function Harness() {
           activeProjectPath="/tmp"
           uiScale={uiScale}
           onChange={setText}
+        />
+      </div>
+      <div
+        id="terminal-fixture"
+        style={{
+          display: 'none', position: 'fixed', left: '48px', top: '48px',
+          width: '640px', height: '320px', zIndex: 10000,
+          background: 'var(--vscode-terminal-bg)',
+        }}
+      >
+        <TerminalInstance
+          termId="browser-check"
+          activeProject={{ project_path: '/tmp' }}
+          activeBottomTab="terminal"
+          bottomPanelHeight={320}
+          isTerminalCollapsed={false}
+          theme="dark"
+          isActive
+          fontSize={13}
+          uiScale={uiScale}
+          onMount={(term) => { window.__terminal = term; }}
         />
       </div>
     </div>

@@ -33,6 +33,7 @@ export default function BottomPanel({
   onToggleMaximizeBottom,
   achievementsMemory,
   theme,
+  uiScale,
   // The studio layout gives the panel a grid cell of its own, so it fills that
   // cell and the row is resized by the layout's handle instead of the panel's.
   fillContainer,
@@ -449,6 +450,7 @@ export default function BottomPanel({
                         isActive={id === activeTermId}
                         onMount={(term) => terminalInstancesRef.current[id] = term}
                         fontSize={terminalFontSize}
+                        uiScale={uiScale}
                         onZoomIn={zoomTerminalIn}
                         onZoomOut={zoomTerminalOut}
                         onZoomReset={resetTerminalZoom}

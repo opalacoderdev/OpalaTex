@@ -8,6 +8,7 @@ import i18n from './i18n/index.js';
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
 import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale, viewportPointToApp, viewportPxToApp } from './utils/uiScale';
 import { layoutAfterOpeningFile, layoutShowsEditor } from './utils/layoutModes';
+import { normalizeInputRequest } from './utils/askQuestion';
 
 // Hooks
 import { useResizing } from './hooks/useResizing';
@@ -491,14 +492,10 @@ export default function App() {
   const [editProjError, setEditProjError] = useState('');
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [confirmRequest, setConfirmRequest] = useState(null);
-  // The plan review gets its own slot rather than sharing `confirmRequest`.
-  // That slot is overwritten by the front-end's own prompts — new file, new
-  // folder, delete, unsaved changes on a project switch — and the user can now
-  // reach every one of them while a plan is pending, precisely because the plan
-  // no longer blocks the IDE. Sharing one slot would drop the plan's request id
-  // on the floor and strand the future the backend is parked on, which
-  // `create_plan` resolves by *approving* when its 24h timeout expires: a lost
-  // window would eventually execute a plan nobody accepted.
+  // Non-modal agent requests need slots that front-end prompts cannot overwrite.
+  // The user can open new-file/delete/etc. confirmations while either floating
+  // window is pending; losing its request id would strand the backend future.
+  const [askRequest, setAskRequest] = useState(null);
   const [planRequest, setPlanRequest] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
@@ -2858,6 +2855,7 @@ export default function App() {
       if (res.ok) {
         addLog('info', t('app.interruptSent'));
         setConfirmRequest(null);
+        setAskRequest(null);
         setPlanRequest(null);
       } else {
         addLog('error', t('app.interruptFailed'));
@@ -2931,6 +2929,7 @@ export default function App() {
           timestamp: new Date().toISOString(),
         }]);
         setConfirmRequest(null);
+        setAskRequest(null);
         setPlanRequest(null);
         break;
       }
@@ -3087,19 +3086,16 @@ export default function App() {
       case 'agent_finished': addLog('info', t('app.processingCompleted', 'Processamento concluído.')); break;
       case 'input_request_closed':
         setPlanRequest(prev => prev?.id === data.id ? null : prev);
+        setAskRequest(prev => prev?.id === data.id ? null : prev);
         setConfirmRequest(prev => prev?.id === data.id ? null : prev);
         break;
       case 'input_request': {
-        // `markdown_content` is emitted by `create_plan` and by nothing else
-        // (opalatex/tools.py), so it is what tells a plan review apart from an
-        // ordinary tool confirmation. The two are answered in completely
-        // different ways: a plan is judged against the files, the outline and
-        // the compile log it talks about, so the workbench has to stay usable
-        // while it is open (`PlanReviewWindow`), whereas a tool confirmation is
-        // a one-line yes/no raised mid-run, where letting the user edit files
-        // underneath would change the very thing being approved (`ConfirmModal`).
-        const request = { ...data, id: data.id, prompt: data.prompt, options: data.options || ['yes', 'no'], default: data.default || 'yes', type: data.type || 'confirm' };
+        // Plans and questions float over a usable workbench, each in its own
+        // state slot. Unsafe-tool confirmations remain blocking modals because
+        // changing the underlying files could invalidate what is being approved.
+        const request = normalizeInputRequest(data);
         if (data.markdown_content) setPlanRequest(request);
+        else if (request.type === 'ask') setAskRequest(request);
         else setConfirmRequest(request);
         addLog('info', t('app.waitingConfirmation', '🔔 Aguardando confirmação: {{prompt}}', { prompt: data.prompt }));
         break;
@@ -3609,6 +3605,30 @@ export default function App() {
         throw new Error(text || `HTTP ${res.status}`);
       }
       setPlanRequest(null);
+    } catch (err) {
+      addLog('error', t('app.confirmationSendError', { error: err.message }));
+      addProblem({ tool: t('app.agentTool', 'Agent'), message: t('app.confirmationRejectedByBackend', { error: err.message }), severity: 'error' });
+    }
+  };
+
+  // Like plan review, an ask window is the sole route to a backend future. Keep
+  // it visible until the backend accepts the answer so a failed POST cannot
+  // turn into an invisible 24-hour wait.
+  const sendAskResponse = async (value) => {
+    const current = askRequest;
+    if (!current) return;
+    addLog('info', t('app.confirmationValue', { prompt: current.prompt, value }));
+    try {
+      const res = await fetch('/api/opalatex/input_response', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: current.id, value }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      setAskRequest(null);
     } catch (err) {
       addLog('error', t('app.confirmationSendError', { error: err.message }));
       addProblem({ tool: t('app.agentTool', 'Agent'), message: t('app.confirmationRejectedByBackend', { error: err.message }), severity: 'error' });
@@ -4541,6 +4561,7 @@ export default function App() {
               isBottomMaximized={isBottomMaximized}
               onToggleMaximizeBottom={() => setIsBottomMaximized(!isBottomMaximized)}
               theme={theme}
+              uiScale={uiScale}
               fillContainer={isStudioLayout}
             />
           </div>
@@ -4637,15 +4658,18 @@ export default function App() {
 
       {/* ── Overlays / Modals ── */}
 
-      {/* The plan window is first in this group on purpose. It carries the same
+      {/* Floating agent windows are first in this group on purpose. They carry the same
           z-index as `.vscode-modal-overlay`, so paint order between them is DOM
           order: coming after the workbench above, it covers the split gutters
           (which sit at that same z-index); coming before every modal below, a
-          modal opened while a plan is still pending is still drawn on top of
-          it. The key remounts the window per request, so a second plan cannot
-          inherit the first one's edited text. */}
+          modal opened while an agent request is still pending is drawn on top
+          of it. Each key remounts its window per request, so form state never
+          leaks from one request into the next. */}
       {planRequest && (
         <PlanReviewWindow key={planRequest.id} planRequest={planRequest} onConfirm={sendPlanResponse} />
+      )}
+      {askRequest && (
+        <AskModal key={askRequest.id} askRequest={askRequest} onConfirm={sendAskResponse} />
       )}
 
       <AlertModal message={alertMessage} onClose={() => setAlertMessage('')} />
@@ -4756,9 +4780,7 @@ export default function App() {
       {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
 
       {confirmRequest && confirmRequest.type === 'interactive_terminal' ? (
-        <InteractiveTerminalModal request={confirmRequest} onConfirm={sendConfirmResponse} activeProject={activeProject} />
-      ) : confirmRequest && confirmRequest.type === 'ask' ? (
-        <AskModal askRequest={confirmRequest} onConfirm={sendConfirmResponse} />
+        <InteractiveTerminalModal request={confirmRequest} onConfirm={sendConfirmResponse} activeProject={activeProject} uiScale={uiScale} />
       ) : confirmRequest ? (
         <ConfirmModal confirmRequest={confirmRequest} onConfirm={sendConfirmResponse} />
       ) : null}

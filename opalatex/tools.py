@@ -1770,6 +1770,9 @@ def search_code(
         "The user will be presented with clickable choices in the UI plus an automatic 'Other' write-in field. "
         "Do NOT include your own 'Other', 'Others (please specify)', or 'None of the above' choice in 'options' — "
         "that catch-all is added automatically by the UI, so adding one yourself creates a duplicate. "
+        "Set 'is_multi_select' to true whenever the user may choose more than one option (for example, several columns, features, or files); "
+        "leave it false only when the choices are mutually exclusive. Do not replace one multi-select question with a series of single-select questions. "
+        "A multi-select response is returned as a JSON array of the selected option labels and any custom write-in response. "
         "Use this proactively whenever collecting user choices, column selections, target formats, seed filters, or clarifying ambiguous preferences."
     )
 )

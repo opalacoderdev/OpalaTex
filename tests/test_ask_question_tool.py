@@ -26,6 +26,35 @@ async def test_ask_question_tool_execution():
         assert "did not provide an answer or cancelled" in res
 
 
+@pytest.mark.asyncio
+async def test_ask_question_forwards_multi_select_and_returns_json_array():
+    raw = getattr(ask_question, "_func", None) or ask_question
+    response = '["Title", "Author"]'
+    with patch("opalatex.terminal.aask", new=AsyncMock(return_value=response)) as mock_aask:
+        result = await raw(
+            "Which fields should be included?",
+            options=["Title", "Date", "Author"],
+            is_multi_select=True,
+        )
+
+    assert result == f"User response: {response}"
+    mock_aask.assert_called_once_with(
+        "Which fields should be included?",
+        options=["Title", "Date", "Author"],
+        is_multi_select=True,
+    )
+
+
+def test_ask_question_schema_explains_multi_select_contract():
+    from agenticblocks.tools.a2a_bridge import block_to_tool_schema
+
+    schema = block_to_tool_schema(ask_question)["function"]
+
+    assert schema["parameters"]["properties"]["is_multi_select"]["type"] == "boolean"
+    assert "Set 'is_multi_select' to true" in schema["description"]
+    assert "JSON array" in schema["description"]
+
+
 def test_ask_human_alias():
     """ask_human must alias ask_question for backward compatibility."""
     assert ask_human == ask_question

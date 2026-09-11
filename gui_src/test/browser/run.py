@@ -1507,6 +1507,70 @@ async def check_rail_keyboard(page: Page, check: Checks) -> None:
           f"current={await page.js(current)} x {x_before} -> {x_after}")
 
 
+async def check_terminal_selection(page: Page, check: Checks) -> None:
+    """xterm selection must use the cells actually under the pointer.
+
+    xterm measures cell dimensions without ancestor CSS zoom but normally reads
+    pointer offsets after that zoom. This real drag catches the resulting drift:
+    at 140%, aiming at row six selects row eight without the coordinate-space
+    boundary used by TerminalInstance.
+    """
+    await page.js("document.querySelector('#terminal-fixture').style.display = 'block'")
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            ready = await page.js(
+                "!!window.__terminal && window.__terminal.rows >= 10 && "
+                "document.querySelector('.xterm-screen')?.getBoundingClientRect().height > 0"
+            )
+            if ready:
+                break
+            await asyncio.sleep(0.1)
+        if not check("terminal mounted", bool(ready)):
+            return
+
+        await page.js(
+            "new Promise(resolve => {"
+            " const term = window.__terminal;"
+            " const lines = Array.from({length: term.rows}, (_, i) => "
+            "   String(i + 1).padStart(2, '0') + ' terminal row');"
+            " term.write('\\x1b[2J\\x1b[H' + lines.join('\\r\\n'), resolve);"
+            "})"
+        )
+        await asyncio.sleep(0.15)
+
+        screen = await page.rect("#terminal-fixture .xterm-screen")
+        geometry = await page.js(
+            "(() => {"
+            " const screen = document.querySelector('#terminal-fixture .xterm-screen');"
+            " const rect = screen.getBoundingClientRect();"
+            " return { scaleX: rect.width / screen.offsetWidth,"
+            "          scaleY: rect.height / screen.offsetHeight,"
+            "          cols: window.__terminal.cols, rows: window.__terminal.rows };"
+            "})()"
+        )
+        check("terminal uses a 1:1 mouse coordinate space",
+              abs(geometry["scaleX"] - 1) < 0.01 and abs(geometry["scaleY"] - 1) < 0.01,
+              f"scale=({geometry['scaleX']:.3f}, {geometry['scaleY']:.3f})")
+
+        cell_width = screen["w"] / geometry["cols"]
+        cell_height = screen["h"] / geometry["rows"]
+        row = 5
+        y = screen["y"] + (row + 0.5) * cell_height
+        await page.press(screen["x"] + 0.1 * cell_width, y)
+        await page.move(screen["x"] + 2.1 * cell_width, y)
+        await page.release(screen["x"] + 2.1 * cell_width, y)
+        selection = await page.js(
+            "({text: window.__terminal.getSelection(), "
+            "  position: window.__terminal.getSelectionPosition()})"
+        )
+        check("terminal selects the row under the pointer",
+              selection["text"] == "06" and selection["position"]["start"]["y"] == row,
+              f"selection={selection}")
+    finally:
+        await page.js("document.querySelector('#terminal-fixture').style.display = 'none'")
+
+
 # Presentation runs last: it takes over the screen, and everything before it
 # needs the editor visible.
 SUITE = (
@@ -1526,6 +1590,7 @@ SUITE = (
     check_text_commands,
     check_text_properties,
     check_rail_keyboard,
+    check_terminal_selection,
     check_presentation,
 )
 

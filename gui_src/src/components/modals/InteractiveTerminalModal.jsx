@@ -10,8 +10,9 @@ import {
   TERMINAL_FONT_SIZE_STORAGE_KEY,
   clampTerminalFontSize,
 } from '../../hooks/useTerminal';
+import { terminalRenderFontSize } from '../../utils/terminalScale.js';
 
-export default function InteractiveTerminalModal({ request, onConfirm, activeProject }) {
+export default function InteractiveTerminalModal({ request, onConfirm, activeProject, uiScale = 1 }) {
   const { t } = useTranslation();
   const terminalRef = useRef(null);
   const eventSourceRef = useRef(null);
@@ -25,6 +26,8 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
     clampTerminalFontSize(safeGetLocalStorage(TERMINAL_FONT_SIZE_STORAGE_KEY, TERMINAL_FONT_SIZE_DEFAULT)));
   const fontSizeRef = useRef(fontSize);
   fontSizeRef.current = fontSize;
+  const uiScaleRef = useRef(uiScale);
+  uiScaleRef.current = uiScale;
 
   useEffect(() => {
     if (!request || !request.term_id || !request.command || !activeProject) return;
@@ -58,7 +61,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
     const term = termInstanceRef.current;
     const fitAddon = fitAddonRef.current;
     if (!term || !fitAddon || !request || !activeProject) return;
-    term.options.fontSize = fontSize;
+    term.options.fontSize = terminalRenderFontSize(fontSize, uiScale);
     try {
       fitAddon.fit();
       const { cols, rows } = term;
@@ -71,7 +74,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
         }),
       }).catch(() => {});
     } catch (e) {}
-  }, [fontSize, request, activeProject]);
+  }, [fontSize, uiScale, request, activeProject]);
 
   useEffect(() => {
     if (!isReady || !terminalRef.current || !request) return;
@@ -81,7 +84,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
 
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: fontSizeRef.current,
+      fontSize: terminalRenderFontSize(fontSizeRef.current, uiScaleRef.current),
       fontFamily: 'Consolas, "Courier New", monospace',
       theme: { background: '#1e1e2e', foreground: '#cccccc', selectionBackground: '#264f78', selectionInactiveBackground: '#3a3d41' },
     });
@@ -210,10 +213,9 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
         {/* Terminal Container */}
         {/* `minHeight: 0` keeps this flex item from being pinned to the xterm
             screen's own height, which is the box FitAddon measures to pick rows. */}
-        <div 
-          ref={terminalRef} 
-          style={{ flex: 1, minHeight: 0, background: '#1e1e2e', borderRadius: '8px', overflow: 'hidden', padding: '8px', border: '1px solid #3c3c5c' }} 
-        />
+        <div style={{ flex: 1, minHeight: 0, background: '#1e1e2e', borderRadius: '8px', overflow: 'hidden', padding: '8px', border: '1px solid #3c3c5c' }}>
+          <div ref={terminalRef} className="xterm-coordinate-space" />
+        </div>
 
         {/* Footer */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px', gap: '12px' }}>
