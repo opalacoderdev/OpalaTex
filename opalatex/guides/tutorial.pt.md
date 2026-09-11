@@ -43,6 +43,55 @@ O assistente roda em um de três **modos**, selecionáveis na barra do chat:
 - **edit** — edita arquivos diretamente, mas pergunta antes de rodar comandos no
   terminal.
 
+## snap-installation :: Por que o sudo falha no Snap e como instalar sem Snap?
+
+A edição Snap usa **confinamento estrito (`strict`)**. O terminal integrado e os
+comandos do assistente herdam esse confinamento: `sudo apt install nome-do-pacote`
+não consegue instalar pacotes no sistema por esse terminal, mesmo com a senha correta.
+O acesso a arquivos e programas do sistema também é restrito. Mudar o modo do
+assistente ou abrir outro shell dentro do app não remove essas restrições.
+
+Para uma instalação pontual, abra o **terminal do sistema pelo menu do desktop** e
+execute o comando ali. Instalar uma ferramenta no sistema não garante que a edição
+Snap consiga acessá-la.
+
+### Instalar diretamente no Linux para ter mais liberdade
+
+A edição direta usa as permissões normais do seu usuário, fora do confinamento Snap.
+Comandos administrativos continuam exigindo autorização do seu usuário pelo `sudo`.
+O instalador Linux do pacote requer uma máquina **x86_64/amd64** e `curl`; o projeto
+lista **Ubuntu 24.04 ou 26.04** como sistemas Linux suportados.
+
+1. Salve seu trabalho e feche o OpalaTex. Abra um **terminal do sistema**, fora do app Snap.
+2. Se o `curl` não estiver instalado, instale-o nesse terminal:
+
+   ```bash
+   sudo apt update
+   sudo apt install curl
+   ```
+
+3. Baixe e execute o instalador direto do projeto (sem `sudo`):
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/opalacoderdev/OpalaTex/master/install.sh -o opalatex-install.sh
+   bash opalatex-install.sh
+   ```
+
+   Ele baixa a versão Linux para `~/.local/share/OpalaTex` e cria um atalho no menu
+   de aplicativos e o comando `~/.local/bin/opalatex`. A versão mais recente no
+   GitHub Releases precisa conter o arquivo `OpalaTex-linux-x64.tar.gz`.
+
+4. Abra explicitamente a edição direta pelo terminal do sistema:
+
+   ```bash
+   "$HOME/.local/bin/opalatex"
+   ```
+
+   Esse caminho evita abrir `/snap/bin/opalatex` por engano quando as duas edições
+   estão instaladas. O instalador não remove a edição Snap nem migra automaticamente
+   suas configurações e seu histórico de chats. Preserve os dados do Snap até conferir
+   seus projetos e configurações na edição direta.
+
 ## projects :: Como crio e configuro um projeto?
 
 Um projeto é uma pasta no seu disco mais os metadados que o OpalaTex guarda sobre ela
