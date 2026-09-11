@@ -181,7 +181,7 @@ export default function NewProjectModal({
                   <div style={{ display: 'flex', gap: '12px' }}>
                      <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
                         <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.maxHeartbeats')}</label>
-                        <input type="number" value={newProjModelParams?.max_heartbeats ?? ''} onChange={e => handleParamChange(setNewProjModelParams, 'max_heartbeats', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 10" />
+                        <input type="number" value={newProjModelParams?.max_heartbeats ?? ''} onChange={e => handleParamChange(setNewProjModelParams, 'max_heartbeats', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder={t('editProjectModal.defaultMemgptHeartbeats')} />
                      </div>
                      <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
                         <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.loopDetectionLimit')}</label>

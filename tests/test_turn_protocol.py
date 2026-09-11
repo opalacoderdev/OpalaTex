@@ -285,7 +285,7 @@ def test_the_chat_orchestrator_wires_the_idle_allowance(tmp_path):
     ), None)
 
     assert agent.max_idle_heartbeats == 2
-    assert agent.max_heartbeats == 30, "a guardrail, not the old budget"
+    assert agent.max_heartbeats == 50, "a guardrail, not the old budget"
 
 
 def test_a_project_can_retune_the_idle_allowance(tmp_path):

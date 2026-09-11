@@ -608,7 +608,7 @@
     "defaultOne": "default: 1.0",
     "defaultZero": "default: 0.0",
     "defaultTopK": "default: 40",
-    "defaultMemgptHeartbeats": "default: 30 (guardrail)",
+    "defaultMemgptHeartbeats": "default: 50 (guardrail)",
     "defaultSameAsNumCtx": "default: same as num_ctx",
     "defaultMemoryPressure": "default: 0.7",
     "defaultLoopDetectionLimit": "default: 3",

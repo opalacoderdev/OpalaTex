@@ -608,7 +608,7 @@
     "defaultOne": "padrão: 1.0",
     "defaultZero": "padrão: 0.0",
     "defaultTopK": "padrão: 40",
-    "defaultMemgptHeartbeats": "padrão: 30 (guardrail)",
+    "defaultMemgptHeartbeats": "padrão: 50 (guardrail)",
     "defaultSameAsNumCtx": "padrão: igual a num_ctx",
     "defaultMemoryPressure": "padrão: 0.7",
     "defaultLoopDetectionLimit": "padrão: 3",

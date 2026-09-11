@@ -26,7 +26,7 @@ TURN_ACHIEVEMENTS = ""
 class _AgentProgress:
     def __init__(self):
         self.heartbeat: int = 0
-        self.max_heartbeats: int = 15
+        self.max_heartbeats: int = 50
         self.tasks_done: int = 0
         self.tasks_total: int = 0
         self.last_tool: str = "—"

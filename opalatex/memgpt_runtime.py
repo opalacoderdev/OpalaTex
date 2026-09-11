@@ -1322,7 +1322,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         # ration: the turn continues for as long as tool calls are pending, and a
         # turn that legitimately speaks before each of several actions costs more
         # steps than the old accounting assumed.
-        max_heartbeats=_agent_params.get("max_heartbeats", get_agent_max_heartbeats("memgpt", 30)),
+        max_heartbeats=_agent_params.get("max_heartbeats", get_agent_max_heartbeats("memgpt", 50)),
         # Bounds the one thing that can spin under a single-channel protocol: a
         # model asking to keep its turn open without ever acting.
         max_idle_heartbeats=int(

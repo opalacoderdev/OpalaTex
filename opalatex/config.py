@@ -151,7 +151,7 @@ _CORE_AGENT_DEFAULTS = {
         # A runaway guardrail, not a budget: the turn runs for as long as tool
         # calls are pending, and a step spent speaking before an action is
         # normal work, not waste.
-        "max_heartbeats": 30,
+        "max_heartbeats": 50,
         "debug": False,
     },
     "landscape_planner": {
@@ -1124,8 +1124,8 @@ def get_project_agent_params(agent_name: str = "memgpt") -> dict:
 # Maximum retry attempts for a failing subplan step
 DEFAULT_MAX_RETRIES = 3
 
-# MemGPT heartbeat budget per planning turn
-DEFAULT_MAX_HEARTBEATS = 15
+# MemGPT heartbeat guardrail per project turn
+DEFAULT_MAX_HEARTBEATS = 50
 
 # SQLite database file for session persistence
 DEFAULT_DB_PATH = os.path.join(
@@ -1264,5 +1264,3 @@ def setup_debug_logging():
     litellm.failure_callback = [_llm_callback]
 
     return log_file
-
-
