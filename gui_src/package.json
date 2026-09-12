@@ -54,5 +54,8 @@
   "overrides": {
     "dompurify": "^3.4.12",
     "katex": "$katex"
+  },
+  "allowScripts": {
+    "@swc/core@1.15.41": true
   }
 }

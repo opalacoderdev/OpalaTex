@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, LayoutGrid, PanelBottom, Terminal, History, Columns2, Store, GraduationCap, Cloud, CloudOff } from 'lucide-react';
+import { Files, GitBranch, MessageSquare, Settings, Cpu, LayoutTemplate, LayoutGrid, PanelBottom, Terminal, History, Columns2, Store, GraduationCap, Cloud, CloudOff, Plug } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   ACTIVITY_BAR_DEFAULT_DENSITY,
@@ -17,6 +17,7 @@ export default function ActivityBar({
   setIsChatVisible,
   gitChangesCount,
   onOpenSettings,
+  onEditModels,
   onOpenHardware,
   onOpenAssetStore,
   onOpenCloudSync,
@@ -290,6 +291,15 @@ export default function ActivityBar({
           title={t('activityBar.hardware', 'Hardware')}
         >
           <Cpu size={density.secondaryIconSize} />
+        </button>
+
+        <button
+          onClick={onEditModels}
+          className="vscode-activitybar-btn"
+          title={t('activityBar.connectionsAndModels', 'Connections and models')}
+          aria-label={t('activityBar.connectionsAndModels', 'Connections and models')}
+        >
+          <Plug size={density.secondaryIconSize} />
         </button>
 
         <button

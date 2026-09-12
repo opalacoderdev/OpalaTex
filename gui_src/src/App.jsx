@@ -4276,6 +4276,7 @@ export default function App() {
           }}
           gitChangesCount={gitChanges.length}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onEditModels={() => setShowEditModelsModal(true)}
           onOpenHardware={() => setIsHardwareModalOpen(true)}
           onOpenAssetStore={() => setIsAssetStoreOpen(true)}
           onOpenCloudSync={() => setIsCloudSyncOpen(true)}
