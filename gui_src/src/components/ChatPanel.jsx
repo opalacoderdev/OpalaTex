@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
-import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock } from 'lucide-react';
+import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock, Activity } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { FormattedMessage } from '../utils/formatMessage';
@@ -79,6 +79,7 @@ export default function ChatPanel({
   chatInputFocusSignal = 0,
   setChatInput,
   isAgentRunning,
+  agentStepInfo = { step: 0, maxSteps: null },
   queuedMessages = [],
   onCancelQueuedMessage,
   onCancelAllQueuedMessages,
@@ -1097,6 +1098,32 @@ export default function ChatPanel({
           <span className="vscode-chat-header-title-text">{t('chatPanel.header')}</span>
         </span>
         <div className="vscode-chat-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {isAgentRunning && (
+            <span
+              className="chat-msg-badge chat-msg-badge-step-running"
+              title={t('chatPanel.stepsExecutedTooltip', 'Steps executed in this turn: {{step}}{{max}}', {
+                step: agentStepInfo?.step ?? 0,
+                max: agentStepInfo?.maxSteps ? ` / ${agentStepInfo.maxSteps}` : '',
+              })}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '11px',
+                padding: '2px 7px',
+                borderRadius: '8px',
+                flexShrink: 0,
+              }}
+            >
+              <Activity size={11} className="spin-slow" />
+              <span>
+                {t('chatPanel.stepsCount', 'Steps: {{step}}{{max}}', {
+                  step: agentStepInfo?.step ?? 0,
+                  max: agentStepInfo?.maxSteps ? `/${agentStepInfo.maxSteps}` : '',
+                })}
+              </span>
+            </span>
+          )}
           <div
             className="vscode-chat-context-badge"
             title={t(
@@ -2016,7 +2043,26 @@ export default function ChatPanel({
 
         {isAgentRunning && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <span className="vscode-chat-msg-header chat-header-agent">{t('chatPanel.opalatex')}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="vscode-chat-msg-header chat-header-agent" style={{ margin: 0 }}>
+                {t('chatPanel.opalatex')}
+              </span>
+              <span
+                className="chat-msg-badge chat-msg-badge-step-running"
+                title={t('chatPanel.stepsExecutedTooltip', 'Steps executed in this turn: {{step}}{{max}}', {
+                  step: agentStepInfo?.step ?? 0,
+                  max: agentStepInfo?.maxSteps ? ` / ${agentStepInfo.maxSteps}` : '',
+                })}
+              >
+                <Activity size={12} className="spin-slow" />
+                <span>
+                  {t('chatPanel.stepsExecuted', 'Steps executed: {{step}}{{max}}', {
+                    step: agentStepInfo?.step ?? 0,
+                    max: agentStepInfo?.maxSteps ? ` / ${agentStepInfo.maxSteps}` : '',
+                  })}
+                </span>
+              </span>
+            </div>
             <div className="vscode-chat-msg-content">
               {(chatThoughtStream && !hideThink) ? (
                 <details open style={{ margin: '8px 0', border: '1px solid var(--vscode-widget-border, #3c3c3c)', borderRadius: '4px', background: 'var(--titlebar-bg, #252526)' }}>
@@ -2034,10 +2080,18 @@ export default function ChatPanel({
                   <span className="dot" />
                 </div>
               ) : !chatResponseStream ? (
-                <div className="thinking-indicator">
-                  <span className="dot" />
-                  <span className="dot" />
-                  <span className="dot" />
+                <div className="thinking-indicator" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'inline-flex', gap: '3px' }}>
+                    <span className="dot" />
+                    <span className="dot" />
+                    <span className="dot" />
+                  </div>
+                  <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)', marginLeft: '4px' }}>
+                    {t('chatPanel.stepsExecuted', 'Steps executed: {{step}}{{max}}', {
+                      step: agentStepInfo?.step ?? 0,
+                      max: agentStepInfo?.maxSteps ? ` / ${agentStepInfo.maxSteps}` : '',
+                    })}
+                  </span>
                 </div>
               ) : null}
               {chatResponseStream && (

@@ -366,6 +366,7 @@ export default function App() {
   // is sent as an ordinary next turn.
   const [queuedMessages, setQueuedMessages] = useState([]);
   const [isInterruptPending, setIsInterruptPending] = useState(false);
+  const [agentStepInfo, setAgentStepInfo] = useState({ step: 0, maxSteps: null });
   const [isInlineRunning, setIsInlineRunning] = useState(false);
   // Refreshes an already-open Review panel after the backend has safely closed
   // an agent checkpoint, including a turn whose cancellation was acknowledged
@@ -2876,7 +2877,16 @@ export default function App() {
     rememberAgentEventForResume(eventObj);
     switch (event) {
       case 'server_ready': addLog('info', t('app.agentReady'), data.agent); break;
-      case 'agent_started': addLog('info', t('app.agentStarted', { agent: data.agent }), data.agent); break;
+      case 'agent_started':
+        setAgentStepInfo({ step: 0, maxSteps: null });
+        addLog('info', t('app.agentStarted', { agent: data.agent }), data.agent);
+        break;
+      case 'agent_step':
+        setAgentStepInfo({
+          step: typeof data.step === 'number' ? data.step : 0,
+          maxSteps: typeof data.max_steps === 'number' ? data.max_steps : null,
+        });
+        break;
       case 'thought':
         addLog('thought', data.content, data.agent);
         setChatThoughtStream(prev => {
@@ -3332,6 +3342,7 @@ export default function App() {
     }
     setIsAgentRunning(true);
     setIsInterruptPending(false);
+    setAgentStepInfo({ step: 0, maxSteps: null });
     setProblems([]);
     setAchievementsMemory('');
     chatThoughtStreamRef.current = '';
@@ -4169,6 +4180,7 @@ export default function App() {
     setChatMessages(prev => [...prev, { role: 'user', content: userText, timestamp: new Date().toISOString() }]);
     setIsAgentRunning(true);
     setIsInterruptPending(false);
+    setAgentStepInfo({ step: 0, maxSteps: null });
     setProblems([]);
     chatThoughtStreamRef.current = '';
     setChatThoughtStream('');
@@ -4505,6 +4517,7 @@ export default function App() {
               setChatInput={setChatInput}
               chatInputFocusSignal={chatInputFocusSignal}
               isAgentRunning={isAgentRunning}
+              agentStepInfo={agentStepInfo}
               queuedMessages={queuedMessages}
               onCancelQueuedMessage={handleCancelQueuedMessage}
               onCancelAllQueuedMessages={handleCancelAllQueuedMessages}
@@ -4594,6 +4607,7 @@ export default function App() {
               setChatInput={setChatInput}
               chatInputFocusSignal={chatInputFocusSignal}
               isAgentRunning={isAgentRunning}
+              agentStepInfo={agentStepInfo}
               queuedMessages={queuedMessages}
               onCancelQueuedMessage={handleCancelQueuedMessage}
               onCancelAllQueuedMessages={handleCancelAllQueuedMessages}

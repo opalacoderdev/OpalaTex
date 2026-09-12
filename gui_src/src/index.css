@@ -3515,6 +3515,10 @@ select {
   animation: spin 1s linear infinite;
 }
 
+.spin-slow {
+  animation: spin 2.5s linear infinite;
+}
+
 /* ── Delivery feedback for messages sent into a running turn ────────────────
    Colours live here rather than inline so the light theme can override them:
    the dark-theme amber and teal wash out to near-invisible on a white ground,
@@ -3527,6 +3531,13 @@ select {
   padding: 1px 6px;
   border-radius: 9px;
   border: 1px solid transparent;
+}
+
+.chat-msg-badge-step-running {
+  color: var(--vscode-textLink-foreground, #3794ff);
+  background-color: rgba(0, 122, 204, 0.15);
+  border-color: rgba(0, 122, 204, 0.35);
+  font-weight: 500;
 }
 
 .chat-msg-badge-sending {
@@ -3590,6 +3601,12 @@ select {
   color: #0a6250;
   background-color: rgba(78, 201, 176, 0.24);
   border-color: rgba(10, 98, 80, 0.40);
+}
+
+.light-theme .chat-msg-badge-step-running {
+  color: #005fb8;
+  background-color: rgba(0, 102, 204, 0.12);
+  border-color: rgba(0, 102, 204, 0.35);
 }
 
 .light-theme .chat-queue-strip {

@@ -148,10 +148,9 @@ _APP_CONFIG = _load_yaml("config.yaml")
 _CORE_AGENT_DEFAULTS = {
     "memgpt": {
         "num_ctx": 16384,
-        # A runaway guardrail, not a budget: the turn runs for as long as tool
-        # calls are pending, and a step spent speaking before an action is
-        # normal work, not waste.
-        "max_heartbeats": 100,
+        # A runaway guardrail: the turn runs for as long as tool calls are
+        # pending, and finishes cleanly in normal text before the limit.
+        "max_heartbeats": 50,
         "debug": False,
     },
     "landscape_planner": {
@@ -162,7 +161,7 @@ _CORE_AGENT_DEFAULTS = {
     },
     "orchestrator": {
         "num_ctx": 16384,
-        "max_heartbeats": 100,
+        "max_heartbeats": 20,
         "debug": False,
         "strategy": "workflow",
     },

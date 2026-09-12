@@ -2155,6 +2155,23 @@ async def handle_run(data: dict):
         if _should_emit_iteration_reflection(last):
             print_event("reflection", {"content": str(content), "agent": agent_type})
 
+        raw_max_steps = (
+            getattr(agent, "max_heartbeats", None)
+            or getattr(getattr(agent, "agent", None), "max_heartbeats", None)
+            or getattr(agent, "max_iterations", None)
+            or getattr(getattr(agent, "agent", None), "max_iterations", None)
+        )
+        try:
+            max_steps = int(raw_max_steps) if raw_max_steps is not None else None
+        except (ValueError, TypeError):
+            max_steps = None
+
+        print_event("agent_step", {
+            "step": _step,
+            "max_steps": max_steps,
+            "agent": agent_type,
+        })
+
     # Inline editing has a final-response-only transport contract. Do not bind
     # callbacks that could emit intermediate model content.
     if agent_type != "inline_editor":

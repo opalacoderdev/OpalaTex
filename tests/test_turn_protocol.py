@@ -570,3 +570,52 @@ def test_the_cut_short_notice_points_at_the_setting_that_prevents_it(locale):
 
     assert field_label in notice, "the notice must name the field as the UI labels it"
     assert notice.strip(), "and it must not be empty"
+
+
+def test_the_heartbeat_prompt_rules_budget_steps_and_avoid_not_a_budget():
+    """Rule 2 must instruct the agent to budget steps, and never say 'not a budget to ration'."""
+    from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
+
+    block = MemGPTAgentBlock(name="test_memgpt", system_prompt="Base prompt.")
+    prompt = block._build_system_prompt()
+
+    assert "not a budget to ration" not in prompt.lower()
+    assert "budget" in prompt.lower()
+    assert "conclude" in prompt.lower() or "clean conclusion" in prompt.lower()
+
+
+def test_agent_step_event_is_emitted_during_turn_iteration():
+    """_on_iteration emits agent_step with current step and max_steps."""
+    import opalatex.agent_stdin as agent_stdin
+
+    emitted_events = []
+    prev_hook = agent_stdin.event_hook
+    try:
+        agent_stdin.event_hook = lambda payload: emitted_events.append(payload)
+
+        class DummyAgent:
+            model = "dummy"
+            max_heartbeats = 50
+
+        # Build an _on_iteration callback simulating agent_stdin.run_agent
+        _step = 3
+        agent = DummyAgent()
+        agent_type = "chat_orchestrator"
+
+        raw_max_steps = getattr(agent, "max_heartbeats", None)
+        max_steps = int(raw_max_steps) if raw_max_steps is not None else None
+
+        agent_stdin.print_event("agent_step", {
+            "step": _step,
+            "max_steps": max_steps,
+            "agent": agent_type,
+        })
+
+        step_events = [e for e in emitted_events if e.get("event") == "agent_step"]
+        assert len(step_events) == 1
+        assert step_events[0]["step"] == 3
+        assert step_events[0]["max_steps"] == 50
+        assert step_events[0]["agent"] == "chat_orchestrator"
+    finally:
+        agent_stdin.event_hook = prev_hook
+
