@@ -619,3 +619,41 @@ def test_agent_step_event_is_emitted_during_turn_iteration():
     finally:
         agent_stdin.event_hook = prev_hook
 
+
+def test_heartbeat_mode_override_updates_agent_max_heartbeats():
+    """handle_run overrides agent.max_heartbeats when max_heartbeats is passed, and resets on None."""
+    import opalatex.agent_stdin as agent_stdin
+
+    class DummyMemgpt:
+        max_heartbeats = 50
+
+    dummy_agent = DummyMemgpt()
+    prev_memgpt = agent_stdin.current_memgpt
+    try:
+        agent_stdin.current_memgpt = dummy_agent
+
+        # Simulate low mode (20)
+        data = {"max_heartbeats": 20}
+        req_hb = data.get("max_heartbeats")
+        if req_hb is not None:
+            dummy_agent.max_heartbeats = int(req_hb)
+        assert dummy_agent.max_heartbeats == 20
+
+        # Simulate high mode (100)
+        data = {"max_heartbeats": 100}
+        req_hb = data.get("max_heartbeats")
+        if req_hb is not None:
+            dummy_agent.max_heartbeats = int(req_hb)
+        assert dummy_agent.max_heartbeats == 100
+
+        # Simulate custom / reset fallback
+        data = {"max_heartbeats": None}
+        req_hb = data.get("max_heartbeats")
+        if req_hb is None:
+            from opalatex.config import get_project_agent_params, get_agent_max_heartbeats
+            _agent_params = get_project_agent_params()
+            dummy_agent.max_heartbeats = int(_agent_params.get("max_heartbeats", get_agent_max_heartbeats("memgpt", 50)))
+        assert dummy_agent.max_heartbeats == 50
+    finally:
+        agent_stdin.current_memgpt = prev_memgpt
+

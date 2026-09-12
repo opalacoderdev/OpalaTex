@@ -1899,6 +1899,22 @@ async def handle_run(data: dict):
         agent = current_memgpt
         if system_prompt:
             agent.system_prompt = system_prompt
+
+        # Apply heartbeat override for this run (e.g. low=20, medium=50, high=100, custom)
+        req_hb = data.get("max_heartbeats")
+        if req_hb is None and isinstance(data.get("model_params"), dict):
+            req_hb = data["model_params"].get("max_heartbeats")
+        if req_hb is not None:
+            try:
+                hb_val = int(req_hb)
+                if hb_val > 0:
+                    agent.max_heartbeats = hb_val
+            except (ValueError, TypeError):
+                pass
+        else:
+            from opalatex.config import get_project_agent_params, get_agent_max_heartbeats
+            _agent_params = get_project_agent_params()
+            agent.max_heartbeats = int(_agent_params.get("max_heartbeats", get_agent_max_heartbeats("memgpt", 50)))
     else:
         # Custom LLMAgentBlock
         if not system_prompt:

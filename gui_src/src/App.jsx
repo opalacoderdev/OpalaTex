@@ -367,6 +367,30 @@ export default function App() {
   const [queuedMessages, setQueuedMessages] = useState([]);
   const [isInterruptPending, setIsInterruptPending] = useState(false);
   const [agentStepInfo, setAgentStepInfo] = useState({ step: 0, maxSteps: null });
+  const [heartbeatMode, setHeartbeatModeState] = useState(() => {
+    try {
+      return localStorage.getItem('chatHeartbeatMode') || 'medium';
+    } catch (_) {
+      return 'medium';
+    }
+  });
+  const setHeartbeatMode = (mode) => {
+    setHeartbeatModeState(mode);
+    try {
+      localStorage.setItem('chatHeartbeatMode', mode);
+    } catch (_) {}
+  };
+  const resolveEffectiveMaxHeartbeats = (modeOverride = null) => {
+    const mode = modeOverride || heartbeatMode;
+    if (mode === 'low') return 20;
+    if (mode === 'medium') return 50;
+    if (mode === 'high') return 100;
+    if (mode === 'custom') {
+      const projHb = activeProject?.model_params?.max_heartbeats;
+      return projHb !== undefined && projHb !== null && projHb !== '' ? parseInt(projHb, 10) : null;
+    }
+    return 50;
+  };
   const [isInlineRunning, setIsInlineRunning] = useState(false);
   // Refreshes an already-open Review panel after the backend has safely closed
   // an agent checkpoint, including a turn whose cancellation was acknowledged
@@ -3392,6 +3416,7 @@ export default function App() {
           worker_model: activeProject.worker_model,
           model_params: activeProject.model_params,
           worker_model_params: activeProject.worker_model_params,
+          max_heartbeats: options.maxHeartbeats !== undefined ? options.maxHeartbeats : resolveEffectiveMaxHeartbeats(),
           current_file: selectedFile || '',
           open_files: openFiles,
           editor_content: fileContent || '', selected_text: selectedText || '',
@@ -4201,7 +4226,7 @@ export default function App() {
     try {
       const res = await fetch('/api/opalatex/run', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: 'run', agent: 'chat_orchestrator', prompt: userText, project_name: activeProject.name, project_path: activeProject.project_path, model: activeProject.model, current_file: selectedFile || '', open_files: openFiles, editor_content: fileContent || '', selected_text: selectedText || '', lang: i18n.language || 'en', chat_id: activeChatId, model_params: ephemeralParams }),
+        body: JSON.stringify({ command: 'run', agent: 'chat_orchestrator', prompt: userText, project_name: activeProject.name, project_path: activeProject.project_path, model: activeProject.model, max_heartbeats: resolveEffectiveMaxHeartbeats(), current_file: selectedFile || '', open_files: openFiles, editor_content: fileContent || '', selected_text: selectedText || '', lang: i18n.language || 'en', chat_id: activeChatId, model_params: ephemeralParams }),
       });
       if (!res.body) { addLog('error', t('app.streamUnsupportedBackend')); setIsAgentRunning(false); return; }
       const reader = res.body.getReader();
@@ -4518,6 +4543,8 @@ export default function App() {
               chatInputFocusSignal={chatInputFocusSignal}
               isAgentRunning={isAgentRunning}
               agentStepInfo={agentStepInfo}
+              heartbeatMode={heartbeatMode}
+              setHeartbeatMode={setHeartbeatMode}
               queuedMessages={queuedMessages}
               onCancelQueuedMessage={handleCancelQueuedMessage}
               onCancelAllQueuedMessages={handleCancelAllQueuedMessages}
@@ -4608,6 +4635,8 @@ export default function App() {
               chatInputFocusSignal={chatInputFocusSignal}
               isAgentRunning={isAgentRunning}
               agentStepInfo={agentStepInfo}
+              heartbeatMode={heartbeatMode}
+              setHeartbeatMode={setHeartbeatMode}
               queuedMessages={queuedMessages}
               onCancelQueuedMessage={handleCancelQueuedMessage}
               onCancelAllQueuedMessages={handleCancelAllQueuedMessages}

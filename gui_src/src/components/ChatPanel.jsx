@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
-import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock, Activity } from 'lucide-react';
+import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock, Activity, Zap, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { FormattedMessage } from '../utils/formatMessage';
@@ -80,6 +80,8 @@ export default function ChatPanel({
   setChatInput,
   isAgentRunning,
   agentStepInfo = { step: 0, maxSteps: null },
+  heartbeatMode = 'medium',
+  setHeartbeatMode,
   queuedMessages = [],
   onCancelQueuedMessage,
   onCancelAllQueuedMessages,
@@ -130,11 +132,33 @@ export default function ChatPanel({
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [showChatActionsMenu, setShowChatActionsMenu] = useState(false);
+  const [showHeartbeatMenu, setShowHeartbeatMenu] = useState(false);
+  const heartbeatMenuRef = useRef(null);
   const [isEvolvingPrompt, setIsEvolvingPrompt] = useState(false);
   const [evolutionProgress, setEvolutionProgress] = useState(null);
   const evolveAbortControllerRef = useRef(null);
   const originalPromptRef = useRef('');
   const { menu, onContextMenu, handleCopy, handleSelectAll, close: closeMenu } = useTextContextMenu();
+
+  useEffect(() => {
+    if (!showHeartbeatMenu) return;
+    const handleClickOutside = (e) => {
+      if (heartbeatMenuRef.current && !heartbeatMenuRef.current.contains(e.target)) {
+        setShowHeartbeatMenu(false);
+      }
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setShowHeartbeatMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showHeartbeatMenu]);
 
   useLayoutEffect(() => {
     const el = inputRef.current;
@@ -2275,6 +2299,96 @@ export default function ChatPanel({
             {t('chatPanel.uploadingFiles', 'Processing attachment...')}
           </div>
         )}
+        {/* Composer toolbar with expandable heartbeat / effort mode selector */}
+        {(() => {
+          const projectHeartbeats = activeProject?.model_params?.max_heartbeats ?? 50;
+          const heartbeatOptions = [
+            {
+              key: 'low',
+              heartbeats: 20,
+              label: t('chatPanel.heartbeatModeLow', 'Low'),
+              desc: t('chatPanel.heartbeatModeLowDesc', 'Fast (max 20 heartbeats)'),
+              color: 'var(--vscode-fg-teal, #4ec9b0)',
+            },
+            {
+              key: 'medium',
+              heartbeats: 50,
+              label: t('chatPanel.heartbeatModeMedium', 'Medium'),
+              desc: t('chatPanel.heartbeatModeMediumDesc', 'Standard (max 50 heartbeats)'),
+              color: '#e5a84b',
+            },
+            {
+              key: 'high',
+              heartbeats: 100,
+              label: t('chatPanel.heartbeatModeHigh', 'High'),
+              desc: t('chatPanel.heartbeatModeHighDesc', 'Thorough (max 100 heartbeats)'),
+              color: '#c586c0',
+            },
+            {
+              key: 'custom',
+              heartbeats: projectHeartbeats,
+              label: t('chatPanel.heartbeatModeCustom', 'Custom'),
+              desc: t('chatPanel.heartbeatModeCustomDesc', 'Project settings ({{count}} heartbeats)', { count: projectHeartbeats }),
+              color: 'var(--vscode-descriptionForeground, #999999)',
+            },
+          ];
+          const currentOption = heartbeatOptions.find(opt => opt.key === heartbeatMode) || heartbeatOptions[1];
+          const currentButtonLabel = heartbeatMode === 'custom'
+            ? `${currentOption.label} (${projectHeartbeats})`
+            : `${currentOption.label} (${currentOption.heartbeats})`;
+
+          return (
+            <div className="vscode-chat-composer-toolbar">
+              <div className="vscode-chat-mode-selector-wrap" ref={heartbeatMenuRef}>
+                <button
+                  type="button"
+                  className="vscode-chat-mode-btn"
+                  onClick={() => setShowHeartbeatMenu(prev => !prev)}
+                  aria-expanded={showHeartbeatMenu}
+                  aria-haspopup="menu"
+                  title={t('chatPanel.heartbeatModeTooltip', 'Execution heartbeat budget per turn')}
+                >
+                  <Zap size={12} style={{ color: currentOption.color, flexShrink: 0 }} />
+                  <span className="vscode-chat-mode-btn-label">{currentButtonLabel}</span>
+                  <ChevronDown size={11} style={{ opacity: 0.7, flexShrink: 0 }} />
+                </button>
+                {showHeartbeatMenu && (
+                  <div className="vscode-chat-mode-menu" role="menu">
+                    <div className="vscode-chat-mode-menu-header">
+                      {t('chatPanel.heartbeatMode', 'Effort / Budget')}
+                    </div>
+                    {heartbeatOptions.map((opt) => {
+                      const isSelected = opt.key === heartbeatMode;
+                      return (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          className={`vscode-chat-mode-menu-item ${isSelected ? 'selected' : ''}`}
+                          onClick={() => {
+                            setHeartbeatMode?.(opt.key);
+                            setShowHeartbeatMenu(false);
+                          }}
+                          role="menuitem"
+                        >
+                          <div className="vscode-chat-mode-item-left">
+                            <Zap size={13} style={{ color: opt.color, flexShrink: 0, marginTop: '2px' }} />
+                            <div className="vscode-chat-mode-item-text">
+                              <div className="vscode-chat-mode-item-title">
+                                {opt.label} ({opt.heartbeats})
+                              </div>
+                              <div className="vscode-chat-mode-item-desc">{opt.desc}</div>
+                            </div>
+                          </div>
+                          {isSelected && <Check size={14} className="vscode-chat-mode-item-check" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
         <div className="vscode-chat-input-row">
           {/* Hidden file input */}
           <input
