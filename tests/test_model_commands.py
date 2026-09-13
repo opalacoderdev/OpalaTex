@@ -5,6 +5,8 @@ import asyncio
 import os
 import tempfile
 
+import pytest
+
 
 from opalatex.cli_commands import REPLState, _registry
 from opalatex.project import ProjectStore
@@ -97,30 +99,45 @@ def test_old_db_migrates_without_worker_model_column(tmp_path):
 
 def test_set_model_param_valid(tmp_path):
     state, store = _state(tmp_path)
-    # Known numeric params
-    asyncio.run(_registry.dispatch(state, "/set-model-param", ["temperature", "0.8"]))
+    # `num_ctx` stays a project-level budgeting override.
     asyncio.run(_registry.dispatch(state, "/set-model-param", ["num_ctx", "4096"]))
-    asyncio.run(_registry.dispatch(state, "/set-model-param", ["max_tokens", "1024"]))
-    assert state.project.model_params["temperature"] == 0.8
     assert state.project.model_params["num_ctx"] == 4096
-    assert state.project.model_params["max_tokens"] == 1024
-    assert store.load("t").model_params["temperature"] == 0.8
     assert store.load("t").model_params["num_ctx"] == 4096
-    assert store.load("t").model_params["max_tokens"] == 1024
-
-    # Any arbitrary LiteLLM param is now accepted
-    asyncio.run(_registry.dispatch(state, "/set-model-param", ["reasoning_effort", "medium"]))
-    asyncio.run(_registry.dispatch(state, "/set-model-param", ["seed", "42"]))
-    asyncio.run(_registry.dispatch(state, "/set-model-param", ["top_k", "50"]))
-    assert state.project.model_params["reasoning_effort"] == "medium"
-    assert state.project.model_params["seed"] == 42
-    assert state.project.model_params["top_k"] == 50
 
     # Boolean coercion
     asyncio.run(_registry.dispatch(state, "/set-model-param", ["stream", "true"]))
     assert state.project.model_params["stream"] is True
     asyncio.run(_registry.dispatch(state, "/set-model-param", ["stream", "false"]))
     assert state.project.model_params["stream"] is False
+
+
+@pytest.mark.parametrize("param,value", [
+    ("temperature", "0.8"),
+    ("max_tokens", "1024"),
+    ("seed", "42"),
+    ("top_p", "0.9"),
+    ("top_k", "50"),
+    ("min_p", "0.05"),
+    ("frequency_penalty", "0.1"),
+    ("presence_penalty", "0.1"),
+    ("repetition_penalty", "1.1"),
+    ("reasoning_effort", "medium"),
+])
+def test_set_model_param_refuses_catalog_owned_inference_params(tmp_path, param, value):
+    """Inference parameters live on the model catalog, so a project write is inert.
+
+    `sanitize_model_params` drops these on save. Accepting one would print a
+    success line for a value that never reaches the row -- the exact silent
+    substitution that made `/set-model-param temperature 0.8` report success
+    while the project kept the old value. The command must refuse and name the
+    place that owns the setting.
+    """
+    state, store = _state(tmp_path)
+
+    asyncio.run(_registry.dispatch(state, "/set-model-param", [param, value]))
+
+    assert param not in (state.project.model_params or {})
+    assert param not in (store.load("t").model_params or {})
 
 
 def test_set_model_param_refuses_think_instead_of_storing_it_dead(tmp_path):

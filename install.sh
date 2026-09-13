@@ -11,6 +11,10 @@ INSTALL_DIR="$HOME/.local/share/OpalaTex"
 BIN_DIR="$HOME/.local/bin"
 REPO_OWNER="opalacoderdev"
 REPO_NAME="OpalaTex"
+# `HEAD` lets raw.githubusercontent.com resolve the repository's default branch,
+# so this installer does not break every time the release branch is renamed.
+# A literal branch name here is what made the fallback fetch 404.
+UNINSTALLER_REF="HEAD"
 
 OS_NAME="$(uname -s)"
 ARCH_NAME="$(uname -m)"
@@ -127,21 +131,29 @@ if [[ ! -f "$INSTALL_DIR/OpalaTex" ]]; then
     exit 1
 fi
 
+# The uninstaller is a convenience, not part of the application. A release that
+# predates it, or a branch that does not carry it yet, must not abort an
+# installation whose payload is already unpacked: warn and continue, and only
+# publish the `opalatex-uninstall` entry point when the script is really there.
 if [[ ! -f "$INSTALL_DIR/uninstall.sh" ]]; then
     echo "This release predates the bundled uninstaller; downloading it separately..."
     if ! download_with_retry \
-        "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/master/uninstall.sh" \
+        "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$UNINSTALLER_REF/uninstall.sh" \
         "$INSTALL_DIR/uninstall.sh"; then
-        echo "Could not install the OpalaTex uninstaller." >&2
-        exit 1
+        rm -f "$INSTALL_DIR/uninstall.sh"
+        echo "Could not fetch the OpalaTex uninstaller; continuing without it." >&2
+        echo "To remove OpalaTex later, delete $INSTALL_DIR and $BIN_DIR/opalatex." >&2
     fi
 fi
 
 echo "Creating command symlink in $BIN_DIR..."
 mkdir -p "$BIN_DIR"
 ln -sfn "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex"
-ln -sfn "$INSTALL_DIR/uninstall.sh" "$BIN_DIR/opalatex-uninstall"
-chmod +x "$INSTALL_DIR/OpalaTex" "$INSTALL_DIR/uninstall.sh" "$BIN_DIR/opalatex" "$BIN_DIR/opalatex-uninstall" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex" 2>/dev/null || true
+if [[ -f "$INSTALL_DIR/uninstall.sh" ]]; then
+    ln -sfn "$INSTALL_DIR/uninstall.sh" "$BIN_DIR/opalatex-uninstall"
+    chmod +x "$INSTALL_DIR/uninstall.sh" "$BIN_DIR/opalatex-uninstall" 2>/dev/null || true
+fi
 
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
@@ -182,4 +194,6 @@ echo "   OpalaTex installed successfully!       "
 echo "=========================================="
 echo "Terminal command: opalatex"
 echo "Application launcher created."
-echo "To uninstall: opalatex-uninstall"
+if [[ -f "$INSTALL_DIR/uninstall.sh" ]]; then
+    echo "To uninstall: opalatex-uninstall"
+fi

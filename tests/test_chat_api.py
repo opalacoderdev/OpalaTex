@@ -503,3 +503,45 @@ async def test_chat_history_keeps_thoughts_before_long_stream(tmp_path, monkeypa
         ]
         assert data["history"][-1]["content"] == "Document inspected."
         assert data["activity"][0]["timestamp"] <= data["history"][-1]["timestamp"]
+
+
+@pytest.mark.asyncio
+async def test_chat_history_truncates_only_the_per_token_stream(tmp_path, monkeypatch):
+    """The cap that protects memory must never be able to reach a thought.
+
+    `stream_chunk` is written once per token, so a long-lived chat accumulates
+    tens of thousands of rows that an unbounded read would load and serialize on
+    every open. Capping them is safe; capping thoughts is the bug this guards.
+    """
+    from opalatex.ide_server import CHAT_HISTORY_STREAM_CHUNK_LIMIT
+
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    project = store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    chat_id = project.current_chat_id
+
+    store.append_activity(project, "thought", "First thought.")
+    for _ in range(CHAT_HISTORY_STREAM_CHUNK_LIMIT + 250):
+        store.append_activity(project, "stream_chunk", "token ")
+    store.append_activity(project, "thought", "Last thought.")
+    store.append_activity(project, "error", "Something failed.")
+    store.close_activity_connection()
+
+    await server.route_api(
+        "GET", "/api/chat/history",
+        {"project_name": ["myproj"], "chat_id": [chat_id]},
+        {}, b"", AsyncMock(),
+    )
+    status, data, _ = responses[-1]
+    assert status == 200
+
+    activity = data["activity"]
+    # Both thoughts and the error survive in full, despite being on opposite
+    # sides of 5250 stream chunks.
+    assert [a["content"] for a in activity if a["event"] == "thought"] == [
+        "First thought.", "Last thought.",
+    ]
+    assert [a["content"] for a in activity if a["event"] == "error"] == ["Something failed."]
+    # The token stream is capped rather than fully loaded.
+    assert len([a for a in activity if a["event"] == "stream_chunk"]) == CHAT_HISTORY_STREAM_CHUNK_LIMIT
+    # Chronological order is preserved across the two reads that build the list.
+    assert [a["id"] for a in activity] == sorted(a["id"] for a in activity)

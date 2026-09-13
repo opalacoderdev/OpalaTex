@@ -336,7 +336,10 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
         param = m.group(1) if m else "unknown"
         return (
             f"Parameter '{param}' is not supported by {model}. "
-            f"Remove it with: /set-model-param {param} (leave value empty) or check the model's documentation."
+            "Clear it where it is configured: inference parameters (temperature, "
+            "top_k, reasoning_effort, ...) and additional model parameters live on "
+            "the model's catalog entry (Edit Models, or /models); per-project "
+            f"parameters are cleared with /set-model-param {param} null."
         )
 
     from opalatex.i18n import _

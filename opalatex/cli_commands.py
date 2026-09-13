@@ -342,9 +342,25 @@ _MODEL_PARAMS_OWNED_ELSEWHERE = {
     ),
 }
 
+# Inference parameters moved to the model catalog. `sanitize_model_params` drops
+# them on save, so accepting one here would print a success line for a value that
+# never persists -- the silent behavior substitution this map exists to prevent.
+# `num_ctx` is absent on purpose: it is still a project-level budgeting override.
+for _catalog_owned_param in (
+    "temperature", "max_tokens", "seed", "top_p", "top_k", "min_p",
+    "frequency_penalty", "presence_penalty", "repetition_penalty",
+    "reasoning_effort",
+):
+    _MODEL_PARAMS_OWNED_ELSEWHERE[_catalog_owned_param] = (
+        "it is a per-model inference parameter, not a project setting: set it "
+        "on the model's catalog entry (Edit Models, or /models) and every "
+        "project using that model inherits it"
+    )
+del _catalog_owned_param
+
 
 @_registry.register("/set-model-param", usage="<param_name> <value>",
-                    description="Set any LiteLLM/model parameter (e.g. temperature, reasoning_effort, seed, stop, num_ctx, ...)")
+                    description="Set a per-project model parameter (e.g. num_ctx, stop, stream). Inference parameters such as temperature live on the model's catalog entry.")
 async def cmd_set_model_param(state: REPLState, args: list[str]) -> str | None:
     if len(args) < 2:
         T.error("Usage: /set-model-param <param_name> <value>\n"

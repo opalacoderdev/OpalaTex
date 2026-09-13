@@ -339,12 +339,43 @@ def _migrate_legacy_rows(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _connect() -> sqlite3.Connection:
-    db_path = (
+def _resolve_db_path() -> Path:
+    return (
         Path(DEFAULT_DB_PATH)
         if Path(_MODELS_STORE_PATH) == _DEFAULT_MODELS_STORE_PATH
         else Path(_MODELS_STORE_PATH).with_suffix(".sqlite3")
     )
+
+
+# `load_models` sits on the hot path of every LLM request: `get_agent_llm_kwargs`
+# and `sanitize_litellm_kwargs_for_model` both resolve a catalog entry, and
+# sanitizing happens at more than one boundary per request. Without this, each
+# call re-opened the database and replayed CREATE TABLE, five ALTER TABLEs and
+# the legacy-row migration.
+#
+# The key is the database file's identity rather than a plain memo: the agent runs
+# in a separate process from the IDE server and both read this store, so a model
+# edited in the UI must be visible to the agent on its next request. A stat is
+# cheap; a stale catalog is a wrong answer.
+_MODELS_CACHE: Tuple[Any, List[Dict[str, Any]]] | None = None
+
+
+def _db_fingerprint(db_path: Path) -> Any:
+    """Identity of the store's current contents, or None when it cannot be read."""
+    try:
+        stat = db_path.stat()
+    except OSError:
+        return None
+    return (str(db_path), stat.st_mtime_ns, stat.st_size)
+
+
+def _invalidate_models_cache() -> None:
+    global _MODELS_CACHE
+    _MODELS_CACHE = None
+
+
+def _connect() -> sqlite3.Connection:
+    db_path = _resolve_db_path()
     if str(db_path) != ":memory:":
         db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
@@ -458,6 +489,13 @@ def _load_legacy_json_models() -> List[Dict[str, Any]]:
 
 def load_models() -> List[Dict[str, Any]]:
     """Load models from the global SQLite model store or import legacy entries once."""
+    global _MODELS_CACHE
+
+    fingerprint = _db_fingerprint(_resolve_db_path())
+    if fingerprint is not None and _MODELS_CACHE is not None and _MODELS_CACHE[0] == fingerprint:
+        # Copied so a caller mutating an entry cannot corrupt the cache.
+        return [dict(model) for model in _MODELS_CACHE[1]]
+
     loaded_defaults = False
     with _connect() as conn:
         rows = conn.execute(
@@ -506,12 +544,22 @@ def load_models() -> List[Dict[str, Any]]:
     if loaded_defaults:
         save_models(models)
 
+    # Fingerprinted after the read (and after any import write above), so the
+    # entry describes the contents that were actually returned.
+    post_read_fingerprint = _db_fingerprint(_resolve_db_path())
+    if post_read_fingerprint is not None:
+        _MODELS_CACHE = (post_read_fingerprint, [dict(model) for model in models])
+
     return models
 
 
 
 def save_models(models: List[Dict[str, Any]]) -> None:
     """Save models list to the global SQLite model store."""
+    # Explicit, rather than relying on the file fingerprint alone: a write that
+    # lands in the same mtime tick as the read that filled the cache would
+    # otherwise keep serving the pre-write catalog for the rest of the process.
+    _invalidate_models_cache()
     with _connect() as conn:
         conn.execute(f"DELETE FROM {_MODELS_TABLE}")
         for index, raw_model in enumerate(models or []):
@@ -553,6 +601,9 @@ def load_connections() -> List[Dict[str, Any]]:
 
 def save_connections(connections: List[Dict[str, Any]]) -> None:
     """Save provider connections list to the global SQLite store."""
+    # A model entry carries its connection's credentials, so editing a connection
+    # changes what `load_models` returns.
+    _invalidate_models_cache()
     with _connect() as conn:
         conn.execute(f"DELETE FROM {_CONNECTIONS_TABLE}")
         for index, raw_connection in enumerate(connections or []):

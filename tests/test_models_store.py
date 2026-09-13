@@ -811,3 +811,164 @@ def test_config_model_orchestrator_policy_reads_catalog_field(tmp_path, monkeypa
     assert config_mod.model_orchestrator_policy("ollama/delegating-model") == "delegate"
     assert config_mod.model_orchestrator_policy("ollama/direct-model") == "direct"
     assert config_mod.model_orchestrator_policy("ollama/unregistered-model") == "direct"
+
+
+# ── catalog inference params vs. provider compatibility ──────────────────────
+
+def test_catalog_inference_params_stay_subject_to_the_provider_filter(tmp_path, monkeypatch):
+    """A catalog `top_k`/`min_p`/`repetition_penalty` must not reach OpenAI.
+
+    These are not OpenAI request parameters. LiteLLM forwards unknown kwargs in
+    `extra_body`, so admitting them past `get_supported_openai_params` makes the
+    provider reject every turn with a 400 ("Unrecognized request argument") the
+    moment a user fills those fields in the model form. They are dropped instead,
+    exactly as the equivalent project-level params always were.
+    """
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(
+        models_store, id="openai-conn", provider="openai", api_base="",
+    )
+    models_store.save_models([
+        {
+            "id": "openai/gpt-4o",
+            "connection_id": connection_id,
+            "name": "gpt-4o",
+            "temperature": 0.3,
+            "top_k": 40,
+            "min_p": 0.05,
+            "repetition_penalty": 1.1,
+        }
+    ])
+
+    cleaned = config_mod.sanitize_litellm_kwargs_for_model("openai/gpt-4o", {
+        "temperature": 0.3,
+        "top_k": 40,
+        "min_p": 0.05,
+        "repetition_penalty": 1.1,
+    })
+
+    assert cleaned["temperature"] == 0.3
+    for unsupported in ("top_k", "min_p", "repetition_penalty"):
+        assert unsupported not in cleaned
+
+
+def test_ollama_still_receives_its_local_only_inference_params(tmp_path, monkeypatch):
+    """The filter is per-provider, not a blanket ban: Ollama understands these."""
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+    models_store.save_models([
+        {
+            "id": "ollama/llama3",
+            "connection_id": connection_id,
+            "name": "llama3",
+            "top_k": 40,
+            "min_p": 0.05,
+            "repetition_penalty": 1.1,
+        }
+    ])
+
+    cleaned = config_mod.sanitize_litellm_kwargs_for_model("ollama/llama3", {
+        "top_k": 40, "min_p": 0.05, "repetition_penalty": 1.1,
+    })
+
+    assert cleaned["top_k"] == 40
+    assert cleaned["min_p"] == 0.05
+    assert cleaned["repetition_penalty"] == 1.1
+
+
+def test_user_defined_extra_model_params_still_bypass_the_provider_filter(tmp_path, monkeypatch):
+    """`extra_model_params` exists to name a parameter LiteLLM does not model.
+
+    Filtering those out would make the feature inert, so they are admitted and
+    the provider decides. This is the one documented bypass; the catalog's typed
+    inference fields are not part of it.
+    """
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(
+        models_store, id="openai-conn", provider="openai", api_base="",
+    )
+    models_store.save_models([
+        {
+            "id": "openai/gpt-4o",
+            "connection_id": connection_id,
+            "name": "gpt-4o",
+            "extra_model_params": {"my_provider_flag": True},
+        }
+    ])
+
+    cleaned = config_mod.sanitize_litellm_kwargs_for_model(
+        "openai/gpt-4o", {"my_provider_flag": True, "top_k": 40},
+    )
+
+    assert cleaned["my_provider_flag"] is True
+    assert "top_k" not in cleaned
+
+
+# ── hot-path caching ─────────────────────────────────────────────────────────
+
+def test_load_models_caches_reads_without_going_stale(tmp_path, monkeypatch):
+    """Repeated reads must not re-run migrations, and must not serve stale rows.
+
+    `load_models` runs on every LLM request (twice per sanitize pass), so it is
+    cached. The IDE server and the agent are separate processes sharing this
+    store, so a model edited in one must be visible in the other: the cache is
+    keyed on the database file's identity, not memoized outright.
+    """
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+    models_store.save_models([
+        {"id": "ollama/a", "connection_id": connection_id, "name": "a"},
+    ])
+
+    assert [m["id"] for m in models_store.load_models()] == ["ollama/a"]
+
+    # A cache hit must not open the database again.
+    calls = []
+    real_connect = models_store._connect
+    monkeypatch.setattr(models_store, "_connect", lambda: (calls.append(1), real_connect())[1])
+    assert [m["id"] for m in models_store.load_models()] == ["ollama/a"]
+    assert calls == []
+
+    # A write through this process is visible immediately.
+    monkeypatch.setattr(models_store, "_connect", real_connect)
+    models_store.add_or_update_model(
+        {"id": "ollama/b", "connection_id": connection_id, "name": "b"}
+    )
+    assert [m["id"] for m in models_store.load_models()] == ["ollama/a", "ollama/b"]
+
+    # A write by another process (same file, no cache invalidation call) is too.
+    models_store._MODELS_CACHE = (
+        models_store._db_fingerprint(models_store._resolve_db_path()),
+        [{"id": "stale/entry", "name": "stale"}],
+    )
+    with models_store._connect() as conn:
+        conn.execute(
+            f"INSERT INTO {models_store._MODELS_TABLE} (id, name, connection_id, sort_order) VALUES (?, ?, ?, ?)",
+            ("ollama/c", "c", connection_id, 2),
+        )
+        conn.commit()
+    assert [m["id"] for m in models_store.load_models()] == ["ollama/a", "ollama/b", "ollama/c"]
+
+
+def test_a_cached_entry_cannot_be_mutated_by_a_caller(tmp_path, monkeypatch):
+    """Callers receive copies, so editing a returned dict cannot poison the cache."""
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+
+    connection_id = _make_connection(models_store)
+    models_store.save_models([
+        {"id": "ollama/a", "connection_id": connection_id, "name": "a"},
+    ])
+
+    first = models_store.load_models()
+    first[0]["name"] = "tampered"
+
+    assert models_store.load_models()[0]["name"] == "a"

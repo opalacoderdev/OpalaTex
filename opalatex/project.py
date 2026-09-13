@@ -111,11 +111,14 @@ def _normalize_compile_on_save(partial: bool, full: bool) -> tuple[bool, bool]:
     return False, False
 
 
+# `num_ctx` is deliberately NOT retired: it is a prompt-budgeting override that is
+# never sent to an `openai/` provider, and a project pointed at a host with a
+# smaller runtime budget than its model's catalog entry advertises needs to lower
+# it for that project alone (see `config.resolve_effective_num_ctx`).
 _RETIRED_MODEL_PARAM_KEYS = {
     "think",
     "temperature",
     "max_tokens",
-    "num_ctx",
     "seed",
     "top_p",
     "top_k",
@@ -130,11 +133,12 @@ _RETIRED_MODEL_PARAM_KEYS = {
 def _without_legacy_think(params: dict) -> dict:
     """Strip retired per-project model inference settings from stored model params.
 
-    Model inference parameters (temperature, max_tokens, num_ctx, seed, top_p,
-    top_k, min_p, penalties, reasoning_effort, think) are resolved from the
-    selected model's global catalog entry alone. Rows written before that
-    consolidation are cleaned on read and write so they do not silently override
-    the model catalog.
+    Model inference parameters (temperature, max_tokens, seed, top_p, top_k,
+    min_p, penalties, reasoning_effort, think) are resolved from the selected
+    model's global catalog entry alone. Rows written before that consolidation
+    are cleaned on read and write so they do not silently override the model
+    catalog. `num_ctx` is not among them: it stays a per-project prompt-budgeting
+    override (see `config.resolve_effective_num_ctx`).
     """
     if not isinstance(params, dict):
         return {}
@@ -1128,20 +1132,62 @@ class ProjectStore:
             )
             return int(cursor.lastrowid)
 
-    def list_activity(self, name: str, chat_id: str, limit: int | None = 1000) -> list[dict]:
-        """Read activity chronologically; None explicitly requests the full history."""
+    def list_activity(
+        self,
+        name: str,
+        chat_id: str,
+        limit: int | None = 1000,
+        *,
+        truncate_events: tuple[str, ...] | None = None,
+    ) -> list[dict]:
+        """Read activity chronologically; None as *limit* requests the full history.
+
+        ``truncate_events`` narrows *limit* to the named event types, so every
+        other event comes back complete. That is what the chat transcript needs:
+        a persisted thought is written once per turn and must never disappear
+        (PROJECT_DESIGN 2.3), while ``stream_chunk`` is written once per token and
+        is transient render data a tail limit may safely cut. Applying one flat
+        limit to both is what let a long streamed answer evict the whole thinking
+        phase; removing the limit outright instead loads every token row ever
+        persisted for the chat.
+        """
         safe_limit = -1 if limit is None else max(1, int(limit or 1000))
         with _conn(self.db_path) as conn:
-            rows = conn.execute(
-                """
-                SELECT id, timestamp, event, agent, content, payload
-                FROM project_activity
-                WHERE project = ? AND chat_id = ? AND deleted_at = ''
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (name, chat_id, safe_limit),
-            ).fetchall()
+            if truncate_events and safe_limit != -1:
+                placeholders = ",".join("?" * len(truncate_events))
+                rows = conn.execute(
+                    f"""
+                    SELECT id, timestamp, event, agent, content, payload
+                    FROM project_activity
+                    WHERE project = ? AND chat_id = ? AND deleted_at = ''
+                      AND event NOT IN ({placeholders})
+                    UNION ALL
+                    SELECT * FROM (
+                        SELECT id, timestamp, event, agent, content, payload
+                        FROM project_activity
+                        WHERE project = ? AND chat_id = ? AND deleted_at = ''
+                          AND event IN ({placeholders})
+                        ORDER BY id DESC
+                        LIMIT ?
+                    )
+                    ORDER BY id DESC
+                    """,
+                    (
+                        name, chat_id, *truncate_events,
+                        name, chat_id, *truncate_events, safe_limit,
+                    ),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, timestamp, event, agent, content, payload
+                    FROM project_activity
+                    WHERE project = ? AND chat_id = ? AND deleted_at = ''
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (name, chat_id, safe_limit),
+                ).fetchall()
 
         activity = []
         for row in reversed(rows):

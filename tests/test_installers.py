@@ -53,10 +53,49 @@ def test_installers_publish_discoverable_uninstall_entry_points():
     windows_installer = (ROOT / "install.ps1").read_text(encoding="utf-8")
 
     assert '"$BIN_DIR/opalatex-uninstall"' in unix_installer
-    assert "master/uninstall.sh" in unix_installer
     assert "Windows\\CurrentVersion\\Uninstall\\OpalaTex" in windows_installer
     assert "Uninstall OpalaTex.lnk" in windows_installer
-    assert "master/uninstall.ps1" in windows_installer
+
+
+def test_uninstaller_fallback_fetch_is_branch_independent():
+    """A literal branch in the raw URL 404s the moment the release branch moves.
+
+    `uninstall.sh` does not exist on `master`, so the hardcoded ref made the
+    fallback download fail on every real install. `HEAD` lets GitHub resolve the
+    repository's default branch instead.
+    """
+    unix_installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+    windows_installer = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert 'UNINSTALLER_REF="HEAD"' in unix_installer
+    assert '$UNINSTALLER_REF/uninstall.sh' in unix_installer
+    assert '$uninstallerRef = "HEAD"' in windows_installer
+    assert '$uninstallerRef/uninstall.ps1' in windows_installer
+
+    for installer in (unix_installer, windows_installer):
+        assert "master/uninstall" not in installer
+
+
+def test_a_missing_uninstaller_does_not_abort_the_installation():
+    """The payload is already unpacked when the uninstaller is fetched.
+
+    Aborting there leaves a half-installed application behind over a convenience
+    script, so the failure warns and continues, and the `opalatex-uninstall`
+    entry point is only published when the script is actually present.
+    """
+    unix_installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+    windows_installer = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    uninstaller_fetch = unix_installer.split("predates the bundled uninstaller", 1)[1]
+    guarded_block = uninstaller_fetch.split("Creating command symlink", 1)[0]
+    assert "exit 1" not in guarded_block
+    assert "continuing without it" in guarded_block
+    # The symlink and the success hint are both conditional on the real file.
+    assert 'if [[ -f "$INSTALL_DIR/uninstall.sh" ]]; then' in unix_installer
+
+    assert "$hasUninstaller = Test-Path $uninstallerPath" in windows_installer
+    assert "if ($hasUninstaller) {" in windows_installer
+    assert "continuing without it" in windows_installer
 
 
 def test_unix_uninstaller_rejects_relative_purge_before_removing_app(tmp_path):

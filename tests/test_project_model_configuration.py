@@ -151,14 +151,15 @@ def test_every_project_setting_the_ui_offers_survives_sanitizing():
     `empty_response_reasoning_fallback` is a checkbox in both project modals and
     was missing from the allow-list, so ticking it never persisted. This guards
     the whole set against the same drift.
+
+    Inference parameters (temperature, top_k, reasoning_effort, ...) are NOT here
+    on purpose: they moved to the model catalog and the project modals no longer
+    offer them. `num_ctx` and `debug` stayed, so they must keep surviving a save.
     """
     from opalatex.config import sanitize_model_params
 
     ui_settings = {
-        "temperature": 0.7, "max_tokens": 2048, "num_ctx": 8192, "seed": 1,
-        "top_p": 0.9, "frequency_penalty": 0.1, "presence_penalty": 0.1,
-        "top_k": 40, "min_p": 0.05, "repetition_penalty": 1.1,
-        "stream": True, "reasoning_effort": "low",
+        "num_ctx": 8192, "stream": True,
         "force_vision": True, "max_heartbeats": 20, "max_context_tokens": 16384,
         "eviction_threshold": 0.85, "memory_pressure_threshold": 0.9,
         "max_iterations": 5, "max_tool_calls": 40, "loop_detection": True,

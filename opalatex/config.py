@@ -303,11 +303,18 @@ _LITELLM_TRANSPORT_FIELDS = {
 
 # The allow-list for values a project may store in model_params/worker_model_params.
 # Model inference parameters (temperature, max_tokens, seed, top_p, top_k, min_p,
-# penalties, reasoning_effort, num_ctx) belong to the global model catalog
-# entry. Only agent execution controls, transport (stream), and vision/attachment
-# flags remain in project configuration.
+# penalties, reasoning_effort) belong to the global model catalog entry. Only
+# agent execution controls, transport (stream), the `num_ctx` budgeting override,
+# and vision/attachment flags remain in project configuration.
+#
+# `num_ctx` is deliberately NOT an inference parameter: it is never transmitted to
+# an `openai/` provider, it only drives OpalaTex-side prompt budgeting (see
+# `resolve_effective_num_ctx`), and a project working against a host with a
+# smaller runtime KV-cache budget than the model's catalog entry advertises needs
+# to lower it for that project alone.
 _MODEL_PARAMS_SCHEMA = {
     "stream": {"type": bool},
+    "num_ctx": {"type": int, "min": 1},
     # Vision / attachment settings
     "force_vision": {"type": bool},
     "pdf_truncate": {"type": bool},
@@ -638,8 +645,10 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     except Exception:
         pass
 
+    # `num_ctx` is absent on purpose: it stays a project-level override (see
+    # `_MODEL_PARAMS_SCHEMA` and `resolve_effective_num_ctx`).
     LEGACY_INFERENCE_KEYS = {
-        "temperature", "max_tokens", "num_ctx", "seed", "top_p", "top_k",
+        "temperature", "max_tokens", "seed", "top_p", "top_k",
         "min_p", "frequency_penalty", "presence_penalty", "repetition_penalty",
         "reasoning_effort", "think",
     }
@@ -758,10 +767,17 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     # prefix for the local/cloud heuristic, so the suffix is harmless there.
     merged["num_ctx"] = resolve_effective_num_ctx(agent_name, resolved_model, merged.get("api_base"))
 
+    # Only the user's own `extra_model_params` names bypass the provider
+    # compatibility filter -- that is what the feature is for: naming a
+    # provider-specific parameter LiteLLM does not model. The catalog's typed
+    # inference fields are ordinary LiteLLM params and must keep going through
+    # `get_supported_openai_params`, or `top_k`/`min_p`/`repetition_penalty`
+    # reach OpenAI-compatible providers as unknown arguments and every turn
+    # fails with a 400 instead of the parameter simply not applying.
     return sanitize_litellm_kwargs_for_model(
         runtime_model,
         merged,
-        additional_allowed_params=set(store_extra_model_params) | set(store_inference_params),
+        additional_allowed_params=set(store_extra_model_params),
     )
 
 
@@ -999,21 +1015,20 @@ def sanitize_litellm_kwargs_for_model(
     try:
         # Sanitization happens at more than one boundary (agent construction,
         # compatibility wrapper, and a few feature-specific callers). Resolve
-        # the catalog names every time so a later pass cannot silently discard
-        # parameters explicitly configured by the user.
+        # the catalog's user-defined parameter names every time so a later pass
+        # cannot silently discard a provider-specific parameter the user typed.
+        #
+        # Only `extra_model_params` names are admitted here. The catalog's typed
+        # inference fields (temperature, top_k, min_p, ...) are ordinary LiteLLM
+        # params and stay subject to the provider filter below: admitting them
+        # would send `top_k`/`min_p`/`repetition_penalty` to OpenAI-compatible
+        # providers as unknown request arguments and fail every turn with a 400.
         from opalatex.models_store import get_model_by_runtime_id
         catalog_model = get_model_by_runtime_id(model)
         if catalog_model:
             catalog_extra_params.update(
                 (catalog_model.get("extra_model_params") or {}).keys()
             )
-            for p in (
-                "temperature", "max_tokens", "seed", "top_p", "top_k", "min_p",
-                "frequency_penalty", "presence_penalty", "repetition_penalty",
-                "reasoning_effort",
-            ):
-                if catalog_model.get(p) is not None:
-                    catalog_extra_params.add(p)
     except Exception:
         pass
     supported_params = None

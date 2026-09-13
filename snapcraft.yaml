@@ -25,6 +25,10 @@ contact:
   - dev@opalacoder.com
 compression: lzo
 
+lint:
+  ignore:
+    - library
+
 platforms:
   amd64:
     build-on: [amd64]
@@ -44,6 +48,7 @@ apps:
       QT_API: pyqt6
       QTWEBENGINE_DISABLE_SANDBOX: "1"
       QT_LOGGING_RULES: "*.debug=false;qt.qpa.*=false"
+      OMP_NUM_THREADS: "4"
     plugs:
       - audio-playback
       - browser-support
@@ -89,7 +94,6 @@ parts:
       - libgl1
       - libgl1-mesa-dri
       - libglx0
-      - libglib2.0-0t64
       - libgtk-3-0t64
       - libice6
       - libminizip1t64

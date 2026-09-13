@@ -13,6 +13,10 @@ $installDir = "$env:LOCALAPPDATA\OpalaTex"
 $tempZip    = "$env:TEMP\opalatex_release.zip"
 $repoOwner  = "opalacoderdev"
 $repoName   = "OpalaTex"
+# "HEAD" lets raw.githubusercontent.com resolve the repository's default branch,
+# so this installer does not break every time the release branch is renamed.
+# A literal branch name here is what made the fallback fetch 404.
+$uninstallerRef = "HEAD"
 
 $headers = @{
     "Accept"               = "application/vnd.github+json"
@@ -32,6 +36,9 @@ function Get-OpalaTexDownloadUrl {
 
     Write-Host "Checking the latest GitHub release ($repoOwner/$repoName)..." -ForegroundColor Yellow
     $releaseApi = Invoke-RestMethod -Uri "https://api.github.com/repos/$repoOwner/$repoName/releases/latest" -Headers $headers
+    # Reported as DisplayVersion in Installed apps, so the entry tracks the
+    # release that was actually installed instead of a hardcoded literal.
+    $script:releaseTag = ($releaseApi.tag_name -replace '^v', '')
     $asset = $releaseApi.assets |
         Where-Object { $_.name -eq "OpalaTex-windows-x64.zip" -and $_.state -eq "uploaded" } |
         Select-Object -First 1
@@ -95,13 +102,26 @@ if (-not (Test-Path "$exeDir\OpalaTex.exe")) {
     $exeDir = $installDir
 }
 
+# The uninstaller is a convenience, not part of the application. A release that
+# predates it, or a branch that does not carry it yet, must not abort an
+# installation whose payload is already extracted: warn and continue. The
+# Start-menu shortcut and the Installed-apps entry are only published when the
+# script is really present, so Windows never offers an uninstall that cannot run.
 $uninstallerPath = "$exeDir\uninstall.ps1"
 if (-not (Test-Path $uninstallerPath)) {
     Write-Host "This release predates the bundled uninstaller; downloading it separately..." -ForegroundColor Yellow
-    Invoke-DownloadWithRetry `
-        -Uri "https://raw.githubusercontent.com/$repoOwner/$repoName/master/uninstall.ps1" `
-        -OutFile $uninstallerPath
+    try {
+        Invoke-DownloadWithRetry `
+            -Uri "https://raw.githubusercontent.com/$repoOwner/$repoName/$uninstallerRef/uninstall.ps1" `
+            -OutFile $uninstallerPath
+    } catch {
+        Remove-Item -Path $uninstallerPath -Force -ErrorAction SilentlyContinue
+        Write-Warning "Could not fetch the OpalaTex uninstaller; continuing without it."
+        Write-Warning "To remove OpalaTex later, delete $installDir and its PATH entry."
+    }
 }
+$hasUninstaller = Test-Path $uninstallerPath
+$appVersion = if ($script:releaseTag) { $script:releaseTag } else { "unknown" }
 
 # Add the OpalaTex executable directory to the user PATH.
 $pathAdded = $false
@@ -138,29 +158,31 @@ $startMenuShortcut.Description      = "OpalaTex Open-Source AI LaTeX IDE"
 $startMenuShortcut.IconLocation     = "$exePath,0"
 $startMenuShortcut.Save()
 
-$uninstallShortcut = $wshShell.CreateShortcut("$startMenuDir\Uninstall OpalaTex.lnk")
-$uninstallShortcut.TargetPath = "powershell.exe"
-$uninstallShortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$uninstallerPath`""
-$uninstallShortcut.WorkingDirectory = $exeDir
-$uninstallShortcut.Description = "Uninstall OpalaTex"
-$uninstallShortcut.Save()
+if ($hasUninstaller) {
+    $uninstallShortcut = $wshShell.CreateShortcut("$startMenuDir\Uninstall OpalaTex.lnk")
+    $uninstallShortcut.TargetPath = "powershell.exe"
+    $uninstallShortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$uninstallerPath`""
+    $uninstallShortcut.WorkingDirectory = $exeDir
+    $uninstallShortcut.Description = "Uninstall OpalaTex"
+    $uninstallShortcut.Save()
 
-# Register a per-user uninstall entry so OpalaTex appears in Windows Settings >
-# Apps > Installed apps without requiring administrator privileges.
-$uninstallRegistryPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpalaTex"
-if (-not (Test-Path $uninstallRegistryPath)) {
-    New-Item -Path $uninstallRegistryPath -Force | Out-Null
+    # Register a per-user uninstall entry so OpalaTex appears in Windows Settings >
+    # Apps > Installed apps without requiring administrator privileges.
+    $uninstallRegistryPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpalaTex"
+    if (-not (Test-Path $uninstallRegistryPath)) {
+        New-Item -Path $uninstallRegistryPath -Force | Out-Null
+    }
+    $uninstallCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$uninstallerPath`""
+    Set-ItemProperty -Path $uninstallRegistryPath -Name "DisplayName" -Value "OpalaTex"
+    Set-ItemProperty -Path $uninstallRegistryPath -Name "DisplayVersion" -Value $appVersion
+    Set-ItemProperty -Path $uninstallRegistryPath -Name "Publisher" -Value "OpalaCoder"
+    Set-ItemProperty -Path $uninstallRegistryPath -Name "DisplayIcon" -Value $exePath
+    Set-ItemProperty -Path $uninstallRegistryPath -Name "InstallLocation" -Value $installDir
+    Set-ItemProperty -Path $uninstallRegistryPath -Name "UninstallString" -Value $uninstallCommand
+    Set-ItemProperty -Path $uninstallRegistryPath -Name "PathAdded" -Type DWord -Value ([int]$pathAdded)
+    Set-ItemProperty -Path $uninstallRegistryPath -Name "NoModify" -Type DWord -Value 1
+    Set-ItemProperty -Path $uninstallRegistryPath -Name "NoRepair" -Type DWord -Value 1
 }
-$uninstallCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$uninstallerPath`""
-Set-ItemProperty -Path $uninstallRegistryPath -Name "DisplayName" -Value "OpalaTex"
-Set-ItemProperty -Path $uninstallRegistryPath -Name "DisplayVersion" -Value "0.2.13"
-Set-ItemProperty -Path $uninstallRegistryPath -Name "Publisher" -Value "OpalaCoder"
-Set-ItemProperty -Path $uninstallRegistryPath -Name "DisplayIcon" -Value $exePath
-Set-ItemProperty -Path $uninstallRegistryPath -Name "InstallLocation" -Value $installDir
-Set-ItemProperty -Path $uninstallRegistryPath -Name "UninstallString" -Value $uninstallCommand
-Set-ItemProperty -Path $uninstallRegistryPath -Name "PathAdded" -Type DWord -Value ([int]$pathAdded)
-Set-ItemProperty -Path $uninstallRegistryPath -Name "NoModify" -Type DWord -Value 1
-Set-ItemProperty -Path $uninstallRegistryPath -Name "NoRepair" -Type DWord -Value 1
 
 Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue
 

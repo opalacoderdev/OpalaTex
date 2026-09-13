@@ -135,6 +135,13 @@ def _desktop_open_command(target_path: str) -> list[str]:
 # process startup.
 _DESKTOP_OPEN_FAILURE_WINDOW = 1.5
 
+# How many `stream_chunk` rows a reopened chat rehydrates. Only the per-token
+# stream is capped: thoughts, reflections and errors are always returned complete
+# (see ProjectStore.list_activity). Generous enough to cover the last answers the
+# Stream panel can usefully show, bounded so a months-old chat does not load its
+# entire token history to be displayed.
+CHAT_HISTORY_STREAM_CHUNK_LIMIT = 5000
+
 
 async def _desktop_open_failure(
     proc,
@@ -2888,9 +2895,16 @@ class AsyncHTTPServer:
                 self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
                 return
             chat_id = project.current_chat_id
-            # Every persisted thought belongs to the transcript. A tail limit
-            # lets later streamed answer tokens evict the entire thinking phase.
-            activity = store.list_activity(project_name, chat_id, limit=None)
+            # Every persisted thought belongs to the transcript, so no tail limit
+            # may reach them: that is how later streamed answer tokens evicted the
+            # entire thinking phase. Only `stream_chunk` is truncated -- it is
+            # written once per token, and loading a long chat's entire token
+            # history on every open is what an unbounded read costs.
+            activity = store.list_activity(
+                project_name, chat_id,
+                limit=CHAT_HISTORY_STREAM_CHUNK_LIMIT,
+                truncate_events=("stream_chunk",),
+            )
             # The measured context occupancy is rehydrated here so reopening a
             # chat reports the real number instead of dropping back to the
             # character estimate.

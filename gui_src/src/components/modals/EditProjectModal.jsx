@@ -417,6 +417,12 @@ export default function EditProjectModal({
                         {t('editProjectModal.agentParams')}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                        {/* Prompt-budgeting override, not an inference parameter: it is
+                            never sent to an `openai/` provider. Sampling parameters live
+                            on the model's catalog entry. */}
+                        <ParamNumber label={t('editProjectModal.contextWindow')} min="1" placeholder={t('editProjectModal.defaultContextWindow')}
+                          value={editingProject.model_params?.num_ctx}
+                          onChange={e => setParam('num_ctx', parseNum(e.target.value))} />
                         <ParamNumber label={t('editProjectModal.maxHeartbeats')} min="1" placeholder={t('editProjectModal.defaultMemgptHeartbeats')}
                           value={editingProject.model_params?.max_heartbeats}
                           onChange={e => setParam('max_heartbeats', parseNum(e.target.value))} />
@@ -465,6 +471,16 @@ export default function EditProjectModal({
                             <input type="checkbox"
                               checked={editingProject.model_params?.stream ?? true}
                               onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, stream: e.target.checked } }))} />
+                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
+                          </label>
+                        </div>
+
+                        <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.debug')}</label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                            <input type="checkbox"
+                              checked={!!editingProject.model_params?.debug}
+                              onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, debug: e.target.checked } }))} />
                             <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
                           </label>
                         </div>
@@ -525,6 +541,12 @@ export default function EditProjectModal({
                         {t('editProjectModal.agentParams')}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                        {/* Prompt-budgeting override, not an inference parameter: it is
+                            never sent to an `openai/` provider. Sampling parameters live
+                            on the model's catalog entry. */}
+                        <ParamNumber label={t('editProjectModal.contextWindow')} min="1" placeholder={t('editProjectModal.defaultContextWindow')}
+                          value={editingProject.worker_model_params?.num_ctx}
+                          onChange={e => setParam('num_ctx', parseNum(e.target.value), true)} />
                         <ParamNumber label={t('editProjectModal.maxIterationsWorker')} min="1" placeholder={t('editProjectModal.defaultUnlimited')}
                           value={editingProject.worker_model_params?.max_iterations}
                           onChange={e => setParam('max_iterations', parseNum(e.target.value), true)} />
@@ -551,6 +573,16 @@ export default function EditProjectModal({
                             <input type="checkbox"
                               checked={editingProject.worker_model_params?.stream ?? true}
                               onChange={e => setEditingProject(p => ({ ...p, worker_model_params: { ...p.worker_model_params, stream: e.target.checked } }))} />
+                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
+                          </label>
+                        </div>
+
+                        <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.debug')}</label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                            <input type="checkbox"
+                              checked={!!editingProject.worker_model_params?.debug}
+                              onChange={e => setEditingProject(p => ({ ...p, worker_model_params: { ...p.worker_model_params, debug: e.target.checked } }))} />
                             <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
                           </label>
                         </div>

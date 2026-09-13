@@ -203,7 +203,13 @@ class TestUpdateProjectPersistence:
         assert reloaded.model_params.get("max_heartbeats") == 25
 
     def test_retired_inference_params_stripped_from_project_model_params(self, tmp_store):
-        """Inference params sent to update-project must be stripped from project.model_params."""
+        """Inference params sent to update-project must be stripped from project.model_params.
+
+        `num_ctx` is not one of them: it is a prompt-budgeting override that is
+        never sent to an `openai/` provider, and a project pointed at a host with
+        a smaller runtime budget than its model's catalog entry advertises must be
+        able to lower it for that project alone.
+        """
         store, project = tmp_store
         _apply_update(store, project, {
             "temperature": 0.5,
@@ -217,7 +223,7 @@ class TestUpdateProjectPersistence:
         assert "temperature" not in reloaded.model_params
         assert "max_tokens" not in reloaded.model_params
         assert "top_p" not in reloaded.model_params
-        assert "num_ctx" not in reloaded.model_params
+        assert reloaded.model_params["num_ctx"] == 4096
         assert reloaded.model_params["stream"] is False
 
     def test_update_rebuilds_memgpt_with_new_params(self, tmp_store, monkeypatch):
@@ -246,7 +252,7 @@ class TestUpdateProjectPersistence:
             "eviction_threshold": "0,8",  # string comma float
             "stream": "true",  # string bool
             "temperature": "0.7",  # retired inference param, not in project schema
-            "num_ctx": "4096",  # retired inference param, not in project schema
+            "num_ctx": "4096",  # budgeting override: still a project setting
             "think": "true",  # a model capability, never a project param
             "invalid_param": "some_value"  # not in schema
         }
@@ -257,6 +263,6 @@ class TestUpdateProjectPersistence:
         assert sanitized["eviction_threshold"] == 0.8
         assert sanitized["stream"] is True
         assert "temperature" not in sanitized
-        assert "num_ctx" not in sanitized
+        assert sanitized["num_ctx"] == 4096
         assert "think" not in sanitized
         assert "invalid_param" not in sanitized
