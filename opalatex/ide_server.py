@@ -4278,6 +4278,8 @@ class AsyncHTTPServer:
             try:
                 add_or_update_model(data)
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
+            except ValueError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
                 

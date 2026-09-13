@@ -169,16 +169,6 @@ export default function NewProjectModal({
                 <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--vscode-text-fg)', fontWeight: 'bold' }}>{t('editProjectModal.advancedOrchestrator')}</summary>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
                   <div style={{ display: 'flex', gap: '12px' }}>
-                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.temperature')}</label>
-                      <input type="number" step="0.1" value={newProjModelParams?.temperature ?? ''} onChange={e => handleParamChange(setNewProjModelParams, 'temperature', e.target.value ? parseFloat(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 0.7" />
-                    </div>
-                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.maxTokens')}</label>
-                      <input type="number" value={newProjModelParams?.max_tokens ?? ''} onChange={e => handleParamChange(setNewProjModelParams, 'max_tokens', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 4096" />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '12px' }}>
                      <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
                         <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.maxHeartbeats')}</label>
                         <input type="number" value={newProjModelParams?.max_heartbeats ?? ''} onChange={e => handleParamChange(setNewProjModelParams, 'max_heartbeats', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder={t('editProjectModal.defaultMemgptHeartbeats')} />
@@ -236,16 +226,6 @@ export default function NewProjectModal({
               <details style={{ background: 'var(--vscode-input-bg)', padding: '8px', borderRadius: '4px', border: '1px solid var(--vscode-border)' }}>
                 <summary style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--vscode-text-fg)', fontWeight: 'bold' }}>{t('editProjectModal.advancedWorker')}</summary>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.temperature')}</label>
-                      <input type="number" step="0.1" value={newProjWorkerModelParams?.temperature ?? ''} onChange={e => handleParamChange(setNewProjWorkerModelParams, 'temperature', e.target.value ? parseFloat(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 0.2" />
-                    </div>
-                    <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
-                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.maxTokens')}</label>
-                      <input type="number" value={newProjWorkerModelParams?.max_tokens ?? ''} onChange={e => handleParamChange(setNewProjWorkerModelParams, 'max_tokens', e.target.value ? parseInt(e.target.value) : undefined)} className="vscode-settings-input" placeholder="Ex: 8192" />
-                    </div>
-                  </div>
                   <div style={{ display: 'flex', gap: '12px' }}>
                      <div className="flex flex-col flex-1" style={{ gap: '4px' }}>
                         <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.maxIterations')}</label>

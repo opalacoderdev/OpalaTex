@@ -25,26 +25,15 @@ from opalatex import tools as _tools
 
 # ---------------------------------------------------------------------------
 # All parameters exposed in the EditProjectModal, with test values.
-# Split into LiteLLM kwargs (go into model_kargs) and agent constructor params.
+# Model inference parameters (temperature, top_p, etc.) have moved to the
+# model catalog; project settings retain num_ctx, stream, and agent params.
 # ---------------------------------------------------------------------------
 
-LITELLM_PARAMS = {
-    "temperature":         0.5,
-    "num_ctx":             4096,
-    "top_p":               0.9,
-    "frequency_penalty":   0.3,
-    "presence_penalty":    0.2,
-    "seed":                42,
-    "top_k":               30,
-    "min_p":               0.05,
-    "repetition_penalty":  1.1,
+PROJECT_MODEL_PARAMS = {
     "stream":              False,
 }
 
-# `think` is deliberately absent: it is not a project parameter at all, it is
-# resolved from the selected model's catalog capability
-# (config.resolve_think_request).
-RUNTIME_LITELLM_PARAMS = dict(LITELLM_PARAMS)
+RUNTIME_LITELLM_PARAMS = dict(PROJECT_MODEL_PARAMS)
 
 AGENT_PARAMS = {
     "max_heartbeats":           15,
@@ -57,7 +46,7 @@ AGENT_PARAMS = {
     "debug":                    False,
 }
 
-ALL_PARAMS = {**LITELLM_PARAMS, **AGENT_PARAMS}
+ALL_PARAMS = {**PROJECT_MODEL_PARAMS, **AGENT_PARAMS}
 
 
 @pytest.fixture(autouse=True)
@@ -175,23 +164,22 @@ class TestUpdateProjectPersistence:
     def test_empty_value_not_persisted(self, tmp_store):
         """Empty string values must be dropped (not stored as empty strings)."""
         store, project = tmp_store
-        params_with_empty = {**ALL_PARAMS, "num_ctx": ""}
+        params_with_empty = {**ALL_PARAMS, "max_heartbeats": ""}
         _apply_update(store, project, params_with_empty)
         reloaded = _reload(store, project.name)
 
-        assert reloaded.model_params.get("num_ctx") != "", (
-            "empty string for num_ctx must not be persisted"
+        assert reloaded.model_params.get("max_heartbeats") != "", (
+            "empty string for max_heartbeats must not be persisted"
         )
-        assert "num_ctx" not in reloaded.model_params or reloaded.model_params["num_ctx"] != "", (
+        assert "max_heartbeats" not in reloaded.model_params or reloaded.model_params["max_heartbeats"] != "", (
             "empty value leaked into model_params"
         )
 
     def test_max_tokens_absent_means_unlimited(self, tmp_store):
-        """When max_tokens is not in model_params, get_agent_llm_kwargs must not
+        """When max_tokens is not in catalog/params, get_agent_llm_kwargs must not
         include it — letting the model generate without a token cap."""
         store, project = tmp_store
-        params_no_max_tokens = {k: v for k, v in ALL_PARAMS.items() if k != "max_tokens"}
-        _apply_update(store, project, params_no_max_tokens)
+        _apply_update(store, project, ALL_PARAMS)
         reloaded = _reload(store, project.name)
         _inject_session(reloaded, store)
 
@@ -206,12 +194,31 @@ class TestUpdateProjectPersistence:
         original_model = project.model
         original_path = project.project_path
 
-        _apply_update(store, project, {"temperature": 0.3})
+        _apply_update(store, project, {"stream": False, "max_heartbeats": 25})
         reloaded = _reload(store, project.name)
 
         assert reloaded.model == original_model, "model changed unexpectedly after param update"
         assert reloaded.project_path == original_path, "project_path changed unexpectedly"
-        assert reloaded.model_params.get("temperature") == 0.3
+        assert reloaded.model_params.get("stream") is False
+        assert reloaded.model_params.get("max_heartbeats") == 25
+
+    def test_retired_inference_params_stripped_from_project_model_params(self, tmp_store):
+        """Inference params sent to update-project must be stripped from project.model_params."""
+        store, project = tmp_store
+        _apply_update(store, project, {
+            "temperature": 0.5,
+            "max_tokens": 2048,
+            "top_p": 0.8,
+            "num_ctx": 4096,
+            "stream": False,
+        })
+        reloaded = _reload(store, project.name)
+
+        assert "temperature" not in reloaded.model_params
+        assert "max_tokens" not in reloaded.model_params
+        assert "top_p" not in reloaded.model_params
+        assert "num_ctx" not in reloaded.model_params
+        assert reloaded.model_params["stream"] is False
 
     def test_update_rebuilds_memgpt_with_new_params(self, tmp_store, monkeypatch):
         """After save, the rebuilt MemGPT must carry the updated model_kargs."""
@@ -232,24 +239,24 @@ class TestUpdateProjectPersistence:
 
     def test_sanitize_and_clamp_model_params(self):
         """Verify that sanitize_model_params correctly handles string numbers with commas, and clamps out of bounds values."""
-        from opalatex.ide_server import sanitize_model_params
+        from opalatex.config import sanitize_model_params
         
         raw_params = {
-            "temperature": "-0.5",  # below min 0.0
-            "presence_penalty": "0,8",  # string comma float
-            "frequency_penalty": 3.5,  # above max 2.0
-            "num_ctx": "4096",  # string int
+            "max_heartbeats": "25",  # string int
+            "eviction_threshold": "0,8",  # string comma float
             "stream": "true",  # string bool
+            "temperature": "0.7",  # retired inference param, not in project schema
+            "num_ctx": "4096",  # retired inference param, not in project schema
             "think": "true",  # a model capability, never a project param
             "invalid_param": "some_value"  # not in schema
         }
         
         sanitized = sanitize_model_params(raw_params)
         
-        assert sanitized["temperature"] == 0.0
-        assert sanitized["presence_penalty"] == 0.8
-        assert sanitized["frequency_penalty"] == 2.0
-        assert sanitized["num_ctx"] == 4096
+        assert sanitized["max_heartbeats"] == 25
+        assert sanitized["eviction_threshold"] == 0.8
         assert sanitized["stream"] is True
+        assert "temperature" not in sanitized
+        assert "num_ctx" not in sanitized
         assert "think" not in sanitized
         assert "invalid_param" not in sanitized

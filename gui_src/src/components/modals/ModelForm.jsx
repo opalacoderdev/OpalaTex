@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import ProviderConnectionForm from './ProviderConnectionForm';
+import {
+  extraModelParamsToRows,
+  parseExtraModelParamRows,
+} from '../../utils/modelExtraParams';
 
 const NEW_CONNECTION_VALUE = '__new_connection__';
 
@@ -38,6 +42,17 @@ export default function ModelForm({
   const [promptProfile, setPromptProfile] = useState('full');
   const [orchestratorPolicy, setOrchestratorPolicy] = useState('direct');
   const [numCtx, setNumCtx] = useState('');
+  const [temperature, setTemperature] = useState('');
+  const [maxTokens, setMaxTokens] = useState('');
+  const [seed, setSeed] = useState('');
+  const [topP, setTopP] = useState('');
+  const [topK, setTopK] = useState('');
+  const [minP, setMinP] = useState('');
+  const [frequencyPenalty, setFrequencyPenalty] = useState('');
+  const [presencePenalty, setPresencePenalty] = useState('');
+  const [repetitionPenalty, setRepetitionPenalty] = useState('');
+  const [reasoningEffort, setReasoningEffort] = useState('');
+  const [extraModelParams, setExtraModelParams] = useState([]);
   const [supportsImageGeneration, setSupportsImageGeneration] = useState(false);
   const [imageRoute, setImageRoute] = useState('images_api');
   const [error, setError] = useState('');
@@ -52,6 +67,17 @@ export default function ModelForm({
       setPromptProfile(editingModel.prompt_profile || 'full');
       setOrchestratorPolicy(editingModel.orchestrator_policy || 'direct');
       setNumCtx(editingModel.num_ctx ? String(editingModel.num_ctx) : '');
+      setTemperature(editingModel.temperature !== undefined && editingModel.temperature !== null ? String(editingModel.temperature) : '');
+      setMaxTokens(editingModel.max_tokens !== undefined && editingModel.max_tokens !== null ? String(editingModel.max_tokens) : '');
+      setSeed(editingModel.seed !== undefined && editingModel.seed !== null ? String(editingModel.seed) : '');
+      setTopP(editingModel.top_p !== undefined && editingModel.top_p !== null ? String(editingModel.top_p) : '');
+      setTopK(editingModel.top_k !== undefined && editingModel.top_k !== null ? String(editingModel.top_k) : '');
+      setMinP(editingModel.min_p !== undefined && editingModel.min_p !== null ? String(editingModel.min_p) : '');
+      setFrequencyPenalty(editingModel.frequency_penalty !== undefined && editingModel.frequency_penalty !== null ? String(editingModel.frequency_penalty) : '');
+      setPresencePenalty(editingModel.presence_penalty !== undefined && editingModel.presence_penalty !== null ? String(editingModel.presence_penalty) : '');
+      setRepetitionPenalty(editingModel.repetition_penalty !== undefined && editingModel.repetition_penalty !== null ? String(editingModel.repetition_penalty) : '');
+      setReasoningEffort(editingModel.reasoning_effort || '');
+      setExtraModelParams(extraModelParamsToRows(editingModel.extra_model_params));
       setSupportsImageGeneration(!!editingModel.supports_image_generation);
       setImageRoute(editingModel.image_route || 'images_api');
       setShowNewConnection(false);
@@ -61,6 +87,17 @@ export default function ModelForm({
       setPromptProfile('full');
       setOrchestratorPolicy('direct');
       setNumCtx('');
+      setTemperature('');
+      setMaxTokens('');
+      setSeed('');
+      setTopP('');
+      setTopK('');
+      setMinP('');
+      setFrequencyPenalty('');
+      setPresencePenalty('');
+      setRepetitionPenalty('');
+      setReasoningEffort('');
+      setExtraModelParams([]);
       setSupportsImageGeneration(false);
       setImageRoute('images_api');
       setShowNewConnection(connections.length === 0);
@@ -80,6 +117,17 @@ export default function ModelForm({
     setRequiresSingleSystemMessage(false);
     setPromptProfile('full');
     setNumCtx('');
+    setTemperature('');
+    setMaxTokens('');
+    setSeed('');
+    setTopP('');
+    setTopK('');
+    setMinP('');
+    setFrequencyPenalty('');
+    setPresencePenalty('');
+    setRepetitionPenalty('');
+    setReasoningEffort('');
+    setExtraModelParams([]);
     setSupportsImageGeneration(false);
     setImageRoute('images_api');
     setError('');
@@ -110,7 +158,7 @@ export default function ModelForm({
 
   const selectedConnection = connections.find(c => c.id === connectionId);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
@@ -138,13 +186,100 @@ export default function ModelForm({
       return;
     }
 
+    const trimmedTemperature = temperature.trim().replace(',', '.');
+    if (trimmedTemperature !== '') {
+      const val = Number(trimmedTemperature);
+      if (isNaN(val) || val < 0.0 || val > 2.0) {
+        setError(t('modelForm.temperatureError', 'Temperature must be a number between 0.0 and 2.0.'));
+        return;
+      }
+    }
+
+    const trimmedMaxTokens = maxTokens.trim();
+    if (trimmedMaxTokens !== '') {
+      if (!/^\d+$/.test(trimmedMaxTokens) || Number(trimmedMaxTokens) < 1) {
+        setError(t('modelForm.maxTokensError', 'Max tokens must be a positive whole number.'));
+        return;
+      }
+    }
+
+    const trimmedSeed = seed.trim();
+    if (trimmedSeed !== '') {
+      if (!/^\d+$/.test(trimmedSeed) || Number(trimmedSeed) < 0) {
+        setError(t('modelForm.seedError', 'Seed must be a non-negative whole number.'));
+        return;
+      }
+    }
+
+    const trimmedTopP = topP.trim().replace(',', '.');
+    if (trimmedTopP !== '') {
+      const val = Number(trimmedTopP);
+      if (isNaN(val) || val < 0.0 || val > 1.0) {
+        setError(t('modelForm.topPError', 'Top P must be a number between 0.0 and 1.0.'));
+        return;
+      }
+    }
+
+    const trimmedTopK = topK.trim();
+    if (trimmedTopK !== '') {
+      if (!/^\d+$/.test(trimmedTopK) || Number(trimmedTopK) < 1) {
+        setError(t('modelForm.topKError', 'Top K must be a positive whole number.'));
+        return;
+      }
+    }
+
+    const trimmedMinP = minP.trim().replace(',', '.');
+    if (trimmedMinP !== '') {
+      const val = Number(trimmedMinP);
+      if (isNaN(val) || val < 0.0 || val > 1.0) {
+        setError(t('modelForm.minPError', 'Min P must be a number between 0.0 and 1.0.'));
+        return;
+      }
+    }
+
+    const trimmedFrequencyPenalty = frequencyPenalty.trim().replace(',', '.');
+    if (trimmedFrequencyPenalty !== '') {
+      const val = Number(trimmedFrequencyPenalty);
+      if (isNaN(val) || val < -2.0 || val > 2.0) {
+        setError(t('modelForm.frequencyPenaltyError', 'Frequency penalty must be a number between -2.0 and 2.0.'));
+        return;
+      }
+    }
+
+    const trimmedPresencePenalty = presencePenalty.trim().replace(',', '.');
+    if (trimmedPresencePenalty !== '') {
+      const val = Number(trimmedPresencePenalty);
+      if (isNaN(val) || val < -2.0 || val > 2.0) {
+        setError(t('modelForm.presencePenaltyError', 'Presence penalty must be a number between -2.0 and 2.0.'));
+        return;
+      }
+    }
+
+    const trimmedRepetitionPenalty = repetitionPenalty.trim().replace(',', '.');
+    if (trimmedRepetitionPenalty !== '') {
+      const val = Number(trimmedRepetitionPenalty);
+      if (isNaN(val) || val < 0.0) {
+        setError(t('modelForm.repetitionPenaltyError', 'Repetition penalty must be a non-negative number.'));
+        return;
+      }
+    }
+
+    const parsedExtraParams = parseExtraModelParamRows(extraModelParams);
+    if (parsedExtraParams.error) {
+      setError(t(
+        `modelForm.extraParams.errors.${parsedExtraParams.error.code}`,
+        { name: parsedExtraParams.error.name || '' },
+      ));
+      return;
+    }
+
     const provider = selectedConnection?.provider || '';
     const baseId = `${provider}/${trimmedName}`;
     const id = existingModels.some(model => model.id !== editingModel?.id && model.id === baseId)
       ? `${baseId}#${connectionId}`
       : baseId;
 
-    onSubmit({
+    const result = await onSubmit({
       id,
       previous_id: editingModel?.id,
       connection_id: connectionId,
@@ -154,9 +289,25 @@ export default function ModelForm({
       prompt_profile: promptProfile,
       orchestrator_policy: orchestratorPolicy,
       num_ctx: trimmedNumCtx ? Number(trimmedNumCtx) : null,
+      temperature: trimmedTemperature !== '' ? Number(trimmedTemperature) : null,
+      max_tokens: trimmedMaxTokens !== '' ? Number(trimmedMaxTokens) : null,
+      seed: trimmedSeed !== '' ? Number(trimmedSeed) : null,
+      top_p: trimmedTopP !== '' ? Number(trimmedTopP) : null,
+      top_k: trimmedTopK !== '' ? Number(trimmedTopK) : null,
+      min_p: trimmedMinP !== '' ? Number(trimmedMinP) : null,
+      frequency_penalty: trimmedFrequencyPenalty !== '' ? Number(trimmedFrequencyPenalty) : null,
+      presence_penalty: trimmedPresencePenalty !== '' ? Number(trimmedPresencePenalty) : null,
+      repetition_penalty: trimmedRepetitionPenalty !== '' ? Number(trimmedRepetitionPenalty) : null,
+      reasoning_effort: reasoningEffort.trim() ? reasoningEffort.trim() : null,
+      extra_model_params: parsedExtraParams.params,
       supports_image_generation: supportsImageGeneration,
       image_route: supportsImageGeneration ? imageRoute : '',
     }, { reset });
+    if (result?.ok === false) {
+      setError(result.error === 'model_save_failed'
+        ? t('modelForm.saveError')
+        : result.error);
+    }
   };
 
   return (
@@ -275,6 +426,199 @@ export default function ModelForm({
             {t('modelForm.numCtxHint')}
           </span>
         </div>
+
+        <details className="vscode-form-group">
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+            {t('modelForm.modelParamsLabel', 'Model inference parameters')}
+          </summary>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+            <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+              {t('modelForm.modelParamsHint', 'Optional inference and sampling settings configured for this model. Leave empty to use provider defaults.')}
+            </span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label style={{ fontSize: '11px' }}>{t('modelForm.temperatureLabel', 'Temperature')}</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="2"
+                  className="vscode-settings-input"
+                  value={temperature}
+                  onChange={e => setTemperature(e.target.value)}
+                  placeholder={t('modelForm.temperaturePlaceholder', '0.7')}
+                />
+              </div>
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label style={{ fontSize: '11px' }}>{t('modelForm.maxTokensLabel', 'Max tokens')}</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="vscode-settings-input"
+                  value={maxTokens}
+                  onChange={e => setMaxTokens(e.target.value)}
+                  placeholder={t('modelForm.maxTokensPlaceholder', 'Unlimited')}
+                />
+              </div>
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label style={{ fontSize: '11px' }}>{t('modelForm.seedLabel', 'Seed')}</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  className="vscode-settings-input"
+                  value={seed}
+                  onChange={e => setSeed(e.target.value)}
+                  placeholder={t('modelForm.seedPlaceholder', 'None')}
+                />
+              </div>
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label style={{ fontSize: '11px' }}>{t('modelForm.topPLabel', 'Top P')}</label>
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0"
+                  max="1"
+                  className="vscode-settings-input"
+                  value={topP}
+                  onChange={e => setTopP(e.target.value)}
+                  placeholder={t('modelForm.topPPlaceholder', '1.0')}
+                />
+              </div>
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label style={{ fontSize: '11px' }}>{t('modelForm.topKLabel', 'Top K')}</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="vscode-settings-input"
+                  value={topK}
+                  onChange={e => setTopK(e.target.value)}
+                  placeholder={t('modelForm.topKPlaceholder', 'None')}
+                />
+              </div>
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label style={{ fontSize: '11px' }}>{t('modelForm.minPLabel', 'Min P')}</label>
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0"
+                  max="1"
+                  className="vscode-settings-input"
+                  value={minP}
+                  onChange={e => setMinP(e.target.value)}
+                  placeholder={t('modelForm.minPPlaceholder', '0.0')}
+                />
+              </div>
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label style={{ fontSize: '11px' }}>{t('modelForm.frequencyPenaltyLabel', 'Frequency penalty')}</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="-2"
+                  max="2"
+                  className="vscode-settings-input"
+                  value={frequencyPenalty}
+                  onChange={e => setFrequencyPenalty(e.target.value)}
+                  placeholder={t('modelForm.frequencyPenaltyPlaceholder', '0.0')}
+                />
+              </div>
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label style={{ fontSize: '11px' }}>{t('modelForm.presencePenaltyLabel', 'Presence penalty')}</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="-2"
+                  max="2"
+                  className="vscode-settings-input"
+                  value={presencePenalty}
+                  onChange={e => setPresencePenalty(e.target.value)}
+                  placeholder={t('modelForm.presencePenaltyPlaceholder', '0.0')}
+                />
+              </div>
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label style={{ fontSize: '11px' }}>{t('modelForm.repetitionPenaltyLabel', 'Repetition penalty')}</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  className="vscode-settings-input"
+                  value={repetitionPenalty}
+                  onChange={e => setRepetitionPenalty(e.target.value)}
+                  placeholder={t('modelForm.repetitionPenaltyPlaceholder', '1.0')}
+                />
+              </div>
+              <div className="flex flex-col" style={{ gap: '4px' }}>
+                <label style={{ fontSize: '11px' }}>{t('modelForm.reasoningEffortLabel', 'Reasoning effort')}</label>
+                <select
+                  className="vscode-settings-input"
+                  value={reasoningEffort}
+                  onChange={e => setReasoningEffort(e.target.value)}
+                >
+                  <option value="">{t('modelForm.reasoningEffortPlaceholder', 'Default')}</option>
+                  <option value="none">{t('common.optionNone', 'None')}</option>
+                  <option value="low">{t('common.optionLow', 'Low')}</option>
+                  <option value="medium">{t('common.optionMedium', 'Medium')}</option>
+                  <option value="high">{t('common.optionHigh', 'High')}</option>
+                  <option value="xhigh">{t('common.optionXHigh', 'Extra high')}</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details className="vscode-form-group">
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+            {t('modelForm.extraParams.label')}
+          </summary>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+            <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+              {t('modelForm.extraParams.hint')}
+            </span>
+            {extraModelParams.map((param, index) => (
+              <div key={index} style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 1fr) minmax(150px, 1.4fr) auto', gap: '8px' }}>
+                <input
+                  type="text"
+                  className="vscode-settings-input"
+                  aria-label={t('modelForm.extraParams.nameLabel')}
+                  value={param.name}
+                  onChange={e => setExtraModelParams(rows => rows.map((row, rowIndex) => (
+                    rowIndex === index ? { ...row, name: e.target.value } : row
+                  )))}
+                  placeholder={t('modelForm.extraParams.namePlaceholder')}
+                />
+                <input
+                  type="text"
+                  className="vscode-settings-input"
+                  aria-label={t('modelForm.extraParams.valueLabel')}
+                  value={param.value}
+                  onChange={e => setExtraModelParams(rows => rows.map((row, rowIndex) => (
+                    rowIndex === index ? { ...row, value: e.target.value } : row
+                  )))}
+                  placeholder={t('modelForm.extraParams.valuePlaceholder')}
+                />
+                <button
+                  type="button"
+                  className="vscode-button-secondary"
+                  onClick={() => setExtraModelParams(rows => rows.filter((_, rowIndex) => rowIndex !== index))}
+                  aria-label={t('modelForm.extraParams.remove')}
+                  title={t('modelForm.extraParams.remove')}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="vscode-button-secondary"
+              onClick={() => setExtraModelParams(rows => [...rows, { name: '', value: '' }])}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              {t('modelForm.extraParams.add')}
+            </button>
+          </div>
+        </details>
 
         <div className="vscode-form-group">
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>

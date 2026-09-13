@@ -409,71 +409,7 @@ export default function EditProjectModal({
                 {showAdvancedParams && (
                   <div style={{ border: '1px solid var(--vscode-border)', borderRadius: '4px', padding: '12px', marginTop: '8px', backgroundColor: 'var(--vscode-input-bg)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-                    {/* LiteLLM params */}
-                    <div>
-                      <div style={{ color: 'var(--vscode-fg-info)', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        {t('editProjectModal.litellmParams')}
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                        <ParamNumber label={t('editProjectModal.temperature')} step="0.1" min="0" max="2" placeholder={t('editProjectModal.defaultTemperature')}
-                          value={editingProject.model_params?.temperature}
-                          onChange={e => setParam('temperature', parseNum(e.target.value, true))} />
-                        <ParamNumber label={t('editProjectModal.maxTokens')} min="1" placeholder={t('editProjectModal.unlimited')}
-                          value={editingProject.model_params?.max_tokens}
-                          onChange={e => setParam('max_tokens', parseNum(e.target.value))} />
-                        <ParamNumber label={t('editProjectModal.contextWindow')} min="1" placeholder={t('editProjectModal.defaultContextWindow')}
-                          value={editingProject.model_params?.num_ctx}
-                          onChange={e => setParam('num_ctx', parseNum(e.target.value))} />
-                        <ParamNumber label={t('editProjectModal.seed')} min="0" placeholder={t('editProjectModal.defaultNone')}
-                          value={editingProject.model_params?.seed}
-                          onChange={e => setParam('seed', parseNum(e.target.value))} />
-                        <ParamNumber label={t('editProjectModal.topP')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultOne')}
-                          value={editingProject.model_params?.top_p}
-                          onChange={e => setParam('top_p', parseNum(e.target.value, true))} />
-                        <ParamNumber label={t('editProjectModal.frequencyPenalty')} step="0.1" min="-2" max="2" placeholder={t('editProjectModal.defaultZero')}
-                          value={editingProject.model_params?.frequency_penalty}
-                          onChange={e => setParam('frequency_penalty', parseNum(e.target.value, true))} />
-                        <ParamNumber label={t('editProjectModal.presencePenalty')} step="0.1" min="-2" max="2" placeholder={t('editProjectModal.defaultZero')}
-                          value={editingProject.model_params?.presence_penalty}
-                          onChange={e => setParam('presence_penalty', parseNum(e.target.value, true))} />
-                        <ParamNumber label={t('editProjectModal.topK')} min="1" placeholder={t('editProjectModal.defaultTopK')}
-                          value={editingProject.model_params?.top_k}
-                          onChange={e => setParam('top_k', parseNum(e.target.value))} />
-                        <ParamNumber label={t('editProjectModal.minP')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultZero')}
-                          value={editingProject.model_params?.min_p}
-                          onChange={e => setParam('min_p', parseNum(e.target.value, true))} />
-                        <ParamNumber label={t('editProjectModal.repetitionPenalty')} step="0.1" min="0" placeholder={t('editProjectModal.defaultOne')}
-                          value={editingProject.model_params?.repetition_penalty}
-                          onChange={e => setParam('repetition_penalty', parseNum(e.target.value, true))} />
 
-                        <div className="flex flex-col" style={{ gap: '4px' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.reasoningEffort')}</label>
-                          <select
-                            className="vscode-settings-input"
-                            value={editingProject.model_params?.reasoning_effort ?? ''}
-                            onChange={e => setParam('reasoning_effort', e.target.value || undefined)}
-                          >
-                            <option value="">{t('editProjectModal.defaultOption')}</option>
-                            <option value="none">{t('common.optionNone', 'None')}</option>
-                            <option value="low">{t('common.optionLow', 'Low')}</option>
-                            <option value="medium">{t('common.optionMedium', 'Medium')}</option>
-                            <option value="high">{t('common.optionHigh', 'High')}</option>
-                            <option value="xhigh">{t('common.optionXHigh', 'Extra high')}</option>
-                          </select>
-                        </div>
-
-                        <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.stream')}</label>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
-                            <input type="checkbox"
-                              checked={editingProject.model_params?.stream ?? true}
-                              onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, stream: e.target.checked } }))} />
-                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
-                          </label>
-                        </div>
-
-                      </div>
-                    </div>
 
                     {/* Agent params */}
                     <div>
@@ -524,11 +460,11 @@ export default function EditProjectModal({
                         </div>
 
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.debug')}</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.stream')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
-                              checked={!!editingProject.model_params?.debug}
-                              onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, debug: e.target.checked } }))} />
+                              checked={editingProject.model_params?.stream ?? true}
+                              onChange={e => setEditingProject(p => ({ ...p, model_params: { ...p.model_params, stream: e.target.checked } }))} />
                             <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
                           </label>
                         </div>
@@ -583,71 +519,6 @@ export default function EditProjectModal({
                 {showAdvancedParams && (
                   <div style={{ border: '1px solid var(--vscode-border)', borderRadius: '4px', padding: '12px', marginTop: '8px', backgroundColor: 'var(--vscode-input-bg)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-                    {/* LiteLLM params */}
-                    <div>
-                      <div style={{ color: 'var(--vscode-fg-info)', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        {t('editProjectModal.litellmParams')}
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                        <ParamNumber label={t('editProjectModal.temperature')} step="0.1" min="0" max="2" placeholder={t('editProjectModal.defaultTemperature')}
-                          value={editingProject.worker_model_params?.temperature}
-                          onChange={e => setParam('temperature', parseNum(e.target.value, true), true)} />
-                        <ParamNumber label={t('editProjectModal.maxTokens')} min="1" placeholder={t('editProjectModal.unlimited')}
-                          value={editingProject.worker_model_params?.max_tokens}
-                          onChange={e => setParam('max_tokens', parseNum(e.target.value), true)} />
-                        <ParamNumber label={t('editProjectModal.contextWindow')} min="1" placeholder={t('editProjectModal.defaultContextWindow')}
-                          value={editingProject.worker_model_params?.num_ctx}
-                          onChange={e => setParam('num_ctx', parseNum(e.target.value), true)} />
-                        <ParamNumber label={t('editProjectModal.seed')} min="0" placeholder={t('editProjectModal.defaultNone')}
-                          value={editingProject.worker_model_params?.seed}
-                          onChange={e => setParam('seed', parseNum(e.target.value), true)} />
-                        <ParamNumber label={t('editProjectModal.topP')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultOne')}
-                          value={editingProject.worker_model_params?.top_p}
-                          onChange={e => setParam('top_p', parseNum(e.target.value, true), true)} />
-                        <ParamNumber label={t('editProjectModal.frequencyPenalty')} step="0.1" min="-2" max="2" placeholder={t('editProjectModal.defaultZero')}
-                          value={editingProject.worker_model_params?.frequency_penalty}
-                          onChange={e => setParam('frequency_penalty', parseNum(e.target.value, true), true)} />
-                        <ParamNumber label={t('editProjectModal.presencePenalty')} step="0.1" min="-2" max="2" placeholder={t('editProjectModal.defaultZero')}
-                          value={editingProject.worker_model_params?.presence_penalty}
-                          onChange={e => setParam('presence_penalty', parseNum(e.target.value, true), true)} />
-                        <ParamNumber label={t('editProjectModal.topK')} min="1" placeholder={t('editProjectModal.defaultTopK')}
-                          value={editingProject.worker_model_params?.top_k}
-                          onChange={e => setParam('top_k', parseNum(e.target.value), true)} />
-                        <ParamNumber label={t('editProjectModal.minP')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultZero')}
-                          value={editingProject.worker_model_params?.min_p}
-                          onChange={e => setParam('min_p', parseNum(e.target.value, true), true)} />
-                        <ParamNumber label={t('editProjectModal.repetitionPenalty')} step="0.1" min="0" placeholder={t('editProjectModal.defaultOne')}
-                          value={editingProject.worker_model_params?.repetition_penalty}
-                          onChange={e => setParam('repetition_penalty', parseNum(e.target.value, true), true)} />
-
-                        <div className="flex flex-col" style={{ gap: '4px' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.reasoningEffort')}</label>
-                          <select
-                            className="vscode-settings-input"
-                            value={editingProject.worker_model_params?.reasoning_effort ?? ''}
-                            onChange={e => setParam('reasoning_effort', e.target.value || undefined, true)}
-                          >
-                            <option value="">{t('editProjectModal.defaultOption')}</option>
-                            <option value="none">{t('common.optionNone', 'None')}</option>
-                            <option value="low">{t('common.optionLow', 'Low')}</option>
-                            <option value="medium">{t('common.optionMedium', 'Medium')}</option>
-                            <option value="high">{t('common.optionHigh', 'High')}</option>
-                            <option value="xhigh">{t('common.optionXHigh', 'Extra high')}</option>
-                          </select>
-                        </div>
-
-                        <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.stream')}</label>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
-                            <input type="checkbox"
-                              checked={editingProject.worker_model_params?.stream ?? true}
-                              onChange={e => setEditingProject(p => ({ ...p, worker_model_params: { ...p.worker_model_params, stream: e.target.checked } }))} />
-                            <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-
                     {/* Agent params */}
                     <div>
                       <div style={{ color: '#007acc', fontSize: '11px', fontWeight: 'bold', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -675,11 +546,11 @@ export default function EditProjectModal({
                         </div>
 
                         <div className="flex flex-col" style={{ gap: '4px', justifyContent: 'flex-end' }}>
-                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.debug')}</label>
+                          <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('editProjectModal.stream')}</label>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
                             <input type="checkbox"
-                              checked={!!editingProject.worker_model_params?.debug}
-                              onChange={e => setEditingProject(p => ({ ...p, worker_model_params: { ...p.worker_model_params, debug: e.target.checked } }))} />
+                              checked={editingProject.worker_model_params?.stream ?? true}
+                              onChange={e => setEditingProject(p => ({ ...p, worker_model_params: { ...p.worker_model_params, stream: e.target.checked } }))} />
                             <span style={{ fontSize: '12px', color: 'var(--vscode-text-fg)' }}>{t('editProjectModal.enabled')}</span>
                           </label>
                         </div>

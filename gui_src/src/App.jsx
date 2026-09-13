@@ -792,7 +792,11 @@ export default function App() {
         }
         setShowAddModelModal(false);
       }
-    } catch (e) { console.error(e); }
+      return result;
+    } catch (e) {
+      console.error(e);
+      return { ok: false, error: 'model_save_failed' };
+    }
   };
 
   const handleConnectionSave = async (connectionData) => {

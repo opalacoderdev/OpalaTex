@@ -22,6 +22,87 @@ _LOCAL_OLLAMA_CONNECTION_ID = "ollama-local"
 # registered by `agenticblocks.blocks.image.adapters`.
 IMAGE_ROUTES = ("images_api", "chat_multimodal")
 
+# User-defined model parameters are forwarded as LiteLLM/model kwargs.  Keep
+# transport, credentials, AgenticBlocks execution controls, and catalog fields
+# under application control; accepting any of these through the generic editor
+# would create a second, hidden source of truth for existing settings.
+RESERVED_EXTRA_MODEL_PARAM_NAMES = frozenset({
+    "id", "previous_id", "provider", "name", "connection_id", "connection_label",
+    "api_key", "api_base", "api_version", "base_url", "custom_llm_provider",
+    "organization", "default_headers", "extra_headers", "extra_body",
+    "timeout", "request_timeout", "force_timeout", "stream_timeout", "max_retries",
+    "drop_params", "allowed_openai_params", "additional_drop_params",
+    "model", "messages", "tools", "tool_choice", "parallel_tool_calls", "stream",
+    "stream_options", "client", "async_client", "http_client", "mock_response",
+    "custom_prompt_dict", "logger_fn", "logging_obj", "litellm_logging_obj",
+    "dynamic_input_callbacks", "dynamic_success_callbacks",
+    "dynamic_async_success_callbacks", "dynamic_failure_callbacks",
+    "dynamic_async_failure_callbacks", "proxy_server_request", "secret_fields",
+    "completion_call_id", "litellm_call_id", "function_id", "deployment_id",
+    "model_info", "model_group", "model_id", "fallbacks", "context_window_fallbacks",
+    "input_cost_per_token", "output_cost_per_token", "input_cost_per_second",
+    "output_cost_per_second",
+    "supports_thinking", "requires_single_system_message", "prompt_profile",
+    "orchestrator_policy", "supports_image_generation", "image_route", "num_ctx",
+    "think", "extra_model_params",
+    "temperature", "max_tokens", "seed", "top_p", "top_k", "min_p",
+    "frequency_penalty", "presence_penalty", "repetition_penalty", "reasoning_effort",
+    "max_heartbeats", "max_context_tokens", "eviction_threshold",
+    "memory_pressure_threshold", "empty_response_reasoning_fallback",
+    "max_idle_heartbeats", "max_iterations", "max_tool_calls", "on_max_iterations",
+    "debug", "use_shared_router", "loop_detection", "loop_detection_limit",
+    "force_vision", "pdf_truncate", "pdf_truncate_pct",
+})
+_EXTRA_MODEL_PARAM_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+_MAX_EXTRA_MODEL_PARAMS = 100
+
+
+def normalize_extra_model_params(params: Any, *, strict: bool = False) -> Dict[str, Any]:
+    """Return JSON-safe, non-reserved user-defined model parameters.
+
+    ``strict`` is used on writes so malformed input fails with an actionable
+    diagnostic. Read-time normalization remains tolerant so one damaged legacy
+    row cannot make the whole model catalog unavailable.
+    """
+    if params in (None, ""):
+        return {}
+    if not isinstance(params, dict):
+        if strict:
+            raise ValueError("Additional model parameters must be a JSON object")
+        return {}
+    if len(params) > _MAX_EXTRA_MODEL_PARAMS:
+        if strict:
+            raise ValueError(
+                f"Additional model parameters are limited to {_MAX_EXTRA_MODEL_PARAMS} entries"
+            )
+        return {}
+
+    normalized: Dict[str, Any] = {}
+    for raw_name, value in params.items():
+        name = str(raw_name or "").strip()
+        if not _EXTRA_MODEL_PARAM_NAME_RE.fullmatch(name):
+            if strict:
+                raise ValueError(
+                    f"Invalid additional model parameter name '{name}': use letters, numbers, and underscores"
+                )
+            continue
+        if name in RESERVED_EXTRA_MODEL_PARAM_NAMES:
+            if strict:
+                raise ValueError(f"Additional model parameter '{name}' is reserved")
+            continue
+        try:
+            # Round-trip both validates the complete value tree and converts
+            # harmless JSON-compatible subclasses/tuples to canonical values.
+            normalized[name] = json.loads(
+                json.dumps(value, ensure_ascii=False, allow_nan=False)
+            )
+        except (TypeError, ValueError):
+            if strict:
+                raise ValueError(
+                    f"Additional model parameter '{name}' must contain a valid JSON value"
+                ) from None
+    return normalized
+
 
 class LocalOllamaNotInstalledError(RuntimeError):
     """Raised when local Ollama discovery is requested without Ollama installed."""
@@ -58,6 +139,97 @@ def normalize_model_entry(model: Dict[str, Any]) -> Dict[str, Any]:
         entry["num_ctx"] = None
     entry["connection_id"] = str(entry.get("connection_id", "") or "")
     entry["connection_label"] = str(entry.get("connection_label", "") or "")
+    entry["extra_model_params"] = normalize_extra_model_params(
+        entry.get("extra_model_params")
+    )
+
+    # Model inference parameters
+    _temp = entry.get("temperature")
+    if _temp not in (None, ""):
+        try:
+            entry["temperature"] = max(0.0, min(2.0, float(str(_temp).replace(",", "."))))
+        except (TypeError, ValueError):
+            entry["temperature"] = None
+    else:
+        entry["temperature"] = None
+
+    _max_tokens = entry.get("max_tokens")
+    if _max_tokens not in (None, ""):
+        try:
+            entry["max_tokens"] = max(1, int(_max_tokens))
+        except (TypeError, ValueError):
+            entry["max_tokens"] = None
+    else:
+        entry["max_tokens"] = None
+
+    _seed = entry.get("seed")
+    if _seed not in (None, ""):
+        try:
+            entry["seed"] = max(0, int(_seed))
+        except (TypeError, ValueError):
+            entry["seed"] = None
+    else:
+        entry["seed"] = None
+
+    _top_p = entry.get("top_p")
+    if _top_p not in (None, ""):
+        try:
+            entry["top_p"] = max(0.0, min(1.0, float(str(_top_p).replace(",", "."))))
+        except (TypeError, ValueError):
+            entry["top_p"] = None
+    else:
+        entry["top_p"] = None
+
+    _top_k = entry.get("top_k")
+    if _top_k not in (None, ""):
+        try:
+            entry["top_k"] = max(1, int(_top_k))
+        except (TypeError, ValueError):
+            entry["top_k"] = None
+    else:
+        entry["top_k"] = None
+
+    _min_p = entry.get("min_p")
+    if _min_p not in (None, ""):
+        try:
+            entry["min_p"] = max(0.0, min(1.0, float(str(_min_p).replace(",", "."))))
+        except (TypeError, ValueError):
+            entry["min_p"] = None
+    else:
+        entry["min_p"] = None
+
+    _freq_pen = entry.get("frequency_penalty")
+    if _freq_pen not in (None, ""):
+        try:
+            entry["frequency_penalty"] = max(-2.0, min(2.0, float(str(_freq_pen).replace(",", "."))))
+        except (TypeError, ValueError):
+            entry["frequency_penalty"] = None
+    else:
+        entry["frequency_penalty"] = None
+
+    _pres_pen = entry.get("presence_penalty")
+    if _pres_pen not in (None, ""):
+        try:
+            entry["presence_penalty"] = max(-2.0, min(2.0, float(str(_pres_pen).replace(",", "."))))
+        except (TypeError, ValueError):
+            entry["presence_penalty"] = None
+    else:
+        entry["presence_penalty"] = None
+
+    _rep_pen = entry.get("repetition_penalty")
+    if _rep_pen not in (None, ""):
+        try:
+            entry["repetition_penalty"] = max(0.0, float(str(_rep_pen).replace(",", ".")))
+        except (TypeError, ValueError):
+            entry["repetition_penalty"] = None
+    else:
+        entry["repetition_penalty"] = None
+
+    _reasoning_effort = str(entry.get("reasoning_effort") or "").strip().lower()
+    if _reasoning_effort in ("none", "low", "medium", "high", "xhigh"):
+        entry["reasoning_effort"] = _reasoning_effort
+    else:
+        entry["reasoning_effort"] = None
     # Image generation is a separate capability from chat, not a stronger form of
     # it: a diffusion model answers /v1/images/generations and nothing else, so a
     # catalog entry that declares it is never a candidate for the orchestrator or
@@ -611,6 +783,96 @@ def _has_duplicate_configuration(
     )
 
 
+def validate_model_inference_params(model_data: Dict[str, Any]) -> None:
+    """Validate user-supplied model inference parameters on write."""
+    temp = model_data.get("temperature")
+    if temp not in (None, ""):
+        try:
+            val = float(str(temp).replace(",", "."))
+            if not (0.0 <= val <= 2.0):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("Temperature must be a number between 0.0 and 2.0")
+
+    max_tokens = model_data.get("max_tokens")
+    if max_tokens not in (None, ""):
+        try:
+            val = int(max_tokens)
+            if val < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("Max tokens must be a positive integer")
+
+    seed = model_data.get("seed")
+    if seed not in (None, ""):
+        try:
+            val = int(seed)
+            if val < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("Seed must be a non-negative integer")
+
+    top_p = model_data.get("top_p")
+    if top_p not in (None, ""):
+        try:
+            val = float(str(top_p).replace(",", "."))
+            if not (0.0 <= val <= 1.0):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("Top P must be a number between 0.0 and 1.0")
+
+    top_k = model_data.get("top_k")
+    if top_k not in (None, ""):
+        try:
+            val = int(top_k)
+            if val < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("Top K must be a positive integer")
+
+    min_p = model_data.get("min_p")
+    if min_p not in (None, ""):
+        try:
+            val = float(str(min_p).replace(",", "."))
+            if not (0.0 <= val <= 1.0):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("Min P must be a number between 0.0 and 1.0")
+
+    freq_pen = model_data.get("frequency_penalty")
+    if freq_pen not in (None, ""):
+        try:
+            val = float(str(freq_pen).replace(",", "."))
+            if not (-2.0 <= val <= 2.0):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("Frequency penalty must be a number between -2.0 and 2.0")
+
+    pres_pen = model_data.get("presence_penalty")
+    if pres_pen not in (None, ""):
+        try:
+            val = float(str(pres_pen).replace(",", "."))
+            if not (-2.0 <= val <= 2.0):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("Presence penalty must be a number between -2.0 and 2.0")
+
+    rep_pen = model_data.get("repetition_penalty")
+    if rep_pen not in (None, ""):
+        try:
+            val = float(str(rep_pen).replace(",", "."))
+            if val < 0.0:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("Repetition penalty must be a non-negative number")
+
+    effort = model_data.get("reasoning_effort")
+    if effort not in (None, ""):
+        clean_effort = str(effort).strip().lower()
+        if clean_effort not in ("none", "low", "medium", "high", "xhigh"):
+            raise ValueError("Reasoning effort must be one of: none, low, medium, high, xhigh")
+
+
 def add_or_update_model(model_data: Dict[str, Any]) -> None:
     """Add a new model or update an existing one by ID.
 
@@ -621,6 +883,11 @@ def add_or_update_model(model_data: Dict[str, Any]) -> None:
         raise ValueError("Model data must contain an 'id' field")
     if not str(model_data.get("connection_id", "")).strip():
         raise ValueError("Model data must contain a 'connection_id' field")
+    model_data = dict(model_data)
+    validate_model_inference_params(model_data)
+    model_data["extra_model_params"] = normalize_extra_model_params(
+        model_data.get("extra_model_params"), strict=True
+    )
 
     models = load_models()
     model_data = normalize_model_entry(model_data)

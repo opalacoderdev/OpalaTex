@@ -65,6 +65,111 @@ def test_load_models_defaults_supports_thinking_to_false(tmp_path, monkeypatch):
     assert loaded[0]["supports_thinking"] is False
 
 
+def test_extra_model_params_round_trip_with_json_types(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+    connection_id = _make_connection(models_store)
+
+    models_store.add_or_update_model({
+        "id": "ollama/custom-params",
+        "connection_id": connection_id,
+        "name": "custom-params",
+        "extra_model_params": {
+            "penalty_decay": 0.2,
+            "feature_enabled": True,
+            "provider_options": {"mode": "strict", "stops": [1, 2]},
+        },
+    })
+
+    assert models_store.load_models()[0]["extra_model_params"] == {
+        "penalty_decay": 0.2,
+        "feature_enabled": True,
+        "provider_options": {"mode": "strict", "stops": [1, 2]},
+    }
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["api_key", "tools", "max_heartbeats", "num_ctx", "think", "temperature", "max_tokens", "seed", "bad-name"],
+)
+def test_extra_model_params_reject_reserved_or_invalid_names(tmp_path, monkeypatch, name):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+    connection_id = _make_connection(models_store)
+
+    with pytest.raises(ValueError, match="reserved|Invalid"):
+        models_store.add_or_update_model({
+            "id": "ollama/rejected-param",
+            "connection_id": connection_id,
+            "name": "rejected-param",
+            "extra_model_params": {name: True},
+        })
+
+
+def test_model_inference_params_round_trip(tmp_path, monkeypatch):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+    connection_id = _make_connection(models_store)
+
+    models_store.add_or_update_model({
+        "id": "ollama/inference-model",
+        "connection_id": connection_id,
+        "name": "inference-model",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "seed": 42,
+        "top_p": 0.9,
+        "top_k": 40,
+        "min_p": 0.05,
+        "frequency_penalty": 0.1,
+        "presence_penalty": -0.2,
+        "repetition_penalty": 1.1,
+        "reasoning_effort": "medium",
+    })
+
+    loaded = models_store.load_models()[0]
+    assert loaded["temperature"] == 0.7
+    assert loaded["max_tokens"] == 4096
+    assert loaded["seed"] == 42
+    assert loaded["top_p"] == 0.9
+    assert loaded["top_k"] == 40
+    assert loaded["min_p"] == 0.05
+    assert loaded["frequency_penalty"] == 0.1
+    assert loaded["presence_penalty"] == -0.2
+    assert loaded["repetition_penalty"] == 1.1
+    assert loaded["reasoning_effort"] == "medium"
+
+
+@pytest.mark.parametrize(
+    ("key", "val", "match"),
+    [
+        ("temperature", 2.5, "Temperature must be a number between 0.0 and 2.0"),
+        ("temperature", -0.1, "Temperature must be a number between 0.0 and 2.0"),
+        ("max_tokens", 0, "Max tokens must be a positive integer"),
+        ("max_tokens", -10, "Max tokens must be a positive integer"),
+        ("seed", -1, "Seed must be a non-negative integer"),
+        ("top_p", 1.5, "Top P must be a number between 0.0 and 1.0"),
+        ("top_k", 0, "Top K must be a positive integer"),
+        ("min_p", -0.1, "Min P must be a number between 0.0 and 1.0"),
+        ("frequency_penalty", 3.0, "Frequency penalty must be a number between -2.0 and 2.0"),
+        ("presence_penalty", -2.5, "Presence penalty must be a number between -2.0 and 2.0"),
+        ("repetition_penalty", -0.5, "Repetition penalty must be a non-negative number"),
+    ],
+)
+def test_model_inference_params_validation(tmp_path, monkeypatch, key, val, match):
+    store_path = tmp_path / "models.json"
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)
+    connection_id = _make_connection(models_store)
+
+    with pytest.raises(ValueError, match=match):
+        models_store.add_or_update_model({
+            "id": "ollama/bad-param-model",
+            "connection_id": connection_id,
+            "name": "bad-param-model",
+            key: val,
+        })
+
+
 def test_load_models_defaults_requires_single_system_message_to_false(tmp_path, monkeypatch):
     store_path = tmp_path / "models.json"
     monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", store_path)

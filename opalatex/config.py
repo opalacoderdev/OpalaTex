@@ -302,23 +302,12 @@ _LITELLM_TRANSPORT_FIELDS = {
 }
 
 # The allow-list for values a project may store in model_params/worker_model_params.
-# A key absent here is dropped on save, so every user-facing project setting must
-# appear -- `empty_response_reasoning_fallback` was missing and its checkbox in the
-# project modals therefore never persisted. Lives here rather than in ide_server so
-# the agent subprocess can sanitize its own writes without importing the web server.
+# Model inference parameters (temperature, max_tokens, seed, top_p, top_k, min_p,
+# penalties, reasoning_effort, num_ctx) belong to the global model catalog
+# entry. Only agent execution controls, transport (stream), and vision/attachment
+# flags remain in project configuration.
 _MODEL_PARAMS_SCHEMA = {
-    "temperature": {"type": float, "min": 0.0, "max": 2.0},
-    "max_tokens": {"type": int, "min": 1},
-    "num_ctx": {"type": int, "min": 1},
-    "seed": {"type": int, "min": 0},
-    "top_p": {"type": float, "min": 0.0, "max": 1.0},
-    "frequency_penalty": {"type": float, "min": -2.0, "max": 2.0},
-    "presence_penalty": {"type": float, "min": -2.0, "max": 2.0},
-    "top_k": {"type": int, "min": 1},
-    "min_p": {"type": float, "min": 0.0, "max": 1.0},
-    "repetition_penalty": {"type": float, "min": 0.0},
     "stream": {"type": bool},
-    "reasoning_effort": {"type": str, "choices": ["none", "low", "medium", "high", "xhigh"]},
     # Vision / attachment settings
     "force_vision": {"type": bool},
     "pdf_truncate": {"type": bool},
@@ -612,10 +601,11 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     """Return merged litellm kwargs for *agent_name*.
 
     Priority (highest first):
-      1. Project-specific model_params (or worker_model_params if worker) (dynamically merged if session exists)
-      2. Per-agent override in agents.yaml ``agents.<name>``
-      3. Global ``llm_defaults`` in agents.yaml
-      4. Hard-coded defaults above
+      1. Project-specific model_params (or worker_model_params if worker)
+      2. User-defined parameters on the selected model's catalog entry
+      3. Per-agent override in agents.yaml ``agents.<name>``
+      4. Global ``llm_defaults`` in agents.yaml
+      5. Hard-coded defaults above
 
     Non-litellm fields (model, max_heartbeats) are excluded. When
     ``model_override`` is provided, its catalog entry supplies the provider
@@ -625,6 +615,7 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     """
     merged = dict(_get_llm_defaults())
     merged.update(_get_agent_overrides().get(agent_name, {}))
+    project_llm_params = {}
 
     try:
         from .tools import _PROJECT_SESSION
@@ -634,14 +625,28 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
                 and bool(getattr(_PROJECT_SESSION, "worker_model", ""))
             )
             if agent_name == "worker" and hasattr(_PROJECT_SESSION, "worker_model_params") and _PROJECT_SESSION.worker_model_params:
-                clean_params = {k: v for k, v in _PROJECT_SESSION.worker_model_params.items() if v is not None}
-                merged.update(clean_params)
+                project_llm_params = {
+                    k: v for k, v in _PROJECT_SESSION.worker_model_params.items()
+                    if v is not None
+                }
             elif hasattr(_PROJECT_SESSION, "model_params") and _PROJECT_SESSION.model_params:
-                clean_params = {k: v for k, v in _PROJECT_SESSION.model_params.items() if v is not None}
-                merged.update(clean_params)
+                project_llm_params = {
+                    k: v for k, v in _PROJECT_SESSION.model_params.items()
+                    if v is not None
+                }
             
     except Exception:
         pass
+
+    LEGACY_INFERENCE_KEYS = {
+        "temperature", "max_tokens", "num_ctx", "seed", "top_p", "top_k",
+        "min_p", "frequency_penalty", "presence_penalty", "repetition_penalty",
+        "reasoning_effort", "think",
+    }
+    project_llm_params = {
+        k: v for k, v in project_llm_params.items()
+        if k not in LEGACY_INFERENCE_KEYS
+    }
 
     explicit_project_worker = False
     try:
@@ -669,17 +674,34 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     store_api_base = None
     store_api_key = None
     store_supports_thinking = False
+    store_extra_model_params = {}
+    store_inference_params = {}
     session_api_base = None
     session_api_key = None
     try:
-        from opalatex.models_store import get_model
-        store_model = get_model(resolved_model)
+        from opalatex.models_store import get_model, get_model_by_runtime_id
+        store_model = get_model(resolved_model) or get_model_by_runtime_id(runtime_model)
         if store_model:
             store_api_base = store_model.get("api_base")
             store_api_key = store_model.get("api_key")
             store_supports_thinking = bool(store_model.get("supports_thinking", False))
+            store_extra_model_params = dict(store_model.get("extra_model_params") or {})
+            for p in (
+                "temperature", "max_tokens", "seed", "top_p", "top_k", "min_p",
+                "frequency_penalty", "presence_penalty", "repetition_penalty",
+                "reasoning_effort",
+            ):
+                if store_model.get(p) is not None:
+                    store_inference_params[p] = store_model[p]
     except Exception:
         pass
+
+    # Catalog parameters describe the model regardless of which role selected
+    # it. Project-level configuration only provides agent execution controls
+    # and transport options (e.g. stream).
+    merged.update(store_inference_params)
+    merged.update(store_extra_model_params)
+    merged.update(project_llm_params)
 
     try:
         from .tools import _PROJECT_SESSION
@@ -736,7 +758,11 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     # prefix for the local/cloud heuristic, so the suffix is harmless there.
     merged["num_ctx"] = resolve_effective_num_ctx(agent_name, resolved_model, merged.get("api_base"))
 
-    return sanitize_litellm_kwargs_for_model(runtime_model, merged)
+    return sanitize_litellm_kwargs_for_model(
+        runtime_model,
+        merged,
+        additional_allowed_params=set(store_extra_model_params) | set(store_inference_params),
+    )
 
 
 def resolve_think_request(supports_thinking: bool) -> bool | None:
@@ -953,7 +979,12 @@ def model_orchestrator_policy(model: str | None) -> str:
         return "direct"
 
 
-def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
+def sanitize_litellm_kwargs_for_model(
+    model: str,
+    kwargs: dict,
+    *,
+    additional_allowed_params: set[str] | None = None,
+) -> dict:
     """Remove provider-incompatible kwargs before passing them to LiteLLM."""
     cleaned = dict(kwargs or {})
     for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
@@ -964,6 +995,27 @@ def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
         provider = model.split("/", 1)[0].lower()
 
     custom_provider = cleaned.get("custom_llm_provider")
+    catalog_extra_params = set(additional_allowed_params or ())
+    try:
+        # Sanitization happens at more than one boundary (agent construction,
+        # compatibility wrapper, and a few feature-specific callers). Resolve
+        # the catalog names every time so a later pass cannot silently discard
+        # parameters explicitly configured by the user.
+        from opalatex.models_store import get_model_by_runtime_id
+        catalog_model = get_model_by_runtime_id(model)
+        if catalog_model:
+            catalog_extra_params.update(
+                (catalog_model.get("extra_model_params") or {}).keys()
+            )
+            for p in (
+                "temperature", "max_tokens", "seed", "top_p", "top_k", "min_p",
+                "frequency_penalty", "presence_penalty", "repetition_penalty",
+                "reasoning_effort",
+            ):
+                if catalog_model.get(p) is not None:
+                    catalog_extra_params.add(p)
+    except Exception:
+        pass
     supported_params = None
     try:
         import litellm
@@ -975,7 +1027,11 @@ def sanitize_litellm_kwargs_for_model(model: str, kwargs: dict) -> dict:
         supported_params = None
 
     if supported_params:
-        allowed = set(supported_params) | _LITELLM_TRANSPORT_FIELDS
+        allowed = (
+            set(supported_params)
+            | _LITELLM_TRANSPORT_FIELDS
+            | catalog_extra_params
+        )
         if provider in {"ollama", "ollama_chat"}:
             allowed |= _OLLAMA_COMPAT_LITELLM_FIELDS
         if provider == "gemini":

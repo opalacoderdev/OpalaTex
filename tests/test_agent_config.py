@@ -118,6 +118,84 @@ def test_orchestrator_has_no_restrictive_max_tokens():
     assert max_tok is None or max_tok >= 1024
 
 
+def test_catalog_extra_model_params_reach_model_kwargs_and_override_role_defaults():
+    catalog_model = {
+        "supports_thinking": False,
+        "temperature": 0.25,
+        "extra_model_params": {
+            "provider_extension": {"mode": "strict"},
+        },
+    }
+    with patch("opalatex.tools._PROJECT_SESSION", None):
+        with patch("opalatex.models_store.get_model", return_value=catalog_model):
+            with patch("litellm.get_supported_openai_params", return_value=["temperature"]):
+                kwargs = get_agent_llm_kwargs("memgpt", "openai/example-model")
+
+    assert kwargs["temperature"] == 0.25
+    assert kwargs["provider_extension"] == {"mode": "strict"}
+
+
+def test_catalog_model_inference_params_take_precedence_over_legacy_project_params():
+    class FakeSession:
+        model = "openai/example-model"
+        model_params = {"temperature": 0.6}
+        api_base = ""
+        api_key = ""
+
+    catalog_model = {
+        "supports_thinking": False,
+        "temperature": 0.25,
+    }
+    with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+        with patch("opalatex.models_store.get_model", return_value=catalog_model):
+            with patch("litellm.get_supported_openai_params", return_value=["temperature"]):
+                kwargs = get_agent_llm_kwargs("memgpt")
+
+    # Catalog inference params are the single source of truth; legacy project params are ignored
+    assert kwargs["temperature"] == 0.25
+
+
+def test_worker_role_resolves_inference_params_from_worker_catalog_model():
+    class FakeSession:
+        model = "ollama/main-model"
+        worker_model = "ollama/worker-model"
+        model_params = {}
+        worker_model_params = {}
+        project_path = "/fake/path"
+
+    def fake_get_model(model_id):
+        if model_id == "ollama/main-model":
+            return {"temperature": 0.7, "max_tokens": 4096}
+        if model_id == "ollama/worker-model":
+            return {"temperature": 0.2, "max_tokens": 8192}
+        return None
+
+    with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
+        with patch("opalatex.ui_settings.load_ui_settings", return_value={}):
+            with patch("opalatex.models_store.get_model", side_effect=fake_get_model):
+                orchestrator_kwargs = get_agent_llm_kwargs("chat_orchestrator")
+                worker_kwargs = get_agent_llm_kwargs("worker")
+
+    assert orchestrator_kwargs["temperature"] == 0.7
+    assert orchestrator_kwargs["max_tokens"] == 4096
+    assert worker_kwargs["temperature"] == 0.2
+    assert worker_kwargs["max_tokens"] == 8192
+
+
+def test_repeated_provider_sanitization_preserves_catalog_extra_param():
+    from opalatex.config import sanitize_litellm_kwargs_for_model
+
+    catalog_model = {"extra_model_params": {"provider_extension": True}}
+    with patch("opalatex.models_store.get_model_by_runtime_id", return_value=catalog_model):
+        with patch("litellm.get_supported_openai_params", return_value=["temperature"]):
+            cleaned = sanitize_litellm_kwargs_for_model(
+                "openai/example-model",
+                {"temperature": 0.2, "provider_extension": True},
+            )
+
+    assert cleaned["provider_extension"] is True
+
+
 def test_ollama_cloud_model_uses_remote_api_base_by_default(monkeypatch):
     """Ollama cloud-tagged models must not silently fall back to localhost."""
     from opalatex.config import get_agent_llm_kwargs
@@ -339,20 +417,24 @@ def test_gemini_models_drop_unknown_params_and_deprecated_sampling():
     class FakeSession:
         model = "gemini/gemini-3.1-flash-lite"
         model_params = {
-            "temperature": 0.2,
-            "top_p": 0.9,
-            "frequency_penalty": 0.3,
-            "presence_penalty": 0.2,
             "num_ctx": 8192,
-            "top_k": 40,
-            "think": False,
             "unknown_param": "boom",
         }
         project_path = "/fake/path"
 
+    catalog_model = {
+        "supports_thinking": False,
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "frequency_penalty": 0.3,
+        "presence_penalty": 0.2,
+        "top_k": 40,
+    }
+
     with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
         with patch("opalatex.ui_settings.load_ui_settings", return_value={}):
-            kwargs = get_agent_llm_kwargs("custom_agent")
+            with patch("opalatex.models_store.get_model", return_value=catalog_model):
+                kwargs = get_agent_llm_kwargs("custom_agent")
 
     assert "temperature" not in kwargs
     assert "top_p" not in kwargs
@@ -374,18 +456,21 @@ def test_ollama_models_keep_local_only_litellm_kwargs_except_unsupported_think()
         model = "ollama/gemma4:12b"
         model_params = {
             "num_ctx": 8192,
-            "top_k": 40,
-            "min_p": 0.1,
-            "repetition_penalty": 1.1,
-            "think": False,
-            "temperature": 0.2,
             "unknown_param": "boom",
         }
         project_path = "/fake/path"
 
+    catalog_model = {
+        "supports_thinking": False,
+        "temperature": 0.2,
+        "top_k": 40,
+        "min_p": 0.1,
+        "repetition_penalty": 1.1,
+    }
+
     with patch("opalatex.tools._PROJECT_SESSION", FakeSession()):
         with patch("opalatex.ui_settings.load_ui_settings", return_value={}):
-            with patch("opalatex.models_store.get_model", return_value={"supports_thinking": False}):
+            with patch("opalatex.models_store.get_model", return_value=catalog_model):
                 kwargs = get_agent_llm_kwargs("custom_agent")
 
     assert kwargs["temperature"] == 0.2

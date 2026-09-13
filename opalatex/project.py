@@ -111,16 +111,40 @@ def _normalize_compile_on_save(partial: bool, full: bool) -> tuple[bool, bool]:
     return False, False
 
 
-def _without_legacy_think(params: dict) -> dict:
-    """Strip the retired per-project ``think`` setting from stored model params.
+_RETIRED_MODEL_PARAM_KEYS = {
+    "think",
+    "temperature",
+    "max_tokens",
+    "num_ctx",
+    "seed",
+    "top_p",
+    "top_k",
+    "min_p",
+    "frequency_penalty",
+    "presence_penalty",
+    "repetition_penalty",
+    "reasoning_effort",
+}
 
-    Thinking is resolved from the selected model's catalog capability alone
-    (``config.resolve_think_request``). Rows written before that consolidation
-    still carry a ``think`` boolean; it is dropped on read so nothing downstream
-    can mistake it for a live setting, and the next save persists the clean shape.
+
+def _without_legacy_think(params: dict) -> dict:
+    """Strip retired per-project model inference settings from stored model params.
+
+    Model inference parameters (temperature, max_tokens, num_ctx, seed, top_p,
+    top_k, min_p, penalties, reasoning_effort, think) are resolved from the
+    selected model's global catalog entry alone. Rows written before that
+    consolidation are cleaned on read and write so they do not silently override
+    the model catalog.
     """
-    params.pop("think", None)
-    return params
+    if not isinstance(params, dict):
+        return {}
+    cleaned = dict(params)
+    for k in _RETIRED_MODEL_PARAM_KEYS:
+        cleaned.pop(k, None)
+    return cleaned
+
+
+_without_legacy_model_params = _without_legacy_think
 
 
 MAIN_CHAT_NAME = "Main Chat"
@@ -593,12 +617,12 @@ class ProjectStore:
                 # Apply defaults for params added after project creation
                 d["model_params"].setdefault("stream", True)
                 d["worker_model_params"].setdefault("stream", True)
-                # `think` used to be a per-project setting. It is now resolved from
-                # the model catalog's `supports_thinking` alone
-                # (config.resolve_think_request), so a value left in an older row is
-                # dropped here rather than being reported as a live setting.
-                d["model_params"].pop("think", None)
-                d["worker_model_params"].pop("think", None)
+                # `think` and model inference parameters are resolved from
+                # the model catalog's entry alone, so values left in older rows
+                # are dropped here rather than being reported as live settings.
+                for k in _RETIRED_MODEL_PARAM_KEYS:
+                    d["model_params"].pop(k, None)
+                    d["worker_model_params"].pop(k, None)
 
                 # Effective num_ctx for UI display (chat context indicator) before
                 # any turn has run to measure the real prompt_tokens window: an
@@ -930,8 +954,8 @@ class ProjectStore:
         _skills = list(project.skills)
         if "opalatex" not in _skills:
             _skills = ["opalatex"] + _skills
-        _model_params = project.model_params if hasattr(project, "model_params") else {}
-        _worker_model_params = project.worker_model_params if hasattr(project, "worker_model_params") and project.worker_model_params else _model_params.copy()
+        _model_params = _without_legacy_model_params(project.model_params if hasattr(project, "model_params") else {})
+        _worker_model_params = _without_legacy_model_params(project.worker_model_params if hasattr(project, "worker_model_params") and project.worker_model_params else _model_params.copy())
         compile_partial, compile_full = _normalize_compile_on_save(
             bool(getattr(project, "compile_on_save_partial", True)),
             bool(getattr(project, "compile_on_save_full", False)),
