@@ -9,12 +9,49 @@ import os
 import pathlib
 import sys
 import threading
+import subprocess
 from unittest.mock import AsyncMock
 
 import pytest
 
 from opalatex import ide_server
 from opalatex.ide_server import AsyncHTTPServer, build_relaunch_command, schedule_app_restart
+
+
+@pytest.fixture(autouse=True)
+def script_launch_context(monkeypatch):
+    # The pytest runner may itself have been started with python -m pytest.
+    monkeypatch.setattr(sys.modules["__main__"], "__spec__", None)
+
+
+def test_module_relaunch_preserves_package_imports_and_arguments(tmp_path):
+    """Exercise real -m startup and a child restart, as the Snap launcher does."""
+    package = tmp_path / "restart_probe"
+    package.mkdir()
+    (package / "__init__.py").write_text("VALUE = 'package import works'\n")
+    (package / "cli.py").write_text(
+        "from . import VALUE\n"
+        "import json, subprocess, sys\n"
+        "from opalatex.ide_server import build_relaunch_command\n"
+        "if sys.argv[-1] == 'child':\n"
+        "    print(json.dumps([VALUE, sys.argv[1:]]))\n"
+        "else:\n"
+        "    sys.argv[-1] = 'child'\n"
+        "    subprocess.run(build_relaunch_command(), check=True)\n"
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(pathlib.Path(ide_server.__file__).resolve().parent.parent),
+         env.get("PYTHONPATH", "")]
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "restart_probe.cli", "--gui", "path with spaces", "parent"],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.splitlines()[-1]) == [
+        "package import works", ["--gui", "path with spaces", "child"]
+    ]
 
 
 def _server_with_capture():

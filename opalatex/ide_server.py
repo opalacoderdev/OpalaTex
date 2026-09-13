@@ -5500,15 +5500,19 @@ def build_relaunch_command():
 
     Frozen builds (PyInstaller) expose the app itself as ``sys.executable`` and
     must not be re-run through an interpreter. Source checkouts are re-launched
-    with the same interpreter and entry script; when the entry script is not a
-    real path (``-m`` / ``-c`` launches) we fall back to invoking the CLI entry
-    point directly.
+    with the same interpreter and entry script. Module launches preserve ``-m``
+    so package-relative imports still work (including the Snap launcher).
+    When no entry script exists, invoke the CLI entry point directly.
     """
     import sys
 
     extra_args = list(sys.argv[1:])
     if getattr(sys, "frozen", False):
         return [sys.executable] + extra_args
+
+    main_spec = getattr(sys.modules.get("__main__"), "__spec__", None)
+    if main_spec is not None:
+        return [sys.executable, "-m", main_spec.name] + extra_args
 
     script = sys.argv[0] if sys.argv else ""
     if script and os.path.isfile(script):
