@@ -18,9 +18,9 @@ icon: AppIcons/OpalaTexArt1024.png
 website:
   - https://www.opalacoder.com
 source-code:
-  - https://github.com/opalatexdev/OpalaTex
+  - https://github.com/opalacoderdev/OpalaTex
 issues:
-  - https://github.com/opalatexdev/OpalaTex/issues
+  - https://github.com/opalacoderdev/OpalaTex/issues
 contact:
   - dev@opalacoder.com
 compression: lzo

@@ -466,3 +466,40 @@ async def test_chat_delete_refuses_the_main_chat(tmp_path, monkeypatch):
     assert status_code == 400
     assert "main chat" in data["error"]
     assert store.load("myproj").chats == [{"id": "main_myproj", "name": "Main Chat"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chat_id", ["main_myproj", "second"])
+async def test_chat_history_keeps_thoughts_before_long_stream(tmp_path, monkeypatch, chat_id):
+    """Answer tokens must never displace persisted thoughts on chat reload."""
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    project = store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "second", "Second Chat")
+    project = store.load("myproj", chat_id=chat_id)
+    store.append_message(project, "user", "Inspect the document.")
+    store.append_activity(project, "thought", "Inspecting the document.")
+    for _ in range(1001):
+        store.append_activity(project, "stream_chunk", "answer token ")
+    store.append_message(project, "assistant", "Document inspected.")
+    other_id = "second" if chat_id == "main_myproj" else "main_myproj"
+    other = store.load("myproj", chat_id=other_id)
+    store.append_activity(other, "thought", "Another chat's thought.")
+    store.close_activity_connection()
+
+    # Bounded diagnostic callers keep their existing contract.
+    assert len(store.list_activity("myproj", chat_id)) == 1000
+    for _ in range(2):
+        await server.route_api(
+            "GET", "/api/chat/history",
+            {"project_name": ["myproj"], "chat_id": [chat_id]},
+            {}, b"", AsyncMock(),
+        )
+        status, data, _ = responses[-1]
+        assert status == 200
+        assert data["chat_id"] == chat_id
+        assert len(data["activity"]) == 1002
+        assert [a["content"] for a in data["activity"] if a["event"] == "thought"] == [
+            "Inspecting the document."
+        ]
+        assert data["history"][-1]["content"] == "Document inspected."
+        assert data["activity"][0]["timestamp"] <= data["history"][-1]["timestamp"]

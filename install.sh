@@ -127,10 +127,21 @@ if [[ ! -f "$INSTALL_DIR/OpalaTex" ]]; then
     exit 1
 fi
 
+if [[ ! -f "$INSTALL_DIR/uninstall.sh" ]]; then
+    echo "This release predates the bundled uninstaller; downloading it separately..."
+    if ! download_with_retry \
+        "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/master/uninstall.sh" \
+        "$INSTALL_DIR/uninstall.sh"; then
+        echo "Could not install the OpalaTex uninstaller." >&2
+        exit 1
+    fi
+fi
+
 echo "Creating command symlink in $BIN_DIR..."
 mkdir -p "$BIN_DIR"
 ln -sfn "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex"
-chmod +x "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex" 2>/dev/null || true
+ln -sfn "$INSTALL_DIR/uninstall.sh" "$BIN_DIR/opalatex-uninstall"
+chmod +x "$INSTALL_DIR/OpalaTex" "$INSTALL_DIR/uninstall.sh" "$BIN_DIR/opalatex" "$BIN_DIR/opalatex-uninstall" 2>/dev/null || true
 
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
@@ -171,3 +182,4 @@ echo "   OpalaTex installed successfully!       "
 echo "=========================================="
 echo "Terminal command: opalatex"
 echo "Application launcher created."
+echo "To uninstall: opalatex-uninstall"

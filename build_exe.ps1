@@ -86,6 +86,7 @@ pyinstaller --name "OpalaTex" `
             --add-data="config.yaml;." `
             --add-data="skills;skills" `
             --add-data="templates;templates" `
+            --add-data="uninstall.ps1;." `
             --collect-all "litellm" `
             --collect-all "tiktoken" `
             --collect-all "tiktoken_ext" `

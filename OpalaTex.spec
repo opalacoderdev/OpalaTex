@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_all
 from PyInstaller.utils.hooks import copy_metadata
 
-datas = [('opalatex/gui', 'opalatex/gui'), ('opalatex/icon.png', 'opalatex'), ('icon.png', '.'), ('opalatex/assetstore', 'opalatex/assetstore'), ('opalatex/templates', 'opalatex/templates'), ('opalatex/guides', 'opalatex/guides'), ('bin', 'bin'), ('config.yaml', '.'), ('skills', 'skills'), ('templates', 'templates')]
+datas = [('opalatex/gui', 'opalatex/gui'), ('opalatex/icon.png', 'opalatex'), ('icon.png', '.'), ('opalatex/assetstore', 'opalatex/assetstore'), ('opalatex/templates', 'opalatex/templates'), ('opalatex/guides', 'opalatex/guides'), ('bin', 'bin'), ('config.yaml', '.'), ('skills', 'skills'), ('templates', 'templates'), ('uninstall.sh', '.'), ('uninstall.ps1', '.')]
 binaries = [('C:\\Users\\gilza\\projetos\\OpalaTex\\.venv\\Lib\\site-packages\\winpty\\winpty-agent.exe', 'winpty')]
 hiddenimports = []
 # Cloud storage backends are imported lazily by opalatex.cloud.registry so that a

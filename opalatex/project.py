@@ -1104,8 +1104,9 @@ class ProjectStore:
             )
             return int(cursor.lastrowid)
 
-    def list_activity(self, name: str, chat_id: str, limit: int = 1000) -> list[dict]:
-        safe_limit = max(1, int(limit or 1000))
+    def list_activity(self, name: str, chat_id: str, limit: int | None = 1000) -> list[dict]:
+        """Read activity chronologically; None explicitly requests the full history."""
+        safe_limit = -1 if limit is None else max(1, int(limit or 1000))
         with _conn(self.db_path) as conn:
             rows = conn.execute(
                 """

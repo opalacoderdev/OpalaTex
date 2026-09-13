@@ -53,8 +53,8 @@ dependencies = [
 embeddings = ["sentence-transformers>=3.0.0"]
 
 [project.urls]
-"Homepage" = "https://github.com/opalatexdev/OpalaTex"
-"Bug Tracker" = "https://github.com/opalatexdev/OpalaTex/issues"
+"Homepage" = "https://github.com/opalacoderdev/OpalaTex"
+"Bug Tracker" = "https://github.com/opalacoderdev/OpalaTex/issues"
 
 [project.scripts]
 opalatex = "opalatex.cli:main"

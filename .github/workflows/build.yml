@@ -108,7 +108,8 @@ jobs:
       - name: Package Release Assets (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          zip -r OpalaTex-macos-x64.zip dist/OpalaTex/
+          cd dist/OpalaTex
+          zip -r ../../OpalaTex-macos-x64.zip .
 
       - name: Upload Windows Asset
         if: matrix.os == 'windows-latest'

@@ -92,6 +92,23 @@ lista **Ubuntu 24.04 ou 26.04** como sistemas Linux suportados.
    suas configurações e seu histórico de chats. Preserve os dados do Snap até conferir
    seus projetos e configurações na edição direta.
 
+## uninstall :: Como desinstalo o OpalaTex?
+
+Primeiro feche o OpalaTex. Uma instalação direta no Linux ou macOS fornece:
+
+```bash
+opalatex-uninstall
+```
+
+Esse comando remove o aplicativo e preserva configurações globais, chats, caches,
+credenciais e todos os diretórios de projetos. Use `opalatex-uninstall --purge`
+somente se também quiser apagar os dados globais do aplicativo; o comando mostra
+o diretório exato e pede confirmação. Os diretórios dos projetos nunca são removidos.
+
+No Windows, use **Configurações > Aplicativos > Aplicativos instalados > OpalaTex**
+ou o atalho **Desinstalar OpalaTex** no menu Iniciar. Para a edição Snap, abra um
+terminal do sistema e execute `sudo snap remove opalatex`.
+
 ## projects :: Como crio e configuro um projeto?
 
 Um projeto é uma pasta no seu disco mais os metadados que o OpalaTex guarda sobre ela

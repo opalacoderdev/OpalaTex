@@ -95,13 +95,23 @@ if (-not (Test-Path "$exeDir\OpalaTex.exe")) {
     $exeDir = $installDir
 }
 
+$uninstallerPath = "$exeDir\uninstall.ps1"
+if (-not (Test-Path $uninstallerPath)) {
+    Write-Host "This release predates the bundled uninstaller; downloading it separately..." -ForegroundColor Yellow
+    Invoke-DownloadWithRetry `
+        -Uri "https://raw.githubusercontent.com/$repoOwner/$repoName/master/uninstall.ps1" `
+        -OutFile $uninstallerPath
+}
+
 # Add the OpalaTex executable directory to the user PATH.
+$pathAdded = $false
 $userPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::User)
 if ($userPath -notlike "*$exeDir*") {
     Write-Host "Adding OpalaTex to PATH..." -ForegroundColor Yellow
     $newPath = "$userPath;$exeDir"
     [Environment]::SetEnvironmentVariable("Path", $newPath, [EnvironmentVariableTarget]::User)
     $env:Path = "$env:Path;$exeDir"
+    $pathAdded = $true
 }
 
 # Create Desktop and Start menu shortcuts.
@@ -128,6 +138,30 @@ $startMenuShortcut.Description      = "OpalaTex Open-Source AI LaTeX IDE"
 $startMenuShortcut.IconLocation     = "$exePath,0"
 $startMenuShortcut.Save()
 
+$uninstallShortcut = $wshShell.CreateShortcut("$startMenuDir\Uninstall OpalaTex.lnk")
+$uninstallShortcut.TargetPath = "powershell.exe"
+$uninstallShortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$uninstallerPath`""
+$uninstallShortcut.WorkingDirectory = $exeDir
+$uninstallShortcut.Description = "Uninstall OpalaTex"
+$uninstallShortcut.Save()
+
+# Register a per-user uninstall entry so OpalaTex appears in Windows Settings >
+# Apps > Installed apps without requiring administrator privileges.
+$uninstallRegistryPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpalaTex"
+if (-not (Test-Path $uninstallRegistryPath)) {
+    New-Item -Path $uninstallRegistryPath -Force | Out-Null
+}
+$uninstallCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$uninstallerPath`""
+Set-ItemProperty -Path $uninstallRegistryPath -Name "DisplayName" -Value "OpalaTex"
+Set-ItemProperty -Path $uninstallRegistryPath -Name "DisplayVersion" -Value "0.2.13"
+Set-ItemProperty -Path $uninstallRegistryPath -Name "Publisher" -Value "OpalaCoder"
+Set-ItemProperty -Path $uninstallRegistryPath -Name "DisplayIcon" -Value $exePath
+Set-ItemProperty -Path $uninstallRegistryPath -Name "InstallLocation" -Value $installDir
+Set-ItemProperty -Path $uninstallRegistryPath -Name "UninstallString" -Value $uninstallCommand
+Set-ItemProperty -Path $uninstallRegistryPath -Name "PathAdded" -Type DWord -Value ([int]$pathAdded)
+Set-ItemProperty -Path $uninstallRegistryPath -Name "NoModify" -Type DWord -Value 1
+Set-ItemProperty -Path $uninstallRegistryPath -Name "NoRepair" -Type DWord -Value 1
+
 Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
@@ -136,3 +170,4 @@ Write-Host "  OpalaTex installed successfully!       " -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "Terminal command: opalatex" -ForegroundColor Cyan
 Write-Host "Shortcuts were created on the Desktop and Start menu." -ForegroundColor Cyan
+Write-Host "To uninstall, use Windows Settings > Apps > Installed apps, or the Start menu shortcut." -ForegroundColor Cyan

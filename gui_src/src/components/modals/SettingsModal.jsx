@@ -11,6 +11,8 @@ import {
 import { useCustomDialog } from './CustomDialogProvider';
 import i18n from '../../i18n/index.js';
 import { safeSetLocalStorage } from '../../utils/storage';
+import { writeClipboard } from '../../utils/clipboard';
+import { openExternal } from '../../utils/openExternal';
 
 // Target languages offered by the "Translate to" setting. The values are the
 // locale codes persisted by /api/settings/translation; "" follows the UI
@@ -28,6 +30,8 @@ const TRANSLATE_LANGUAGES = [
 ];
 
 const TRANSLATE_CUSTOM = '__custom__';
+const DIRECT_INSTALL_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/opalacoderdev/OpalaTex/master/install.sh -o opalatex-install.sh && bash opalatex-install.sh';
+const FEEDBACK_ISSUE_URL = 'https://github.com/opalacoderdev/OpalaTex/issues/new';
 
 // IDE global settings modal (theme, font size, tab size, word wrap, minimap, optional deps).
 export default function SettingsModal({
@@ -72,6 +76,7 @@ export default function SettingsModal({
   const [imageGen, setImageGen] = React.useState({ enabled: true, model: '', size: '1024x1024', output_dir: 'figures' });
   const [imageModels, setImageModels] = React.useState([]);
   const [isRestarting, setIsRestarting] = React.useState(false);
+  const [runtimeInfo, setRuntimeInfo] = React.useState({ platform: '', running_in_snap: false, version: '0.2.13' });
 
   const activeTab = (settingsTab === 'preferences' || !['general', 'dependencies', 'about'].includes(settingsTab))
     ? 'general'
@@ -142,6 +147,13 @@ export default function SettingsModal({
         if (cfg?.prompt_evolution_max_tokens !== undefined) {
           setPromptEvolutionMaxTokens(Math.max(1, Number(cfg.prompt_evolution_max_tokens) || 4096));
         }
+      })
+      .catch(() => { });
+
+    fetch('/api/app/environment')
+      .then(r => r.ok ? r.json() : null)
+      .then(info => {
+        if (info) setRuntimeInfo(previous => ({ ...previous, ...info }));
       })
       .catch(() => { });
   }, []);
@@ -238,6 +250,30 @@ export default function SettingsModal({
     else updated[key] = val;
     setEphemeralParams(updated);
     safeSetLocalStorage('ephemeralParams', JSON.stringify(updated));
+  };
+
+  const copyDirectInstallCommand = async () => {
+    const copied = await writeClipboard(DIRECT_INSTALL_COMMAND);
+    await showAlert(copied
+      ? t('settingsModal.directInstallCopied')
+      : t('settingsModal.directInstallCopyFailed'));
+  };
+
+  const openFeedbackIssue = async () => {
+    const params = new URLSearchParams({
+      title: t('settingsModal.feedbackIssueTitle'),
+      body: t('settingsModal.feedbackIssueBody', {
+        version: runtimeInfo.version || 'unknown',
+        platform: runtimeInfo.platform || navigator.platform || 'unknown',
+        distribution: runtimeInfo.running_in_snap
+          ? t('settingsModal.feedbackDistributionSnap')
+          : t('settingsModal.feedbackDistributionOther'),
+      }),
+    });
+    const url = `${FEEDBACK_ISSUE_URL}?${params.toString()}`;
+    if (!await openExternal(url)) {
+      await showAlert(t('settingsModal.feedbackOpenFailed', { url }));
+    }
   };
 
   return (
@@ -752,7 +788,7 @@ export default function SettingsModal({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', color: 'var(--vscode-text-fg)' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.version')}</span>
-                <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--vscode-text-fg)' }}>0.2.13</span>
+                <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--vscode-text-fg)' }}>{runtimeInfo.version}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.author')}</span>
@@ -762,6 +798,45 @@ export default function SettingsModal({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.license')}</span>
                 <span style={{ fontSize: '13px', color: 'var(--vscode-text-fg)' }}>MIT</span>
+              </div>
+              {runtimeInfo.running_in_snap && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', padding: '14px', border: '1px solid var(--vscode-focusBorder)', borderRadius: '8px', backgroundColor: 'var(--vscode-sidebar-bg)' }}>
+                  <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.directInstallTitle')}</span>
+                  <span style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--vscode-descriptionForeground)' }}>
+                    {t('settingsModal.directInstallDescription')}
+                  </span>
+                  <code style={{ fontSize: '11px', padding: '8px', overflowWrap: 'anywhere', backgroundColor: 'var(--vscode-input-bg)' }}>
+                    {DIRECT_INSTALL_COMMAND}
+                  </code>
+                  <button className="vscode-button" style={{ alignSelf: 'flex-start' }} onClick={copyDirectInstallCommand}>
+                    {t('settingsModal.directInstallCopy')}
+                  </button>
+                  <span style={{ fontSize: '11px', lineHeight: 1.4, color: 'var(--vscode-descriptionForeground)' }}>
+                    {t('settingsModal.directInstallWarning')}
+                  </span>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '14px', border: '1px solid var(--vscode-border)', borderRadius: '8px', backgroundColor: 'var(--vscode-sidebar-bg)' }}>
+                <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.feedbackTitle')}</span>
+                <span style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.feedbackDescription')}
+                </span>
+                <button className="vscode-button" style={{ alignSelf: 'flex-start' }} onClick={openFeedbackIssue}>
+                  {t('settingsModal.feedbackButton')}
+                </button>
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.feedbackPrivacy')}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.uninstallTitle')}</span>
+                <span style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--vscode-descriptionForeground)' }}>
+                  {runtimeInfo.running_in_snap
+                    ? t('settingsModal.uninstallSnap')
+                    : runtimeInfo.platform === 'Windows'
+                      ? t('settingsModal.uninstallWindows')
+                      : t('settingsModal.uninstallDirect')}
+                </span>
               </div>
               <div style={{
                 display: 'flex',
@@ -783,7 +858,7 @@ export default function SettingsModal({
                   <button
                     className="vscode-button"
                     style={{ alignSelf: 'flex-start' }}
-                    onClick={() => window.open('https://www.paypal.com/donate/?business=DKWJSCLDJG6XY&no_recurring=0&item_name=Manuten%C3%A7%C3%A3o+do+Software+Open+Source+OpalaTex&currency_code=BRL', '_blank')}
+                    onClick={() => openExternal('https://www.paypal.com/donate/?business=DKWJSCLDJG6XY&no_recurring=0&item_name=Manuten%C3%A7%C3%A3o+do+Software+Open+Source+OpalaTex&currency_code=BRL')}
                   >
                     {t('settingsModal.donationButton')}
                   </button>

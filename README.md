@@ -58,6 +58,40 @@ Get-Content .\install.ps1
 
 The application is installed under `%LOCALAPPDATA%\OpalaTex`. The installer adds its executable directory to the user `PATH` and creates shortcuts on the Desktop and Start menu.
 
+## Uninstall a packaged release
+
+Direct Linux and macOS installations provide this command:
+
+```bash
+opalatex-uninstall
+```
+
+It removes the application while preserving settings, chats, caches, credentials, and project directories. Pass `--purge` only when you also want to remove the global OpalaTex data directory. Project directories are never removed.
+
+Older direct installations that do not yet provide the command can run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/opalacoderdev/OpalaTex/master/uninstall.sh | bash
+```
+
+On Windows, open **Settings > Apps > Installed apps > OpalaTex**, or use **Uninstall OpalaTex** in the Start menu. The Windows uninstaller also preserves user data by default; its optional PowerShell `-Purge` switch removes global application data after confirmation.
+
+For an older Windows installation without that entry, run:
+
+```powershell
+irm https://raw.githubusercontent.com/opalacoderdev/OpalaTex/master/uninstall.ps1 | iex
+```
+
+Snap installations remain managed by Snap and can be removed from a system terminal with:
+
+```bash
+sudo snap remove opalatex
+```
+
+## Feedback and bug reports
+
+Open **Settings > About > Send feedback on GitHub** inside OpalaTex. The application opens a pre-filled issue at the [OpalaTex issue tracker](https://github.com/opalacoderdev/OpalaTex/issues) with version and runtime information. Nothing is submitted automatically, so review the issue and remove private information before publishing it.
+
 ## Development setup
 
 Requirements: Python 3.10 or newer, Node.js/npm, and Git.

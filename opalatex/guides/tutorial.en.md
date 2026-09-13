@@ -91,6 +91,23 @@ project lists **Ubuntu 24.04 or 26.04** as supported Linux systems.
    migrate its settings and chat history. Keep the Snap data until you have checked
    your projects and configuration in the direct edition.
 
+## uninstall :: How do I uninstall OpalaTex?
+
+Close OpalaTex first. A direct Linux or macOS installation provides:
+
+```bash
+opalatex-uninstall
+```
+
+This removes the application and preserves global settings, chats, caches,
+credentials, and all project directories. Use `opalatex-uninstall --purge` only
+when you also want to delete the global application data; the command shows the
+exact directory and asks for confirmation. Project directories are never removed.
+
+On Windows, use **Settings > Apps > Installed apps > OpalaTex** or the
+**Uninstall OpalaTex** shortcut in the Start menu. For the Snap edition, open a
+system terminal and run `sudo snap remove opalatex`.
+
 ## projects :: How do I create and configure a project?
 
 A project is a folder on your disk plus the metadata OpalaTex stores for it (selected

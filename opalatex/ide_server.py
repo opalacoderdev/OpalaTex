@@ -2161,6 +2161,15 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        elif path == '/api/app/environment' and method == 'GET':
+            import platform
+            from opalatex import __version__
+            self.send_response(writer, 200, json.dumps({
+                "platform": platform.system(),
+                "running_in_snap": _running_in_snap(),
+                "version": __version__,
+            }).encode('utf-8'), "application/json")
+
         elif path == '/api/app/restart' and method == 'POST':
             # Settings such as OPALATEX_HOME are read at startup, so the UI offers
             # a restart right after saving them. Respond first, then relaunch:
@@ -2863,7 +2872,9 @@ class AsyncHTTPServer:
                 self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
                 return
             chat_id = project.current_chat_id
-            activity = store.list_activity(project_name, chat_id)
+            # Every persisted thought belongs to the transcript. A tail limit
+            # lets later streamed answer tokens evict the entire thinking phase.
+            activity = store.list_activity(project_name, chat_id, limit=None)
             # The measured context occupancy is rehydrated here so reopening a
             # chat reports the real number instead of dropping back to the
             # character estimate.
