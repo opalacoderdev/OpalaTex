@@ -185,3 +185,83 @@ async def test_a_refused_launcher_is_not_reported_as_opened(monkeypatch, linux_s
     status, payload = responses[0]
     assert status == 500
     assert "3" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_failure_window_accepts_custom_codes():
+    assert (
+        await _desktop_open_failure(_FakeProc(1), window=0.05, accept_codes=(0, 1))
+        is None
+    )
+    failure = await _desktop_open_failure(
+        _FakeProc(2), window=0.05, accept_codes=(0, 1)
+    )
+    assert failure is not None
+    assert "2" in failure
+
+
+@pytest.mark.asyncio
+async def test_wsl_inside_snap_opens_directories_via_shim(monkeypatch, linux_server):
+    """Inside snap on WSL, explorer.exe cannot run; opening folders must use the snapd shim."""
+    server, responses, launched, _popen, project = linux_server
+    _enter_snap(monkeypatch)
+    monkeypatch.setattr(
+        platform,
+        "uname",
+        lambda: SimpleNamespace(release="5.15.153.1-microsoft-standard-WSL2"),
+    )
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+
+    await _call_open_explorer(server, project, None, AsyncMock())
+
+    assert responses == [(200, {"success": True})]
+    assert launched["args"][0] == "/usr/bin/xdg-open"
+    assert launched["args"][1] == str(project)
+
+
+@pytest.mark.asyncio
+async def test_wsl_outside_snap_opens_directories_via_explorer_with_status_1(
+    monkeypatch, linux_server
+):
+    """Outside snap on WSL, explorer.exe is used and exit code 1 is treated as success."""
+    import shutil
+
+    server, responses, launched, fake_popen, project = linux_server
+    _leave_snap(monkeypatch)
+    monkeypatch.setattr(
+        platform,
+        "uname",
+        lambda: SimpleNamespace(release="5.15.153.1-microsoft-standard-WSL2"),
+    )
+    monkeypatch.setattr(
+        shutil, "which", lambda cmd: "/mnt/c/Windows/explorer.exe" if cmd == "explorer.exe" else None
+    )
+    fake_popen.returncode = 1
+
+    await _call_open_explorer(server, project, None, AsyncMock())
+
+    assert responses == [(200, {"success": True})]
+    assert launched["args"] == ["explorer.exe", "."]
+
+
+@pytest.mark.asyncio
+async def test_wsl_outside_snap_falls_back_when_explorer_not_on_path(
+    monkeypatch, linux_server
+):
+    """If explorer.exe is not on PATH outside snap, fall back to desktop opener command."""
+    import shutil
+
+    server, responses, launched, _popen, project = linux_server
+    _leave_snap(monkeypatch)
+    monkeypatch.setattr(
+        platform,
+        "uname",
+        lambda: SimpleNamespace(release="5.15.153.1-microsoft-standard-WSL2"),
+    )
+    monkeypatch.setattr(shutil, "which", lambda cmd: None)
+
+    await _call_open_explorer(server, project, None, AsyncMock())
+
+    assert responses == [(200, {"success": True})]
+    assert launched["args"] == ["xdg-open", str(project)]
+

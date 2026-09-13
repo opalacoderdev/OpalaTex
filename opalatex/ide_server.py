@@ -136,7 +136,11 @@ def _desktop_open_command(target_path: str) -> list[str]:
 _DESKTOP_OPEN_FAILURE_WINDOW = 1.5
 
 
-async def _desktop_open_failure(proc, window: float = _DESKTOP_OPEN_FAILURE_WINDOW) -> str | None:
+async def _desktop_open_failure(
+    proc,
+    window: float = _DESKTOP_OPEN_FAILURE_WINDOW,
+    accept_codes: tuple[int, ...] = (0,),
+) -> str | None:
     """Return a diagnostic if the launcher itself failed, or None if it handed off.
 
     Watching the launcher for a moment separates "refused" from "handed over"
@@ -148,7 +152,7 @@ async def _desktop_open_failure(proc, window: float = _DESKTOP_OPEN_FAILURE_WIND
     deadline = time.monotonic() + window
     while True:
         code = proc.poll()
-        if code == 0:
+        if code is not None and code in accept_codes:
             return None
         if code is not None:
             return f"The desktop file opener exited with status {code} without opening the path."
@@ -1992,6 +1996,7 @@ class AsyncHTTPServer:
                     del env['LD_LIBRARY_PATH']
 
                 proc = None
+                accept_codes = (0,)
                 if system == "Windows":
                     os.startfile(target_path)
                 elif system == "Darwin":
@@ -2000,9 +2005,20 @@ class AsyncHTTPServer:
                     # Check if it's WSL (Windows Subsystem for Linux)
                     release = platform.uname().release.lower()
                     if "microsoft" in release or "wsl" in release:
-                        # For WSL, we might need different logic if opening a file vs folder
-                        if os.path.isdir(target_path):
-                            proc = subprocess.Popen(["explorer.exe", "."], cwd=target_path, env=env)
+                        # Inside strict confinement, explorer.exe cannot be executed directly
+                        # (PATH is isolated, /mnt/c execution is blocked by AppArmor, and the
+                        # kernel binfmt_misc handler cannot resolve /init in the container mount namespace).
+                        # We must delegate to the host session through _desktop_open_command.
+                        if _running_in_snap():
+                            proc = subprocess.Popen(_desktop_open_command(target_path), env=env)
+                        elif os.path.isdir(target_path):
+                            import shutil
+                            if shutil.which("explorer.exe"):
+                                proc = subprocess.Popen(["explorer.exe", "."], cwd=target_path, env=env)
+                                # Windows explorer.exe exits with code 1 when handing off to the shell.
+                                accept_codes = (0, 1)
+                            else:
+                                proc = subprocess.Popen(_desktop_open_command(target_path), env=env)
                         else:
                             # Not ideal but explorer.exe can open files in WSL if converted to win path, 
                             # easiest is wslview if available, otherwise xdg-open might work inside some WSL distros
@@ -2014,7 +2030,7 @@ class AsyncHTTPServer:
                 # running is a success. One that has already failed must not be reported as
                 # "opened": that is how a confined xdg-open exiting 3 looked like a working
                 # feature from the UI.
-                failure = await _desktop_open_failure(proc)
+                failure = await _desktop_open_failure(proc, accept_codes=accept_codes)
                 if failure:
                     self.send_response(writer, 500, json.dumps({"error": failure}).encode('utf-8'), "application/json")
                 else:
