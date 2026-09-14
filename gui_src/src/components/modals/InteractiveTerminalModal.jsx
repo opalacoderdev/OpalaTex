@@ -52,7 +52,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
         console.error('Failed to start temp terminal', res.error);
       }
     }).catch(err => console.error('API Error starting temp terminal', err));
-    
+
   }, [request, activeProject, hasStarted]);
 
   // Re-style the live terminal when the font size changes. Fewer/more columns
@@ -72,8 +72,8 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
           term_id: request.term_id, action: 'resize', cols, rows,
           projectPath: activeProject.project_path,
         }),
-      }).catch(() => {});
-    } catch (e) {}
+      }).catch(() => { });
+    } catch (e) { }
   }, [fontSize, uiScale, request, activeProject]);
 
   useEffect(() => {
@@ -88,7 +88,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
       fontFamily: 'Consolas, "Courier New", monospace',
       theme: { background: '#1e1e2e', foreground: '#cccccc', selectionBackground: '#264f78', selectionInactiveBackground: '#3a3d41' },
     });
-    
+
     // Ctrl +/- adjusts the terminal font here too, writing back to the same
     // stored preference the bottom panel uses. Ctrl+Shift+/- is left alone so
     // the interface-wide scale still reaches the window handler.
@@ -110,7 +110,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    
+
     terminalRef.current.innerHTML = '';
     term.open(terminalRef.current);
     try { fitAddon.fit(); } catch (e) { }
@@ -127,7 +127,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
         const bytes = new Uint8Array(raw.length);
         for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
         term.write(bytes);
-      } catch (err) {}
+      } catch (err) { }
     };
 
     term.onData((data) => {
@@ -135,7 +135,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ term_id, action: 'input', text: data, projectPath }),
-      }).catch(() => {});
+      }).catch(() => { });
     });
 
     const resizeObserver = new ResizeObserver(() => {
@@ -147,8 +147,8 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ term_id, action: 'resize', cols, rows, projectPath }),
-          }).catch(() => {});
-        } catch (e) {}
+          }).catch(() => { });
+        } catch (e) { }
       }
     });
     resizeObserver.observe(terminalRef.current);
@@ -170,7 +170,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ term_id: request.term_id }),
-      }).catch(() => {});
+      }).catch(() => { });
     }
     onConfirm(result);
   };

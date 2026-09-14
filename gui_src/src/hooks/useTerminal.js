@@ -262,7 +262,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
           // the shell (especially PowerShell on Windows) to print a fresh, clean prompt.
           if (!promptDrawnRef.current) {
             promptDrawnRef.current = true;
-              fetch('/api/terminal/input', {
+            fetch('/api/terminal/input', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ term_id: termId, action: 'input', text: '\r', projectPath }),
