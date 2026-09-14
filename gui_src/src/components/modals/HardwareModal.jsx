@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Laptop } from 'lucide-react';
 
 export default function HardwareModal({ onClose }) {
   const { t } = useTranslation();
@@ -97,7 +98,7 @@ export default function HardwareModal({ onClose }) {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>💻</span> {t('hardwareModal.title')}
+            <Laptop size={18} aria-hidden="true" style={{ flexShrink: 0 }} /> {t('hardwareModal.title')}
           </h2>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--vscode-text-fg)', cursor: 'pointer', fontSize: '18px' }}>✕</button>
         </div>

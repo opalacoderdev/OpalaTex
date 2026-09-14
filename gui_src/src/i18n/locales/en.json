@@ -138,6 +138,12 @@
     "showHiddenFiles": "Hidden",
     "showHiddenFilesTooltip": "Show LaTeX auxiliary files hidden by the workspace filter",
     "refreshFiles": "Refresh files",
+    "newFileName": "New file name",
+    "newDirName": "New directory name",
+    "newPresentationName": "New presentation name",
+    "newPresentationDefaultStem": "presentation",
+    "inlineCreateInvalidName": "Use a relative name without empty, \".\" or \"..\" segments.",
+    "inlineCreateExists": "\"{{name}}\" already exists at this location. Choose a different name.",
     "selectProjectToExplore": "Select a project to explore.",
     "importProject": "Import Project",
     "selectProjectPlaceholder": "Select project...",
@@ -1040,10 +1046,8 @@
     "fileSaved": "File saved: {{path}}",
     "fileSaveFailedPath": "Error saving file: {{path}}",
     "writeError": "Write error: {{error}}",
-    "newFilePrompt": "New file name (ex: src/utils.py):",
     "fileCreated": "File created: {{path}}",
     "fileCreateCallError": "Error calling file creation API: {{error}}",
-    "newDirPrompt": "New directory name (ex: src/components):",
     "dirCreated": "Directory created: {{path}}",
     "dirCreateCallError": "Error calling directory creation API: {{error}}",
     "importFailed": "Failed to import file",
@@ -1141,8 +1145,7 @@
     "messageQueueFailed": "The message could not be queued.",
     "messageQueueError": "Could not queue the message: {{error}}",
     "messageCancelError": "Could not cancel the message: {{error}}",
-    "slashCommandWhileRunning": "Slash commands cannot run while the agent is working. Stop the agent first.",
-    "newPresentationPrompt": "Name of the new presentation:"
+    "slashCommandWhileRunning": "Slash commands cannot run while the agent is working. Stop the agent first."
   },
   "onboarding": {
     "welcome": "Welcome to OpalaTex! ",

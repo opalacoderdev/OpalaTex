@@ -1,0 +1,136 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { ChevronRight, File, Folder, Presentation } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+
+// Provisional tree row used to create a file, directory or presentation in
+// place. Only Enter creates. Escape or a pointer press outside the row cancels.
+// Losing focus by itself does nothing: the IDE moves focus programmatically
+// (the editor focuses a file it has just opened), and treating that as a
+// commit would create an entry — with a pre-filled name, one the user never
+// confirmed. The row simply stays open until the user answers it.
+// `onSubmit` resolves to an error message to show under the row, or to a falsy
+// value once the entry was created (the parent then removes the row).
+//
+// `initialName` pre-fills the field (a presentation starts as `name.jpt`); the
+// part before the extension is selected so typing replaces just the stem.
+export default function InlineCreateNode({ kind, initialName = '', onSubmit, onCancel }) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(initialName);
+  const [error, setError] = useState('');
+  const rowRef = useRef(null);
+  const inputRef = useRef(null);
+  const busyRef = useRef(false);
+  const settledRef = useRef(false);
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+
+  const cancel = () => {
+    if (settledRef.current || busyRef.current) return;
+    settledRef.current = true;
+    onCancelRef.current();
+  };
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    const dotIndex = initialName.lastIndexOf('.');
+    if (dotIndex > 0) input.setSelectionRange(0, dotIndex);
+    else input.select();
+    // Selection is set once, when the row appears.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // A press anywhere outside the row is the user leaving it: cancel.
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (rowRef.current && !rowRef.current.contains(event.target)) cancel();
+    };
+    document.addEventListener('mousedown', handlePointerDown, true);
+    return () => document.removeEventListener('mousedown', handlePointerDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const submit = async () => {
+    if (settledRef.current || busyRef.current) return;
+    if (!name.trim()) {
+      cancel();
+      return;
+    }
+    busyRef.current = true;
+    let failure;
+    try {
+      failure = await onSubmit(name);
+    } finally {
+      busyRef.current = false;
+    }
+    if (failure) {
+      setError(failure);
+      inputRef.current?.focus();
+      return;
+    }
+    settledRef.current = true;
+  };
+
+  const handleKeyDown = (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancel();
+    }
+  };
+
+  const label = {
+    file: t('explorerSidebar.newFileName', 'New file name'),
+    dir: t('explorerSidebar.newDirName', 'New directory name'),
+    presentation: t('explorerSidebar.newPresentationName', 'New presentation name'),
+  }[kind];
+
+  const iconStyle = { flexShrink: 0 };
+  const icon = kind === 'dir'
+    ? <><ChevronRight size={14} style={iconStyle} /><Folder size={14} style={{ ...iconStyle, color: 'var(--vscode-fg-folder)' }} /></>
+    : kind === 'presentation'
+      ? <Presentation size={14} style={{ ...iconStyle, color: '#007acc' }} />
+      : <File size={14} style={{ ...iconStyle, color: 'var(--vscode-text-muted)' }} />;
+
+  return (
+    <div
+      ref={rowRef}
+      className="inline-create-node"
+      onClick={(e) => { e.stopPropagation(); inputRef.current?.focus(); }}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+    >
+      <div className="vscode-tree-node">
+        {icon}
+        <input
+          ref={inputRef}
+          type="text"
+          value={name}
+          aria-label={label}
+          aria-invalid={Boolean(error)}
+          spellCheck={false}
+          onChange={(e) => { setName(e.target.value); setError(''); }}
+          onKeyDown={handleKeyDown}
+          onDoubleClick={(e) => e.stopPropagation()}
+          style={{
+            background: 'var(--vscode-input-bg, #1e1e1e)',
+            color: 'var(--vscode-input-fg, var(--vscode-text-fg))',
+            border: `1px solid ${error ? 'var(--vscode-errorForeground, #f48771)' : 'var(--vscode-focusBorder, #007acc)'}`,
+            borderRadius: '2px',
+            outline: 'none',
+            fontSize: '12px',
+            padding: '0 4px',
+            lineHeight: '18px',
+            height: '20px',
+            width: '100%',
+            boxSizing: 'border-box',
+          }}
+        />
+      </div>
+      {error && <div role="alert" className="inline-create-error">{error}</div>}
+    </div>
+  );
+}

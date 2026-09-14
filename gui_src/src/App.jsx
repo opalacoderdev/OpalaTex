@@ -8,7 +8,8 @@ import i18n from './i18n/index.js';
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
 import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale, viewportPointToApp, viewportPxToApp } from './utils/uiScale';
 import { layoutAfterOpeningFile, layoutShowsEditor } from './utils/layoutModes';
-import { normalizeInputRequest } from './utils/askQuestion';
+import { confirmRequestDialog, dialogRequestKey, normalizeInputRequest } from './utils/askQuestion';
+import { childNamesAt, resolveInlineCreatePath, suggestUniqueName } from './utils/inlineCreate';
 
 // Hooks
 import { useResizing } from './hooks/useResizing';
@@ -277,6 +278,10 @@ export default function App() {
   const [editorTextStats, setEditorTextStats] = useState(null);
   const [selectedNodes, setSelectedNodes] = useState(new Set());
   const [renamingNodePath, setRenamingNodePath] = useState(null);
+  // Provisional tree row for creating a file, presentation or directory in place.
+  const [pendingCreate, setPendingCreate] = useState(null);
+  const inlineCreateIdRef = useRef(0);
+  useEffect(() => { setPendingCreate(null); }, [activeProject?.project_path]);
   const [fileContent, setFileContentState] = useState('');
   // Every editor surface updates the ref synchronously, so an HTTP response
   // cannot observe the previous render's text between typing and an effect.
@@ -2315,88 +2320,86 @@ export default function App() {
     setFileContent('');
   };
 
-  const handleCreateNewFile = (parentPath) => {
+  // New file, new presentation and new directory are created in place: a
+  // provisional row appears in the target directory of the workspace tree and
+  // the user types the name there (`InlineCreateNode`). A presentation is the
+  // file flow with a different seed — the `.jpt` suffix is added when missing
+  // and the file starts with a real deck, so it opens on a title slide.
+  const beginInlineCreate = (kind, parentPath) => {
     if (!activeProject) return;
-    setConfirmRequest({
-      type: 'ask',
-      rows: 1,
-      prompt: t('app.newFilePrompt'),
-      default: parentPath ? `${parentPath}/` : '',
-      callback: async (filename) => {
-        if (!filename) return;
-        try {
-          const res = await fetch('/api/file/write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, filePath: filename, content: '' }) });
-          if (res.ok) { addLog('info', t('app.fileCreated', { path: filename })); await fetchFiles(); await handleFileSelect(filename); }
-          else { const e = await res.json(); addLog('error', t('app.fileCreateError', { error: e.error })); }
-        } catch (err) { addLog('error', t('app.fileCreateCallError', { error: err.message })); }
-      }
-    });
+    setContextMenu(null);
+    setRenamingNodePath(null);
+    inlineCreateIdRef.current += 1;
+    const targetDir = parentPath || '';
+    const initialName = kind === 'presentation'
+      ? suggestUniqueName(t('explorerSidebar.newPresentationDefaultStem', 'presentation'), '.jpt', childNamesAt(files, targetDir))
+      : '';
+    setPendingCreate({ id: inlineCreateIdRef.current, kind, parentPath: targetDir, initialName });
   };
 
-  // Creating a presentation goes through exactly the same prompt and the same
-  // write endpoint as creating any other file — it is the same flow with a
-  // different seed, not a parallel one. Two things are added: the `.jpt`
-  // suffix is appended when the user does not type it (the extension is what
-  // routes the file to the deck editor, and asking the user to remember it
-  // would make this a worse flow than "New file"), and the file is written
-  // with a real starting deck rather than empty, so it opens on a title slide.
-  const handleCreateNewPresentation = (parentPath) => {
-    if (!activeProject) return;
-    setConfirmRequest({
-      type: 'ask',
-      rows: 1,
-      prompt: t('app.newPresentationPrompt'),
-      default: parentPath ? `${parentPath}/` : '',
-      callback: async (rawName) => {
-        if (!rawName) return;
-        const name = rawName.trim();
-        if (!name || name.endsWith('/')) return;
-        const filePath = name.toLowerCase().endsWith('.jpt')
-          ? name
-          : `${name.replace(/\.json$/i, '')}.jpt`;
-        try {
+  const handleCreateNewFile = (parentPath) => beginInlineCreate('file', parentPath);
+  const handleCreateNewPresentation = (parentPath) => beginInlineCreate('presentation', parentPath);
+  const handleCreateNewDir = (parentPath) => beginInlineCreate('dir', parentPath);
+
+  const cancelInlineCreate = () => setPendingCreate(null);
+
+  // Resolves to a message shown under the provisional row (which stays open for
+  // correction), or to null once the entry exists. Creation is exclusive: the
+  // server refuses an existing path instead of overwriting it.
+  const submitInlineCreate = async (name) => {
+    const request = pendingCreate;
+    if (!request || !activeProject) return null;
+    const resolved = resolveInlineCreatePath({ kind: request.kind, parentPath: request.parentPath, name });
+    if (resolved.cancelled) {
+      setPendingCreate(null);
+      return null;
+    }
+    if (resolved.error) {
+      return t('explorerSidebar.inlineCreateInvalidName', 'Use a relative name without empty, "." or ".." segments.');
+    }
+
+    const targetPath = resolved.path;
+    const isDir = request.kind === 'dir';
+    try {
+      let res;
+      if (isDir) {
+        res = await fetch('/api/file/mkdir', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectPath: activeProject.project_path, dirPath: targetPath, exclusive: true }),
+        });
+      } else {
+        let content = '';
+        if (request.kind === 'presentation') {
           const { createDeck, serializeDeck } = await import('./slides/model.js');
-          const title = filePath.replace(/\\/g, '/').split('/').pop().replace(/\.jpt$/i, '');
-          const res = await fetch('/api/file/write', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              projectPath: activeProject.project_path,
-              filePath,
-              content: serializeDeck(createDeck(title)),
-            }),
-          });
-          if (res.ok) {
-            addLog('info', t('app.fileCreated', { path: filePath }));
-            await fetchFiles();
-            await handleFileSelect(filePath);
-          } else {
-            const e = await res.json();
-            addLog('error', t('app.fileCreateError', { error: e.error }));
-          }
-        } catch (err) {
-          addLog('error', t('app.fileCreateCallError', { error: err.message }));
+          content = serializeDeck(createDeck(targetPath.split('/').pop().replace(/\.jpt$/i, '')));
         }
+        res = await fetch('/api/file/write', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectPath: activeProject.project_path, filePath: targetPath, content, exclusive: true }),
+        });
       }
-    });
-  };
 
-  const handleCreateNewDir = (parentPath) => {
-    if (!activeProject) return;
-    setConfirmRequest({
-      type: 'ask',
-      rows: 1,
-      prompt: t('app.newDirPrompt'),
-      default: parentPath ? `${parentPath}/` : '',
-      callback: async (dirname) => {
-        if (!dirname) return;
-        try {
-          const res = await fetch('/api/file/mkdir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectPath: activeProject.project_path, dirPath: dirname }) });
-          if (res.ok) { addLog('info', t('app.dirCreated', { path: dirname })); await fetchFiles(); }
-          else { const e = await res.json(); addLog('error', t('app.dirCreateError', { error: e.error })); }
-        } catch (err) { addLog('error', t('app.dirCreateCallError', { error: err.message })); }
+      if (!res.ok) {
+        if (res.status === 409) {
+          return t('explorerSidebar.inlineCreateExists', '"{{name}}" already exists at this location. Choose a different name.', { name: targetPath.split('/').pop() });
+        }
+        const body = await res.json().catch(() => ({}));
+        const message = body.error || `HTTP ${res.status}`;
+        addLog('error', isDir ? t('app.dirCreateError', { error: message }) : t('app.fileCreateError', { error: message }));
+        return message;
       }
-    });
+
+      setPendingCreate(null);
+      addLog('info', isDir ? t('app.dirCreated', { path: targetPath }) : t('app.fileCreated', { path: targetPath }));
+      await fetchFiles();
+      if (!isDir) await handleFileSelect(targetPath);
+      return null;
+    } catch (err) {
+      addLog('error', isDir ? t('app.dirCreateCallError', { error: err.message }) : t('app.fileCreateCallError', { error: err.message }));
+      return err.message;
+    }
   };
 
   const handleImportFile = (parentPath = '') => {
@@ -2440,6 +2443,7 @@ export default function App() {
 
   const handleRenameNode = (node) => {
     if (!activeProject || !node) return;
+    setPendingCreate(null);
     setRenamingNodePath(node.path);
   };
 
@@ -4332,6 +4336,9 @@ export default function App() {
                 setRenamingNodePath={setRenamingNodePath}
                 executeRenameNode={executeRenameNode}
                 cloudFileStates={cloudFileStates}
+                pendingCreate={pendingCreate}
+                onInlineCreateSubmit={submitInlineCreate}
+                onInlineCreateCancel={cancelInlineCreate}
               />
             ) : (
               <GitSidebar
@@ -4406,6 +4413,9 @@ export default function App() {
                 setRenamingNodePath={setRenamingNodePath}
                 executeRenameNode={executeRenameNode}
                 cloudFileStates={cloudFileStates}
+                pendingCreate={pendingCreate}
+                onInlineCreateSubmit={submitInlineCreate}
+                onInlineCreateCancel={cancelInlineCreate}
               />
             </div>
           </aside>
@@ -4836,8 +4846,10 @@ export default function App() {
 
       {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
 
-      {confirmRequest && confirmRequest.type === 'interactive_terminal' ? (
+      {confirmRequestDialog(confirmRequest) === 'interactive_terminal' ? (
         <InteractiveTerminalModal request={confirmRequest} onConfirm={sendConfirmResponse} activeProject={activeProject} uiScale={uiScale} />
+      ) : confirmRequestDialog(confirmRequest) === 'ask' ? (
+        <AskModal key={dialogRequestKey(confirmRequest)} askRequest={confirmRequest} onConfirm={sendConfirmResponse} />
       ) : confirmRequest ? (
         <ConfirmModal confirmRequest={confirmRequest} onConfirm={sendConfirmResponse} />
       ) : null}

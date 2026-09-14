@@ -90,8 +90,8 @@ export default function ModelSelect({
       ))}
       {showActions && (
         <optgroup label={t('common.actions', 'Actions')}>
-          <option value="refresh_models">🔄 {t('chatPanel.refreshModels', 'Refresh Models')}</option>
-          <option value="edit_models">⚙️ {t('chatPanel.editModels', 'Edit Models...')}</option>
+          <option value="refresh_models">{t('chatPanel.refreshModels', 'Refresh Models')}</option>
+          <option value="edit_models">{t('chatPanel.editModels', 'Edit Models...')}</option>
         </optgroup>
       )}
     </select>

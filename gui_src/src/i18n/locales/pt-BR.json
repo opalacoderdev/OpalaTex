@@ -138,6 +138,12 @@
     "showHiddenFiles": "Ocultos",
     "showHiddenFilesTooltip": "Mostrar arquivos auxiliares LaTeX ocultos pelo filtro do workspace",
     "refreshFiles": "Atualizar arquivos",
+    "newFileName": "Nome do novo arquivo",
+    "newDirName": "Nome do novo diretório",
+    "newPresentationName": "Nome da nova apresentação",
+    "newPresentationDefaultStem": "apresentacao",
+    "inlineCreateInvalidName": "Use um nome relativo, sem segmentos vazios, \".\" ou \"..\".",
+    "inlineCreateExists": "\"{{name}}\" já existe neste local. Escolha outro nome.",
     "selectProjectToExplore": "Selecione um projeto para explorar.",
     "importProject": "Importar Projeto",
     "selectProjectPlaceholder": "Selecionar projeto...",
@@ -1040,10 +1046,8 @@
     "fileSaved": "Arquivo salvo: {{path}}",
     "fileSaveFailedPath": "Erro ao salvar arquivo: {{path}}",
     "writeError": "Erro de escrita: {{error}}",
-    "newFilePrompt": "Nome do novo arquivo (ex: src/utils.py):",
     "fileCreated": "Arquivo criado: {{path}}",
     "fileCreateCallError": "Erro na chamada de criacao de arquivo: {{error}}",
-    "newDirPrompt": "Nome do novo diretorio (ex: src/components):",
     "dirCreated": "Diretorio criado: {{path}}",
     "dirCreateCallError": "Erro na chamada de criacao de diretorio: {{error}}",
     "importFailed": "Falha ao importar arquivo",
@@ -1141,8 +1145,7 @@
     "messageQueueFailed": "Nao foi possivel enfileirar a mensagem.",
     "messageQueueError": "Nao foi possivel enfileirar a mensagem: {{error}}",
     "messageCancelError": "Nao foi possivel cancelar a mensagem: {{error}}",
-    "slashCommandWhileRunning": "Comandos de barra nao podem ser executados enquanto o agente trabalha. Pare o agente primeiro.",
-    "newPresentationPrompt": "Nome da nova apresentação:"
+    "slashCommandWhileRunning": "Comandos de barra nao podem ser executados enquanto o agente trabalha. Pare o agente primeiro."
   },
   "onboarding": {
     "welcome": "Bem-vindo ao OpalaTex! 🚀",

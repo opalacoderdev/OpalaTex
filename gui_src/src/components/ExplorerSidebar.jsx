@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Plus, Trash2, RefreshCw, ExternalLink, FolderOpen, ChevronDown, AlertTriangle, CloudDownload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import FileNode from './FileNode';
+import InlineCreateNode from './InlineCreateNode';
+import { normalizeTreePath } from '../utils/inlineCreate';
 
 // Left sidebar — Explorer tab: project list + workspace file tree.
 export default function ExplorerSidebar({
@@ -36,6 +38,9 @@ export default function ExplorerSidebar({
   setRenamingNodePath,
   executeRenameNode,
   cloudFileStates,
+  pendingCreate,
+  onInlineCreateSubmit,
+  onInlineCreateCancel,
 }) {
   const { t } = useTranslation();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -84,7 +89,10 @@ export default function ExplorerSidebar({
       {/* Import error message */}
       {importError && (
         <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--vscode-errorForeground)', background: 'var(--vscode-sidebar-bg)', borderBottom: '1px solid var(--vscode-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px' }}>
-          <span>⚠️ {importError}</span>
+          <span style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+            <AlertTriangle size={12} aria-hidden="true" style={{ flexShrink: 0, marginTop: '1px' }} />
+            <span>{importError}</span>
+          </span>
           <button onClick={() => onClearImportError && onClearImportError()} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-errorForeground)', padding: '0', lineHeight: 1, flexShrink: 0 }}>✕</button>
         </div>
       )}
@@ -285,12 +293,21 @@ export default function ExplorerSidebar({
           )}
         </div>
 
-        {files.length === 0 ? (
+        {files.length === 0 && !pendingCreate ? (
           <div style={{ fontSize: '12px', color: 'var(--vscode-text-muted)', padding: '0 4px', fontStyle: 'italic' }}>
             {t('explorerSidebar.selectProjectToExplore')}
           </div>
         ) : (
           <div>
+            {pendingCreate && !normalizeTreePath(pendingCreate.parentPath) && (
+              <InlineCreateNode
+                key={pendingCreate.id}
+                kind={pendingCreate.kind}
+                initialName={pendingCreate.initialName}
+                onSubmit={onInlineCreateSubmit}
+                onCancel={onInlineCreateCancel}
+              />
+            )}
             {files.map(node => (
               <FileNode
                 key={node.path}
@@ -311,6 +328,9 @@ export default function ExplorerSidebar({
                 setRenamingNodePath={setRenamingNodePath}
                 executeRenameNode={executeRenameNode}
                 cloudFileStates={cloudFileStates}
+                pendingCreate={pendingCreate}
+                onInlineCreateSubmit={onInlineCreateSubmit}
+                onInlineCreateCancel={onInlineCreateCancel}
               />
             ))}
           </div>

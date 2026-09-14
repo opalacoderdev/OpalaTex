@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, FolderOpen } from 'lucide-react';
+import { X, FolderOpen, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useModelValidation } from './useModelValidation';
 import ModelSelect from '../ModelSelect';
@@ -251,7 +251,7 @@ export default function NewProjectModal({
 
           {newProjError && (
             <div style={{ color: 'var(--vscode-errorForeground)', fontSize: '11px', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
-              ⚠️ {newProjError}
+              <AlertTriangle size={12} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: '4px' }} />{newProjError}
             </div>
           )}
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { Bell } from 'lucide-react';
 
 // Modal displayed when the backend emits an input_request (Yes/No confirmation).
 //
@@ -33,7 +34,7 @@ export default function ConfirmModal({ confirmRequest, onConfirm }) {
       }}>
         {/* Header */}
         <div className="vscode-sidebar-header" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '20px' }}>🔔</span>
+          <Bell size={18} aria-hidden="true" style={{ color: 'var(--vscode-fg-gold)', flexShrink: 0 }} />
           <span className="vscode-sidebar-title" style={{ letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             {t('confirmModal.title', 'Confirm')}
           </span>

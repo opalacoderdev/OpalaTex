@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Settings, Check, FolderOpen } from 'lucide-react';
+import { X, Settings, Check, FolderOpen, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useModelValidation } from './useModelValidation';
 import { useCustomDialog } from './CustomDialogProvider';
@@ -596,7 +596,7 @@ export default function EditProjectModal({
 
           {editProjError && (
             <div style={{ color: 'var(--vscode-errorForeground)', fontSize: '11px', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
-              ⚠️ {editProjError}
+              <AlertTriangle size={12} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: '4px' }} />{editProjError}
             </div>
           )}
 

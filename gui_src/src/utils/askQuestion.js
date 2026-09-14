@@ -27,6 +27,37 @@ export const normalizeInputRequest = (data = {}) => {
   return request;
 };
 
+/**
+ * Choose the dialog that renders a `confirmRequest`. Local prompts (new file,
+ * new directory, new presentation) travel through `confirmRequest` with
+ * `type: 'ask'` and a callback; they need a text input, so they must never fall
+ * through to the Yes/No confirmation, whose button value would reach the
+ * callback as the answer.
+ */
+export const confirmRequestDialog = (request) => {
+  if (!request) return null;
+  if (request.type === 'interactive_terminal') return 'interactive_terminal';
+  if (request.type === 'ask') return 'ask';
+  return 'confirm';
+};
+
+const localRequestKeys = new WeakMap();
+let nextLocalRequestKey = 1;
+
+/**
+ * Stable React key for a dialog request. Backend requests carry an id; local
+ * prompts do not, so each request object gets its own counter value. The input
+ * window is non-modal, so a second prompt can replace the first while it is
+ * open; a fresh key remounts the window and keeps the first prompt's typed text
+ * from being submitted to the second prompt's callback.
+ */
+export const dialogRequestKey = (request) => {
+  if (!request) return null;
+  if (request.id !== undefined && request.id !== null) return `id:${request.id}`;
+  if (!localRequestKeys.has(request)) localRequestKeys.set(request, `local:${nextLocalRequestKey++}`);
+  return localRequestKeys.get(request);
+};
+
 /** Return the wire value expected by /api/opalatex/input_response. */
 export const formatAskResponse = ({
   inputValue = '',

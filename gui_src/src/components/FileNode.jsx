@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Folder, File, ChevronRight, ChevronDown } from 'lucide-react';
 import CloudFileBadge from './CloudFileBadge';
+import InlineCreateNode from './InlineCreateNode';
+import { isSameTreePath, treePathContains } from '../utils/inlineCreate';
 
-// Recursive file/directory tree node with drag-and-drop & inline rename support.
+// Recursive file/directory tree node with drag-and-drop, inline rename and
+// inline creation support.
 export default function FileNode({
   node,
   selectedFile,
@@ -21,6 +24,9 @@ export default function FileNode({
   setRenamingNodePath,
   executeRenameNode,
   cloudFileStates,
+  pendingCreate,
+  onInlineCreateSubmit,
+  onInlineCreateCancel,
 }) {
   const isDir = node.isDirectory;
   // The tree carries OS-separated relative paths; the sync state is keyed by
@@ -30,12 +36,21 @@ export default function FileNode({
   const isRenaming = renamingNodePath === node.path;
   const [editName, setEditName] = useState(node.name);
   const inputRef = useRef(null);
+  const isCreateTarget = Boolean(isDir && pendingCreate && isSameTreePath(pendingCreate.parentPath, node.path));
 
   useEffect(() => {
     if (isRenaming) {
       setEditName(node.name);
     }
   }, [isRenaming, node.name]);
+
+  // Reveal the provisional creation row: open this directory when it is the
+  // target or one of its ancestors.
+  useEffect(() => {
+    if (isDir && pendingCreate && treePathContains(node.path, pendingCreate.parentPath)) {
+      setIsOpen(true);
+    }
+  }, [isDir, pendingCreate, node.path]);
 
   useEffect(() => {
     if (isRenaming && inputRef.current) {
@@ -176,6 +191,15 @@ export default function FileNode({
         </div>
         {isOpen && (
           <div style={{ paddingLeft: '12px', borderLeft: '1px solid var(--vscode-border)', marginLeft: '14px' }}>
+            {isCreateTarget && (
+              <InlineCreateNode
+                key={pendingCreate.id}
+                kind={pendingCreate.kind}
+                initialName={pendingCreate.initialName}
+                onSubmit={onInlineCreateSubmit}
+                onCancel={onInlineCreateCancel}
+              />
+            )}
             {node.children.map(child => (
               <FileNode
                 key={child.path}
@@ -196,6 +220,9 @@ export default function FileNode({
                 setRenamingNodePath={setRenamingNodePath}
                 executeRenameNode={executeRenameNode}
                 cloudFileStates={cloudFileStates}
+                pendingCreate={pendingCreate}
+                onInlineCreateSubmit={onInlineCreateSubmit}
+                onInlineCreateCancel={onInlineCreateCancel}
               />
             ))}
           </div>

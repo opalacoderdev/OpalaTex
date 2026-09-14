@@ -1981,7 +1981,7 @@ export default function ChatPanel({
                 {isTurnCutShort && isLastUserOrAssistantMessage && !isAgentRunning && (
                   <div style={{ marginTop: '10px' }}>
                     <div style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', marginBottom: '6px' }}>
-                      ⚠️ {t('app.turnCutShortNotice')}
+                      <AlertTriangle size={12} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: '4px' }} />{t('app.turnCutShortNotice')}
                     </div>
                     <button
                       type="button"

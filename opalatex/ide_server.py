@@ -1761,12 +1761,18 @@ class AsyncHTTPServer:
             project_path = data.get('projectPath')
             file_path = data.get('filePath')
             content = data.get('content', '')
+            # `exclusive` is for creation: refuse an existing path rather than
+            # overwrite whatever is already there.
+            exclusive = bool(data.get('exclusive'))
             if not project_path or not file_path:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath are required"}', "application/json")
                 return
             full_path = os.path.abspath(os.path.join(project_path, file_path))
             if not _is_path_within(full_path, project_path):
                 self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
+                return
+            if exclusive and os.path.lexists(full_path):
+                self.send_response(writer, 409, json.dumps({"error": f"Path already exists: {file_path}", "code": "exists"}).encode('utf-8'), "application/json")
                 return
             try:
                 dir_path = os.path.dirname(full_path)
@@ -1815,12 +1821,18 @@ class AsyncHTTPServer:
         elif path == '/api/file/mkdir' and method == 'POST':
             project_path = data.get('projectPath')
             dir_path = data.get('dirPath')
+            # `exclusive` is for creation: report an existing path instead of
+            # silently treating it as created.
+            exclusive = bool(data.get('exclusive'))
             if not project_path or not dir_path:
                 self.send_response(writer, 400, b'{"error":"projectPath and dirPath are required"}', "application/json")
                 return
             full_path = os.path.abspath(os.path.join(project_path, dir_path))
             if not full_path.startswith(os.path.abspath(project_path)):
                 self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
+                return
+            if exclusive and os.path.lexists(full_path):
+                self.send_response(writer, 409, json.dumps({"error": f"Path already exists: {dir_path}", "code": "exists"}).encode('utf-8'), "application/json")
                 return
             try:
                 os.makedirs(full_path, exist_ok=True)

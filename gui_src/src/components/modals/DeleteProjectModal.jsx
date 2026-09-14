@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation, Trans } from 'react-i18next';
+import { AlertTriangle } from 'lucide-react';
 
 export default function DeleteProjectModal({ projectToDelete, onCancel, onConfirm }) {
   const { t } = useTranslation();
@@ -17,7 +18,7 @@ export default function DeleteProjectModal({ projectToDelete, onCancel, onConfir
         boxShadow: '0 24px 64px rgba(0,0,0,0.3)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-          <span style={{ fontSize: '22px' }}>⚠️</span>
+          <AlertTriangle size={20} aria-hidden="true" style={{ color: 'var(--vscode-fg-gold)', flexShrink: 0 }} />
           <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--vscode-descriptionForeground, #a0a0c0)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
             {t('deleteProjectModal.title', 'Remove Project')}
           </span>

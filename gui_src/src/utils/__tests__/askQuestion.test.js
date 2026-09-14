@@ -3,9 +3,32 @@ import assert from 'node:assert/strict';
 
 import {
   askQuestionOptions,
+  confirmRequestDialog,
+  dialogRequestKey,
   formatAskResponse,
   normalizeInputRequest,
 } from '../askQuestion.js';
+
+test('each local prompt gets its own dialog key so typed text cannot leak between prompts', () => {
+  const newFile = { type: 'ask', prompt: 'New file name:', default: 'src/', callback: () => {} };
+  const newDir = { type: 'ask', prompt: 'New directory name:', default: 'src/', callback: () => {} };
+  assert.equal(dialogRequestKey(newFile), dialogRequestKey(newFile));
+  assert.notEqual(dialogRequestKey(newFile), dialogRequestKey(newDir));
+  assert.equal(dialogRequestKey({ id: 'abc', type: 'ask' }), 'id:abc');
+  assert.equal(dialogRequestKey(null), null);
+});
+
+test('local ask prompts render as an input dialog, not a Yes/No confirmation', () => {
+  const newDirRequest = { type: 'ask', rows: 1, prompt: 'New directory name:', default: 'src/', callback: () => {} };
+  assert.equal(confirmRequestDialog(newDirRequest), 'ask');
+});
+
+test('confirm request routing covers terminal, confirmation and empty requests', () => {
+  assert.equal(confirmRequestDialog({ type: 'interactive_terminal' }), 'interactive_terminal');
+  assert.equal(confirmRequestDialog({ prompt: 'Delete?', options: ['yes', 'no'] }), 'confirm');
+  assert.equal(confirmRequestDialog(normalizeInputRequest({ id: 'c', prompt: 'Run?' })), 'confirm');
+  assert.equal(confirmRequestDialog(null), null);
+});
 
 test('ask requests do not inherit confirmation defaults', () => {
   assert.deepEqual(

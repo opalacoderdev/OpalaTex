@@ -1030,6 +1030,18 @@ input:focus, select:focus, textarea:focus {
   border-left: 2px solid var(--vscode-active-border);
 }
 
+/* Inline creation row (new file / directory / presentation) */
+.inline-create-error {
+  margin: 0 8px 4px 28px;
+  padding: 3px 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--vscode-text-fg);
+  background: var(--vscode-inputValidation-errorBackground, rgba(90, 29, 29, 0.9));
+  border: 1px solid var(--vscode-errorForeground, #f48771);
+  overflow-wrap: anywhere;
+}
+
 /* Editor Panel */
 .vscode-editor-panel {
   flex: 1;

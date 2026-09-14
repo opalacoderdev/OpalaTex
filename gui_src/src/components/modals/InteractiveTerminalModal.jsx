@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { X, Check } from 'lucide-react';
+import { X, Check, SquareTerminal } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import { safeGetLocalStorage, safeSetLocalStorage } from '../../utils/storage';
 import {
@@ -197,7 +197,7 @@ export default function InteractiveTerminalModal({ request, onConfirm, activePro
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '18px' }}>💻</span>
+            <SquareTerminal size={18} aria-hidden="true" style={{ color: '#a0a0c0', flexShrink: 0 }} />
             <span style={{ fontSize: '12px', fontWeight: 700, color: '#a0a0c0', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
               {t('interactiveTerminalModal.title', 'Interactive Terminal:')} {request.command}
             </span>
