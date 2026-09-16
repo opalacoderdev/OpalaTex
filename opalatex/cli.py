@@ -220,6 +220,12 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    # Installed before anything else runs: a crash in the embedded browser kills
+    # this process without raising a Python exception, and this is what leaves a
+    # record of it behind (see opalatex/crash_report.py).
+    from .crash_report import install as install_crash_reporting
+    install_crash_reporting()
+
     if args.debug:
         from opalatex.config import setup_debug_logging
         setup_debug_logging()

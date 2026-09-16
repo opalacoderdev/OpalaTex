@@ -142,6 +142,13 @@ _DESKTOP_OPEN_FAILURE_WINDOW = 1.5
 # entire token history to be displayed.
 CHAT_HISTORY_STREAM_CHUNK_LIMIT = 5000
 
+# What this launch found out about the launch before it: runs that ended without
+# shutting down, and where their crash log is. Filled in by `start_gui_server`
+# and served by /api/diagnostics/startup-report. It is kept for the lifetime of
+# the process rather than consumed by the first reader, so reloading the window
+# does not erase the only notice the user ever gets about a silent crash.
+_STARTUP_DIAGNOSTICS: dict = {}
+
 
 async def _desktop_open_failure(
     proc,
@@ -5283,6 +5290,46 @@ class AsyncHTTPServer:
             set_lang(backend_lang)
             self.send_response(writer, 200, b'{"success":true}', "application/json")
 
+        # 7n2. Graphics mode for the embedded browser window — GET
+        elif path == '/api/settings/graphics' and method == 'GET':
+            from opalatex.ui_settings import load_ui_settings
+            from opalatex.webengine_env import CHROMIUM_FLAGS_VAR, normalize_gpu_mode, resolve_gpu_mode
+            cfg = load_ui_settings()
+            saved = normalize_gpu_mode(cfg.get("webengine_gpu"))
+            effective, source = resolve_gpu_mode(settings=cfg)
+            self.send_response(writer, 200, json.dumps({
+                "webengine_gpu": saved,
+                # What this running process actually did, which differs from the
+                # saved value while an environment override is in force or while
+                # a change is waiting for the next launch.
+                "effective_webengine_gpu": _STARTUP_DIAGNOSTICS.get("webengine_gpu", effective),
+                "source": source,
+                "chromium_flags": os.environ.get(CHROMIUM_FLAGS_VAR, ""),
+            }).encode('utf-8'), "application/json")
+
+        # 7n3. Graphics mode — POST (set; applies at the next launch)
+        elif path == '/api/settings/graphics' and method == 'POST':
+            from opalatex.ui_settings import load_ui_settings, save_ui_settings
+            from opalatex.webengine_env import normalize_gpu_mode
+            requested = normalize_gpu_mode(data.get("webengine_gpu"))
+            previous = normalize_gpu_mode(load_ui_settings().get("webengine_gpu"))
+            save_ui_settings({"webengine_gpu": requested})
+            self.send_response(writer, 200, json.dumps({
+                "success": True,
+                "webengine_gpu": requested,
+                # QtWebEngine reads its flags once, before the window exists, so
+                # a change only reaches the browser on the next launch.
+                "requiresRestart": requested != _STARTUP_DIAGNOSTICS.get("webengine_gpu", previous),
+            }).encode('utf-8'), "application/json")
+
+        # 7n4. What the previous run left behind (native crashes have no traceback)
+        elif path == '/api/diagnostics/startup-report' and method == 'GET':
+            self.send_response(writer, 200, json.dumps({
+                "previous_run_failures": _STARTUP_DIAGNOSTICS.get("previous_run_failures", []),
+                "crash_log_path": _STARTUP_DIAGNOSTICS.get("crash_log_path", ""),
+                "webengine_gpu": _STARTUP_DIAGNOSTICS.get("webengine_gpu", "auto"),
+            }).encode('utf-8'), "application/json")
+
         # 7q. LaTeX settings — GET
         elif path == '/api/settings/latex' and method == 'GET':
             from opalatex.ui_settings import load_ui_settings
@@ -5668,6 +5715,10 @@ def schedule_app_restart(delay=0.6):
         except Exception as e:  # pragma: no cover - depends on the host OS
             print(f"[OpalaTex] restart failed to spawn a new instance: {e}")
             return
+        # ``os._exit`` skips atexit, so this exit path has to retire its own run
+        # marker — otherwise every restart looks like a crash to the next launch.
+        from opalatex import crash_report
+        crash_report.mark_clean_exit()
         os._exit(0)
 
     timer = threading.Timer(delay, _restart)
@@ -5689,16 +5740,45 @@ def find_available_port(host, start_port, max_port=3050):
 
 def start_gui_server(host="127.0.0.1", port=3000):
     import os
+    from opalatex import crash_report
     from opalatex.config import DEFAULT_LANG
     from opalatex.i18n import set_lang
     from opalatex.ui_settings import load_ui_settings
-    
+    from opalatex.webengine_env import apply_webengine_environment
+
     try:
         port = find_available_port(host, port)
     except Exception as e:
         print(f"Warning: could not find available port using fallback logic: {e}")
 
-    saved_lang = load_ui_settings().get("lang", "")
+    ui_cfg = load_ui_settings()
+
+    # The graphics mode has to be decided before QtWebEngine reads the
+    # environment, and it is worth recording next to the run it applies to:
+    # a crash log that does not say whether the GPU was in use cannot answer
+    # whether turning it off helped.
+    webengine = apply_webengine_environment(settings=ui_cfg)
+    crash_report.install(details={
+        "webengine_gpu": webengine["gpu_mode"],
+        "webengine_gpu_source": webengine["source"],
+        "chromium_flags": webengine["chromium_flags"],
+    })
+    if webengine["reason"]:
+        print(f"[OpalaTex] QtWebEngine: {webengine['reason']} ({webengine['chromium_flags']})")
+
+    # A run that died leaves its marker behind; this is the only moment the
+    # application can say so, since the run itself had no chance to.
+    global _STARTUP_DIAGNOSTICS
+    previous_failures = crash_report.consume_previous_run_failures()
+    for failure in previous_failures:
+        print(crash_report.describe_failure(failure))
+    _STARTUP_DIAGNOSTICS = {
+        "previous_run_failures": previous_failures,
+        "crash_log_path": str(crash_report.crash_log_path()),
+        "webengine_gpu": webengine["gpu_mode"],
+    }
+
+    saved_lang = ui_cfg.get("lang", "")
     if saved_lang:
         backend_lang = "pt" if saved_lang.startswith("pt") else "en"
         set_lang(backend_lang)
@@ -5769,15 +5849,6 @@ def start_gui_server(host="127.0.0.1", port=3000):
         # PythonNet and WinForms are extremely fragile when packaged with PyInstaller on some Windows machines.
         if 'PYWEBVIEW_GUI' not in _os.environ:
             _os.environ['PYWEBVIEW_GUI'] = 'qt'
-
-        # On Linux, QtWebEngine's GPU process can segfault at startup when Mesa's
-        # Zink/EGL layer fails to acquire a DRM render node (e.g. missing/inaccessible
-        # /dev/dri/render*, seen on some distro+driver combos). Disabling GPU
-        # compositing avoids touching that native path; users who know GPU accel
-        # works on their machine can still opt back in by setting the env var
-        # themselves before launch.
-        if _sys.platform.startswith('linux') and 'QTWEBENGINE_CHROMIUM_FLAGS' not in _os.environ:
-            _os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = '--disable-gpu'
 
         import webview  # pywebview
         
@@ -6050,4 +6121,7 @@ def start_gui_server(host="127.0.0.1", port=3000):
         server.stop()
     except Exception as e:
         print(f"Error stopping server: {e}")
+    # Closing the window is a normal end, and ``os._exit`` skips atexit: say so
+    # explicitly, or the next launch reports this run as one that died.
+    crash_report.mark_clean_exit()
     os._exit(0)

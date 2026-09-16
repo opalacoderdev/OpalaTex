@@ -32,6 +32,12 @@ _DEFAULTS: dict[str, Any] = {
     # to this size, and resuming an interrupted turn replays the reasoning in
     # full up to this size or as a summary beyond it. Everything is stored.
     "thought_context_tokens": 32000,
+    # Graphics mode for the embedded browser window: "auto" uses the GPU,
+    # "off" runs Chromium without it. QtWebEngine loads the graphics driver
+    # into the OpalaTex process itself, so a driver fault kills the whole
+    # application; "off" is the recovery for a machine where that happens.
+    # Only takes effect at the next launch (see opalatex/webengine_env.py).
+    "webengine_gpu": "auto",
 }
 
 # Bounds for "ui_scale". The upper bound keeps the app usable on a 1080p

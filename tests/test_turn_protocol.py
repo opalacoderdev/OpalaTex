@@ -494,6 +494,16 @@ def test_the_host_labels_a_turn_that_never_answered():
     assert _mark_turn_without_answer(done, "Reading.\n\nTHE ANSWER") == "Reading.\n\nTHE ANSWER"
 
 
+def _front_end_marker(name: str) -> str:
+    """Read a marker the front-end declares, as the string it compares against."""
+    import re
+
+    module = open("gui_src/src/utils/turnMarkers.js", encoding="utf-8").read()
+    declared = re.search(rf"export const {name} =\n?(.*?);", module, re.S)
+    assert declared, f"the front-end must declare {name}"
+    return "".join(re.findall(r"'([^']*)'", declared.group(1)))
+
+
 def test_the_cut_short_marker_is_unlocalised_and_matches_the_front_end():
     """The front-end matches this string to show the continue action.
 
@@ -501,17 +511,32 @@ def test_the_cut_short_marker_is_unlocalised_and_matches_the_front_end():
     language would stop matching after the user switched to another, and the
     button would silently disappear from turns that still need it.
     """
-    import re
-
     from opalatex.agent_stdin import TURN_CUT_SHORT_MARKER
 
-    panel = open("gui_src/src/components/ChatPanel.jsx", encoding="utf-8").read()
-    declared = re.search(r"const TURN_CUT_SHORT_MARKER =\n(.*?);", panel, re.S)
-    assert declared, "the front-end must declare the marker it matches on"
-    front_end = "".join(re.findall(r"'([^']*)'", declared.group(1)))
-
-    assert front_end == TURN_CUT_SHORT_MARKER
+    assert _front_end_marker("TURN_CUT_SHORT_MARKER") == TURN_CUT_SHORT_MARKER
     assert TURN_CUT_SHORT_MARKER.startswith("[TURN-CUT-SHORT]")
+
+
+def test_the_interruption_marker_matches_the_front_end_and_is_a_suffix():
+    """The marker is appended *after* the work the turn produced.
+
+    `_persist_unfinished_turn` stores ``f"{visible}\\n\\n{marker}"``, so a turn
+    stopped mid-sentence keeps its partial answer above the marker. The
+    front-end used to compare the whole message against the marker, which
+    matched only a turn that had produced nothing: interrupting a talking agent
+    showed the raw English marker in the chat and offered no continue action.
+    Both halves of that contract are asserted here.
+    """
+    from opalatex.agent_stdin import INTERRUPTED_AGENT_HISTORY_MARKER
+
+    assert _front_end_marker("INTERRUPTED_MARKER") == INTERRUPTED_AGENT_HISTORY_MARKER
+    assert INTERRUPTED_AGENT_HISTORY_MARKER.startswith("[INTERRUPTED]")
+
+    panel = open("gui_src/src/components/ChatPanel.jsx", encoding="utf-8").read()
+    assert INTERRUPTED_AGENT_HISTORY_MARKER not in panel, (
+        "the marker belongs to utils/turnMarkers.js; a second copy is a second "
+        "thing to keep in step"
+    )
 
 
 # ── The fence is this host's markup, not the model's ─────────────────────────

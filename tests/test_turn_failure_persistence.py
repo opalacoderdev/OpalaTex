@@ -119,8 +119,15 @@ def test_every_streamed_chunk_reaches_the_buffer(monkeypatch):
 
 
 def test_the_marker_is_the_one_the_front_end_matches():
-    """ChatPanel.jsx carries this string byte-for-byte; drift silently hides the notice."""
+    """utils/turnMarkers.js carries this string byte-for-byte; drift hides the notice."""
+    import re
+
     assert stdin_mod.TURN_FAILED_MARKER == (
         "[TURN-FAILED] This turn stopped on an error before the model gave a "
         "final answer. The text above is work in progress, not a reply."
     )
+
+    module = open("gui_src/src/utils/turnMarkers.js", encoding="utf-8").read()
+    declared = re.search(r"export const TURN_FAILED_MARKER =\n?(.*?);", module, re.S)
+    assert declared, "the front-end must declare the marker it matches on"
+    assert "".join(re.findall(r"'([^']*)'", declared.group(1))) == stdin_mod.TURN_FAILED_MARKER

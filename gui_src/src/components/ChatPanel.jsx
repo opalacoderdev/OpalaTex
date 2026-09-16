@@ -9,18 +9,7 @@ import { isLocalModelId } from '../utils/models.js';
 import { stripInlineReasoning } from '../utils/thinkTags.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 
-// Kept byte-for-byte in step with `agent_stdin.TURN_CUT_SHORT_MARKER`. The
-// backend appends it after the work a guardrail-stopped turn did produce, so
-// the text survives; this side splits it off and offers the continue action.
-const TURN_CUT_SHORT_MARKER =
-  '[TURN-CUT-SHORT] The runaway guardrail stopped this turn before the model ' +
-  'gave a final answer. The text above is work in progress, not a reply.';
-// Likewise in step with `agent_stdin.TURN_FAILED_MARKER`: a turn that stopped on
-// an error (typically the provider becoming unreachable) keeps whatever the
-// model had written, and is continued from the same button.
-const TURN_FAILED_MARKER =
-  '[TURN-FAILED] This turn stopped on an error before the model gave a final ' +
-  'answer. The text above is work in progress, not a reply.';
+import { turnEndFromContent } from '../utils/turnMarkers.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
 import ModelSelect from './ModelSelect.jsx';
@@ -1705,30 +1694,26 @@ export default function ChatPanel({
           const persistedThoughtStream = !isUser ? String(msg._thoughtStream || '').trim() : '';
           
           const interruptionProbe = contentWithoutThink(msg.content);
-          const isInterrupted = !isUser && interruptionProbe && (
-            interruptionProbe === '[INTERRUPTED] The user interrupted the agent execution.' ||
-            interruptionProbe.startsWith('Interrupted:') ||
-            interruptionProbe.startsWith('Interrompido:')
-          );
-          // A turn the runaway guardrail stopped before the model answered. The
-          // backend appends a stable, unlocalised marker after the work the model
-          // did produce -- that text is real and is never dropped -- so the marker
-          // is split off here and shown as the localised notice instead, next to
-          // the same continue action an interrupted turn offers. Matching the
+          // Interrupted, stopped by the runaway guardrail, or killed by an
+          // error: three ways a turn ends without an answer, and one rule for
+          // all of them. The backend appends a stable, unlocalised marker after
+          // the work the model did produce -- that text is real and is never
+          // dropped -- so the marker is split off here and shown as the
+          // localised notice instead, next to the continue action. Matching the
           // translated prose would break for anyone who changed language after
           // the turn ran.
-          const isTurnCutShort = !isUser && String(msg.content || '').includes(TURN_CUT_SHORT_MARKER);
-          const isTurnFailed = !isUser && String(msg.content || '').includes(TURN_FAILED_MARKER);
+          const turnEnd = !isUser ? turnEndFromContent(msg.content, interruptionProbe) : null;
+          const isInterrupted = Boolean(turnEnd?.interrupted);
+          const isTurnCutShort = Boolean(turnEnd?.cutShort);
+          const isTurnFailed = Boolean(turnEnd?.failed);
           let displayContent = isUser && isInternalResumePrompt(msg.content)
             ? t('chatPanel.continue', 'Continue')
             : msg.content;
-          if (isTurnCutShort) {
-            displayContent = String(msg.content).split(TURN_CUT_SHORT_MARKER).join('').trimEnd();
-          }
-          if (isTurnFailed) {
-            displayContent = String(displayContent).split(TURN_FAILED_MARKER).join('').trimEnd();
-          }
-          if (isInterrupted) {
+          if (isTurnCutShort || isTurnFailed || turnEnd?.interruptedByMarker) {
+            displayContent = turnEnd.text;
+          } else if (turnEnd?.legacyInterruption) {
+            // Recorded before the marker existed: the prose *is* the notice, and
+            // there is no partial answer underneath it to preserve.
             displayContent = t('app.interruptionNotice');
           }
           if (hideThink && !isUser && displayContent) {
@@ -2018,29 +2003,38 @@ export default function ChatPanel({
                   </div>
                 )}
                 {isInterrupted && isLastUserOrAssistantMessage && !isAgentRunning && (
-                  <button
-                    type="button"
-                    onClick={() => runChatAction(() => handleSendMessage(null, null, {
-                      resumeInterrupted: true,
-                      displayText: t('chatPanel.continue', 'Continuar'),
-                    }))}
-                    style={{
-                      marginTop: '8px',
-                      padding: '6px 10px',
-                      background: 'var(--vscode-button-background, #0e639c)',
-                      color: 'var(--vscode-button-foreground, #ffffff)',
-                      border: 'none',
-                      borderRadius: '3px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      width: 'fit-content'
-                    }}
-                  >
-                    <ArrowRight size={14} /> {t('chatPanel.continue', 'Continuar')}
-                  </button>
+                  <div style={{ marginTop: '8px' }}>
+                    {/* The notice is what the raw marker used to say, in the
+                        user's language. A legacy interruption has it as its
+                        content already, so it is not repeated here. */}
+                    {turnEnd?.interruptedByMarker && (
+                      <div style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', marginBottom: '6px' }}>
+                        <AlertTriangle size={12} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: '4px' }} />{t('app.interruptionNotice')}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => runChatAction(() => handleSendMessage(null, null, {
+                        resumeInterrupted: true,
+                        displayText: t('chatPanel.continue', 'Continuar'),
+                      }))}
+                      style={{
+                        padding: '6px 10px',
+                        background: 'var(--vscode-button-background, #0e639c)',
+                        color: 'var(--vscode-button-foreground, #ffffff)',
+                        border: 'none',
+                        borderRadius: '3px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        width: 'fit-content'
+                      }}
+                    >
+                      <ArrowRight size={14} /> {t('chatPanel.continue', 'Continuar')}
+                    </button>
+                  </div>
                 )}
                 {canContinueUserMessage && (
                   <button

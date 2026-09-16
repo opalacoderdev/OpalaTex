@@ -68,6 +68,7 @@ export default function SettingsModal({
   const [opalatexHome, setOpalaTexHome] = React.useState('');
   const [opalatexHomeError, setOpalaTexHomeError] = React.useState('');
   const [draftSynctexEnabled, setDraftSynctexEnabled] = React.useState(false);
+  const [webengineGpu, setWebengineGpu] = React.useState('auto');
   const [workspaceHiddenExtensions, setWorkspaceHiddenExtensions] = React.useState([]);
   const [tectonicInstallMessage, setTectonicInstallMessage] = React.useState('');
   const [pandocInstallMessage, setPandocInstallMessage] = React.useState('');
@@ -124,6 +125,13 @@ export default function SettingsModal({
       })
       .catch(() => { });
 
+    fetch('/api/settings/graphics')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (cfg?.webengine_gpu) setWebengineGpu(cfg.webengine_gpu);
+      })
+      .catch(() => { });
+
     fetch('/api/settings/image-generation')
       .then(r => r.ok ? r.json() : null)
       .then(cfg => {
@@ -163,6 +171,53 @@ export default function SettingsModal({
       })
       .catch(() => { });
   }, []);
+
+  // Restart-only settings are read once, before the window exists, so the user
+  // is asked right away; declining keeps the saved value with a reminder that
+  // it is still pending. Shared by every setting with that shape.
+  const performRestart = async () => {
+    setIsRestarting(true);
+    try {
+      const res = await fetch('/api/app/restart', { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.error) {
+        setIsRestarting(false);
+        await showAlert(t('settingsModal.restartError') + (body?.error || res.status));
+      }
+      // On success the server exits and relaunches; this window closes with it.
+    } catch (err) {
+      setIsRestarting(false);
+      await showAlert(t('settingsModal.restartError') + err);
+    }
+  };
+
+  // QtWebEngine reads its graphics flags before the browser is created, so this
+  // choice reaches the window on the next launch and not before.
+  const saveGraphicsSettings = async (mode) => {
+    setWebengineGpu(mode);
+    let body = {};
+    try {
+      const res = await fetch('/api/settings/graphics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webengine_gpu: mode }),
+      });
+      body = await res.json().catch(() => ({}));
+    } catch (err) {
+      await showAlert(t('settingsModal.graphicsSaveError', 'Could not save the graphics setting: ') + err);
+      return;
+    }
+    if (!body?.requiresRestart) return;
+
+    const shouldRestart = await showConfirm(
+      t('settingsModal.graphicsRestartConfirm', 'This setting only applies to a new app window. Restart OpalaTex now?')
+    );
+    if (!shouldRestart) {
+      await showAlert(t('settingsModal.graphicsRestartAlert', 'The setting was saved and will apply the next time OpalaTex starts.'));
+      return;
+    }
+    await performRestart();
+  };
 
   const saveLatexSettings = (draftSynctexValue) => {
     fetch('/api/settings/latex', {
@@ -246,19 +301,7 @@ export default function SettingsModal({
       return;
     }
 
-    setIsRestarting(true);
-    try {
-      const res = await fetch('/api/app/restart', { method: 'POST' });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || body?.error) {
-        setIsRestarting(false);
-        await showAlert(t('settingsModal.restartError') + (body?.error || res.status));
-      }
-      // On success the server exits and relaunches; this window closes with it.
-    } catch (err) {
-      setIsRestarting(false);
-      await showAlert(t('settingsModal.restartError') + err);
-    }
+    await performRestart();
   };
 
   const updateEphemeralParam = (key, val) => {
@@ -570,6 +613,26 @@ export default function SettingsModal({
                   <span>{t('settingsModal.draftSynctexEnabled')}</span>
                 </label>
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>{t('settingsModal.draftSynctexHint')}</span>
+              </div>
+
+              {/* Graphics mode for the app window itself. The embedded browser
+                  loads the graphics driver into the OpalaTex process, so a
+                  driver fault closes the whole application with no message;
+                  this is the recovery for a machine where that happens. */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.graphics', 'Window graphics')}</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--vscode-text-fg)' }}>
+                  <input
+                    type="checkbox"
+                    checked={webengineGpu === 'auto'}
+                    disabled={isRestarting}
+                    onChange={(e) => saveGraphicsSettings(e.target.checked ? 'auto' : 'off')}
+                  />
+                  <span>{t('settingsModal.graphicsHardwareAcceleration', 'Use hardware acceleration (GPU) for the app window')}</span>
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.graphicsHint', 'The app window renders through the graphics driver, which runs inside the OpalaTex process: if the driver faults, the window closes with no error message. Turn this off if OpalaTex closes by itself. Takes effect after a restart.')}
+                </span>
               </div>
 
               {/* Image generation */}

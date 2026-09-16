@@ -1,0 +1,115 @@
+"""Tests for the graphics-mode setting and the startup diagnostics endpoint.
+
+Both exist for the same failure: the embedded browser can take the whole
+application down without an error message, so the app has to be able to say
+that it happened and to offer the one control that can stop it.
+"""
+
+import json
+from unittest.mock import AsyncMock
+
+import pytest
+
+from opalatex import ide_server
+from opalatex.ide_server import AsyncHTTPServer
+
+
+def _server_with_capture():
+    server = AsyncHTTPServer()
+    responses = []
+
+    def mock_send_response(_writer, status_code, body, content_type="text/plain"):
+        responses.append((status_code, json.loads(body.decode("utf-8")), content_type))
+
+    server.send_response = mock_send_response
+    return server, responses
+
+
+@pytest.fixture
+def settings_file(tmp_path, monkeypatch):
+    monkeypatch.setattr("opalatex.ui_settings._SETTINGS_PATH", tmp_path / "ui_settings.json")
+    monkeypatch.setattr(ide_server, "_STARTUP_DIAGNOSTICS", {}, raising=False)
+    return tmp_path / "ui_settings.json"
+
+
+@pytest.mark.asyncio
+async def test_graphics_defaults_to_using_the_gpu(settings_file):
+    server, responses = _server_with_capture()
+    await server.route_api("GET", "/api/settings/graphics", {}, {}, b"", AsyncMock())
+
+    status, body, _ = responses[0]
+    assert status == 200
+    assert body["webengine_gpu"] == "auto"
+    assert body["source"] == "settings"
+
+
+@pytest.mark.asyncio
+async def test_turning_the_gpu_off_is_saved_and_asks_for_a_restart(settings_file):
+    """QtWebEngine reads its flags before the window exists, so it needs one."""
+    server, responses = _server_with_capture()
+    monkey_body = json.dumps({"webengine_gpu": "off"}).encode()
+    await server.route_api(
+        "POST", "/api/settings/graphics", {}, {}, monkey_body, AsyncMock()
+    )
+
+    status, body, _ = responses[0]
+    assert status == 200
+    assert body["webengine_gpu"] == "off"
+    assert body["requiresRestart"] is True
+    assert json.loads(settings_file.read_text(encoding="utf-8"))["webengine_gpu"] == "off"
+
+    # Saving the mode the running process already uses asks for nothing.
+    ide_server._STARTUP_DIAGNOSTICS = {"webengine_gpu": "off"}
+    await server.route_api(
+        "POST", "/api/settings/graphics", {}, {}, monkey_body, AsyncMock()
+    )
+    assert responses[1][1]["requiresRestart"] is False
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_value_never_locks_the_app_into_software_rendering(settings_file):
+    server, responses = _server_with_capture()
+    await server.route_api(
+        "POST", "/api/settings/graphics", {}, {},
+        json.dumps({"webengine_gpu": "nonsense"}).encode(), AsyncMock(),
+    )
+    assert responses[0][1]["webengine_gpu"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_startup_report_carries_the_previous_crash_to_the_window(settings_file):
+    failure = {
+        "pid": 1234,
+        "started": "2026-09-15T21:59:00+00:00",
+        "native_fault": True,
+        "log_path": "/home/user/.opalatex/logs/crash.log",
+    }
+    ide_server._STARTUP_DIAGNOSTICS = {
+        "previous_run_failures": [failure],
+        "crash_log_path": failure["log_path"],
+        "webengine_gpu": "auto",
+    }
+
+    server, responses = _server_with_capture()
+    await server.route_api("GET", "/api/diagnostics/startup-report", {}, {}, b"", AsyncMock())
+
+    status, body, _ = responses[0]
+    assert status == 200
+    assert body["previous_run_failures"] == [failure]
+    assert body["webengine_gpu"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_startup_report_is_not_consumed_by_reading_it(settings_file):
+    """Reloading the window must not erase the only notice about a silent crash."""
+    ide_server._STARTUP_DIAGNOSTICS = {
+        "previous_run_failures": [{"pid": 7, "native_fault": True}],
+        "crash_log_path": "crash.log",
+        "webengine_gpu": "auto",
+    }
+
+    server, responses = _server_with_capture()
+    for _ in range(2):
+        await server.route_api("GET", "/api/diagnostics/startup-report", {}, {}, b"", AsyncMock())
+
+    assert responses[0][1]["previous_run_failures"] == responses[1][1]["previous_run_failures"]

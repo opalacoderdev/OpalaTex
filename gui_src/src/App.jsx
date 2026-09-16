@@ -10,6 +10,7 @@ import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale, viewpo
 import { layoutAfterOpeningFile, layoutShowsEditor } from './utils/layoutModes';
 import { clearAnsweredRequest, confirmRequestDialog, dialogRequestKey, normalizeInputRequest } from './utils/askQuestion';
 import { readRunConflict, RUN_CONFLICT_TURN_STOPPING } from './utils/agentRunConflict';
+import { interruptedTurnContent } from './utils/turnMarkers.js';
 import {
   appendThoughtChunk,
   clampThoughtContextTokens,
@@ -1579,6 +1580,37 @@ export default function App() {
     return () => { cancelled = true; };
   }, [activeProject?.project_path]);
 
+  // A native crash — the embedded browser faulting, most often inside the
+  // graphics driver QtWebEngine loads into the OpalaTex process itself — kills
+  // the application without raising a Python exception: the window disappears
+  // and nothing is printed anywhere. The backend detects it on the next launch
+  // from the run marker the dead process left behind, and this is where the
+  // user finally hears about it, with the log that explains it.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/diagnostics/startup-report');
+        if (!res.ok) return;
+        const data = await res.json();
+        const failures = data.previous_run_failures || [];
+        if (cancelled || failures.length === 0) return;
+        for (const failure of failures) {
+          const when = failure.started ? new Date(failure.started).toLocaleString() : '';
+          addLog('error', failure.native_fault
+            ? t('app.previousRunCrashed', { when, path: failure.log_path })
+            : t('app.previousRunEndedAbruptly', { when, path: failure.log_path }));
+        }
+        // Only offered while the GPU is actually in use: suggesting a switch
+        // that is already off would send the user after the wrong cause.
+        if (failures.some(f => f.native_fault) && data.webengine_gpu !== 'off') {
+          addLog('warning', t('app.previousRunCrashedGpuHint'));
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const compactForLatexFixPrompt = (value, limit) => {
     const text = String(value || '');
     if (text.length <= limit) return text;
@@ -2968,13 +3000,19 @@ export default function App() {
         break;
       case 'cancelled': {
         addLog('warning', data.message || t('app.executionCancelled'), data.agent);
+        // What the turn had already said is part of the interruption, not
+        // collateral: the backend persists it above the marker, so the bubble
+        // shown here has to be the same message, or reloading the chat would
+        // produce a second, longer account of one event — and the partial
+        // answer would vanish from the screen in the meantime.
+        const partialAnswer = chatResponseStreamRef.current;
         chatThoughtStreamRef.current = ''; chatThoughtTailRef.current = createThoughtTail();
         setChatThoughtStream('');
         chatResponseStreamRef.current = '';
         setChatResponseStream('');
         setChatMessages(prev => [...prev, {
           role: 'assistant',
-          content: '[INTERRUPTED] The user interrupted the agent execution.',
+          content: interruptedTurnContent(partialAnswer),
           timestamp: new Date().toISOString(),
         }]);
         setConfirmRequest(null);
