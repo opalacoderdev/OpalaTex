@@ -58,6 +58,16 @@ export const dialogRequestKey = (request) => {
   return localRequestKeys.get(request);
 };
 
+/**
+ * State updater that closes an agent input window once the backend accepted its
+ * answer. Accepting the answer releases the agent immediately, and the agent's
+ * next request can arrive before the answer's POST returns; it replaces the
+ * slot, and must not be cleared along with the request that was answered.
+ */
+export const clearAnsweredRequest = (answeredId) => (current) => (
+  current && current.id === answeredId ? null : current
+);
+
 /** Return the wire value expected by /api/opalatex/input_response. */
 export const formatAskResponse = ({
   inputValue = '',

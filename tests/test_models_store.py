@@ -877,7 +877,12 @@ def test_ollama_still_receives_its_local_only_inference_params(tmp_path, monkeyp
 
     assert cleaned["top_k"] == 40
     assert cleaned["min_p"] == 0.05
-    assert cleaned["repetition_penalty"] == 1.1
+    # `repetition_penalty` is this project's name for it; `repeat_penalty` is
+    # Ollama's, and the request has to use the server's. The value surviving the
+    # provider filter is what this test guards -- the key it survives under is
+    # settled by `config._resolve_ollama_repeat_penalty`.
+    assert cleaned["repeat_penalty"] == 1.1
+    assert "repetition_penalty" not in cleaned
 
 
 def test_user_defined_extra_model_params_still_bypass_the_provider_filter(tmp_path, monkeypatch):

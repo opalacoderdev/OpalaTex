@@ -241,6 +241,7 @@ _NON_LITELLM_FIELDS = {
     # MemGPTAgentBlock params
     "max_heartbeats", "max_context_tokens", "eviction_threshold",
     "memory_pressure_threshold",
+    "heartbeat_pressure_threshold",
     "empty_response_reasoning_fallback",
     "max_idle_heartbeats",
     # LLMAgentBlock params
@@ -265,6 +266,11 @@ _LOCAL_ONLY_LITELLM_FIELDS = {
     "top_k",
     "min_p",
     "repetition_penalty",
+    # Ollama's own name for the repetition penalty, which is what the wire
+    # actually accepts. `sanitize_litellm_kwargs_for_model` renames the catalog
+    # field onto it for the Ollama route; it must never reach an OpenAI-style
+    # endpoint, which is exactly what listing it here guarantees.
+    "repeat_penalty",
     "think",
 }
 
@@ -324,6 +330,8 @@ _MODEL_PARAMS_SCHEMA = {
     "max_context_tokens": {"type": int, "min": 1},
     "eviction_threshold": {"type": float, "min": 0.0, "max": 1.0},
     "memory_pressure_threshold": {"type": float, "min": 0.0, "max": 1.0},
+    # Fraction of max_heartbeats spent past which the agent is warned to be brief.
+    "heartbeat_pressure_threshold": {"type": float, "min": 0.0, "max": 1.0},
     "max_iterations": {"type": int, "min": 1},
     "max_tool_calls": {"type": int, "min": 1},
     "loop_detection": {"type": bool},
@@ -752,7 +760,10 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     # `think` is never read from the merged sources above -- not from
     # agents.yaml, not from the project's model_params (which can no longer
     # store it). The model catalog's `supports_thinking` is the only input.
-    think = resolve_think_request(store_supports_thinking)
+    think = resolve_think_request(
+        store_supports_thinking,
+        merged.get("reasoning_effort"),
+    )
     merged.pop("think", None)
     if think is not None:
         merged["think"] = think
@@ -781,8 +792,36 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     )
 
 
-def resolve_think_request(supports_thinking: bool) -> bool | None:
+# Effort levels a provider accepts as the `think` value itself. Probed against
+# `ollama_chat/glm-5.3:cloud`, which answers `HTTP 400 invalid think value` for
+# anything outside `high`/`medium`/`low`/`max`/`true`/`false` -- so the catalog's
+# `none` and `xhigh` are deliberately absent and resolve to a boolean instead.
+# `max` is omitted because no catalog field offers it.
+_PROVIDER_THINK_LEVELS = frozenset({"low", "medium", "high"})
+
+
+def resolve_think_request(
+    supports_thinking: bool,
+    reasoning_effort: str | None = None,
+) -> bool | str | None:
     """Return the `think` value to send to the provider, or None to drop the param.
+
+    **A reasoning effort chosen in the catalog travels as `think`, not as
+    `reasoning_effort`.** Ollama expresses the effort through the same `think`
+    field that switches the reasoning channel on: `think: "low"` both isolates
+    the reasoning and asks for less of it. LiteLLM does map `reasoning_effort`
+    onto that field, but it collapses the level to a boolean for every model
+    except `gpt-oss` (`llms/ollama/chat/transformation.py`: `value in {"low",
+    "medium", "high"}`), so a catalog set to "low" reached the provider as
+    `think: true` — the full-effort request. Measured against
+    `ollama_chat/glm-5.3:cloud`, two runs each of one arithmetic prompt:
+    `think: true` reasoned for 2 004 and 3 365 characters (931/1 445 eval
+    tokens), `think: "low"` for 197 and 250 (169/160) — roughly a tenth of the
+    thinking, which is exactly what the setting promises and what the user was
+    not getting. An explicit `think` overrides whatever `reasoning_effort` maps
+    to, so the level is passed here and `reasoning_effort` is dropped for the
+    Ollama route in `sanitize_litellm_kwargs_for_model`: one knob, one wire
+    field, no dependence on which of the two LiteLLM happens to write last.
 
     **The model catalog is the single source of truth for thinking.** A model's
     `supports_thinking` capability (registered once in the Edit Models UI) decides
@@ -803,9 +842,26 @@ def resolve_think_request(supports_thinking: bool) -> bool | None:
     splitter can key on — so it was published as the assistant's answer. That is
     why a capable model is always asked to separate the two channels, and why a
     user preference must never be allowed to turn the isolation off.
+
+    **Only the levels the provider actually accepts are forwarded.** Probed
+    against `ollama_chat/glm-5.3:cloud`, `think` takes `"high"`, `"medium"`,
+    `"low"`, `"max"`, `true` or `false` and answers anything else with
+    `HTTP 400 invalid think value`. Two catalog values are therefore not level
+    strings on this route. `"none"` must never become `think: false` — that is
+    the undelimited-reasoning leak described above, and it was reachable:
+    `sanitize_litellm_kwargs_for_model` drops a `"none"` effort only for
+    non-Ollama providers, so LiteLLM's boolean mapping turned it into
+    `think: false` for exactly the models that can leak. `"xhigh"` is a real
+    level for other providers but not for Ollama, and it already resolved to
+    plain `true` before this change; inventing a level the provider never
+    published (mapping it onto `"max"`, say) would be a substitution the user
+    did not ask for, so it keeps resolving to `true` and full effort.
     """
     if not supports_thinking:
         return None
+    effort = str(reasoning_effort or "").strip().lower()
+    if effort in _PROVIDER_THINK_LEVELS:
+        return effort
     return True
 
 
@@ -1056,7 +1112,16 @@ def sanitize_litellm_kwargs_for_model(
         for field in _LOCAL_ONLY_LITELLM_FIELDS:
             cleaned.pop(field, None)
 
-    if provider not in {"ollama", "ollama_chat"} and cleaned.get("reasoning_effort") in {"", "none", None}:
+    if provider in {"ollama", "ollama_chat"}:
+        # Ollama has one wire field for both halves of this setting, `think`,
+        # and `resolve_think_request` already put the level there. Leaving
+        # `reasoning_effort` in as well would hand LiteLLM a second writer for
+        # that same key, which maps it to a *boolean* for every model but
+        # gpt-oss: `low` would arrive as full effort and `none` as
+        # `think: false` -- the undelimited-reasoning leak. One knob, one field.
+        cleaned.pop("reasoning_effort", None)
+        _resolve_ollama_repeat_penalty(cleaned, model)
+    elif cleaned.get("reasoning_effort") in {"", "none", None}:
         cleaned.pop("reasoning_effort", None)
 
     # LiteLLM bridges OpenAI GPT-5.4+ chat-completion requests to the Responses
@@ -1083,6 +1148,59 @@ def sanitize_litellm_kwargs_for_model(
     cleaned.setdefault("drop_params", True)
 
     return cleaned
+
+
+_reported_penalty_conflicts: set[str] = set()
+
+
+def _resolve_ollama_repeat_penalty(cleaned: dict, model: str) -> None:
+    """Give Ollama's `repeat_penalty` a single, declared owner.
+
+    Ollama's repetition control is called `repeat_penalty`, and nothing else on
+    the wire means the same thing. Two catalog fields were competing for it.
+    `repetition_penalty` -- the field that *is* this parameter under another
+    name -- was forwarded verbatim, so it reached `options` as a key Ollama does
+    not define and was ignored: the setting did nothing at all. That is
+    measured, not assumed: against a local Ollama 0.34.1, a bad value for
+    `repeat_penalty` is refused (`option "repeat_penalty" must be of type
+    float32`) exactly as `temperature` is, while the same bad value under
+    `repetition_penalty` is accepted in silence exactly as an invented option
+    name is -- and in generation, `repeat_penalty` 2.0/5.0 move the output while
+    the neutral 1.0 and `repetition_penalty` 5.0 both reproduce the baseline.
+    Meanwhile
+    LiteLLM maps `frequency_penalty` onto `repeat_penalty`
+    (`llms/ollama/chat/transformation.py`), so the value that did take effect
+    came from a different, additive OpenAI-style parameter the user may have set
+    for unrelated reasons. Measured in the request body, a catalog carrying
+    `repetition_penalty: 1.2` and `frequency_penalty: 0.5` sent
+    `repeat_penalty: 0.5` plus an inert `repetition_penalty: 1.2`.
+
+    `repetition_penalty` therefore owns the key. When both are set the loser is
+    named on stderr rather than dropped in silence -- the whole class of bug
+    being fixed here is a setting that quietly does nothing -- and it is
+    reported once per model instead of once per request.
+    """
+    if cleaned.get("repetition_penalty") in (None, ""):
+        # Nothing claims the key, so LiteLLM's own frequency_penalty mapping is
+        # left exactly as it was: this resolves a conflict, it does not remove a
+        # control that was working.
+        return
+
+    cleaned["repeat_penalty"] = cleaned.pop("repetition_penalty")
+    if cleaned.get("frequency_penalty") in (None, ""):
+        return
+
+    losing_value = cleaned.pop("frequency_penalty")
+    if model not in _reported_penalty_conflicts:
+        _reported_penalty_conflicts.add(model)
+        print(
+            f"[OpalaTex] {model}: repetition_penalty="
+            f"{cleaned['repeat_penalty']} and frequency_penalty={losing_value} "
+            "both map to Ollama's repeat_penalty. Sending repetition_penalty; "
+            "frequency_penalty is not applied for this model.",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def _is_openai_gpt5_chat_model(model: str, provider: str, custom_provider: str | None) -> bool:

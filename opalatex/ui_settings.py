@@ -28,12 +28,29 @@ _DEFAULTS: dict[str, Any] = {
     # changed later without migrating saved settings, and so a custom value
     # picked with the fine-tuning control is representable in the same field.
     "ui_scale": 1.0,
+    # Agent reasoning, in tokens. The chat shows the most recent reasoning up
+    # to this size, and resuming an interrupted turn replays the reasoning in
+    # full up to this size or as a summary beyond it. Everything is stored.
+    "thought_context_tokens": 32000,
 }
 
 # Bounds for "ui_scale". The upper bound keeps the app usable on a 1080p
 # screen (at 2.0 the layout has ~960x540 of usable space left).
 UI_SCALE_MIN = 0.8
 UI_SCALE_MAX = 2.0
+
+THOUGHT_CONTEXT_TOKENS_DEFAULT = 32000
+THOUGHT_CONTEXT_TOKENS_MIN = 1000
+THOUGHT_CONTEXT_TOKENS_MAX = 1_000_000
+
+
+def clamp_thought_context_tokens(value: Any) -> int:
+    """Coerce a stored value into a valid reasoning size, in tokens."""
+    try:
+        tokens = int(value)
+    except (TypeError, ValueError):
+        return THOUGHT_CONTEXT_TOKENS_DEFAULT
+    return max(THOUGHT_CONTEXT_TOKENS_MIN, min(THOUGHT_CONTEXT_TOKENS_MAX, tokens))
 
 
 def clamp_ui_scale(value: Any) -> float:

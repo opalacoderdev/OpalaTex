@@ -8,7 +8,17 @@ import i18n from './i18n/index.js';
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
 import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale, viewportPointToApp, viewportPxToApp } from './utils/uiScale';
 import { layoutAfterOpeningFile, layoutShowsEditor } from './utils/layoutModes';
-import { confirmRequestDialog, dialogRequestKey, normalizeInputRequest } from './utils/askQuestion';
+import { clearAnsweredRequest, confirmRequestDialog, dialogRequestKey, normalizeInputRequest } from './utils/askQuestion';
+import { readRunConflict, RUN_CONFLICT_TURN_STOPPING } from './utils/agentRunConflict';
+import {
+  appendThoughtChunk,
+  clampThoughtContextTokens,
+  createThoughtTail,
+  DEFAULT_THOUGHT_CONTEXT_TOKENS,
+  tailTextByTokens,
+  tailThoughtChunks,
+  thoughtTailText,
+} from './utils/thoughtTail';
 import { childNamesAt, resolveInlineCreatePath, suggestUniqueName } from './utils/inlineCreate';
 
 // Hooks
@@ -335,13 +345,29 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatThoughtStream, setChatThoughtStream] = useState('');
   const chatThoughtStreamRef = useRef('');
+  // The live reasoning on screen: the most recent chunks within the configured
+  // size (editor settings). Everything is still stored by the backend.
+  const chatThoughtTailRef = useRef(createThoughtTail());
+  const [thoughtContextTokens, setThoughtContextTokens] = useState(DEFAULT_THOUGHT_CONTEXT_TOKENS);
+  // Read by the stream handler, which a running turn captured before a change.
+  const thoughtContextTokensRef = useRef(DEFAULT_THOUGHT_CONTEXT_TOKENS);
+  const applyThoughtContextTokens = (value) => {
+    const tokens = clampThoughtContextTokens(value);
+    thoughtContextTokensRef.current = tokens;
+    setThoughtContextTokens(tokens);
+  };
+  useEffect(() => {
+    fetch('/api/settings/thoughts')
+      .then(r => (r.ok ? r.json() : null))
+      .then(cfg => { if (cfg?.thought_context_tokens !== undefined) applyThoughtContextTokens(cfg.thought_context_tokens); })
+      .catch(() => { });
+  }, []);
   const [chatResponseStream, setChatResponseStream] = useState('');
   const chatResponseStreamRef = useRef('');
   // Provider-reported occupancy of the orchestrator context window, emitted by
   // the backend after every LLM call. Null until the first measured call of a
   // conversation, when the panel falls back to a character estimate.
   const [chatContextUsage, setChatContextUsage] = useState(null);
-  const agentResumeEventsRef = useRef([]);
   // Shape the backend's measured usage for the panel. A payload without
   // prompt_tokens carries no measurement, so the panel keeps estimating.
   // `source` says where the number came from: the provider, a local count of the
@@ -1297,41 +1323,6 @@ export default function App() {
     return `${text.slice(0, limit)}\n[truncated ${text.length - limit} chars]`;
   };
 
-  const compactAgentEventForResume = (eventObj) => {
-    const { event, ...data } = eventObj || {};
-    if (!event || !['thought', 'reflection', 'stream_chunk', 'tool_call', 'tool_result', 'problem', 'error', 'info'].includes(event)) {
-      return null;
-    }
-    if (event === 'tool_call') {
-      return {
-        event,
-        agent: data.agent || '',
-        tool: data.tool || '',
-        arguments: compactTextForAgent(data.arguments || {}, 1200),
-      };
-    }
-    if (event === 'tool_result') {
-      return {
-        event,
-        agent: data.agent || '',
-        tool: data.tool || '',
-        is_error: Boolean(data.is_error),
-        result: compactTextForAgent(data.result || data.content || '', 1600),
-      };
-    }
-    return {
-      event,
-      agent: data.agent || '',
-      content: compactTextForAgent(data.content || data.message || '', 1600),
-    };
-  };
-
-  const rememberAgentEventForResume = (eventObj) => {
-    const compact = compactAgentEventForResume(eventObj);
-    if (!compact) return;
-    agentResumeEventsRef.current = trimToLimit([...agentResumeEventsRef.current, compact], 80);
-  };
-
   const collectRecentChatAttachments = (messages, limit = 3) => {
     const seen = new Set();
     const collected = [];
@@ -1363,34 +1354,6 @@ export default function App() {
       }))
   );
 
-  const buildResumePrompt = (messages, events) => {
-    const recentMessages = serializeChatHistoryForAgent(messages, 12)
-      .map((msg, index) => `${index + 1}. ${msg.role.toUpperCase()}:\n${msg.content}`)
-      .join('\n\n');
-    const recentEvents = (events || [])
-      .slice(-30)
-      .map((item, index) => `${index + 1}. ${compactTextForAgent(item, 1800)}`)
-      .join('\n\n');
-    const attachments = collectRecentChatAttachments(messages, 5)
-      .map((att, index) => `${index + 1}. ${att.name || 'attachment'} (${att.type || 'unknown'}${att.mime ? `, ${att.mime}` : ''})`)
-      .join('\n');
-
-    return [
-      'Continue the task that was interrupted. Do not restart from scratch.',
-      'Use the chat history, captured thoughts, tool activity, and referenced artifacts below as the current working context.',
-      'Prefer continuing the latest unfinished user request. If an action already appears completed in the context, do not repeat it unless verification is needed.',
-      '',
-      '## Recent chat history',
-      recentMessages || '(no recent chat history captured)',
-      '',
-      '## Captured agent activity before interruption',
-      recentEvents || '(no agent activity captured)',
-      '',
-      '## Recent referenced attachments',
-      attachments || '(no recent attachments captured)',
-    ].join('\n');
-  };
-
   const MAX_MERGED_LOG_CHARS = 16000;
   const clampLogMessage = (value) => {
     const text = String(value ?? '');
@@ -1421,19 +1384,26 @@ export default function App() {
     }
     return left + right;
   };
+  // Reasoning keeps its most recent part, within the configured size; other
+  // entries keep their beginning, as before.
+  const fitLogMessage = (message, type) => (
+    type === 'thought'
+      ? tailTextByTokens(message, thoughtContextTokensRef.current).text
+      : clampLogMessage(message)
+  );
   const mergeLogEntries = (logs) => (
     (logs || []).reduce((merged, log) => {
       if (!log) return merged;
       const cleanLog = {
         ...log,
         agent: normalizeLogAgent(log.agent),
-        message: clampLogMessage(log.message),
+        message: fitLogMessage(log.message, log.type),
       };
       const last = merged[merged.length - 1];
       if (shouldMergeLog(last, cleanLog)) {
         merged[merged.length - 1] = {
           ...last,
-          message: clampLogMessage(joinMergedLogMessage(last.message, cleanLog.message, cleanLog.type)),
+          message: fitLogMessage(joinMergedLogMessage(last.message, cleanLog.message, cleanLog.type), cleanLog.type),
         };
         return merged;
       }
@@ -1449,7 +1419,7 @@ export default function App() {
         type: item.event,
         message: item.event === 'stream_chunk'
           ? sanitizeVisibleStreamChunk(item.content || item.payload?.content || '')
-          : clampLogMessage(item.content || item.payload?.content || ''),
+          : fitLogMessage(item.content || item.payload?.content || '', item.event),
         agent: normalizeLogAgent(item.agent || item.payload?.agent || ''),
         timestamp: item.timestamp
           ? new Date(item.timestamp).toLocaleTimeString()
@@ -1498,10 +1468,14 @@ export default function App() {
       .map(item => ({
         timestampMs: activityTimestampMs(item.timestamp),
         content: String(item.content || item.payload?.content || ''),
+        tokens: Number(item.payload?.thought_tokens),
       }));
 
     if (!messages.length || !thoughts.length) return mergeErrorActivityIntoMessages(messages, activity);
 
+    // Each message shows the most recent reasoning of its turn within the
+    // configured size; the whole of it stays in the store.
+    const visibleThoughts = (items) => thoughtTailText(tailThoughtChunks(items, thoughtContextTokensRef.current));
     let thoughtIndex = 0;
     let pendingThoughts = [];
     for (const message of messages) {
@@ -1510,23 +1484,23 @@ export default function App() {
         thoughtIndex < thoughts.length
         && (messageTime === null || thoughts[thoughtIndex].timestampMs === null || thoughts[thoughtIndex].timestampMs <= messageTime)
       ) {
-        pendingThoughts.push(thoughts[thoughtIndex].content);
+        pendingThoughts.push(thoughts[thoughtIndex]);
         thoughtIndex += 1;
       }
       if (message.role === 'assistant' && pendingThoughts.length) {
-        message._thoughtStream = pendingThoughts.join('');
+        message._thoughtStream = visibleThoughts(pendingThoughts);
         pendingThoughts = [];
       }
     }
 
     while (thoughtIndex < thoughts.length) {
-      pendingThoughts.push(thoughts[thoughtIndex].content);
+      pendingThoughts.push(thoughts[thoughtIndex]);
       thoughtIndex += 1;
     }
     if (pendingThoughts.length) {
       const lastAssistant = [...messages].reverse().find(message => message.role === 'assistant');
       if (lastAssistant) {
-        lastAssistant._thoughtStream = `${lastAssistant._thoughtStream || ''}${pendingThoughts.join('')}`;
+        lastAssistant._thoughtStream = `${lastAssistant._thoughtStream || ''}${visibleThoughts(pendingThoughts)}`;
       }
     }
 
@@ -2904,9 +2878,33 @@ export default function App() {
     }
   };
 
+  // The backend refused to start a turn because another one is still alive. The
+  // request was not run, so this reports it; stopping the other turn is offered,
+  // never done on the user's behalf.
+  const reportRunConflict = (conflict) => {
+    if (conflict.reason === RUN_CONFLICT_TURN_STOPPING) {
+      addLog('error', t('app.turnStillStopping', 'The message was not sent: the previous agent turn is still stopping. Try again in a moment.'));
+      return;
+    }
+    addLog('error', t('app.turnStillRunning', 'The message was not sent: another agent turn is still running without a connection to this window.'));
+    setConfirmRequest({
+      prompt: t('app.turnStillRunningPrompt', 'An agent turn is still running, but this window lost its connection to it (for example, after the computer went to sleep). Stop that turn so a new one can start?'),
+      options: ['yes', 'no'],
+      default: 'no',
+      callback: async (value) => {
+        if (value !== 'yes') return;
+        try {
+          const res = await fetch('/api/opalatex/interrupt', { method: 'POST' });
+          addLog(res.ok ? 'info' : 'error', res.ok ? t('app.interruptSent') : t('app.interruptFailed'));
+        } catch (err) {
+          addLog('error', t('app.interruptError', { error: err.message }));
+        }
+      },
+    });
+  };
+
   const handleAgentEvent = (eventObj) => {
     const { event, ...data } = eventObj;
-    rememberAgentEventForResume(eventObj);
     switch (event) {
       case 'server_ready': addLog('info', t('app.agentReady'), data.agent); break;
       case 'agent_started':
@@ -2919,14 +2917,19 @@ export default function App() {
           maxSteps: typeof data.max_steps === 'number' ? data.max_steps : null,
         });
         break;
-      case 'thought':
+      case 'thought': {
         addLog('thought', data.content, data.agent);
-        setChatThoughtStream(prev => {
-          const next = prev + (data.content || '');
-          chatThoughtStreamRef.current = next;
-          return next;
-        });
+        chatThoughtTailRef.current = appendThoughtChunk(
+          chatThoughtTailRef.current,
+          data.content,
+          Number(data.thought_tokens),
+          thoughtContextTokensRef.current,
+        );
+        const next = thoughtTailText(chatThoughtTailRef.current);
+        chatThoughtStreamRef.current = next;
+        setChatThoughtStream(next);
         break;
+      }
       case 'reflection':
         addLog('reflection', data.content, data.agent);
         break;
@@ -2965,7 +2968,7 @@ export default function App() {
         break;
       case 'cancelled': {
         addLog('warning', data.message || t('app.executionCancelled'), data.agent);
-        chatThoughtStreamRef.current = '';
+        chatThoughtStreamRef.current = ''; chatThoughtTailRef.current = createThoughtTail();
         setChatThoughtStream('');
         chatResponseStreamRef.current = '';
         setChatResponseStream('');
@@ -3048,7 +3051,7 @@ export default function App() {
           ? data.response
           : "⚠️ *O agente concluiu o processamento, mas não emitiu nenhuma resposta textual ou chamada de ferramenta. Isso geralmente acontece quando o modelo de IA sofre uma falha de geração (ex: esqueceu de usar o formato correto após pensar).*";
 
-        chatThoughtStreamRef.current = '';
+        chatThoughtStreamRef.current = ''; chatThoughtTailRef.current = createThoughtTail();
         setChatThoughtStream('');
         chatResponseStreamRef.current = '';
         setChatResponseStream('');
@@ -3277,7 +3280,9 @@ export default function App() {
     if (options.resumeInterrupted) {
       if (!activeProject || isAgentRunning) return;
       const historySnapshot = options.historyOverride || chatMessages;
-      userText = buildResumePrompt(historySnapshot, agentResumeEventsRef.current);
+      // The backend builds the resumed turn from what it stored for the
+      // interrupted one (resume_interrupted below); only the label is sent.
+      userText = options.displayText || t('chatPanel.continue', 'Continue');
       displayText = options.displayText || t('chatPanel.continue', 'Continue');
       attachmentsSnapshot = options.overrideAttachments || collectRecentChatAttachments(historySnapshot, 3);
       messagesForRequest = serializeChatHistoryForAgent(historySnapshot, 18);
@@ -3377,11 +3382,13 @@ export default function App() {
     setAgentStepInfo({ step: 0, maxSteps: null });
     setProblems([]);
     setAchievementsMemory('');
-    chatThoughtStreamRef.current = '';
-    setChatThoughtStream('');
-    chatResponseStreamRef.current = '';
-    setChatResponseStream('');
-    agentResumeEventsRef.current = [];
+    // The live stream buffers are deliberately NOT cleared here. They hold the
+    // only copy of a partial answer: a turn that died mid-stream (a provider
+    // network error, a standby) persists no assistant message, just activity
+    // fragments. Clearing them before knowing the new turn will actually start
+    // destroyed that text on a run the backend then refused with 409 -- the
+    // screen emptied and there was nothing left to continue from. They are
+    // cleared below, once the request is accepted.
     addLog('info', t('app.starting', { text: userText }));
 
     if (userText.trim().startsWith('/')) {
@@ -3419,6 +3426,7 @@ export default function App() {
         body: JSON.stringify({
           command: 'run', agent: 'chat_orchestrator', prompt: requestPrompt,
           display_prompt: displayText || userText || '',
+          resume_interrupted: Boolean(options.resumeInterrupted),
           project_name: activeProject.name, project_path: activeProject.project_path,
           model: activeProject.model,
           worker_model: activeProject.worker_model,
@@ -3435,6 +3443,24 @@ export default function App() {
           messages: messagesForRequest,
         }),
       });
+      const runConflict = await readRunConflict(res);
+      if (runConflict) {
+        // Nothing was sent: take the optimistic bubble back and, for a message
+        // typed in the composer, return its text and attachments.
+        setChatMessages(prev => prev.filter(m => m.client_message_id !== clientMessageId));
+        if (!options.resumeInterrupted && options.overrideText === undefined && !retryMsg) {
+          setChatInput(prev => (prev.trim() ? prev : userText));
+          setPendingAttachments(prev => (prev.length ? prev : attachmentsSnapshot));
+        }
+        reportRunConflict(runConflict);
+        return;
+      }
+      // The turn was accepted, so the previous turn's partial output is safe to
+      // drop: this one is about to produce its own. See the note above.
+      chatThoughtStreamRef.current = ''; chatThoughtTailRef.current = createThoughtTail();
+      setChatThoughtStream('');
+      chatResponseStreamRef.current = '';
+      setChatResponseStream('');
       if (!res.body) { addLog('error', t('app.streamUnsupportedBackend')); setIsAgentRunning(false); return; }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -3655,7 +3681,7 @@ export default function App() {
         const text = await res.text().catch(() => '');
         throw new Error(text || `HTTP ${res.status}`);
       }
-      setPlanRequest(null);
+      setPlanRequest(clearAnsweredRequest(current.id));
     } catch (err) {
       addLog('error', t('app.confirmationSendError', { error: err.message }));
       addProblem({ tool: t('app.agentTool', 'Agent'), message: t('app.confirmationRejectedByBackend', { error: err.message }), severity: 'error' });
@@ -3679,7 +3705,9 @@ export default function App() {
         const text = await res.text().catch(() => '');
         throw new Error(text || `HTTP ${res.status}`);
       }
-      setAskRequest(null);
+      // The answer releases the agent at once, so its next question can reach
+      // this window before this POST returns; clear only the answered one.
+      setAskRequest(clearAnsweredRequest(current.id));
     } catch (err) {
       addLog('error', t('app.confirmationSendError', { error: err.message }));
       addProblem({ tool: t('app.agentTool', 'Agent'), message: t('app.confirmationRejectedByBackend', { error: err.message }), severity: 'error' });
@@ -3850,6 +3878,12 @@ export default function App() {
           model_params: { ...ephemeralParams, stream: false }
         }),
       });
+
+      const runConflict = await readRunConflict(res);
+      if (runConflict) {
+        reportRunConflict(runConflict);
+        return;
+      }
 
       if (!res.body) {
         addLog('error', t('app.streamUnsupportedBackground'));
@@ -4210,15 +4244,15 @@ export default function App() {
   const handleSendMessageWithPrompt = async (userText, capturedSelectedText) => {
     if (!userText.trim() || !activeProject || isAgentRunning) return;
     setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'user', content: userText, timestamp: new Date().toISOString() }]);
+    const promptMessage = { role: 'user', content: userText, timestamp: new Date().toISOString() };
+    setChatMessages(prev => [...prev, promptMessage]);
     setIsAgentRunning(true);
     setIsInterruptPending(false);
     setAgentStepInfo({ step: 0, maxSteps: null });
     setProblems([]);
-    chatThoughtStreamRef.current = '';
-    setChatThoughtStream('');
-    chatResponseStreamRef.current = '';
-    setChatResponseStream('');
+    // Cleared only once the turn is accepted -- these buffers hold the only copy
+    // of a partial answer from a turn that died mid-stream. Same reason as in
+    // handleSendMessage.
     addLog('info', t('app.starting', { text: `${userText.slice(0, 80)}${userText.length > 80 ? '...' : ''}` }))
 
     // Use the captured text if provided; otherwise try reading Monaco
@@ -4236,6 +4270,16 @@ export default function App() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command: 'run', agent: 'chat_orchestrator', prompt: userText, project_name: activeProject.name, project_path: activeProject.project_path, model: activeProject.model, max_heartbeats: resolveEffectiveMaxHeartbeats(), current_file: selectedFile || '', open_files: openFiles, editor_content: fileContent || '', selected_text: selectedText || '', lang: i18n.language || 'en', chat_id: activeChatId, model_params: ephemeralParams }),
       });
+      const runConflict = await readRunConflict(res);
+      if (runConflict) {
+        setChatMessages(prev => prev.filter(m => m !== promptMessage));
+        reportRunConflict(runConflict);
+        return;
+      }
+      chatThoughtStreamRef.current = ''; chatThoughtTailRef.current = createThoughtTail();
+      setChatThoughtStream('');
+      chatResponseStreamRef.current = '';
+      setChatResponseStream('');
       if (!res.body) { addLog('error', t('app.streamUnsupportedBackend')); setIsAgentRunning(false); return; }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -4803,6 +4847,8 @@ export default function App() {
           setEphemeralParams={setEphemeralParams}
           panelMaxLines={panelMaxLines}
           setPanelMaxLines={(val) => { setPanelMaxLines(val); safeSetLocalStorage('panelMaxLines', val); }}
+          thoughtContextTokens={thoughtContextTokens}
+          onThoughtContextTokensChange={applyThoughtContextTokens}
           onLanguageChange={(lang) => {
             fetch('/api/settings/language', {
               method: 'POST',

@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 from .. import oauth
+from ..atomic import discard_file, replace_file
 from ..base import (
     AuthChallenge,
     AuthState,
@@ -256,10 +257,10 @@ def _write_private_json(path: str, payload: dict) -> None:
             # Windows and some network filesystems ignore POSIX modes; the file
             # still lands in the user's profile directory.
             pass
-        os.replace(handle.name, path)
+        replace_file(handle.name, path)
     except BaseException:
         try:
-            os.unlink(handle.name)
+            discard_file(handle.name)
         except OSError:
             pass
         raise
@@ -554,10 +555,10 @@ class GoogleDriveProvider(CloudStorageProvider):
                 )
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(handle.name, dest_path)
+            replace_file(handle.name, dest_path)
         except BaseException:
             try:
-                os.unlink(handle.name)
+                discard_file(handle.name)
             except OSError:
                 pass
             raise

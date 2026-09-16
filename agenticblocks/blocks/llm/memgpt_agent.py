@@ -13,6 +13,7 @@ from agenticblocks.blocks.llm.agent import (
     _tool_call_signature, _loop_block_message, compose_visible_response
 )
 from agenticblocks.blocks.llm.inbox import InboxItem, MessageInbox
+from agenticblocks.blocks.llm.agent import _await_reporting_cancellation
 from agenticblocks.utils.messages import build_user_content, history_accepts_user_message
 from agenticblocks.blocks.llm.tokens import count_message_tokens
 from agenticblocks.tools.a2a_bridge import block_to_tool_schema
@@ -68,6 +69,17 @@ def _is_ollama_tool_call_json_escape_error(exc: Exception) -> bool:
     )
 
 
+def _heartbeat_pressure_alert(heartbeats_left: int, max_heartbeats: int) -> str:
+    """Return the system warning shown while the step budget is running out."""
+    return (
+        f"SYSTEM ALERT: Heartbeat Pressure. Only {heartbeats_left} of {max_heartbeats} "
+        "steps remain in this turn, and the turn is cut off when they run out. "
+        "Be brief from here on: keep any text short, drop optional checks and "
+        "exploration, finish the work already in progress, and deliver your final "
+        "user-facing answer while you still have steps to write it."
+    )
+
+
 def _ollama_tool_call_json_escape_alert() -> str:
     """Return bounded system feedback for a malformed native Ollama tool call."""
     return (
@@ -98,6 +110,20 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     max_context_tokens: int = 4000
     eviction_threshold: float = 1.0
     memory_pressure_threshold: float = 0.7
+    heartbeat_pressure_threshold: float = 0.75
+    """Fraction of ``max_heartbeats`` spent past which every request carries a
+    step-budget warning.
+
+    Running out of heartbeats cuts a turn off mid-work, and the model only ever
+    learns how much budget is left from the tail of a tool result, which is easy
+    to overlook. Past this fraction the remaining budget stops being a footnote:
+    each request opens with a SYSTEM ALERT naming the steps left and asking for
+    brevity, so the model can converge on its answer while it still has the
+    steps to write one. Mirrors ``memory_pressure_threshold``, for the other
+    finite resource of a turn.
+
+    A value of ``1.0`` or higher disables the warning -- the exhausted-budget
+    alert already covers the last step -- and ``0`` warns from the first."""
     tool_call_limits: Dict[str, int] = Field(default_factory=dict)
     response_schema: Optional[type[BaseModel]] = None
     """Optional Pydantic model class to enforce a structured response schema."""
@@ -399,12 +425,19 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
 
 ## CORE RULES
 1. **RESPONSE CONTRACT**: Every piece of normal text you write is delivered to the user exactly as written, including text you write in the same response as a tool call. There is no separate delivery tool and no second channel. Use native provider tool calls for actions; JSON, Markdown, code blocks, examples and questions written as text are never tool calls.
-2. **HEARTBEATS & STEP BUDGET**: Your turn continues while a tool call is pending. It ends when you reply with text and no tool call, and that reply is your final answer. To speak before acting, call `{HEARTBEAT_TOOL_NAME}` in the same response to hold the turn open. You have a finite heartbeat allowance per turn. Actively budget and manage your remaining steps: plan efficiently, avoid repetitive verification or exploratory rabbit holes, and ensure you conclude with your final answer well before your heartbeats run out.
+2. **HEARTBEATS & STEP BUDGET**: Your turn continues while a tool call is pending. It ends when you reply with text and no tool call, and that reply is your final answer. To speak before acting, call `{HEARTBEAT_TOOL_NAME}` in the same response to hold the turn open. You have a finite heartbeat allowance per turn. Actively budget and manage your remaining steps: plan efficiently, avoid repetitive verification or exploratory rabbit holes, and ensure you conclude with your final answer well before your heartbeats run out. If you see a SYSTEM ALERT about Heartbeat Pressure, your remaining steps are nearly spent: be brief, stop exploring, wrap up what you are doing and deliver your final answer.
 3. **MEMORY PRESSURE**: If you see a SYSTEM ALERT about Memory Pressure, your Main Context is almost full. Be concise and rely on memory tools instead of keeping everything in context.
 4. **NO HALLUCINATION**: If the user asks about past interactions or facts you don't know, ALWAYS use your memory tools to retrieve the information before answering.
 5. **FINISHING & TERMINATION CONTRACT**: Always bring the turn to a clean conclusion. Never finish by writing that you are about to do something. When the goal is met or when remaining heartbeats are low, stop issuing tool calls and deliver your completed, user-facing answer as normal text. Text with no tool call is read as your finished answer.
 """
         return self.system_prompt + memgpt_rules
+
+    def _heartbeat_pressure_reached(self, heartbeats_used: int) -> bool:
+        """Return whether the spent step budget has crossed the warning point."""
+        if self.max_heartbeats <= 0 or self.heartbeat_pressure_threshold >= 1.0:
+            return False
+        threshold = max(0.0, self.heartbeat_pressure_threshold)
+        return heartbeats_used >= self.max_heartbeats * threshold
 
     async def _acompletion(self, messages: List[Dict[str, Any]], **kwargs) -> Any:
         """Single call site for LiteLLM completions.
@@ -445,11 +478,19 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         # and costs tool calling. Requests go to the model's own route.
         effective_model = self.model
 
+        started = time.monotonic()
+        agent_name = getattr(self, "name", "") or type(self).__name__
         if self.use_shared_router:
             router = _get_shared_router(effective_model)
-            response = await router.acompletion(model=effective_model, messages=messages, **kwargs)
+            response = await _await_reporting_cancellation(
+                router.acompletion(model=effective_model, messages=messages, **kwargs),
+                agent_name, effective_model, started,
+            )
         else:
-            response = await litellm.acompletion(model=effective_model, messages=messages, **kwargs)
+            response = await _await_reporting_cancellation(
+                litellm.acompletion(model=effective_model, messages=messages, **kwargs),
+                agent_name, effective_model, started,
+            )
 
         # LiteLLM 1.90 can return its async stream initializer as the result of
         # acompletion for some OpenAI-compatible providers. Resolve that nested
@@ -631,6 +672,17 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                 })
             else:
                 kwargs["tool_choice"] = "auto"
+                # Warn while there is still budget to act on the warning. The
+                # alert is transient by design: `messages` is rebuilt from
+                # `internal_history` every iteration, so the model reads one
+                # current warning instead of a pile of stale ones.
+                if self._heartbeat_pressure_reached(heartbeats_used):
+                    messages.append({
+                        "role": "system",
+                        "content": _heartbeat_pressure_alert(
+                            heartbeats_left, self.max_heartbeats
+                        ),
+                    })
 
             await self._invoke_on_iteration(heartbeats_used, messages)
 

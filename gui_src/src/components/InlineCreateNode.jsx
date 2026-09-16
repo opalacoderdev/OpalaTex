@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronRight, File, Folder, Presentation } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { inlineCreateKeyAction } from '../utils/inlineCreate';
 
 // Provisional tree row used to create a file, directory or presentation in
-// place. Only Enter creates. Escape or a pointer press outside the row cancels.
+// place. Enter, Tab or Shift+Tab creates (see `inlineCreateKeyAction`). Escape
+// or a pointer press outside the row cancels.
 // Losing focus by itself does nothing: the IDE moves focus programmatically
 // (the editor focuses a file it has just opened), and treating that as a
 // commit would create an entry — with a pre-filled name, one the user never
@@ -74,10 +76,13 @@ export default function InlineCreateNode({ kind, initialName = '', onSubmit, onC
 
   const handleKeyDown = (e) => {
     e.stopPropagation();
-    if (e.key === 'Enter') {
+    const action = inlineCreateKeyAction(e);
+    if (action === 'submit') {
+      // Also keeps Tab from moving focus: a rejected name leaves the row open
+      // with its error, and the caret has to still be in the field.
       e.preventDefault();
       submit();
-    } else if (e.key === 'Escape') {
+    } else if (action === 'cancel') {
       e.preventDefault();
       cancel();
     }

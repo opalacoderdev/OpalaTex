@@ -18,7 +18,6 @@ from opalatex.agent_stdin import (
     _empty_response_failure_message,
     _auxiliary_tool_call_thought,
     _friendly_llm_error,
-    _looks_like_degenerate_thought,
     _record_turn_thought,
     _response_with_thought,
     _sanitize_model_response,
@@ -32,26 +31,16 @@ from opalatex.agent_stdin import (
 )
 
 
-def test_degenerate_thought_detection_catches_repeated_unicode_escape():
-    repeated = r"\u2013" * 80
-
-    assert _looks_like_degenerate_thought(repeated)
-
-
-def test_record_turn_thought_suppresses_degenerate_chunks(monkeypatch):
+def test_record_turn_thought_keeps_every_chunk(monkeypatch):
     import opalatex.agent_stdin as stdin_mod
 
     chunks = []
     monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_CHUNKS", chunks)
-    monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_CHARS", 0)
-    monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_SUPPRESSED", False)
+    monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_METER", None)
 
-    assert not _record_turn_thought(r"\u2013" * 80)
-    assert len(chunks) == 1
-    assert "Thought stream suppressed" in chunks[0]
-
-    assert not _record_turn_thought("more repeated noise")
-    assert len(chunks) == 1
+    assert _record_turn_thought(r"\u2013" * 80)
+    assert _record_turn_thought("more repeated noise")
+    assert chunks == [r"\u2013" * 80, "more repeated noise"]
 
 
 def test_auxiliary_tool_call_thought_uses_compact_text_not_json():
@@ -82,8 +71,7 @@ def test_print_event_auxiliary_tool_call_thought_hides_raw_json(monkeypatch):
     chunks = []
     monkeypatch.setattr(stdin_mod, "event_hook", lambda payload: events.append(payload))
     monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_CHUNKS", chunks)
-    monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_CHARS", 0)
-    monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_SUPPRESSED", False)
+    monkeypatch.setattr(stdin_mod, "_ACTIVE_THOUGHT_METER", None)
 
     print_event("tool_call", {
         "tool": "get_project_overview",
@@ -450,7 +438,9 @@ async def test_handle_run_inline_normalizes_remote_ollama_api_base(monkeypatch):
     monkeypatch.setattr(
         config_mod,
         "get_agent_llm_kwargs",
-        lambda _agent_name: {"api_base": "http://100.85.255.111:11434/v1"},
+        # `model_override` is passed so the kwargs belong to the model that will
+        # actually run, not to the role's default catalog entry.
+        lambda _agent_name, model_override=None: {"api_base": "http://100.85.255.111:11434/v1"},
     )
     monkeypatch.setattr(config_mod, "model_supports_thinking", lambda _model: False)
     monkeypatch.setattr(stdin_mod, "current_project", None)

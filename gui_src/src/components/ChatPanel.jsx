@@ -15,6 +15,12 @@ import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 const TURN_CUT_SHORT_MARKER =
   '[TURN-CUT-SHORT] The runaway guardrail stopped this turn before the model ' +
   'gave a final answer. The text above is work in progress, not a reply.';
+// Likewise in step with `agent_stdin.TURN_FAILED_MARKER`: a turn that stopped on
+// an error (typically the provider becoming unreachable) keeps whatever the
+// model had written, and is continued from the same button.
+const TURN_FAILED_MARKER =
+  '[TURN-FAILED] This turn stopped on an error before the model gave a final ' +
+  'answer. The text above is work in progress, not a reply.';
 import TextContextMenu from './TextContextMenu.jsx';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
 import ModelSelect from './ModelSelect.jsx';
@@ -1712,11 +1718,15 @@ export default function ChatPanel({
           // translated prose would break for anyone who changed language after
           // the turn ran.
           const isTurnCutShort = !isUser && String(msg.content || '').includes(TURN_CUT_SHORT_MARKER);
+          const isTurnFailed = !isUser && String(msg.content || '').includes(TURN_FAILED_MARKER);
           let displayContent = isUser && isInternalResumePrompt(msg.content)
             ? t('chatPanel.continue', 'Continue')
             : msg.content;
           if (isTurnCutShort) {
             displayContent = String(msg.content).split(TURN_CUT_SHORT_MARKER).join('').trimEnd();
+          }
+          if (isTurnFailed) {
+            displayContent = String(displayContent).split(TURN_FAILED_MARKER).join('').trimEnd();
           }
           if (isInterrupted) {
             displayContent = t('app.interruptionNotice');
@@ -1978,10 +1988,10 @@ export default function ChatPanel({
                     <RefreshCw size={14} /> {t('chatPanel.tryAgain', 'Tentar Novamente')}
                   </button>
                 )}
-                {isTurnCutShort && isLastUserOrAssistantMessage && !isAgentRunning && (
+                {(isTurnCutShort || isTurnFailed) && isLastUserOrAssistantMessage && !isAgentRunning && (
                   <div style={{ marginTop: '10px' }}>
                     <div style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', marginBottom: '6px' }}>
-                      <AlertTriangle size={12} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: '4px' }} />{t('app.turnCutShortNotice')}
+                      <AlertTriangle size={12} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: '4px' }} />{isTurnFailed ? t('app.turnFailedNotice') : t('app.turnCutShortNotice')}
                     </div>
                     <button
                       type="button"

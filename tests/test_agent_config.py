@@ -257,6 +257,68 @@ def test_resolve_model_route_requires_model_capability():
     assert supported_kwargs["think"] is True
 
 
+def test_the_repetition_penalty_owns_ollamas_repeat_penalty():
+    """It used to be forwarded verbatim, as a key Ollama does not define.
+
+    So the setting did nothing, while the value that actually took effect came
+    from LiteLLM mapping `frequency_penalty` onto the same wire field.
+    """
+    from opalatex.config import sanitize_litellm_kwargs_for_model
+
+    cleaned = sanitize_litellm_kwargs_for_model(
+        "ollama_chat/glm-5.3:cloud",
+        {"repetition_penalty": 1.2, "temperature": 0.2},
+    )
+
+    assert cleaned["repeat_penalty"] == 1.2
+    assert "repetition_penalty" not in cleaned
+
+
+def test_a_frequency_penalty_on_its_own_is_left_alone():
+    """Nothing claims the key, so LiteLLM's own mapping keeps working."""
+    from opalatex.config import sanitize_litellm_kwargs_for_model
+
+    cleaned = sanitize_litellm_kwargs_for_model(
+        "ollama_chat/glm-5.3:cloud", {"frequency_penalty": 0.5}
+    )
+
+    assert cleaned["frequency_penalty"] == 0.5
+    assert "repeat_penalty" not in cleaned
+
+
+def test_the_losing_penalty_is_named_rather_than_dropped_in_silence(capsys):
+    """Both map to one wire field; a setting that quietly does nothing is the bug."""
+    import opalatex.config as config_mod
+    from opalatex.config import sanitize_litellm_kwargs_for_model
+
+    config_mod._reported_penalty_conflicts.clear()
+    cleaned = sanitize_litellm_kwargs_for_model(
+        "ollama_chat/glm-5.3:cloud",
+        {"repetition_penalty": 1.2, "frequency_penalty": 0.5},
+    )
+
+    assert cleaned["repeat_penalty"] == 1.2
+    assert "frequency_penalty" not in cleaned
+    warning = capsys.readouterr().err
+    assert "repetition_penalty" in warning and "frequency_penalty" in warning
+
+    sanitize_litellm_kwargs_for_model(
+        "ollama_chat/glm-5.3:cloud",
+        {"repetition_penalty": 1.2, "frequency_penalty": 0.5},
+    )
+    assert capsys.readouterr().err == "", "reported once per model, not per request"
+
+
+def test_ollamas_own_penalty_name_never_reaches_an_openai_endpoint():
+    from opalatex.config import sanitize_litellm_kwargs_for_model
+
+    cleaned = sanitize_litellm_kwargs_for_model(
+        "openai/openai/gpt-5.6-luna", {"repeat_penalty": 1.2, "temperature": 0.2}
+    )
+
+    assert "repeat_penalty" not in cleaned
+
+
 def test_ollama_reaches_the_native_route_even_with_thinking_off():
     """Turning reasoning off must not cost the agent its tool calling.
 
@@ -477,7 +539,10 @@ def test_ollama_models_keep_local_only_litellm_kwargs_except_unsupported_think()
     assert kwargs["num_ctx"] == 8192
     assert kwargs["top_k"] == 40
     assert kwargs["min_p"] == 0.1
-    assert kwargs["repetition_penalty"] == 1.1
+    # Still carried, under the name Ollama actually defines for it: the catalog
+    # field used to travel verbatim as a key the server has no meaning for.
+    assert kwargs["repeat_penalty"] == 1.1
+    assert "repetition_penalty" not in kwargs
     assert "think" not in kwargs
     assert kwargs.get("drop_params") is True
     assert "unknown_param" not in kwargs

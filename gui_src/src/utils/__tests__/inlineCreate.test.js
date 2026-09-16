@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   childNamesAt,
+  inlineCreateKeyAction,
   isSameTreePath,
   resolveInlineCreatePath,
   suggestUniqueName,
@@ -55,6 +56,19 @@ test('presentations always get the .jpt extension', () => {
   assert.deepEqual(resolveInlineCreatePath({ kind: 'presentation', parentPath: '', name: 'deck.JPT' }), { path: 'deck.JPT' });
   assert.deepEqual(resolveInlineCreatePath({ kind: 'presentation', parentPath: '', name: 'deck.json' }), { path: 'deck.jpt' });
   assert.deepEqual(resolveInlineCreatePath({ kind: 'file', parentPath: '', name: 'notes' }), { path: 'notes' });
+});
+
+test('Enter, Tab and Shift+Tab confirm the name; Escape cancels', () => {
+  assert.equal(inlineCreateKeyAction({ key: 'Enter' }), 'submit');
+  assert.equal(inlineCreateKeyAction({ key: 'Tab' }), 'submit');
+  assert.equal(inlineCreateKeyAction({ key: 'Tab', shiftKey: true }), 'submit');
+  assert.equal(inlineCreateKeyAction({ key: 'Escape' }), 'cancel');
+});
+
+test('other keys and modified Tab chords leave the field alone', () => {
+  for (const event of [{ key: 'a' }, { key: 'ArrowDown' }, { key: 'Shift' }, { key: 'Tab', ctrlKey: true }, { key: 'Tab', altKey: true }, { key: 'Tab', metaKey: true }]) {
+    assert.equal(inlineCreateKeyAction(event), null, JSON.stringify(event));
+  }
 });
 
 test('tree path helpers expand ancestors of the target directory only', () => {

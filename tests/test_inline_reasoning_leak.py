@@ -247,16 +247,55 @@ def test_a_model_without_thinking_support_never_receives_the_param():
     assert resolve_think_request(supports_thinking=False) is None
 
 
-def test_the_catalog_capability_is_the_only_input_to_the_think_decision():
-    """No preference argument exists to be threaded in from a project setting.
+def test_the_catalog_is_the_only_input_to_the_think_decision():
+    """Both inputs are catalog fields; no project preference can be threaded in.
 
     Thinking used to be storable per project as well, which left two switches
-    disagreeing about one behaviour; the catalog capability is now the sole
-    source of truth.
+    disagreeing about one behaviour; the catalog is now the sole source of
+    truth. `reasoning_effort` is a second *catalog* field, not a second switch:
+    it cannot turn the isolation off, only ask for less reasoning.
     """
     import inspect
     from opalatex.config import resolve_think_request
 
     assert list(inspect.signature(resolve_think_request).parameters) == [
-        "supports_thinking"
+        "supports_thinking",
+        "reasoning_effort",
     ]
+
+
+def test_a_configured_effort_travels_as_the_think_level():
+    """The setting was reaching the provider as full effort. See the docstring
+    of `resolve_think_request` for the measured evidence."""
+    from opalatex.config import resolve_think_request
+
+    for effort in ("low", "medium", "high"):
+        assert resolve_think_request(True, effort) == effort
+    assert resolve_think_request(True, "LOW ") == "low"
+
+
+def test_no_effort_setting_can_switch_the_reasoning_channel_off():
+    """`none` must never become `think: false` -- that is the leak this file is about.
+
+    Ollama rejects both of these as level strings (`HTTP 400 invalid think
+    value`), so they resolve to the boolean that keeps the channel isolated.
+    """
+    from opalatex.config import resolve_think_request
+
+    assert resolve_think_request(True, "none") is True
+    assert resolve_think_request(True, "xhigh") is True
+    assert resolve_think_request(True, "") is True
+    assert resolve_think_request(True, None) is True
+    assert resolve_think_request(False, "low") is None
+
+
+def test_the_effort_does_not_reach_ollama_as_its_own_field():
+    """One knob, one wire field: LiteLLM would map it back onto `think` as a bool."""
+    from opalatex.config import sanitize_litellm_kwargs_for_model
+
+    cleaned = sanitize_litellm_kwargs_for_model(
+        "ollama_chat/glm-5.3:cloud",
+        {"think": "low", "reasoning_effort": "low", "temperature": 0.2},
+    )
+    assert cleaned["think"] == "low"
+    assert "reasoning_effort" not in cleaned

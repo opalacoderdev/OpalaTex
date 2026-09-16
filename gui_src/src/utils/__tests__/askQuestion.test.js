@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   askQuestionOptions,
+  clearAnsweredRequest,
   confirmRequestDialog,
   dialogRequestKey,
   formatAskResponse,
@@ -21,6 +22,14 @@ test('each local prompt gets its own dialog key so typed text cannot leak betwee
 test('local ask prompts render as an input dialog, not a Yes/No confirmation', () => {
   const newDirRequest = { type: 'ask', rows: 1, prompt: 'New directory name:', default: 'src/', callback: () => {} };
   assert.equal(confirmRequestDialog(newDirRequest), 'ask');
+});
+
+test('an accepted answer closes its own window but not the next question that already replaced it', () => {
+  const first = { id: 'q1', type: 'ask', prompt: 'Include an answer key?' };
+  const second = { id: 'q2', type: 'ask', prompt: 'Which algorithms?' };
+  assert.equal(clearAnsweredRequest('q1')(first), null);
+  assert.equal(clearAnsweredRequest('q1')(second), second);
+  assert.equal(clearAnsweredRequest('q1')(null), null);
 });
 
 test('confirm request routing covers terminal, confirmation and empty requests', () => {

@@ -73,10 +73,16 @@ EMPTY_RESPONSE_MAX_CORRECTION_ATTEMPTS = 2
 # only burns tokens before the same failure.
 SERIALIZED_TOOL_CALL_MAX_CORRECTION_ATTEMPTS = 2
 _ACTIVE_THOUGHT_CHUNKS: list[str] | None = None
-_ACTIVE_THOUGHT_CHARS = 0
-_ACTIVE_THOUGHT_SUPPRESSED = False
-MAX_THOUGHT_CHARS_PER_TURN = 24_000
-MAX_THOUGHT_CHUNK_CHARS = 4_000
+# The visible text this turn has streamed so far. A turn that dies mid-stream --
+# a provider network error, a standby that kills the socket -- never reaches the
+# code that persists its answer, so without this the work was recoverable only
+# as activity fragments and the conversation lost it entirely. Reset per turn
+# beside `_ACTIVE_THOUGHT_CHUNKS` and read by `_persist_unfinished_turn`.
+_ACTIVE_VISIBLE_CHUNKS: list[str] | None = None
+# Token count of the active turn's reasoning (opalatex.thought_context). Nothing
+# is discarded: every chunk is streamed and stored, and the configured size only
+# decides what the chat shows and what a resumed turn replays.
+_ACTIVE_THOUGHT_METER = None
 
 # Context window assumed when neither the project nor the agent declares one.
 DEFAULT_CONTEXT_WINDOW = 8192
@@ -94,6 +100,40 @@ _gui_input_pending: dict = {}
 # the user wrote for the conversation (PROJECT_DESIGN 2.7).
 _active_inbox: "MessageInbox | None" = None
 _active_inbox_scope: tuple[str, str] = ("", "")
+
+
+_TURN_INPUT_HOOK_NAMES = (
+    "_async_confirm_hook",
+    "_async_ask_hook",
+    "_async_interactive_terminal_hook",
+)
+
+
+def _install_turn_input_hooks(confirm_hook, ask_hook, interactive_terminal_hook):
+    """Install one turn's GUI input hooks and return the function that removes them.
+
+    The hooks are module globals of ``opalatex.terminal``. Removal puts back a
+    hook only while this turn's own hook is still the installed one: a turn whose
+    cleanup runs after another turn has installed its hooks must not reset them.
+    Resetting them sent the running turn's ``ask_question`` to a blocking
+    ``input()`` on the server console, where the GUI user never sees it.
+    """
+    import opalatex.terminal as T
+
+    installed = dict(zip(
+        _TURN_INPUT_HOOK_NAMES,
+        (confirm_hook, ask_hook, interactive_terminal_hook),
+    ))
+    previous = {name: getattr(T, name, None) for name in installed}
+    for name, hook in installed.items():
+        setattr(T, name, hook)
+
+    def restore():
+        for name, hook in installed.items():
+            if getattr(T, name, None) is hook:
+                setattr(T, name, previous[name])
+
+    return restore
 
 
 class InboxScopeError(RuntimeError):
@@ -740,53 +780,14 @@ def _should_emit_iteration_reflection(last_message: dict) -> bool:
     return True
 
 
-def _looks_like_degenerate_thought(text: str) -> bool:
-    """Detect provider loops that stream mostly one repeated token/character."""
-    if len(text) < 120:
-        return False
-    compact = re.sub(r"\s+", "", text)
-    if len(compact) < 80:
-        return False
-    if re.fullmatch(r"(?:\\u[0-9a-fA-F]{4}){20,}", compact):
-        return True
-    most_common = max(compact.count(ch) for ch in set(compact))
-    if most_common / len(compact) >= 0.85:
-        return True
-    for width in range(1, min(16, len(compact) // 8) + 1):
-        unit = compact[:width]
-        if unit and unit * (len(compact) // width) == compact[: width * (len(compact) // width)]:
-            if len(compact) // width >= 12:
-                return True
-    return False
-
-
 def _record_turn_thought(content: str) -> bool:
-    """Record a thought chunk for the active chat turn, if it is useful."""
-    global _ACTIVE_THOUGHT_CHARS, _ACTIVE_THOUGHT_SUPPRESSED
-
+    """Record a thought chunk for the active chat turn; empty chunks carry nothing."""
     text = str(content or "")
     if not text or _ACTIVE_THOUGHT_CHUNKS is None:
         return bool(text)
-
-    if _ACTIVE_THOUGHT_SUPPRESSED:
-        return False
-
-    if (
-        len(text) > MAX_THOUGHT_CHUNK_CHARS
-        or _ACTIVE_THOUGHT_CHARS + len(text) > MAX_THOUGHT_CHARS_PER_TURN
-        or _looks_like_degenerate_thought(text)
-    ):
-        _ACTIVE_THOUGHT_SUPPRESSED = True
-        diagnostic = (
-            "[Thought stream suppressed: the model emitted an excessively long "
-            "or repetitive reasoning stream. The run will continue, but this "
-            "diagnostic was kept out of resume context.]"
-        )
-        _ACTIVE_THOUGHT_CHUNKS.append(diagnostic)
-        return False
-
-    _ACTIVE_THOUGHT_CHARS += len(text)
     _ACTIVE_THOUGHT_CHUNKS.append(text)
+    if _ACTIVE_THOUGHT_METER is not None:
+        _ACTIVE_THOUGHT_METER.add(text)
     return True
 
 
@@ -924,19 +925,67 @@ instead would make the match depend on which language was active when the turn
 ran, so the button would vanish for anyone who later switched languages."""
 
 
-def _record_interrupted_agent_turn(agent_type: str) -> None:
-    """Persist the interruption as agent context, without using UI-facing prose."""
+TURN_FAILED_MARKER = (
+    "[TURN-FAILED] This turn stopped on an error before the model gave a final "
+    "answer. The text above is work in progress, not a reply."
+)
+"""Stable and unlocalised, for the same reason as the two markers above.
+
+A turn can die on something that is nobody's decision -- the provider becoming
+unreachable, which a system standby causes by killing the connection mid-stream.
+That path used to persist *nothing*: the error reached the panel, the streamed
+answer stayed only as activity fragments, and the conversation kept just the
+user's question. Reopening the chat then showed an empty-looking exchange and
+"Continue" had no assistant turn to resume from. What the model wrote before the
+failure is real work and is now stored like any other partial turn."""
+
+
+def _turn_visible_text() -> str:
+    """Return the visible text streamed by the turn so far."""
+    return "".join(_ACTIVE_VISIBLE_CHUNKS or []).strip()
+
+
+def _persist_unfinished_turn(
+    agent_type: str,
+    marker: str,
+    *,
+    only_with_work: bool = False,
+) -> None:
+    """Persist what an interrupted or failed turn produced, plus *marker*.
+
+    The marker alone used to be stored, which is the same loss in a smaller
+    shape: the partial answer was on screen, was never a message, and vanished
+    on the next reload. Whatever the model actually wrote is kept above the
+    marker, exactly as the cut-short path keeps it.
+
+    ``only_with_work`` is what a *failure* passes. A turn that died having
+    written nothing has nothing to lose, and a bare marker would add a failure
+    row to the conversation the model reads back -- which is precisely why
+    errors are panel activity rather than history (PROJECT_DESIGN 2.5), and why
+    a run whose model returned nothing must not have an answer invented for it.
+    An interruption still records itself unconditionally: the user stopping the
+    agent is context the model needs, not noise.
+    """
     if agent_type not in ("orchestrator", "chat_orchestrator"):
         return
     store = globals().get("current_store")
     project = globals().get("current_project")
     if not store or not project:
         return
+    visible = _turn_visible_text()
+    if only_with_work and not visible:
+        return
+    content = f"{visible}\n\n{marker}" if visible else marker
     try:
-        store.append_message(project, "assistant", INTERRUPTED_AGENT_HISTORY_MARKER)
+        store.append_message(project, "assistant", content)
         store.save(project)
     except Exception:
         pass
+
+
+def _record_interrupted_agent_turn(agent_type: str) -> None:
+    """Persist the interruption as agent context, without using UI-facing prose."""
+    _persist_unfinished_turn(agent_type, INTERRUPTED_AGENT_HISTORY_MARKER)
 
 
 def _persist_activity_event(event: str, data: dict) -> None:
@@ -981,6 +1030,15 @@ def print_event(event: str, data: dict):
     if event == "thought" and not already_recorded_thought:
         if not _record_turn_thought(data.get("content", "")):
             return
+    if event == "thought" and _ACTIVE_THOUGHT_METER is not None:
+        # Reasoning tokens of the turn so far, including this chunk: the chat
+        # keeps the most recent reasoning up to the configured size by it.
+        data["thought_tokens"] = _ACTIVE_THOUGHT_METER.total
+
+    # One choke point for every visible chunk the turn streams, so a turn that
+    # never reaches its own persistence still knows what it wrote.
+    if event == "stream_chunk" and _ACTIVE_VISIBLE_CHUNKS is not None:
+        _ACTIVE_VISIBLE_CHUNKS.append(str(data.get("content") or ""))
 
     payload = {"event": event, **data}
     _persist_activity_event(event, data)
@@ -1874,6 +1932,42 @@ async def handle_run(data: dict):
         print_event("agent_finished", {"agent": agent_type})
         return
 
+    # "Continue" on an interrupted turn: the prompt is built here from what the
+    # store holds for that turn, so it survives a reloaded window or a restarted
+    # app. Must run before this turn's own messages are appended.
+    if (
+        data.get("resume_interrupted")
+        and agent_type in ("orchestrator", "chat_orchestrator")
+        and current_store is not None
+        and current_project is not None
+    ):
+        from opalatex.thought_context import ThoughtSummaryError, resume_prompt_for_chat
+
+        def _announce_summary(tokens: int) -> None:
+            print_event("info", {
+                "agent": agent_type,
+                "message": f"Summarizing {tokens} tokens of reasoning to resume the interrupted turn...",
+            })
+
+        try:
+            prompt = await resume_prompt_for_chat(
+                current_store,
+                current_project,
+                model=str(model or getattr(current_project, "model", "") or ""),
+                on_summarizing=_announce_summary,
+            )
+        except ThoughtSummaryError as exc:
+            print_event("error", {"agent": agent_type, "message": str(exc)})
+            print_event("agent_finished", {"agent": agent_type})
+            return
+        except Exception as exc:
+            print_event("error", {
+                "agent": agent_type,
+                "message": f"Could not prepare the resumed turn: {_friendly_llm_error(exc, current_project)}",
+            })
+            print_event("agent_finished", {"agent": agent_type})
+            return
+
     initial_project_mode = None
     if current_project:
         initial_project_mode = current_project.mode
@@ -1981,13 +2075,16 @@ async def handle_run(data: dict):
         if model_params.get("reasoning_effort"):
             model_kwargs["reasoning_effort"] = model_params["reasoning_effort"]
         
-        # The provider is always asked to separate the reasoning channel for a
-        # thinking-capable model (config.resolve_think_request): `think` decides
-        # whether the provider *parses* the reasoning out, not whether the user
-        # sees it. `_apply_model_thinking_capability` drops the param for a model
-        # that does not support it, and the surviving value is what gates the
-        # Thinking panel (`publish_reasoning`).
-        model_kwargs["think"] = True
+        # `think` is deliberately absent here. It is resolved from the selected
+        # model's catalog entry by `get_agent_llm_kwargs` below
+        # (config.resolve_think_request), which is also where a configured
+        # reasoning effort becomes the level sent to the provider. Hardcoding
+        # `True` at this layer overrode that resolution -- these kwargs are
+        # merged *over* the resolved ones -- so every custom agent asked for
+        # full thinking no matter what the catalog said. The resolved value
+        # still gates the Thinking panel (`publish_reasoning`), and
+        # `_apply_model_thinking_capability` still drops it for a model that
+        # does not declare support.
         # Inline editing applies a single final replacement. It must never expose
         # partial model output, regardless of a global streaming default.
         model_kwargs["stream"] = False if agent_type == "inline_editor" else bool(model_params.get("stream", True))
@@ -2011,7 +2108,10 @@ async def handle_run(data: dict):
         _model = get_agent_model(_agent_name, _model)
         
         # Merge global kwargs so we get the cloud API base and keys
-        _global_kwargs = get_agent_llm_kwargs(_agent_name)
+        # The model that will actually run is `_model`, so its own catalog entry
+        # is the one whose parameters (and credentials) must be resolved -- the
+        # role's default model may be a different entry entirely.
+        _global_kwargs = get_agent_llm_kwargs(_agent_name, model_override=_model)
         _global_kwargs.update(model_kwargs)
         _global_kwargs = _apply_model_thinking_capability(_model, _global_kwargs)
         _model = resolve_model_route(_model, _global_kwargs)
@@ -2055,11 +2155,14 @@ async def handle_run(data: dict):
                 "content": msg.get("content", "")
             })
             
-    global _ACTIVE_THOUGHT_CHUNKS, _ACTIVE_THOUGHT_CHARS, _ACTIVE_THOUGHT_SUPPRESSED
+    global _ACTIVE_THOUGHT_CHUNKS, _ACTIVE_THOUGHT_METER, _ACTIVE_VISIBLE_CHUNKS
+    from opalatex.thought_context import ThoughtTokenMeter
     thought_chunks = []
     _ACTIVE_THOUGHT_CHUNKS = thought_chunks
-    _ACTIVE_THOUGHT_CHARS = 0
-    _ACTIVE_THOUGHT_SUPPRESSED = False
+    # Opened here rather than at the first chunk so a turn that fails before
+    # streaming anything still has an empty list instead of the previous turn's.
+    _ACTIVE_VISIBLE_CHUNKS = []
+    _ACTIVE_THOUGHT_METER = ThoughtTokenMeter(getattr(agent, "model", "") or model or "")
     stream_probe_pending = [""]
     stream_probe_decided = [False]
     suppress_plain_tool_json_stream = [False]
@@ -2242,8 +2345,6 @@ async def handle_run(data: dict):
         )
 
     import opalatex.terminal as T
-    orig_async_confirm_hook = getattr(T, "_async_confirm_hook", None)
-    orig_async_ask_hook = getattr(T, "_async_ask_hook", None)
     loop = asyncio.get_event_loop()
     import uuid
 
@@ -2306,9 +2407,11 @@ async def handle_run(data: dict):
         finally:
             _gui_input_pending.pop(req_id, None)
 
-    T._async_confirm_hook = _handle_run_confirm_hook
-    T._async_ask_hook = _handle_run_ask_hook
-    T._async_interactive_terminal_hook = _handle_run_interactive_terminal_hook
+    restore_turn_input_hooks = _install_turn_input_hooks(
+        _handle_run_confirm_hook,
+        _handle_run_ask_hook,
+        _handle_run_interactive_terminal_hook,
+    )
 
     # Report what the provider charges for each request of this turn, so the
     # panel indicator tracks the real window instead of a char count over the
@@ -2468,6 +2571,14 @@ async def handle_run(data: dict):
             err_msg = traceback.format_exc()
             user_msg = _friendly_llm_error(e, current_project)
             print_event("error", {"message": user_msg, "trace": err_msg})
+            # The conversation keeps what the model wrote before the failure.
+            # Reported from a real session: a standby killed the connection to
+            # the provider mid-answer, this handler stored nothing, and the chat
+            # was left holding only the user's question -- with no assistant turn
+            # for "Continue" to resume from.
+            _persist_unfinished_turn(
+                agent_type, TURN_FAILED_MARKER, only_with_work=True
+            )
     finally:
         checkpoint_cancelled_during_cleanup = False
         # Close the message channel before anything else in the cleanup: from
@@ -2537,10 +2648,12 @@ async def handle_run(data: dict):
                 current_store.close_activity_connection()
             except Exception:
                 pass
-        T._async_confirm_hook = orig_async_confirm_hook
-        T._async_ask_hook = orig_async_ask_hook
+        restore_turn_input_hooks = locals().get("restore_turn_input_hooks")
+        if restore_turn_input_hooks is not None:
+            restore_turn_input_hooks()
         set_usage_listener(None)
         _ACTIVE_THOUGHT_CHUNKS = None
+        _ACTIVE_THOUGHT_METER = None
         _restore_transient_project_mode(
             locals().get("initial_project_mode"),
             locals().get("agent_type", ""),

@@ -1,8 +1,11 @@
+import asyncio
 import json
+import sys
 import uuid
 import time
 import inspect
 import re
+from datetime import datetime
 from collections import defaultdict
 from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Any, Optional, Callable
@@ -258,6 +261,26 @@ def _loop_block_message(function_name: str, limit: int) -> str:
     })
 
 
+# TEMPORARY DIAGNOSTIC — remove once the source of the warning below is found.
+# A streaming call cancelled before LiteLLM returns its response leaves LiteLLM's
+# stream coroutine unawaited, which Python reports as "coroutine
+# 'BaseLLMHTTPHandler.acompletion_stream_function' was never awaited". This
+# reports which call was cancelled, when, and how long after it started.
+async def _await_reporting_cancellation(awaitable, agent_name: str, model: str, started: float):
+    try:
+        return await awaitable
+    except asyncio.CancelledError:
+        elapsed_ms = (time.monotonic() - started) * 1000
+        print(
+            f"[LLM CALL CANCELLED {datetime.now():%H:%M:%S.%f}] agent={agent_name} "
+            f"model={model} cancelled {elapsed_ms:.0f} ms after the call started, "
+            "before the response began",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise
+
+
 # Registry of routers shared by model — Flyweight pattern.
 # LiteLLM.Router manages connection pooling; the same Router is reused
 # for all block instances that target the same model.
@@ -460,11 +483,19 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
         if _has_images and effective_model.startswith("ollama_chat/"):
             effective_model = "ollama/" + effective_model[len("ollama_chat/"):]
 
+        started = time.monotonic()
+        agent_name = getattr(self, "name", "") or type(self).__name__
         if self.use_shared_router:
             router = _get_shared_router(effective_model)
-            response = await router.acompletion(model=effective_model, messages=messages, **kwargs)
+            response = await _await_reporting_cancellation(
+                router.acompletion(model=effective_model, messages=messages, **kwargs),
+                agent_name, effective_model, started,
+            )
         else:
-            response = await litellm.acompletion(model=effective_model, messages=messages, **kwargs)
+            response = await _await_reporting_cancellation(
+                litellm.acompletion(model=effective_model, messages=messages, **kwargs),
+                agent_name, effective_model, started,
+            )
 
         # LiteLLM 1.90 can return its async stream initializer as the result of
         # acompletion for some OpenAI-compatible providers. Resolve that nested

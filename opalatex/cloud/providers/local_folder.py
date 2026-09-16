@@ -18,6 +18,8 @@ import shutil
 import tempfile
 from typing import Optional
 
+from ..atomic import discard_file, replace_file
+
 from ..base import (
     AuthChallenge,
     AuthState,
@@ -237,10 +239,10 @@ def _atomic_copy(source: str, destination: str) -> None:
                 shutil.copyfileobj(src, handle)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(handle.name, destination)
+        replace_file(handle.name, destination)
     except BaseException:
         try:
-            os.unlink(handle.name)
+            discard_file(handle.name)
         except OSError:
             pass
         raise

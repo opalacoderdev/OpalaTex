@@ -20,6 +20,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from .atomic import discard_file, replace_file
+
 # Machine-local sync bookkeeping. Kept under `.opalatex/cloud/` so a single
 # exclusion rule covers the whole thing.
 CLOUD_DIR = os.path.join(".opalatex", "cloud")
@@ -215,10 +217,10 @@ def save_state(project_path: str, state: CloudState) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(handle.name, path)
+        replace_file(handle.name, path)
     except BaseException:
         try:
-            os.unlink(handle.name)
+            discard_file(handle.name)
         except OSError:
             pass
         raise

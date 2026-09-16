@@ -25,6 +25,7 @@ import asyncio
 import os
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -924,6 +925,7 @@ class CloudSyncManager:
         registration = self._projects.get(_key(project_path))
         if registration is not None:
             registration.running = True
+        outcome = None
         try:
             outcome = sync_project(
                 project_name,
@@ -932,11 +934,19 @@ class CloudSyncManager:
                 dry_run=dry_run,
                 allow_bulk_delete=allow_bulk_delete,
             )
+        except Exception as exc:
+            # sync_project reports the failures it anticipates through the
+            # outcome. Anything else escaped it: report it the same way, naming
+            # its type, so the status shows the real cause and the background
+            # loop keeps polling. Reading `outcome` below without this raised
+            # UnboundLocalError, which hid the original error and stopped the loop.
+            traceback.print_exc()
+            outcome = SyncOutcome(error=f"Unexpected sync failure: {type(exc).__name__}: {exc}")
         finally:
             lock.release()
             if registration is not None:
                 registration.running = False
-                if not dry_run:
+                if not dry_run and outcome is not None:
                     registration.last_outcome = outcome
         return outcome
 

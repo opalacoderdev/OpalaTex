@@ -34,6 +34,7 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .atomic import discard_file, replace_file
 from .state import CHATS_EXPORT_REL_PATH
 
 # Columns of `projects` that describe the work rather than the machine. The
@@ -246,10 +247,10 @@ def write_export(project_path: str, payload: dict[str, Any]) -> bool:
             handle.write(serialized)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(handle.name, target)
+        replace_file(handle.name, target)
     except BaseException:
         try:
-            os.unlink(handle.name)
+            discard_file(handle.name)
         except OSError:
             pass
         raise

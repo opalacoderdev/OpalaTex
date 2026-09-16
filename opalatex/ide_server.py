@@ -3411,6 +3411,31 @@ class AsyncHTTPServer:
 
         # 7b. Run Agent (Streaming)
         elif path == '/api/opalatex/run' and method == 'POST':
+            # One agent turn at a time (PROJECT_DESIGN 2.6). A turn keeps its
+            # project, store and GUI input hooks in module globals, so a turn
+            # started while another is still alive corrupts both: the older
+            # turn's cleanup removed the newer turn's hooks, and the newer
+            # turn's questions went to the server console instead of the GUI.
+            # A client reaches this after losing the stream of a turn that is
+            # still running or still cleaning up.
+            active_task = self.active_agent_task
+            if active_task is not None and not active_task.done():
+                stopping = getattr(active_task, "_opalatex_cancel_requested", False)
+                self.send_response(
+                    writer,
+                    409,
+                    json.dumps({
+                        "error": (
+                            "The previous agent turn is still stopping."
+                            if stopping
+                            else "Another agent turn is still running."
+                        ),
+                        "reason": "turn_stopping" if stopping else "turn_active",
+                    }).encode("utf-8"),
+                    "application/json",
+                )
+                return
+
             from opalatex.ui_settings import load_ui_settings
             from opalatex.i18n import set_lang
 
@@ -3443,7 +3468,8 @@ class AsyncHTTPServer:
                 writer.write(b"\r\n")
 
             from opalatex.agent_stdin import handle_run
-            
+            from opalatex import keep_awake
+
             async def run_agent():
                 try:
                     await handle_run(data)
@@ -3456,9 +3482,33 @@ class AsyncHTTPServer:
                 finally:
                     event_queue.put_nowait(None)
 
+            # An agent turn is unattended work the user is waiting on, so the
+            # machine must not idle-sleep through it: a suspend kills every
+            # socket, and the window comes back having lost the stream of a turn
+            # the server still owns. Released in `release_turn` below, which
+            # runs for every way a turn can end. See opalatex/keep_awake.py.
+            keep_awake.inhibitor.acquire("OpalaTex is running an agent turn")
             agent_task = asyncio.create_task(run_agent())
             self.active_agent_task = agent_task
             self.active_agent_event_queue = event_queue
+            run_project_path = data.get('projectPath') or data.get('project_path')
+
+            def release_turn(finished_task):
+                # Let the system idle again: the work the hold existed for is
+                # over, however it ended (finished, failed, or interrupted).
+                keep_awake.inhibitor.release()
+                # The turn, not its HTTP stream, owns the active slot: a turn
+                # whose client went away keeps running and releases it here.
+                if self.active_agent_task is finished_task:
+                    self.active_agent_task = None
+                    self.active_agent_event_queue = None
+                # An agent turn writes through its own file tools rather than
+                # the endpoints above, so the end of the turn is the one place
+                # that covers every file it touched — including a turn that was
+                # interrupted, which still leaves its edits on disk.
+                self._notify_cloud_change(run_project_path)
+
+            agent_task.add_done_callback(release_turn)
 
             cancelled_by_event = False
             try:
@@ -3482,11 +3532,6 @@ class AsyncHTTPServer:
             finally:
                 if event_queue in self.active_queues:
                     self.active_queues.remove(event_queue)
-                # An agent turn writes through its own file tools rather than
-                # the endpoints above, so the end of the turn is the one place
-                # that covers every file it touched — including a turn that was
-                # interrupted, which still leaves its edits on disk.
-                self._notify_cloud_change(data.get('projectPath') or data.get('project_path'))
                 # Close the HTTP chunked stream so the frontend reader unblocks.
                 try:
                     writer.write(b"0\r\n\r\n")
@@ -3494,32 +3539,26 @@ class AsyncHTTPServer:
                     writer.close()
                 except Exception:
                     pass
-                # The response stream is already closing, so waiting here does not
-                # delay the interrupt acknowledgement.  Keep ownership of the task
-                # until its checkpoint cleanup finishes; otherwise a new turn can
-                # overwrite the active slot and interleave start/end commits.
                 if not agent_task.done():
                     if cancelled_by_event:
+                        # Interrupted: wait for the cancellation-safe checkpoint
+                        # cleanup before this request ends.
                         self._request_agent_cancel_once(agent_task)
-                    try:
-                        await asyncio.wait_for(asyncio.shield(agent_task), timeout=5.0)
-                    except asyncio.TimeoutError:
-                        if not agent_task.done():
-                            self._request_agent_cancel_once(agent_task)
-                            try:
-                                await asyncio.shield(agent_task)
-                            except (asyncio.CancelledError, Exception):
-                                pass
-                    except (asyncio.CancelledError, Exception):
-                        pass
+                        try:
+                            await asyncio.shield(agent_task)
+                        except (asyncio.CancelledError, Exception):
+                            pass
+                    # Otherwise the client stream was lost (for example, the
+                    # system went to sleep) while the turn is still going. That
+                    # is not a reason to end the turn: it keeps waiting for a
+                    # pending answer, which still arrives through
+                    # /api/opalatex/input_response, or keeps working, and it
+                    # releases the active slot when it finishes.
                 else:
                     try:
                         await agent_task
                     except (asyncio.CancelledError, Exception):
                         pass
-                if self.active_agent_task == agent_task:
-                    self.active_agent_task = None
-                    self.active_agent_event_queue = None
 
         # 7b2. Interrupt Agent
         elif path == '/api/opalatex/interrupt' and method == 'POST':
@@ -5370,6 +5409,23 @@ class AsyncHTTPServer:
                 "application/json",
             )
 
+        elif path == '/api/settings/thoughts' and method == 'GET':
+            from opalatex.ui_settings import clamp_thought_context_tokens, load_ui_settings
+            tokens = clamp_thought_context_tokens(load_ui_settings().get("thought_context_tokens"))
+            self.send_response(
+                writer, 200, json.dumps({"thought_context_tokens": tokens}).encode('utf-8'), "application/json"
+            )
+
+        elif path == '/api/settings/thoughts' and method == 'POST':
+            from opalatex.ui_settings import clamp_thought_context_tokens, save_ui_settings
+            tokens = clamp_thought_context_tokens(data.get("thought_context_tokens"))
+            save_ui_settings({"thought_context_tokens": tokens})
+            self.send_response(
+                writer, 200,
+                json.dumps({"success": True, "thought_context_tokens": tokens}).encode('utf-8'),
+                "application/json",
+            )
+
         elif path == '/api/chat/evolve-prompt' and method == 'POST':
             prompt_text = (data.get("prompt") or "").strip()
             if not prompt_text:
@@ -5667,6 +5723,21 @@ def start_gui_server(host="127.0.0.1", port=3000):
     agent_stdin.event_hook = web_event_hook
     import litellm
     litellm.event_hook = web_event_hook
+
+    # TEMPORARY DIAGNOSTIC — remove together with agenticblocks'
+    # _await_reporting_cancellation. Stamps the "never awaited" warning with the
+    # time so it can be matched to a "[LLM CALL CANCELLED ...]" line.
+    import sys as _sys
+    import warnings as _warnings
+    from datetime import datetime as _datetime
+    _show_warning = _warnings.showwarning
+
+    def _show_warning_with_time(message, category, filename, lineno, file=None, line=None):
+        if "never awaited" in str(message):
+            print(f"[WARNING TIME {_datetime.now():%H:%M:%S.%f}]", file=_sys.stderr, flush=True)
+        _show_warning(message, category, filename, lineno, file, line)
+
+    _warnings.showwarning = _show_warning_with_time
 
     # --- Run asyncio server in a background daemon thread so the main thread
     # is free for the desktop window toolkit (GTK/pywebview requires main thread).

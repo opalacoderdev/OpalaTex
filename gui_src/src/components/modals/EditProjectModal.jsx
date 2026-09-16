@@ -70,6 +70,7 @@ export default function EditProjectModal({
           min_p: { min: 0, max: 1 },
           eviction_threshold: { min: 0, max: 1 },
           memory_pressure_threshold: { min: 0, max: 1 },
+          heartbeat_pressure_threshold: { min: 0, max: 1 },
           max_tokens: { min: 1 },
           num_ctx: { min: 1 },
           seed: { min: 0 },
@@ -435,6 +436,11 @@ export default function EditProjectModal({
                         <ParamNumber label={t('editProjectModal.memoryPressureThreshold')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultMemoryPressure')}
                           value={editingProject.model_params?.memory_pressure_threshold}
                           onChange={e => setParam('memory_pressure_threshold', parseNum(e.target.value, true))} />
+                        {/* Fraction of the heartbeat budget spent past which the
+                            agent is warned to be brief and close the turn. */}
+                        <ParamNumber label={t('editProjectModal.heartbeatPressureThreshold')} step="0.05" min="0" max="1" placeholder={t('editProjectModal.defaultHeartbeatPressure')}
+                          value={editingProject.model_params?.heartbeat_pressure_threshold}
+                          onChange={e => setParam('heartbeat_pressure_threshold', parseNum(e.target.value, true))} />
                         <ParamNumber label={t('editProjectModal.loopDetectionLimit')} min="1" placeholder={t('editProjectModal.defaultLoopDetectionLimit')}
                           value={editingProject.model_params?.loop_detection_limit}
                           onChange={e => setParam('loop_detection_limit', parseNum(e.target.value))} />

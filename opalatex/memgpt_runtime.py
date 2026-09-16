@@ -1358,6 +1358,15 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         # headroom left for the model's own answer once the request is assembled.
         eviction_threshold=_agent_params.get("eviction_threshold", 0.85),
         memory_pressure_threshold=_agent_params.get("memory_pressure_threshold", 0.7),
+        # Warn the model that its step budget is running out while it still has
+        # steps to react: a turn that hits max_heartbeats is cut off mid-work and
+        # the user has to resume it by hand.
+        heartbeat_pressure_threshold=float(
+            _agent_params.get(
+                "heartbeat_pressure_threshold",
+                model_params.get("heartbeat_pressure_threshold", 0.75),
+            )
+        ),
         debug=_agent_params.get("debug", False),
         use_shared_router=_agent_params.get("use_shared_router", True),
         loop_detection=_agent_params.get("loop_detection", model_params.get("loop_detection", True)),

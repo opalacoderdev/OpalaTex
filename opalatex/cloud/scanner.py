@@ -44,6 +44,10 @@ ALWAYS_EXCLUDED = (
     # Partial-compilation scratch files written next to the source by the
     # LaTeX compiler; they exist only for the duration of one compile.
     "opalatex_partial_*",
+    # Temp files of the sync's own atomic writes (conversation export, file
+    # downloads). One left behind by a failed replace is not project content.
+    ".opalatex/session/.chats-*.tmp",
+    "*.sync-*.tmp",
 )
 
 # Directory names pruned during the walk. Pruning beats matching every leaf:

@@ -162,6 +162,7 @@ def test_every_project_setting_the_ui_offers_survives_sanitizing():
         "num_ctx": 8192, "stream": True,
         "force_vision": True, "max_heartbeats": 20, "max_context_tokens": 16384,
         "eviction_threshold": 0.85, "memory_pressure_threshold": 0.9,
+        "heartbeat_pressure_threshold": 0.75,
         "max_iterations": 5, "max_tool_calls": 40, "loop_detection": True,
         "loop_detection_limit": 3, "max_idle_heartbeats": 2, "debug": False,
         "empty_response_reasoning_fallback": True,
