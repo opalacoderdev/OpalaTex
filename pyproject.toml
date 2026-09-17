@@ -31,8 +31,12 @@ dependencies = [
     "chromadb>=0.4.0",
     "pywebview>=4.0",
     "pywinpty>=2.0.0; sys_platform == 'win32'",
-    "PyQt6>=6.8.0",
-    "PyQt6-WebEngine>=6.8.0",
+    # Oldest Qt verified to run OpalaTex on Windows; see requirements.txt and
+    # PROJECT_DESIGN.md 2.16.1 (6.8: PDF viewer breaks; 6.10.2: agent crashes).
+    "PyQt6>=6.11.0",
+    "PyQt6-Qt6>=6.11.2",
+    "PyQt6-WebEngine>=6.11.0",
+    "PyQt6-WebEngine-Qt6>=6.11.2",
     "qtpy>=2.4.0",
     "ddgs>=6.0",
     "Pillow>=10.0.0",

@@ -126,16 +126,24 @@ def test_threshold_of_one_disables_the_warning():
     assert all(a == [] for a in calls["alerts"])
 
 
-def test_last_request_before_the_cut_carries_the_warning():
-    """The turn the user has to resume by hand was warned before it was cut."""
+def test_last_step_that_could_act_carries_the_warning():
+    """The last request allowed to act was warned; the answer request follows it.
+
+    Once the budget is spent the run asks for the answer with tool calls off,
+    under the exhausted-budget alert alone: a brevity warning there would compete
+    with the one thing that request exists to obtain.
+    """
     agent = _build(max_heartbeats=2, heartbeat_pressure_threshold=0.5)
-    calls = _script(agent, [_work("c1"), _work("c2")])
+    calls = _script(agent, [_work("c1"), _work("c2"), _response(content="Done.")])
 
     out = asyncio.run(agent.run(input=AgentInput(prompt="go")))
 
     assert out.termination_reason.startswith("max_heartbeats")
-    assert len(calls["alerts"][-1]) == 1
-    assert "1 of 2" in calls["alerts"][-1][0]
+    assert calls["n"] == 3
+    assert len(calls["alerts"][1]) == 1
+    assert "1 of 2" in calls["alerts"][1][0]
+    assert calls["alerts"][2] == []
+    assert out.final_text == "Done."
 
 
 def test_pressure_does_not_preempt_the_forced_final_answer():

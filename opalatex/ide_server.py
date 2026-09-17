@@ -809,6 +809,36 @@ class AsyncHTTPServer:
         self.active_agent_event_queue = None
         self.active_prompt_evolution_task = None
 
+    def _agent_turn_active(self) -> bool:
+        """True while an agent turn's task is alive, including its cleanup."""
+        task = self.active_agent_task
+        return task is not None and not task.done()
+
+    def _refuse_during_agent_turn(self, writer) -> bool:
+        """Answer 409 and return True when an agent turn owns the project state.
+
+        A turn keeps its project, store and orchestrator in module globals
+        (PROJECT_DESIGN 2.6). A request that reloads them while it runs rebinds
+        the running turn to whatever chat that request named.
+        """
+        if not self._agent_turn_active():
+            return False
+        stopping = getattr(self.active_agent_task, "_opalatex_cancel_requested", False)
+        self.send_response(
+            writer,
+            409,
+            json.dumps({
+                "error": (
+                    "The previous agent turn is still stopping."
+                    if stopping
+                    else "Another agent turn is still running."
+                ),
+                "reason": "turn_stopping" if stopping else "turn_active",
+            }).encode("utf-8"),
+            "application/json",
+        )
+        return True
+
     def _emit_agent_cancelled_once(self, agent_task, event_queue):
         """Notify the stream immediately, without waiting for task cleanup."""
         if getattr(agent_task, "_opalatex_cancel_event_emitted", False):
@@ -3300,14 +3330,27 @@ class AsyncHTTPServer:
                 from opalatex.ollama_manager import pull_model_in_background
                 pull_model_in_background(project.model.split("ollama/", 1)[1])
             
-            # Propagate updated project settings to in-memory state and rebuild orchestrator
+            # Propagate the edited settings to the in-memory project. They are
+            # copied onto the live object, never swapped for `project`: this
+            # endpoint loaded the *default* chat, while the live project is bound
+            # to the chat its last turn ran in -- possibly a turn still running.
+            # Swapping it rebound that turn mid-flight, and its reply, activity and
+            # working memory were written into the default chat, overwriting that
+            # chat's own memory. Observed on a real "Continue" issued in a
+            # secondary chat.
             import opalatex.agent_stdin as agent_stdin
-            if agent_stdin.current_project and agent_stdin.current_project.name == project.name:
-                agent_stdin.current_project = project
-                from .tools import set_project_context
-                set_project_context(project, store)
-                from .memgpt_runtime import build_chat_orchestrator
-                agent_stdin.current_memgpt = build_chat_orchestrator(project, store)
+            live = agent_stdin.current_project
+            if live and live.name == project.name:
+                live.apply_settings_from(project)
+                # A running turn keeps the orchestrator and tool context it was
+                # built with (the next turn rebuilds both from the store), so they
+                # are rebuilt only between turns.
+                if not self._agent_turn_active():
+                    live_store = agent_stdin.current_store or store
+                    from .tools import set_project_context
+                    set_project_context(live, live_store)
+                    from .memgpt_runtime import build_chat_orchestrator
+                    agent_stdin.current_memgpt = build_chat_orchestrator(live, live_store)
 
             from opalatex.config import resolve_display_num_ctx
 
@@ -3337,8 +3380,10 @@ class AsyncHTTPServer:
 
         # 6c. Slash Command
         elif path == '/api/opalatex/slash-command' and method == 'POST':
-
-                    
+            # A slash command reloads the project for the chat it names, which is
+            # the same global state a running turn persists through.
+            if self._refuse_during_agent_turn(writer):
+                return
             from opalatex.agent_stdin import handle_slash_command
             try:
                 result = await handle_slash_command(data)
@@ -3348,6 +3393,8 @@ class AsyncHTTPServer:
 
         # 6d. Slash Command Continue (after confirm)
         elif path == '/api/opalatex/slash-command/continue' and method == 'POST':
+            if self._refuse_during_agent_turn(writer):
+                return
             from opalatex.agent_stdin import handle_slash_command_continue
             try:
                 result = await handle_slash_command_continue(data)
@@ -3425,22 +3472,7 @@ class AsyncHTTPServer:
             # turn's questions went to the server console instead of the GUI.
             # A client reaches this after losing the stream of a turn that is
             # still running or still cleaning up.
-            active_task = self.active_agent_task
-            if active_task is not None and not active_task.done():
-                stopping = getattr(active_task, "_opalatex_cancel_requested", False)
-                self.send_response(
-                    writer,
-                    409,
-                    json.dumps({
-                        "error": (
-                            "The previous agent turn is still stopping."
-                            if stopping
-                            else "Another agent turn is still running."
-                        ),
-                        "reason": "turn_stopping" if stopping else "turn_active",
-                    }).encode("utf-8"),
-                    "application/json",
-                )
+            if self._refuse_during_agent_turn(writer):
                 return
 
             from opalatex.ui_settings import load_ui_settings
@@ -5678,12 +5710,14 @@ def build_relaunch_command():
     return [sys.executable, "-c", "from opalatex.cli import main; main()"] + extra_args
 
 
-def spawn_detached(command, cwd=None):
+def spawn_detached(command, cwd=None, env=None):
     """Start ``command`` fully detached from this process and return the Popen."""
     import subprocess
     import sys
 
     kwargs = {"cwd": cwd or os.getcwd(), "close_fds": True}
+    if env is not None:
+        kwargs["env"] = env
     if sys.platform == "win32":
         # DETACHED_PROCESS keeps the child alive after we exit; CREATE_NEW_PROCESS_GROUP
         # stops it from inheriting Ctrl+C delivered to the old console.
@@ -5711,7 +5745,12 @@ def schedule_app_restart(delay=0.6):
 
     def _restart():
         try:
-            spawn_detached(command, cwd=cwd)
+            # The replacement must decide its own rendering mode. Inheriting this
+            # run's is how "applies at the next launch" failed to apply at the
+            # next launch (see webengine_env.pristine_environment).
+            from opalatex.webengine_env import pristine_environment
+
+            spawn_detached(command, cwd=cwd, env=pristine_environment())
         except Exception as e:  # pragma: no cover - depends on the host OS
             print(f"[OpalaTex] restart failed to spawn a new instance: {e}")
             return
@@ -5762,9 +5801,11 @@ def start_gui_server(host="127.0.0.1", port=3000):
         "webengine_gpu": webengine["gpu_mode"],
         "webengine_gpu_source": webengine["source"],
         "chromium_flags": webengine["chromium_flags"],
+        "qt_quick_backend": webengine["qt_quick_backend"],
     })
     if webengine["reason"]:
-        print(f"[OpalaTex] QtWebEngine: {webengine['reason']} ({webengine['chromium_flags']})")
+        quick = f", QT_QUICK_BACKEND={webengine['qt_quick_backend']}" if webengine["qt_quick_backend"] else ""
+        print(f"[OpalaTex] QtWebEngine: {webengine['reason']} ({webengine['chromium_flags']}{quick})")
 
     # A run that died leaves its marker behind; this is the only moment the
     # application can say so, since the run itself had no chance to.

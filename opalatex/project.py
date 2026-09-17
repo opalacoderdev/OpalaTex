@@ -518,6 +518,41 @@ class ProjectData:
         path = self.project_path or "(unspecified)"
         return f"[PROJECT: {name} | PATH: {path}]\n"
 
+    def apply_settings_from(self, other: "ProjectData") -> None:
+        """Take *other*'s project-level settings, keeping this object's chat.
+
+        A ``ProjectData`` is two things at once: the project's settings, and one
+        chat's view of it (``current_chat_id``, ``history``, per-chat core memory).
+        Code holding a live instance -- a running agent turn persists its reply,
+        activity and working memory through it -- must receive edited settings
+        without being rebound to whichever chat the editor happened to load.
+        """
+        for name in PROJECT_SETTINGS_FIELDS:
+            setattr(self, name, getattr(other, name))
+
+
+PROJECT_SETTINGS_FIELDS = (
+    "project_name",
+    "project_path",
+    "description",
+    "mode",
+    "model",
+    "worker_model",
+    "model_params",
+    "worker_model_params",
+    "api_key",
+    "api_base",
+    "worker_api_key",
+    "worker_api_base",
+    "user_prompt_prefix",
+    "main_file",
+    "git_root_path",
+    "compile_on_save_partial",
+    "compile_on_save_full",
+    "use_shared_memory",
+)
+"""Fields `/api/opalatex/update-project` edits: the project's, not a chat's."""
+
 
 # Backward-compat alias so existing imports of SessionData still work during migration
 SessionData = ProjectData

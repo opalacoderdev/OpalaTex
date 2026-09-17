@@ -505,13 +505,18 @@ def _response_with_thought(response: str, thought_chunks: list[str]) -> str:
 def _mark_turn_without_answer(resp_obj, response: str) -> str:
     """Say so when the run stopped before the model ever answered.
 
-    A turn that hits the runaway guardrail mid-work breaks out with whatever the
-    model said on the way -- "I will inspect now." and nothing else. That text is
-    real and must not be dropped, but it is an announcement, and persisting it as
-    the assistant's reply hands the user work nobody did: the exact failure the
-    idle allowance exists to prevent, arriving through the other exit. The block
-    already reports the difference (`final_text` empty while `narration` is not),
-    so the turn is delivered with its progress intact and labelled for what it is.
+    A run can end with only what the model said on the way -- "I will inspect
+    now." and nothing else. That text is real and must not be dropped, but it is
+    an announcement, and persisting it as the assistant's reply hands the user
+    work nobody did. The block reports the difference (`final_text` empty while
+    `narration` is not), so the turn is delivered with its progress intact and
+    labelled for what it is.
+
+    *Why* it ended decides the label, because the two causes have different
+    remedies. A spent step budget (`budget_exhausted`) is fixed by a larger one.
+    A model that stopped acting with steps still left -- the idle allowance ran
+    out, or it returned nothing -- would do the same under any budget, and
+    telling the user to raise it sends them after a setting that cannot help.
     """
     if not str(response or "").strip():
         return response
@@ -519,7 +524,12 @@ def _mark_turn_without_answer(resp_obj, response: str) -> str:
         return response
     if not (getattr(resp_obj, "narration", None) or []):
         return response
-    return f"{response}\n\n{TURN_CUT_SHORT_MARKER}"
+    marker = (
+        TURN_CUT_SHORT_MARKER
+        if getattr(resp_obj, "budget_exhausted", False)
+        else TURN_NO_ANSWER_MARKER
+    )
+    return f"{response}\n\n{marker}"
 
 
 PROGRESS_FENCE_LANG = "opalatex-progress"
@@ -791,11 +801,29 @@ def _record_turn_thought(content: str) -> bool:
     return True
 
 
+EMPTY_RESPONSE_NUDGE = (
+    "Your last run ended without a user-facing response. Reply now with a non-empty "
+    "final response: report what was actually done and verified, and state plainly "
+    "anything that is still unfinished. Use a tool only if more work is required."
+)
+"""Model-facing, so English whatever language the interface uses, like every
+other instruction the agent reads. It deliberately does not say the work is
+finished: the run can end silently in the middle of it, and telling the model it
+completed the request invites exactly the false success report the rest of the
+turn protocol exists to prevent."""
+
+SERIALIZED_TOOL_CALL_NUDGE = (
+    "Your last message contained a tool call written as text (JSON, or "
+    "<tool_call>/<function=...> markup). Text is never a tool call and nothing "
+    "executes it. If you still need that action, issue it now through the provider's "
+    "native tool-calling protocol. If the work is already done, reply with the final "
+    "user-facing answer as plain text."
+)
+
+
 def _empty_response_retry_prompt(worker_summary: str = "") -> str:
     """Build the corrective prompt used when the orchestrator ends silently."""
-    from opalatex.i18n import _
-
-    prompt = _("empty_response_nudge")
+    prompt = EMPTY_RESPONSE_NUDGE
     summary = str(worker_summary or "").strip()
     if summary:
         prompt += (
@@ -834,9 +862,7 @@ def _has_unfenced_tool_call_payload(response: str) -> bool:
 
 def _serialized_tool_call_retry_prompt() -> str:
     """Build the corrective prompt for a tool call written as text."""
-    from opalatex.i18n import _
-
-    return _("serialized_tool_call_nudge")
+    return SERIALIZED_TOOL_CALL_NUDGE
 
 
 def _serialized_tool_call_failure_message() -> str:
@@ -864,8 +890,13 @@ def _report_rejected_serialized_response(response: str, limit: int = 400) -> Non
     })
 
 
-async def _correct_serialized_tool_calls(agent, response, thought_chunks, meta_overrides):
-    """Return *response*, or a corrected one when it is a tool call written as text.
+async def _correct_serialized_tool_calls(agent, response, thought_chunks, meta_overrides, resp_obj=None):
+    """Return ``(response, resp_obj)``, corrected when the response is a tool call written as text.
+
+    *resp_obj* is the run output the response came from. A correction re-runs the
+    agent, and the output of that run is returned with its response: the caller
+    labels the turn from ``final_text`` and ``budget_exhausted``, and reading
+    them off the run that was pushed back would describe a different run.
 
     A tool call printed as text executes nothing, and unlike a worker report
     (sanitized in `memgpt_runtime`) the orchestrator's own output goes straight to
@@ -903,7 +934,7 @@ async def _correct_serialized_tool_calls(agent, response, thought_chunks, meta_o
     if response and _has_unfenced_tool_call_payload(response):
         _report_rejected_serialized_response(response)
         raise RuntimeError(_serialized_tool_call_failure_message())
-    return response
+    return response, resp_obj
 
 
 # Panel diagnostics kept across reloads. "error" is included so a failed turn still
@@ -923,6 +954,17 @@ and what the model reads back, while the front-end matches it and renders the
 localised notice plus the continue action. Persisting the translated prose
 instead would make the match depend on which language was active when the turn
 ran, so the button would vanish for anyone who later switched languages."""
+
+
+TURN_NO_ANSWER_MARKER = (
+    "[TURN-NO-ANSWER] The model stopped before giving a final answer, with steps "
+    "still left. The text above is work in progress, not a reply."
+)
+"""Stable and unlocalised, like the markers above.
+
+The turn ended without an answer while its step budget still had room, so the
+notice the front-end shows for it must not point at the budget: it is the same
+kind of unfinished turn as a cut-short one, with a different cause."""
 
 
 TURN_FAILED_MARKER = (
@@ -2146,8 +2188,17 @@ async def handle_run(data: dict):
     # its inline `<think>` tags are still handled by the splitter below.
     publish_reasoning = bool((getattr(agent, "model_kargs", None) or {}).get("think"))
 
-    # Setup message history if provided (for custom/standard LLMAgentBlock)
-    if messages_history and hasattr(agent, "internal_history"):
+    # Setup message history if provided, for an agent whose history is not owned
+    # by the store. The chat orchestrator's is: `build_chat_orchestrator` restored
+    # its working memory for this chat -- tool calls and results included -- or
+    # seeded it from persisted history. Overwriting that with client-sent text is
+    # what made every "Continue" start from truncated bubbles and redo the work
+    # the stopped turn had already done (PROJECT_DESIGN 2.6).
+    if (
+        messages_history
+        and agent_type not in ("orchestrator", "chat_orchestrator")
+        and hasattr(agent, "internal_history")
+    ):
         agent.internal_history.clear()
         for msg in messages_history:
             agent.internal_history.append({
@@ -2523,8 +2574,8 @@ async def handle_run(data: dict):
                     )
 
             if agent_type in ("orchestrator", "chat_orchestrator"):
-                response = await _correct_serialized_tool_calls(
-                    agent, response, thought_chunks, _meta_overrides
+                response, resp_obj = await _correct_serialized_tool_calls(
+                    agent, response, thought_chunks, _meta_overrides, resp_obj
                 )
 
             if not response:

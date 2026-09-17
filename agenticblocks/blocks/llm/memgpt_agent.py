@@ -73,11 +73,52 @@ def _heartbeat_pressure_alert(heartbeats_left: int, max_heartbeats: int) -> str:
     """Return the system warning shown while the step budget is running out."""
     return (
         f"SYSTEM ALERT: Heartbeat Pressure. Only {heartbeats_left} of {max_heartbeats} "
-        "steps remain in this turn, and the turn is cut off when they run out. "
+        "heartbeats remain in this turn (one per response that carries tool calls). "
+        "When they run out no further tool call will run, "
+        "and work still in progress stays unfinished. "
         "Be brief from here on: keep any text short, drop optional checks and "
         "exploration, finish the work already in progress, and deliver your final "
-        "user-facing answer while you still have steps to write it."
+        "user-facing answer while you still have steps to act on anything it needs."
     )
+
+
+def _idle_allowance_spent_alert(acted_in_run: bool) -> str:
+    """Return the request for the answer once the model has stopped acting.
+
+    The allowance counts consecutive responses with no action since the last
+    one, so it can run out at the end of a turn full of real work. Telling that
+    model "no tool call was ever issued" would invite it to report to the user
+    that nothing was done, so the wording depends on whether anything ran.
+    """
+    if acted_in_run:
+        situation = (
+            "SYSTEM ALERT: Your turn is ending now. Your last responses asked to continue "
+            "without acting, so nothing you only described since your last tool call has "
+            "been done; the tool calls before that did run."
+        )
+    else:
+        situation = (
+            "SYSTEM ALERT: Your turn is ending now and no tool call was ever issued, so "
+            "nothing you described has been done."
+        )
+    return (
+        f"{situation} Do NOT state what you are going to do. Answer the user with what you "
+        "actually established; if you could not act, say plainly that you could not and "
+        "what you would need."
+    )
+
+
+_EXHAUSTED_BUDGET_ALERT = (
+    "SYSTEM ALERT: No action heartbeats remain in this turn, so no tool call will run. "
+    "Write your final user-facing response now, as normal text: report what was "
+    "actually done and verified, and state plainly anything still unfinished so the "
+    "user can ask you to continue. Do NOT describe actions you are about to take."
+)
+"""The last request of a run whose step budget is spent.
+
+It asks for an honest status rather than a success report: the budget can run
+out in the middle of work, and an answer that implies the work is complete when
+it is not is the false completion the idle allowance exists to prevent."""
 
 
 def _ollama_tool_call_json_escape_alert() -> str:
@@ -107,6 +148,13 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     system_prompt: str = "You are a helpful AI assistant with extended memory capabilities."
     tools: List[Block] = []
     max_heartbeats: int = 10
+    """Model calls that may carry tool calls in one run: the runaway guardrail.
+
+    Spending the last one does not end the run on the spot. The results of that
+    step have not been read yet, so one more request follows with tool calls off
+    and an alert asking for the final answer; whatever it returns ends the run,
+    and tool calls it returns anyway are refused, not executed. ``AgentOutput``
+    reports ``budget_exhausted`` either way."""
     max_context_tokens: int = 4000
     eviction_threshold: float = 1.0
     memory_pressure_threshold: float = 0.7
@@ -114,9 +162,10 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     """Fraction of ``max_heartbeats`` spent past which every request carries a
     step-budget warning.
 
-    Running out of heartbeats cuts a turn off mid-work, and the model only ever
-    learns how much budget is left from the tail of a tool result, which is easy
-    to overlook. Past this fraction the remaining budget stops being a footnote:
+    Running out of heartbeats stops a turn's work wherever it is, leaving the
+    model a single request to report on it, and the model only ever learns how
+    much budget is left from the tail of a tool result, which is easy to
+    overlook. Past this fraction the remaining budget stops being a footnote:
     each request opens with a SYSTEM ALERT naming the steps left and asking for
     brevity, so the model can converge on its answer while it still has the
     steps to write one. Mirrors ``memory_pressure_threshold``, for the other
@@ -401,9 +450,9 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     def _build_system_prompt(self) -> str:
         tool_descriptions_list = []
         for t in self.tools:
-            desc = f"- **{t.name}**: {getattr(t, 'description', 'Sem descrição')}"
+            desc = f"- **{t.name}**: {getattr(t, 'description', 'No description.')}"
             if t.name in self.tool_call_limits:
-                desc += f" [REGRAS: Máximo de {self.tool_call_limits[t.name]} chamada(s) permitida(s)]"
+                desc += f" [LIMIT: at most {self.tool_call_limits[t.name]} call(s) per turn]"
             tool_descriptions_list.append(desc)
         tool_descriptions = "\n".join(tool_descriptions_list)
         
@@ -419,13 +468,13 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
 
 You are running on an OS-like MemGPT architecture. You have a limited Main Context (working memory) and access to external memory databases via tools.
 
-## AVAILABLE MEMORY TOOLS
+## AVAILABLE TOOLS
 {tool_descriptions}
 {heartbeat_line}
 
 ## CORE RULES
 1. **RESPONSE CONTRACT**: Every piece of normal text you write is delivered to the user exactly as written, including text you write in the same response as a tool call. There is no separate delivery tool and no second channel. Use native provider tool calls for actions; JSON, Markdown, code blocks, examples and questions written as text are never tool calls.
-2. **HEARTBEATS & STEP BUDGET**: Your turn continues while a tool call is pending. It ends when you reply with text and no tool call, and that reply is your final answer. To speak before acting, call `{HEARTBEAT_TOOL_NAME}` in the same response to hold the turn open. You have a finite heartbeat allowance per turn. Actively budget and manage your remaining steps: plan efficiently, avoid repetitive verification or exploratory rabbit holes, and ensure you conclude with your final answer well before your heartbeats run out. If you see a SYSTEM ALERT about Heartbeat Pressure, your remaining steps are nearly spent: be brief, stop exploring, wrap up what you are doing and deliver your final answer.
+2. **HEARTBEATS (YOUR STEP BUDGET)**: Your turn continues while a tool call is pending. It ends when you reply with text and no tool call, and that reply is your final answer. To speak before acting, call `{HEARTBEAT_TOOL_NAME}` in the same response to hold the turn open. You have a finite number of heartbeats per turn, and a heartbeat is one step: each response of yours that carries tool calls spends exactly one, however many calls it contains. When several actions do not depend on each other's results (reading two files, searching and reading), issue them together in one response. Plan efficiently, avoid repetitive verification and exploratory rabbit holes, and conclude with your final answer well before your heartbeats run out. If you see a SYSTEM ALERT about Heartbeat Pressure, your heartbeats are nearly spent: be brief, stop exploring, wrap up what you are doing and deliver your final answer.
 3. **MEMORY PRESSURE**: If you see a SYSTEM ALERT about Memory Pressure, your Main Context is almost full. Be concise and rely on memory tools instead of keeping everything in context.
 4. **NO HALLUCINATION**: If the user asks about past interactions or facts you don't know, ALWAYS use your memory tools to retrieve the information before answering.
 5. **FINISHING & TERMINATION CONTRACT**: Always bring the turn to a clean conclusion. Never finish by writing that you are about to do something. When the goal is met or when remaining heartbeats are low, stop issuing tool calls and deliver your completed, user-facing answer as normal text. Text with no tool call is read as your finished answer.
@@ -583,6 +632,10 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
 
         heartbeats_used = 0
         tool_call_count = 0
+        # Whether any real action ran this turn. The idle allowance resets on every
+        # action, so it can run out after a long stretch of real work, and the
+        # alert that follows must not tell the model that nothing was done.
+        acted_in_run = False
         tool_usage: Dict[str, int] = defaultdict(int)
         tool_call_signatures: Dict[str, int] = defaultdict(int)
         termination_reason = "unknown"
@@ -657,18 +710,18 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                 kwargs["tool_choice"] = "none"
                 messages.append({
                     "role": "system",
-                    "content": (
-                        "SYSTEM ALERT: Your turn is ending now and no tool call was ever issued, so "
-                        "nothing you described has been done. Do NOT state what you are going to do. "
-                        "Answer the user with what you actually established; if you could not act, say "
-                        "plainly that you could not and what you would need."
-                    )
+                    "content": _idle_allowance_spent_alert(acted_in_run),
                 })
             elif heartbeats_left <= 0:
+                # The budget is spent, but the model has not yet been heard from
+                # since its last action: the answer is asked for once, with tool
+                # calls off the table. Breaking out as soon as the budget ran out
+                # used to skip this request entirely, so a model that finished the
+                # work on its last step was cut off before it could say so.
                 kwargs["tool_choice"] = "none"
                 messages.append({
-                    "role": "system", 
-                    "content": "SYSTEM ALERT: No action heartbeats remain. Provide the final user-facing response as normal text."
+                    "role": "system",
+                    "content": _EXHAUSTED_BUDGET_ALERT,
                 })
             else:
                 kwargs["tool_choice"] = "auto"
@@ -756,7 +809,12 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                     # different intention, and it has its own tool to express it.
                     visible_texts.append(content)
                     final_text_only = content
-                    termination_reason = "model returned a final text response (no tool calls)"
+                    termination_reason = (
+                        f"max_heartbeats ({self.max_heartbeats}) reached; "
+                        "final answer given on the last request"
+                        if heartbeats_left <= 0
+                        else "model returned a final text response (no tool calls)"
+                    )
                     break
 
                 # Nothing visible was said: drop the turn instead of describing it in
@@ -791,7 +849,9 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                 # attempt back -- it writes the identical thought again instead.
                 if force_final_answer:
                     termination_reason = (
-                        "model produced no answer: only reasoning, and no tool call was ever issued"
+                        "model produced no answer: it stopped acting and returned only reasoning"
+                        if acted_in_run
+                        else "model produced no answer: only reasoning, and no tool call was ever issued"
                     )
                     break
                 idle_heartbeats += 1
@@ -808,11 +868,38 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                         "tool call if an action is still required."
                     ),
                 })
+                # A correction that spends the last heartbeat still ends in the
+                # request for the answer at the top of the loop, never in a break.
                 heartbeats_used += 1
-                if heartbeats_used >= self.max_heartbeats:
-                    termination_reason = f"max_heartbeats ({self.max_heartbeats}) reached after empty-response correction"
-                    break
                 continue
+
+            if heartbeats_left <= 0:
+                # The answer was requested with tool_choice="none" and tool calls
+                # came back anyway: a provider is free to ignore the parameter.
+                # Running them would overrun the guardrail the request exists to
+                # close, so they are refused, each with a result -- a call left
+                # without one breaks the next request built from this history --
+                # and the run ends. Any text beside them was already kept above.
+                for tool_call in message.tool_calls:
+                    refused = {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_call.function.name,
+                        "content": json.dumps({
+                            "error": (
+                                "SYSTEM ALERT: Not executed. No action heartbeats "
+                                "remained in this turn."
+                            )
+                        }),
+                    }
+                    self.internal_history.append(refused)
+                    messages.append(refused)
+                termination_reason = (
+                    f"max_heartbeats ({self.max_heartbeats}) reached; the final request "
+                    "returned tool calls instead of an answer, and they were not executed"
+                )
+                break
+
             heartbeats_used += 1
             force_final_answer = False
             # Whether this batch carried real work rather than nothing but a
@@ -913,14 +1000,16 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             # ends in a request for the answer rather than one more intention.
             if acted_this_round:
                 idle_heartbeats = 0
+                acted_in_run = True
             else:
                 idle_heartbeats += 1
                 if idle_heartbeats >= self.max_idle_heartbeats:
                     force_final_answer = True
 
-            if heartbeats_used >= self.max_heartbeats:
-                termination_reason = f"max_heartbeats ({self.max_heartbeats}) reached"
-                break
+            # No break when this batch spent the last heartbeat: the model has
+            # not read these results yet, and the next request -- tool calls off,
+            # the exhausted-budget alert on -- is where it reports on them. That
+            # request ends the run whatever comes back.
 
         # Everything the model said this run, in the order it said it, through the
         # rule both blocks share. Joining is not a formatting choice: any other
@@ -970,6 +1059,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             structured_output=structured_obj,
             narration=list(narration_texts),
             final_text=final_text_only,
+            budget_exhausted=heartbeats_used >= self.max_heartbeats,
         )
 
         if self.debug:

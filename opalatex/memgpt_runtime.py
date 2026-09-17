@@ -66,6 +66,7 @@ from .skills import (
 
 from .tools import get_available_tools
 from .project import tutorial_chat_id
+from .prompt_profiles import ACHIEVEMENTS_POLICY
 from .think_stream import InlineReasoningStreamSplitter
 
 CHAT_ORCHESTRATOR_SKILL = "chat-orchestrator"
@@ -556,9 +557,13 @@ def build_run_skill_tool(
             _NATIVE_TOOL_CALL_REMINDER if _needs_native_tool_call_reminder(model) else ""
         )
 
+        # Workers receive action tools only and return their final report as normal text.
+        # Resolved before the prompt, which lists exactly these tools.
+        tools = list(get_available_tools())
+
         system = (
-            worker_profile_spec["worker_intro"](skill_name)
-            + worker_profile_spec["worker_tools_block"]()
+            worker_profile_spec["worker_intro"]()
+            + worker_profile_spec["worker_tools_block"](tools)
             + "# Metadata: "
             + f"{meta['body']}\n\n"
             + f"You are executing the '{skill_name}' skill. "
@@ -566,14 +571,14 @@ def build_run_skill_tool(
             + f"The skill directory is: {skill_dir}\n"
             + f"{scripts_hint}"
             + f"{request_hint}"
-            + f"IMPORTANT: To save any file content (HTML, JSON, code, Markdown, etc.) ALWAYS use the write_file tool. "
+            + "IMPORTANT: Write file content (HTML, JSON, code, Markdown, etc.) only through the file tools, "
+            + "never by echoing it through run_command: write_file to create a file or replace a small one, "
+            + "replace_content_range or write_content_pos to change part of an existing file. "
             + worker_profile_spec["worker_recommendations"]()
             + worker_profile_spec["achievements_instructions"]()
             + f"{native_tool_instruction}"
         )
 
-        # Workers receive action tools only and return their final report as normal text.
-        tools = list(get_available_tools())
         memgpt._current_worker_messages = []
 
         from .config import get_project_agent_params
@@ -1069,13 +1074,7 @@ def _chat_orchestrator_body(project_path: str, profile: str = "full", policy: st
         "NEVER assume something didn't happen without first searching the web using the web_search tool.\n"
         "CRITICAL: If you use a <think> block to plan your actions, continue until you either make a native tool call or provide a non-empty final text response.\n\n"
         "ACHIEVEMENTS MEMORY INSTRUCTION:\n"
-        "You have the 'update_achievements_memory' tool. Use it FREQUENTLY to record your progress and milestones.\n"
-        "Examples of achievements you MUST record:\n"
-        "1. Discovered the location of an important file or snippet.\n"
-        "2. Concluded a heartbeat/iteration (write a summary of what you did in that phase).\n"
-        "3. Successfully read and understood a file's contents, or successfully wrote to a file.\n"
-        "4. Discovered the root cause of an error or bug.\n"
-        "You can output MULTIPLE tool calls in the same response to update achievements alongside your main action.\n"
+        f"{ACHIEVEMENTS_POLICY}\n"
     )
 
 

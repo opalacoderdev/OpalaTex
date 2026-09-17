@@ -1,15 +1,16 @@
 """Tests for the graphics mode handed to the embedded QtWebEngine window."""
 
-import pytest
-
 from opalatex.webengine_env import (
     CHROMIUM_FLAGS_VAR,
     DISABLE_GPU_FLAG,
     DISABLE_GPU_VAR,
     GPU_AUTO,
     GPU_OFF,
+    QUICK_BACKEND_SOFTWARE,
+    QUICK_BACKEND_VAR,
     apply_webengine_environment,
     normalize_gpu_mode,
+    pristine_environment,
     resolve_gpu_mode,
 )
 
@@ -67,3 +68,70 @@ def test_linux_keeps_its_historic_default_and_its_escape_hatch():
     chosen = {CHROMIUM_FLAGS_VAR: "--use-gl=desktop"}
     apply_webengine_environment(chosen, "linux", {})
     assert chosen[CHROMIUM_FLAGS_VAR] == "--use-gl=desktop"
+
+
+def test_turning_the_gpu_off_also_takes_qt_compositing_off_the_driver():
+    """``--disable-gpu`` alone left the Intel D3D11 driver loaded in the process.
+
+    Chromium stops using the GPU, but Qt still composites the web view through
+    Direct3D; measured on the reporting machine, all four Intel driver DLLs stayed
+    loaded until the Qt Quick scene graph was switched to software as well.
+    """
+    env = {}
+    report = apply_webengine_environment(env, "win32", {"webengine_gpu": GPU_OFF})
+    assert env[QUICK_BACKEND_VAR] == QUICK_BACKEND_SOFTWARE
+    assert report["qt_quick_backend"] == QUICK_BACKEND_SOFTWARE
+
+
+def test_using_the_gpu_leaves_qt_compositing_alone():
+    env = {}
+    apply_webengine_environment(env, "win32", {"webengine_gpu": GPU_AUTO})
+    assert QUICK_BACKEND_VAR not in env
+
+    # The Linux default predates this and concerns only Chromium's GPU process.
+    linux = {}
+    apply_webengine_environment(linux, "linux", {})
+    assert QUICK_BACKEND_VAR not in linux
+
+
+def test_a_qt_quick_backend_the_user_chose_is_kept():
+    env = {QUICK_BACKEND_VAR: "d3d12"}
+    report = apply_webengine_environment(env, "win32", {"webengine_gpu": GPU_OFF})
+    assert env[QUICK_BACKEND_VAR] == "d3d12"
+    assert env[CHROMIUM_FLAGS_VAR] == DISABLE_GPU_FLAG
+    assert report["qt_quick_backend"] == "d3d12"
+
+
+def test_a_restart_does_not_inherit_this_run_s_rendering_decision():
+    """The bug this closes: "applies at the next launch" did not apply.
+
+    The restarted app is a child of the old process, so it inherited the flags
+    the old one had written. Turning acceleration back on in Settings produced a
+    run that recorded ``webengine_gpu: auto`` while still carrying the inherited
+    ``--disable-gpu`` — the app reporting one thing and doing another.
+    """
+    env = {"PATH": "/usr/bin"}
+    apply_webengine_environment(env, "win32", {"webengine_gpu": GPU_OFF})
+    assert env[CHROMIUM_FLAGS_VAR] == DISABLE_GPU_FLAG
+    # pywebview appends its own flags after this module has run.
+    env[CHROMIUM_FLAGS_VAR] += " --use-fake-ui-for-media-stream"
+
+    fresh = pristine_environment(env)
+    assert CHROMIUM_FLAGS_VAR not in fresh
+    assert QUICK_BACKEND_VAR not in fresh
+    assert fresh["PATH"] == "/usr/bin"
+
+    # And the child, deciding for itself, now really does use the GPU.
+    report = apply_webengine_environment(fresh, "win32", {"webengine_gpu": GPU_AUTO})
+    assert report["chromium_flags"] == ""
+    assert report["qt_quick_backend"] == ""
+
+
+def test_flags_the_user_set_survive_a_restart():
+    """Sanitising must not eat a variable the user exported themselves."""
+    env = {CHROMIUM_FLAGS_VAR: "--enable-logging", QUICK_BACKEND_VAR: "d3d12"}
+    apply_webengine_environment(env, "win32", {"webengine_gpu": GPU_OFF})
+
+    fresh = pristine_environment(env)
+    assert fresh[CHROMIUM_FLAGS_VAR] == "--enable-logging"
+    assert fresh[QUICK_BACKEND_VAR] == "d3d12"

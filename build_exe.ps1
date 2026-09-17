@@ -14,6 +14,12 @@ Write-Host "`n[1/4] Instalando PyInstaller e dependencias..."
 pip install pyinstaller wheel setuptools
 pip install .
 
+# The Qt packaged here is the Qt every install.ps1 user gets, so the floor is
+# checked against what is actually installed before packaging starts.
+Write-Host "`n[1.5/4] Checking the Qt runtime that will be packaged..."
+python scripts/check_qt_runtime.py
+if ($LASTEXITCODE -ne 0) { throw "The installed Qt is known to break OpalaTex; see the errors above." }
+
 Write-Host "`n[2/4] Construindo o frontend (React/Vite)..."
 Push-Location gui_src
 try {

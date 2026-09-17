@@ -5,6 +5,7 @@ import {
   INTERRUPTED_MARKER,
   TURN_CUT_SHORT_MARKER,
   TURN_FAILED_MARKER,
+  TURN_NO_ANSWER_MARKER,
   interruptedTurnContent,
   turnEndFromContent,
 } from '../turnMarkers.js';
@@ -31,7 +32,7 @@ test('a turn interrupted before it said anything still offers the continue actio
 });
 
 test('the marker never reaches the reader', () => {
-  for (const marker of [INTERRUPTED_MARKER, TURN_CUT_SHORT_MARKER, TURN_FAILED_MARKER]) {
+  for (const marker of [INTERRUPTED_MARKER, TURN_CUT_SHORT_MARKER, TURN_FAILED_MARKER, TURN_NO_ANSWER_MARKER]) {
     const { text } = turnEndFromContent(`work in progress\n\n${marker}`);
     assert.equal(text.includes(marker), false);
     assert.equal(text, 'work in progress');
@@ -50,6 +51,17 @@ test('the cut-short and failed turns keep their own flags', () => {
     [failed.cutShort, failed.failed, failed.interrupted],
     [false, true, false],
   );
+});
+
+test('a turn that stopped with steps left is not reported as cut short', () => {
+  // Its notice must not send the user after a larger budget, so it cannot share
+  // the cut-short flag even though both offer the same continue action.
+  const end = turnEndFromContent(`Reading the file.\n\n${TURN_NO_ANSWER_MARKER}`);
+  assert.deepEqual(
+    [end.noAnswer, end.cutShort, end.failed, end.interrupted],
+    [true, false, false, false],
+  );
+  assert.equal(end.text, 'Reading the file.');
 });
 
 test('turns recorded before the marker existed are still recognised', () => {

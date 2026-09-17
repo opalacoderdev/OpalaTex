@@ -1318,12 +1318,6 @@ export default function App() {
   // ── Helpers ───────────────────────────────────────────────────────────────
   const trimToLimit = (arr, limit) => arr.length > limit ? arr.slice(arr.length - limit) : arr;
 
-  const compactTextForAgent = (value, limit = 2400) => {
-    const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
-    if (text.length <= limit) return text;
-    return `${text.slice(0, limit)}\n[truncated ${text.length - limit} chars]`;
-  };
-
   const collectRecentChatAttachments = (messages, limit = 3) => {
     const seen = new Set();
     const collected = [];
@@ -1340,20 +1334,6 @@ export default function App() {
     }
     return collected.reverse();
   };
-
-  // Only the visible conversation is replayed to the agent. Legacy "system" rows
-  // (stored [MODE]/achievements audit entries) are never sent: they are not part of
-  // the conversation and a mid-history system message breaks chat templates that
-  // require the system message to come first.
-  const serializeChatHistoryForAgent = (messages, limit = 18) => (
-    (messages || [])
-      .slice(-limit)
-      .filter(msg => msg && (msg.role === 'user' || msg.role === 'assistant'))
-      .map(msg => ({
-        role: msg.role,
-        content: compactTextForAgent(msg.content || '', 4000),
-      }))
-  );
 
   const MAX_MERGED_LOG_CHARS = 16000;
   const clampLogMessage = (value) => {
@@ -3312,7 +3292,6 @@ export default function App() {
     let userText = '';
     let displayText = '';
     let attachmentsSnapshot = [];
-    let messagesForRequest = undefined;
     let clientMessageId = options.clientMessageId || retryMsg?.client_message_id || retryMsg?.clientMessageId || '';
 
     if (options.resumeInterrupted) {
@@ -3320,10 +3299,14 @@ export default function App() {
       const historySnapshot = options.historyOverride || chatMessages;
       // The backend builds the resumed turn from what it stored for the
       // interrupted one (resume_interrupted below); only the label is sent.
+      // The conversation is deliberately not sent either: the orchestrator
+      // restores its own working memory for this chat, tool results included,
+      // and replacing it with the visible bubbles (truncated, and without any
+      // tool call) made every resume re-read and re-run what the stopped turn
+      // had already done.
       userText = options.displayText || t('chatPanel.continue', 'Continue');
       displayText = options.displayText || t('chatPanel.continue', 'Continue');
       attachmentsSnapshot = options.overrideAttachments || collectRecentChatAttachments(historySnapshot, 3);
-      messagesForRequest = serializeChatHistoryForAgent(historySnapshot, 18);
     } else if (options.overrideText !== undefined) {
       if (!activeProject || isAgentRunning) return;
       userText = options.overrideText;
@@ -3478,7 +3461,6 @@ export default function App() {
           chat_id: targetChatId,
           client_message_id: clientMessageId,
           attachments: attachmentsSnapshot,
-          messages: messagesForRequest,
         }),
       });
       const runConflict = await readRunConflict(res);
@@ -3876,16 +3858,24 @@ export default function App() {
         "CRITICAL: Do NOT create, modify, or save files. " +
         "Tools and function calls are unavailable for this task; do not request or attempt them. " +
         "All necessary context is already included in the user prompt; complete the task by returning the replacement content directly. " +
-        "Return ONLY the final replacement source, without Markdown fences or any transport envelope. " +
-        "Do not add Markdown fences around the replacement, including when it contains code or LaTeX. " +
+        "Return ONLY the final replacement source, with no Markdown fence or other envelope around it, even when it is code or LaTeX. " +
+        "The one exception: when the replacement itself contains a fenced code block (lines starting with ```), wrap the entire replacement in an outer four-backtick fence labelled content, so the application can tell the content's fences from the envelope. " +
         "Do NOT include greetings, explanations, comments, summaries, tool calls, or any surrounding text. " +
         "Preserve the original language, format, structure, and intent unless the requested edit requires changes. " +
         "For insertion tasks, the host application owns the cursor position. The <cursor> tag is authoritative metadata: use surrounding content only for context, and never count lines, choose another insertion point, or explain your placement. " +
         "Be objective, concise, and direct. " +
-        "Legacy fence examples below are accepted for compatibility but are not required:\n" +
-        "Original: 'O sistema é bom.' → ````content\\nO sistema é funcional.\\n```` " +
-        "Original: 'flowchart LR\\n  A --> B' → ````content\\nflowchart LR\\n  A[Start] --> B[End]\\n```` " +
-        "Original: '$$ E = m c ^ 2 $$' → ````content\\n$$\\nE = mc^2\\n$$\\n```` " +
+        // The examples show exactly what to return, and follow the same rule as
+        // the instructions. They used to wrap every replacement in a ````content
+        // fence right after a sentence forbidding fences, and a model imitates
+        // examples over instructions. The envelope still exists for the one case
+        // that needs it: `_normalize_inline_fenced_replacement` extracts a fenced
+        // block, so a bare reply containing a code block would lose the text
+        // around it, while an outer ````content fence keeps it whole.
+        "Examples (the whole output is the text after the arrow):\n" +
+        "Original: 'The system is good.' → The system is functional.\n" +
+        "Original: 'flowchart LR\\n  A --> B' → flowchart LR\\n  A[Start] --> B[End]\n" +
+        "Original: '$$ E = m c ^ 2 $$' → $$\\nE = mc^2\\n$$\n" +
+        "Original: 'Run:\\n```\\nnpm test\\n```' → ````content\\nRun the test suite:\\n```bash\\nnpm test\\n```\\n````\n" +
         "Your entire output must contain only the replacement source.";
     }
 

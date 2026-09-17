@@ -9,6 +9,12 @@ echo -e "\n[1/4] Instalando dependencias e PyInstaller..."
 pip install pyinstaller wheel setuptools
 pip install .
 
+# The Qt packaged here is the Qt every install.sh user gets, so the floor is
+# checked against what is actually installed before packaging starts.
+echo -e "
+[1.5/4] Checking the Qt runtime that will be packaged..."
+python scripts/check_qt_runtime.py
+
 echo -e "\n[2/4] Construindo o frontend (React/Vite)..."
 pushd gui_src > /dev/null
 npm install

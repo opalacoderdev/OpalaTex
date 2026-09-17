@@ -31,7 +31,19 @@ export const TURN_FAILED_MARKER =
   '[TURN-FAILED] This turn stopped on an error before the model gave a final ' +
   'answer. The text above is work in progress, not a reply.';
 
-export const TURN_MARKERS = [INTERRUPTED_MARKER, TURN_CUT_SHORT_MARKER, TURN_FAILED_MARKER];
+// The model stopped without answering while its step budget still had room.
+// Kept apart from the cut-short marker because the remedy differs: a larger
+// budget fixes a cut-short turn and cannot fix this one.
+export const TURN_NO_ANSWER_MARKER =
+  '[TURN-NO-ANSWER] The model stopped before giving a final answer, with steps ' +
+  'still left. The text above is work in progress, not a reply.';
+
+export const TURN_MARKERS = [
+  INTERRUPTED_MARKER,
+  TURN_CUT_SHORT_MARKER,
+  TURN_FAILED_MARKER,
+  TURN_NO_ANSWER_MARKER,
+];
 
 // Older turns, recorded before the marker existed, that are still in people's
 // chats. They were stored as prose and have no partial answer to preserve.
@@ -50,6 +62,7 @@ export const turnEndFromContent = (content, probe = undefined) => {
   const interruptedByMarker = raw.includes(INTERRUPTED_MARKER);
   const cutShort = raw.includes(TURN_CUT_SHORT_MARKER);
   const failed = raw.includes(TURN_FAILED_MARKER);
+  const noAnswer = raw.includes(TURN_NO_ANSWER_MARKER);
 
   const legacyProbe = String(probe ?? raw).trimStart();
   const legacyInterruption = !interruptedByMarker
@@ -68,6 +81,7 @@ export const turnEndFromContent = (content, probe = undefined) => {
     legacyInterruption,
     cutShort,
     failed,
+    noAnswer,
     text: text.trimEnd(),
   };
 };

@@ -467,31 +467,176 @@ def test_text_with_no_think_tag_is_not_reshaped():
 
 # ── A run the guardrail cut short is not an answer ───────────────────────────
 
+def test_spending_the_last_heartbeat_still_asks_for_the_answer():
+    """The measured cut: the work was done, and the model was never heard from.
+
+    Traced in a real chat: the page compiled, the rendered slide was checked, and
+    the model spent its last heartbeat recording progress. The loop broke out the
+    moment the budget reached zero, so the request that asks for the final answer
+    -- which existed, and which the design said owned the last call -- never ran,
+    and the user got "Recording progress:" with a cut-short notice.
+    """
+    reads = []
+    agent = _build(reads, max_heartbeats=1)
+    calls = _script(agent, [
+        _response(content="I will inspect now.", tool_calls=[_tool_call("c1", "read_file", '{"path": "a"}')]),
+        _response(content="Inspected a: nothing to fix."),
+    ])
+
+    out = _run(agent)
+
+    assert reads == ["a"]
+    assert calls["tool_choice"] == ["auto", "none"], "one more request, with tools off"
+    assert out.final_text == "Inspected a: nothing to fix."
+    assert out.narration == ["I will inspect now."]
+    assert out.budget_exhausted, "the budget was still spent, and the block says so"
+    assert "max_heartbeats" in out.termination_reason
+
+
+def test_the_answer_request_is_told_the_budget_is_spent():
+    agent = _build([], max_heartbeats=1)
+    seen = []
+
+    async def fake(messages, **kw):
+        seen.append([m["content"] for m in messages if m.get("role") == "system"])
+        if kw.get("tool_choice") == "none":
+            return _response(content="Done.")
+        return _response(tool_calls=[_tool_call("c1", "read_file", '{"path": "a"}')])
+
+    agent._acompletion = fake
+    _run(agent)
+
+    alert = [c for c in seen[-1] if "No action heartbeats remain" in c]
+    assert len(alert) == 1
+    assert "unfinished" in alert[0], "it asks for an honest status, not a success report"
+
+
+def test_tool_calls_returned_to_the_answer_request_are_refused_not_run():
+    """A provider may ignore tool_choice="none"; the guardrail must still hold."""
+    reads = []
+    agent = _build(reads, max_heartbeats=1)
+    _script(agent, [
+        _response(content="I will inspect now.", tool_calls=[_tool_call("c1", "read_file", '{"path": "a"}')]),
+        _response(content="Reading b next.", tool_calls=[_tool_call("c2", "read_file", '{"path": "b"}')]),
+    ])
+
+    out = _run(agent)
+
+    assert reads == ["a"], "the call past the budget never ran"
+    assert out.narration == ["I will inspect now.", "Reading b next."], "the text is kept, never dropped"
+    assert out.final_text == "", "but it is not an answer, and the block says so"
+    assert out.budget_exhausted
+    refused = [m for m in agent.internal_history if m.get("tool_call_id") == "c2"]
+    assert len(refused) == 1 and "Not executed" in refused[0]["content"], (
+        "every call keeps a result, or the next request built from this history breaks"
+    )
+
+
 def test_the_guardrail_reports_no_final_answer():
     reads = []
     agent = _build(reads, max_heartbeats=1)
     _script(agent, [
         _response(content="I will inspect now.", tool_calls=[_tool_call("c1", "read_file", '{"path": "a"}')]),
+        _response(content=""),
     ])
 
     out = _run(agent)
 
     assert out.narration == ["I will inspect now."], "the text is kept, never dropped"
     assert out.final_text == "", "but it is not an answer, and the block says so"
-    assert "max_heartbeats" in out.termination_reason
+    assert out.budget_exhausted
+
+
+def test_an_empty_response_correction_on_the_last_heartbeat_still_asks_for_the_answer():
+    agent = _build([], max_heartbeats=1)
+    calls = _script(agent, [_response(content=""), _response(content="The answer.")])
+
+    out = _run(agent)
+
+    assert calls["tool_choice"] == ["auto", "none"]
+    assert out.final_text == "The answer."
+
+
+def test_a_run_that_answers_within_budget_is_not_budget_exhausted():
+    agent = _build([], max_heartbeats=30)
+    _script(agent, [
+        _response(tool_calls=[_tool_call("c1", "read_file", '{"path": "a"}')]),
+        _response(content="Done."),
+    ])
+
+    assert not _run(agent).budget_exhausted
+
+
+def test_an_idle_ending_is_not_reported_as_an_exhausted_budget():
+    """A model that stops acting with steps left needs another model, not more steps."""
+    agent = _build([], max_idle_heartbeats=2, max_heartbeats=30)
+    _script(agent, [
+        _response(content="Reading.", tool_calls=[_tool_call("c1", "read_file", '{"path": "a"}')]),
+        _reasoning("thinking..."),
+    ])
+
+    out = _run(agent)
+
+    assert out.final_text == ""
+    assert out.narration == ["Reading."]
+    assert not out.budget_exhausted
+
+
+def test_llm_agent_budget_exits_report_an_exhausted_budget():
+    from agenticblocks.blocks.llm.agent import LLMAgentBlock
+
+    @as_tool(name="read_file", description="Read a file.")
+    def read_file(path: str) -> str:
+        return "contents"
+
+    async def fake(_messages, **_kw):
+        return _response(tool_calls=[_tool_call("c", "read_file", '{"path": "a"}')])
+
+    for policy in ("return_last", "stop"):
+        worker = LLMAgentBlock(
+            name="w", model="fake/m", tools=[read_file], max_iterations=1,
+            on_max_iterations=policy, loop_detection=False,
+        )
+        worker._acompletion = fake
+        assert asyncio.run(worker.run(AgentInput(prompt="go"))).budget_exhausted, policy
+
+    answered = LLMAgentBlock(name="w", model="fake/m", tools=[read_file], max_iterations=5)
+
+    async def answer(_messages, **_kw):
+        return _response(content="Done.")
+
+    answered._acompletion = answer
+    assert not asyncio.run(answered.run(AgentInput(prompt="go"))).budget_exhausted
 
 
 def test_the_host_labels_a_turn_that_never_answered():
     from opalatex.agent_stdin import TURN_CUT_SHORT_MARKER, _mark_turn_without_answer
 
-    cut = SimpleNamespace(narration=["I will inspect now."], final_text="")
+    cut = SimpleNamespace(narration=["I will inspect now."], final_text="", budget_exhausted=True)
     marked = _mark_turn_without_answer(cut, "I will inspect now.")
 
     assert marked.startswith("I will inspect now."), "the progress is still delivered"
     assert marked.endswith(TURN_CUT_SHORT_MARKER), "and it is no longer passed off as the reply"
 
-    done = SimpleNamespace(narration=["Reading."], final_text="THE ANSWER")
-    assert _mark_turn_without_answer(done, "Reading.\n\nTHE ANSWER") == "Reading.\n\nTHE ANSWER"
+    done = SimpleNamespace(narration=["Reading."], final_text="THE ANSWER", budget_exhausted=True)
+    assert _mark_turn_without_answer(done, "Reading.\n\nTHE ANSWER") == "Reading.\n\nTHE ANSWER", (
+        "a model that answered on the answer request is not cut short, spent budget or not"
+    )
+
+
+def test_a_turn_that_stopped_with_steps_left_is_not_blamed_on_the_budget():
+    """The old label sent the user to raise a limit the turn never reached."""
+    from opalatex.agent_stdin import (
+        TURN_CUT_SHORT_MARKER,
+        TURN_NO_ANSWER_MARKER,
+        _mark_turn_without_answer,
+    )
+
+    idle = SimpleNamespace(narration=["Reading."], final_text="", budget_exhausted=False)
+    marked = _mark_turn_without_answer(idle, "Reading.")
+
+    assert marked == f"Reading.\n\n{TURN_NO_ANSWER_MARKER}"
+    assert TURN_CUT_SHORT_MARKER not in marked
 
 
 def _front_end_marker(name: str) -> str:
@@ -511,10 +656,12 @@ def test_the_cut_short_marker_is_unlocalised_and_matches_the_front_end():
     language would stop matching after the user switched to another, and the
     button would silently disappear from turns that still need it.
     """
-    from opalatex.agent_stdin import TURN_CUT_SHORT_MARKER
+    from opalatex.agent_stdin import TURN_CUT_SHORT_MARKER, TURN_NO_ANSWER_MARKER
 
     assert _front_end_marker("TURN_CUT_SHORT_MARKER") == TURN_CUT_SHORT_MARKER
     assert TURN_CUT_SHORT_MARKER.startswith("[TURN-CUT-SHORT]")
+    assert _front_end_marker("TURN_NO_ANSWER_MARKER") == TURN_NO_ANSWER_MARKER
+    assert TURN_NO_ANSWER_MARKER.startswith("[TURN-NO-ANSWER]")
 
 
 def test_the_interruption_marker_matches_the_front_end_and_is_a_suffix():
@@ -580,21 +727,50 @@ def test_a_cut_short_turn_is_not_folded():
 
 
 @pytest.mark.parametrize("locale", ["en", "pt-BR"])
-def test_the_cut_short_notice_points_at_the_setting_that_prevents_it(locale):
-    """Continuing fixes this turn; raising the limit fixes the next one.
+def test_the_cut_short_notice_points_at_the_control_that_sets_the_budget(locale):
+    """Continuing fixes this turn; a larger budget fixes the next one.
 
-    The notice named the setting, lost it in a refactor, and had to be put back.
-    The field label is asserted from the catalogue rather than retyped, so the
-    notice cannot keep pointing at a control that was renamed.
+    The notice used to send the user to "Max Heartbeats (MemGPT)" in Project
+    Settings alone. The composer's effort selector sends its own budget with every
+    turn and the backend gives it precedence, so outside "Custom" that field
+    changed nothing -- the advice pointed at a control that could not help. The
+    notice now names the selector first and the field as what "Custom" uses, and
+    every label is interpolated from the catalogue, so none can drift from the UI.
     """
     import json
 
     catalogue = json.load(open(f"gui_src/src/i18n/locales/{locale}.json", encoding="utf-8"))
     notice = catalogue["app"]["turnCutShortNotice"]
-    field_label = catalogue["editProjectModal"]["maxHeartbeats"]
 
-    assert field_label in notice, "the notice must name the field as the UI labels it"
-    assert notice.strip(), "and it must not be empty"
+    for placeholder in ("{{selector}}", "{{custom}}", "{{field}}"):
+        assert placeholder in notice, f"the notice must name {placeholder} as the UI labels it"
+    assert notice.index("{{selector}}") < notice.index("{{field}}"), "the selector is the primary remedy"
+
+    panel = open("gui_src/src/components/ChatPanel.jsx", encoding="utf-8").read()
+    for key in ("chatPanel.heartbeatMode'", "chatPanel.heartbeatModeCustom'", "editProjectModal.maxHeartbeats'"):
+        assert key in panel, f"ChatPanel must fill the notice from {key}"
+
+
+def test_the_budget_the_notice_names_is_the_one_the_run_uses():
+    """The selector's budget travels with the run and wins over the project value."""
+    app = open("gui_src/src/App.jsx", encoding="utf-8").read()
+    stdin = open("opalatex/agent_stdin.py", encoding="utf-8").read()
+
+    assert "max_heartbeats: options.maxHeartbeats !== undefined ? options.maxHeartbeats : resolveEffectiveMaxHeartbeats()" in app
+    assert "if (mode === 'custom')" in app, "only Custom defers to the project setting"
+    assert 'req_hb = data.get("max_heartbeats")' in stdin
+
+
+@pytest.mark.parametrize("locale", ["en", "pt-BR"])
+def test_the_no_answer_notice_does_not_point_at_the_budget(locale):
+    import json
+
+    catalogue = json.load(open(f"gui_src/src/i18n/locales/{locale}.json", encoding="utf-8"))
+    notice = catalogue["app"]["turnNoAnswerNotice"]
+
+    assert notice.strip()
+    assert catalogue["editProjectModal"]["maxHeartbeats"] not in notice
+    assert "{{" not in notice
 
 
 def test_the_heartbeat_prompt_rules_budget_steps_and_avoid_not_a_budget():

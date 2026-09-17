@@ -176,7 +176,10 @@ Both tabs offer:
     remaps to `ollama_chat/` for streaming reasoning).
   - `stream` — enables real-time token streaming.
 - **Agent Runtime Parameters**:
-  - `max_heartbeats` — maximum consecutive tool iterations per turn.
+  - `max_heartbeats` — maximum consecutive tool iterations per turn. Used only when the
+    chat composer's **Effort / Budget** selector is on **Custom**; Low, Medium and High
+    send their own budget (20, 50, 100) with each turn. When the budget runs out, the
+    agent is asked once more for its answer, with no further tool calls allowed.
   - `max_context_tokens` — context budget ceiling before summarization.
   - `eviction_threshold` — fraction of context (default `0.85`) at which older turns are
     condensed into a running summary.

@@ -318,6 +318,57 @@ def mark_clean_exit() -> None:
 
 # ── Reading what the previous runs left behind ────────────────────────────────
 
+def _session_section(
+    pid: int,
+    *,
+    home: str | os.PathLike[str] | None = None,
+    log_path: str | os.PathLike[str] | None = None,
+) -> str:
+    """The whole section of the crash log written by the run that owned `pid`."""
+    path = Path(log_path) if log_path else crash_log_path(home)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+
+    marker = f"{_SESSION_BANNER}pid={pid} "
+    start = text.rfind(marker)
+    if start < 0:
+        return ""
+    end = text.find(_SESSION_BANNER, start + len(marker))
+    section = text[start:] if end < 0 else text[start:end]
+    return section.strip()
+
+
+def _bounded(section: str, limit: int) -> str:
+    """Shorten a section for display, keeping its *head*.
+
+    faulthandler writes the kind of fault and the stack of the thread that took
+    it first, and every other thread after that. Keeping the tail — which is
+    what this used to do — dropped exactly the two lines that say what happened
+    once a dump grew past the limit, as the first dump with a Python thread in
+    it did: a process with a dozen threads and long paths is several times the
+    limit on its own.
+    """
+    if len(section) <= limit:
+        return section
+    return section[:limit] + "\n…"
+
+
+def _is_native_fault(section: str) -> bool:
+    """Whether a run's section records a fault faulthandler caught.
+
+    How faulthandler announces one, on each platform: "Windows fatal exception:
+    access violation" and "Fatal Python error: Segmentation fault". A dead run
+    with neither ended some other way, such as being killed from outside. This
+    reads the whole section, never a shortened one: classifying from the
+    display copy is how a native fault was once reported as a run that merely
+    "ended without shutting down".
+    """
+    lowered = section.lower()
+    return "fatal exception" in lowered or "fatal python error" in lowered
+
+
 def crash_log_excerpt(
     pid: int,
     *,
@@ -332,22 +383,7 @@ def crash_log_excerpt(
     entry at all — a process killed from outside, for example, which faults
     nowhere and dumps nothing.
     """
-    path = Path(log_path) if log_path else crash_log_path(home)
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return ""
-
-    marker = f"{_SESSION_BANNER}pid={pid} "
-    start = text.rfind(marker)
-    if start < 0:
-        return ""
-    end = text.find(_SESSION_BANNER, start + len(marker))
-    section = text[start:] if end < 0 else text[start:end]
-    section = section.strip()
-    if len(section) > limit:
-        section = "…\n" + section[-limit:]
-    return section
+    return _bounded(_session_section(pid, home=home, log_path=log_path), limit)
 
 
 def _marker_is_dead(marker: dict[str, Any], now: float, is_alive: Callable[[int], bool]) -> bool:
@@ -410,21 +446,13 @@ def collect_previous_run_failures(
             "log_path": marker.get("log_path") or str(crash_log_path(home)),
             "marker_path": str(entry),
         }
-        if include_excerpt and isinstance(marker.get("pid"), int):
-            failure["excerpt"] = crash_log_excerpt(
-                marker["pid"], home=home, log_path=failure["log_path"]
-            )
-        else:
-            failure["excerpt"] = ""
-        # How faulthandler announces a fault it caught, on each platform:
-        # "Windows fatal exception: access violation" and "Fatal Python error:
-        # Segmentation fault". Either one means the run faulted natively; a
-        # marker with neither belongs to a run that ended some other way, such
-        # as being killed from outside.
-        lowered = failure["excerpt"].lower()
-        failure["native_fault"] = (
-            "fatal exception" in lowered or "fatal python error" in lowered
+        section = (
+            _session_section(marker["pid"], home=home, log_path=failure["log_path"])
+            if isinstance(marker.get("pid"), int)
+            else ""
         )
+        failure["native_fault"] = _is_native_fault(section)
+        failure["excerpt"] = _bounded(section, MAX_EXCERPT_CHARS) if include_excerpt else ""
         failures.append(failure)
 
     return failures

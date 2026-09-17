@@ -201,6 +201,16 @@ class AgentOutput(BaseModel):
     """The text that ended the turn: the answer, without the progress above it.
 
     Empty when the block does not report one; ``response`` is always complete."""
+    budget_exhausted: bool = False
+    """True when the run ended with its step budget spent.
+
+    The budget is the block's own guardrail: ``max_heartbeats`` for
+    ``MemGPTAgentBlock``, ``max_iterations`` / ``max_tool_calls`` for
+    ``LLMAgentBlock``. It is reported whether or not a final answer was still
+    obtained, so ``final_text`` says whether the model answered and this says
+    whether a larger budget could have changed how the run ended. A host that
+    reads the human-readable ``termination_reason`` for that decision is parsing
+    prose; this is the structured form of the same fact."""
 
 
 def _print_debug_report(
@@ -655,6 +665,7 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                         structured_output=structured_obj,
                         narration=list(visible_texts),
                         final_text=content,
+                        budget_exhausted=True,
                     )
                 else:
                     termination_reason = "max_iterations reached → stopped"
@@ -664,6 +675,7 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                         ),
                         tool_calls_made=tool_call_count,
                         narration=list(visible_texts),
+                        budget_exhausted=True,
                     )
 
                 await self._invoke_on_iteration(iteration_count, messages)
@@ -968,8 +980,9 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                     structured_output=structured_obj,
                     narration=list(visible_texts),
                     final_text=content,
+                    budget_exhausted=True,
                 )
-                
+
                 await self._invoke_on_iteration(iteration_count, messages)
 
                 if self.debug:

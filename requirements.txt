@@ -15,8 +15,16 @@ tree-sitter-language-pack>=1.8.0
 chromadb>=0.4.0
 pywebview>=4.0
 pywinpty>=2.0.0; sys_platform == "win32"
-PyQt6>=6.8.0
-PyQt6-WebEngine>=6.8.0
+# Qt 6.11.2 is the oldest release verified to run OpalaTex on Windows. Qt 6.8
+# embeds Chromium 122, too old for pdf.js 5 (URL.parse): opening a PDF greys the
+# window. Qt 6.10.2 ships MSVCP140 14.26, which crashes onnxruntime on the first
+# agent message. The -Qt6 packages carry that runtime, so they are pinned to the
+# release that was verified, not left to PyQt6's looser >=6.11.0.
+# See PROJECT_DESIGN.md 2.16.1.
+PyQt6>=6.11.0
+PyQt6-Qt6>=6.11.2
+PyQt6-WebEngine>=6.11.0
+PyQt6-WebEngine-Qt6>=6.11.2
 qtpy>=2.4.0
 ddgs>=1.0.0
 pymupdf4llm>=0.0.17

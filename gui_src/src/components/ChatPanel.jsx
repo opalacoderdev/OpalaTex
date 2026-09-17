@@ -1706,10 +1706,11 @@ export default function ChatPanel({
           const isInterrupted = Boolean(turnEnd?.interrupted);
           const isTurnCutShort = Boolean(turnEnd?.cutShort);
           const isTurnFailed = Boolean(turnEnd?.failed);
+          const isTurnNoAnswer = Boolean(turnEnd?.noAnswer);
           let displayContent = isUser && isInternalResumePrompt(msg.content)
             ? t('chatPanel.continue', 'Continue')
             : msg.content;
-          if (isTurnCutShort || isTurnFailed || turnEnd?.interruptedByMarker) {
+          if (isTurnCutShort || isTurnFailed || isTurnNoAnswer || turnEnd?.interruptedByMarker) {
             displayContent = turnEnd.text;
           } else if (turnEnd?.legacyInterruption) {
             // Recorded before the marker existed: the prose *is* the notice, and
@@ -1973,10 +1974,21 @@ export default function ChatPanel({
                     <RefreshCw size={14} /> {t('chatPanel.tryAgain', 'Tentar Novamente')}
                   </button>
                 )}
-                {(isTurnCutShort || isTurnFailed) && isLastUserOrAssistantMessage && !isAgentRunning && (
+                {(isTurnCutShort || isTurnFailed || isTurnNoAnswer) && isLastUserOrAssistantMessage && !isAgentRunning && (
                   <div style={{ marginTop: '10px' }}>
                     <div style={{ fontSize: '12px', color: 'var(--vscode-descriptionForeground)', marginBottom: '6px' }}>
-                      <AlertTriangle size={12} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: '4px' }} />{isTurnFailed ? t('app.turnFailedNotice') : t('app.turnCutShortNotice')}
+                      <AlertTriangle size={12} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: '4px' }} />{isTurnFailed
+                        ? t('app.turnFailedNotice')
+                        : isTurnNoAnswer
+                          ? t('app.turnNoAnswerNotice')
+                          : t('app.turnCutShortNotice', {
+                            // Named exactly as the composer labels the control,
+                            // read from the catalogue so a rename cannot leave the
+                            // notice pointing at a control that no longer exists.
+                            selector: t('chatPanel.heartbeatMode'),
+                            custom: t('chatPanel.heartbeatModeCustom'),
+                            field: t('editProjectModal.maxHeartbeats'),
+                          })}
                     </div>
                     <button
                       type="button"

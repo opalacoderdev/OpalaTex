@@ -173,3 +173,53 @@ def _timestamp(iso: str) -> float:
     from datetime import datetime
 
     return datetime.fromisoformat(iso).timestamp()
+
+
+def test_a_long_dump_is_still_classified_and_keeps_what_happened(tmp_path):
+    """A dump bigger than the display limit must not lose its first lines.
+
+    faulthandler writes the fault and the faulting thread first, then every other
+    thread. The excerpt used to keep the tail, and classification read the
+    excerpt — so the first crash with a busy Python process was announced as a
+    run that merely "ended without shutting down".
+    """
+    other_threads = "".join(
+        f"\nThread 0x{n:08x} (most recent call first):\n"
+        + "".join(f'  File "C:\\very\\long\\path\\module_{n}_{k}.py", line {k} in fn\n' for k in range(40))
+        for n in range(30)
+    )
+    log = crash_report.crash_log_path(tmp_path)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(
+        "=== OpalaTex session pid=9 started=2026-09-16T00:00:00+00:00 ===\n"
+        "  webengine_gpu: auto\n"
+        "Windows fatal exception: access violation\n\n"
+        "Current thread 0x00004a6c (most recent call first):\n"
+        '  File "onnxruntime\\capi\\_pybind_state.py", line 32 in <module>\n'
+        + other_threads,
+        encoding="utf-8",
+    )
+    runs = crash_report.runs_dir(tmp_path)
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / "9-x.json").write_text(
+        json.dumps({"pid": 9, "started": "2026-09-16T00:00:00+00:00", "log_path": str(log)}),
+        encoding="utf-8",
+    )
+
+    assert len(log.read_text(encoding="utf-8")) > crash_report.MAX_EXCERPT_CHARS * 2
+
+    failure = crash_report.collect_previous_run_failures(
+        home=tmp_path, is_alive=lambda pid: False
+    )[0]
+    assert failure["native_fault"] is True
+    assert "Windows fatal exception: access violation" in failure["excerpt"]
+    assert "Current thread 0x00004a6c" in failure["excerpt"]
+    assert "_pybind_state.py" in failure["excerpt"]
+    assert len(failure["excerpt"]) <= crash_report.MAX_EXCERPT_CHARS + 2
+
+    # Classification never depends on whether the caller wanted the excerpt.
+    quiet = crash_report.collect_previous_run_failures(
+        home=tmp_path, is_alive=lambda pid: False, include_excerpt=False
+    )[0]
+    assert quiet["native_fault"] is True
+    assert quiet["excerpt"] == ""

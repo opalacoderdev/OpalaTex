@@ -208,8 +208,12 @@ const BASE_COMPONENTS = {
       {children}
     </ul>
   ),
-  ol: ({ children }) => (
-    <ol style={{ margin: '4px 0', paddingLeft: '20px', fontSize: '13px', lineHeight: '1.5' }}>
+  // `start` must reach the DOM: Markdown ends a list at any unindented block
+  // (a paragraph, code fence or heading between items), and the list that
+  // resumes after it carries its first number only in `start`. Dropping it
+  // restarted every such list at 1.
+  ol: ({ start, children }) => (
+    <ol start={start} style={{ margin: '4px 0', paddingLeft: '20px', fontSize: '13px', lineHeight: '1.5' }}>
       {children}
     </ol>
   ),

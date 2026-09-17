@@ -267,7 +267,7 @@ def _correct(scripted_first, scripted_rest, monkeypatch):
     monkeypatch.setattr(stdin_mod, "apply_meta_params", lambda *a, **k: contextlib.nullcontext())
 
     agent = _FakeAgent(scripted_rest)
-    corrected = asyncio.run(
+    corrected, _resp_obj = asyncio.run(
         stdin_mod._correct_serialized_tool_calls(agent, scripted_first, [], {})
     )
     return corrected, agent
@@ -283,6 +283,32 @@ def test_a_serialized_call_is_pushed_back_and_recovered(monkeypatch):
     assert corrected == "I searched and here is the summary."
     assert len(agent.prompts) == 1, "one corrective round-trip"
     assert agent.prompts[0].role == "system", "runtime feedback is not the user's voice"
+
+
+def test_the_corrected_run_output_travels_with_its_response(monkeypatch):
+    """The caller labels the turn from this output; the pushed-back run is stale."""
+    import asyncio
+    import contextlib
+    from types import SimpleNamespace
+
+    import opalatex.agent_stdin as stdin_mod
+
+    monkeypatch.setattr(stdin_mod, "print_event", lambda *a, **k: None)
+    monkeypatch.setattr(stdin_mod, "apply_meta_params", lambda *a, **k: contextlib.nullcontext())
+
+    stale = SimpleNamespace(response="stale")
+    agent = _FakeAgent(["The real answer."])
+    corrected, resp_obj = asyncio.run(stdin_mod._correct_serialized_tool_calls(
+        agent, '{"name": "web_search", "arguments": {"query": "x"}}', [], {}, stale,
+    ))
+
+    assert corrected == "The real answer."
+    assert resp_obj is not stale and resp_obj.response == "The real answer."
+
+    untouched, same = asyncio.run(
+        stdin_mod._correct_serialized_tool_calls(agent, "Fine as it is.", [], {}, stale)
+    )
+    assert (untouched, same) == ("Fine as it is.", stale)
 
 
 def test_a_clean_response_is_returned_untouched(monkeypatch):

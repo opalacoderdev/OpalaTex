@@ -180,7 +180,11 @@ O projeto configura modelos e parâmetros de execução separados para o **Orque
     automaticamente para `ollama_chat/` para raciocínio em fluxo contínuo).
   - `stream` — ativa streaming em tempo real das respostas.
 - **Parâmetros de Execução do Agente**:
-  - `max_heartbeats` — limite de iterações consecutivas de ferramentas por turno.
+  - `max_heartbeats` — limite de iterações consecutivas de ferramentas por turno. Só é
+    usado quando o seletor **Esforço / Orçamento** do chat está em **Personalizado**;
+    Baixo, Médio e Alto enviam o próprio orçamento (20, 50, 100) a cada turno. Quando o
+    orçamento acaba, o agente é consultado mais uma vez para dar a resposta, sem poder
+    chamar mais ferramentas.
   - `max_context_tokens` — teto de orçamento de contexto antes da sumarização.
   - `eviction_threshold` — fração da janela (padrão `0,85`) na qual os turnos antigos
     passam a ser resumidos no resumo corrente.

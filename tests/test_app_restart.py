@@ -105,7 +105,7 @@ def test_schedule_app_restart_spawns_a_replacement_then_exits(monkeypatch):
     monkeypatch.setattr(
         ide_server,
         "spawn_detached",
-        lambda command, cwd=None: events.append(("spawn", command, cwd)),
+        lambda command, cwd=None, env=None: events.append(("spawn", command, cwd, env)),
     )
 
     def fake_exit(code):
@@ -114,12 +114,32 @@ def test_schedule_app_restart_spawns_a_replacement_then_exits(monkeypatch):
 
     monkeypatch.setattr(os, "_exit", fake_exit)
 
+    # The run being replaced had acceleration turned off, so its own environment
+    # carries the flags that decision produced.
+    from opalatex.webengine_env import (
+        CHROMIUM_FLAGS_VAR,
+        QUICK_BACKEND_VAR,
+        apply_webengine_environment,
+    )
+
+    monkeypatch.delenv(CHROMIUM_FLAGS_VAR, raising=False)
+    monkeypatch.delenv(QUICK_BACKEND_VAR, raising=False)
+    apply_webengine_environment(os.environ, "win32", {"webengine_gpu": "off"})
+    assert os.environ[CHROMIUM_FLAGS_VAR] == "--disable-gpu"
+
     command = schedule_app_restart(delay=0)
     assert command == ["python", "main.py"]
     assert finished.wait(timeout=5)
     assert [e[0] for e in events] == ["spawn", "exit"]
     assert events[0][1] == ["python", "main.py"]
     assert events[1] == ("exit", 0)
+
+    # The replacement decides its rendering mode from the saved setting, so it
+    # must not inherit the mode of the run it is replacing.
+    child_env = events[0][3]
+    assert child_env is not None, "the restart must hand the child an environment"
+    assert CHROMIUM_FLAGS_VAR not in child_env
+    assert QUICK_BACKEND_VAR not in child_env
 
 
 def test_schedule_app_restart_keeps_running_when_the_spawn_fails(monkeypatch):
