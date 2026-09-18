@@ -2639,12 +2639,33 @@ class AsyncHTTPServer:
             store = ProjectStore(db_path=DEFAULT_DB_PATH)
             project_name = data.get("project_name")
             delete_dir = data.get("delete_dir", False)
+            delete_cloud = bool(data.get("delete_cloud", False))
             if not project_name:
                 self.send_response(writer, 400, b'{"error":"project_name is required"}', "application/json")
                 return
             if store.exists(project_name):
                 proj = store.load(project_name)
-                
+
+                cloud_result = None
+                if proj and proj.project_path:
+                    from opalatex.cloud.base import CloudError
+                    from opalatex.cloud.service import MANAGER as CLOUD_MANAGER
+                    # A deleted project must not keep a background sync alive.
+                    CLOUD_MANAGER.deactivate(proj.project_path)
+                    if delete_cloud:
+                        # First, and able to stop the whole deletion: if the
+                        # cloud copy cannot be removed, nothing local is either,
+                        # so the user can retry with the project still in place.
+                        try:
+                            cloud_result = await asyncio.get_running_loop().run_in_executor(
+                                None, lambda: CLOUD_MANAGER.delete_remote_copy(proj.project_path)
+                            )
+                        except CloudError as e:
+                            self.send_response(writer, 400, json.dumps({
+                                "error": f"Could not delete the cloud copy, so nothing was removed: {e}",
+                            }).encode('utf-8'), "application/json")
+                            return
+
                 # Ensure resources are released before deleting directory to avoid file locks
                 if proj and proj.project_path:
                     try:
@@ -2697,7 +2718,10 @@ class AsyncHTTPServer:
                         except Exception as e:
                             print(f"Error deleting project directory: {e}")
                 store.delete(project_name)
-                self.send_response(writer, 200, b'{"success":true}', "application/json")
+                self.send_response(writer, 200, json.dumps({
+                    "success": True,
+                    "cloud": cloud_result,
+                }).encode('utf-8'), "application/json")
             else:
                 self.send_response(writer, 404, json.dumps({"error": f"Project '{project_name}' not found"}).encode('utf-8'), "application/json")
 
@@ -4726,6 +4750,19 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        # 7i2a. Cloud sync — does this project have a copy in the cloud? Asked
+        # by the delete dialog; reads local state only, never the network.
+        elif path == '/api/cloud/link' and method == 'GET':
+            from opalatex.cloud.service import cloud_link
+            project_path = query.get('projectPath', [None])[0]
+            if not project_path:
+                self.send_response(writer, 400, b'{"error":"projectPath parameter is required"}', "application/json")
+                return
+            try:
+                self.send_response(writer, 200, json.dumps(cloud_link(project_path)).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
         # 7i2b. Cloud sync — per-file state for the explorer's badges
         elif path == '/api/cloud/file-states' and method == 'GET':
             from opalatex.cloud.service import MANAGER, file_states
@@ -4978,6 +5015,23 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        # 7i10b. Cloud sync — stop the pass running for a path. Covers a sync,
+        # a preview and a download alike: each reports progress under the path
+        # it writes to, which is what the caller names here.
+        elif path == '/api/cloud/cancel' and method == 'POST':
+            from opalatex.cloud.service import request_cancel
+            project_path = data.get('projectPath')
+            if not project_path:
+                self.send_response(writer, 400, b'{"error":"projectPath is required"}', "application/json")
+                return
+            try:
+                requested = request_cancel(project_path)
+                self.send_response(writer, 200, json.dumps({
+                    "cancel_requested": requested,
+                }).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
         # 7i11. Cloud sync — drop the baseline and reconcile from scratch
         elif path == '/api/cloud/reset' and method == 'POST':
             from opalatex.cloud.state import reset_baseline
@@ -5107,6 +5161,9 @@ class AsyncHTTPServer:
                 err_msg = get_translation("project_exists_in_folder", name=existing_project_name)
                 self.send_response(writer, 400, json.dumps({"error": err_msg}).encode('utf-8'), "application/json")
                 return
+            # Recorded before validation creates the folder, so a cancelled
+            # download removes a folder it created and keeps one the user made.
+            destination_is_new = not os.path.exists(destination)
             try:
                 prepare_destination(destination)
             except CloudError as e:
@@ -5123,12 +5180,23 @@ class AsyncHTTPServer:
                         provider_config=data.get('config') or {},
                         remote_root=str(data.get('root', '') or ''),
                         settings_overrides=data.get('settings') or {},
+                        destination_is_new=destination_is_new,
                     ),
                 )
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                return
+
+            if outcome.cancelled and not outcome.error:
+                # The user stopped it; the partial copy is already gone, so
+                # this is not an error and there is nothing to register.
+                self.send_response(writer, 200, json.dumps({
+                    "cancelled": True,
+                    "project_path": outcome.project_path,
+                    "partial_copy_removed": outcome.partial_copy_removed,
+                }).encode('utf-8'), "application/json")
                 return
 
             if not outcome.ok:
@@ -5142,7 +5210,7 @@ class AsyncHTTPServer:
                 if not message and outcome.report and outcome.report.errors:
                     message = outcome.report.errors[0][1]
                 message = message or "The download did not complete."
-                if outcome.report is not None:
+                if outcome.report is not None and not outcome.cancelled:
                     message += (
                         f" A partial copy is in {outcome.project_path}; remove that "
                         f"folder or choose another name before trying again."

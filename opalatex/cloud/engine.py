@@ -32,6 +32,7 @@ from .base import (
     CloudAuthError,
     CloudError,
     CloudPreconditionFailed,
+    CloudRootMissing,
     CloudStorageProvider,
     RemoteEntry,
     hash_file,
@@ -89,6 +90,13 @@ class SyncReport:
     skipped: dict[str, str] = field(default_factory=dict)
     errors: list[tuple[str, str]] = field(default_factory=list)
     aborted: str = ""
+    # The user stopped the pass. Everything that completed before the stop is
+    # in the baseline, so the next pass carries on from there.
+    cancelled: bool = False
+    # The remote folder this project was mirrored to is gone. Nothing was
+    # touched on either side; only the user can say whether to publish the
+    # project again or stop syncing it.
+    remote_missing: bool = False
     dry_run: bool = False
     duration_seconds: float = 0.0
 
@@ -121,6 +129,8 @@ class SyncReport:
             "skipped": self.skipped,
             "errors": [{"path": p, "message": m} for p, m in self.errors],
             "aborted": self.aborted,
+            "cancelled": self.cancelled,
+            "remote_missing": self.remote_missing,
             "dry_run": self.dry_run,
             "changed": self.changed,
             "duration_seconds": round(self.duration_seconds, 3),
@@ -129,6 +139,10 @@ class SyncReport:
 
 class BulkDeleteRefused(CloudError):
     """The remote asked to delete a suspicious share of the working copy."""
+
+
+class SyncCancelled(CloudError):
+    """The pass was stopped on request, between two files."""
 
 
 def conflict_copy_name(rel_path: str, when: Optional[datetime] = None) -> str:
@@ -161,6 +175,7 @@ class SyncEngine:
         on_progress: Optional[Callable[[ProgressEvent], None]] = None,
         persist: Optional[Callable[[CloudState], None]] = None,
         allow_bulk_delete: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ):
         self.project_path = os.path.abspath(project_path)
         self.provider = provider
@@ -170,6 +185,7 @@ class SyncEngine:
         self.on_progress = on_progress
         self.persist = persist
         self.allow_bulk_delete = allow_bulk_delete
+        self.should_cancel = should_cancel
         self._capabilities = provider.capabilities()
         # Position within the plan, so every progress event can carry it
         # without threading the counter through each reconcile helper.
@@ -185,6 +201,15 @@ class SyncEngine:
             self._run(report, dry_run)
         except CloudAuthError as exc:
             report.aborted = f"auth: {exc}"
+        except SyncCancelled as exc:
+            report.aborted = str(exc)
+            report.cancelled = True
+        except CloudRootMissing as exc:
+            report.aborted = (
+                f"{exc} Syncing stopped and no local file was touched. Upload the "
+                f"project again to create a new cloud copy, or turn cloud sync off."
+            )
+            report.remote_missing = True
         except BulkDeleteRefused as exc:
             report.aborted = str(exc)
         except CloudError as exc:
@@ -213,12 +238,24 @@ class SyncEngine:
         if self.persist:
             self.persist(self.state)
 
+    def _check_cancelled(self) -> None:
+        """Stop the pass here if the user asked for it.
+
+        Checked only *between* files: a transfer already under way finishes, so
+        the baseline never records a file that did not fully arrive, and every
+        file that did is recorded — the next pass resumes instead of redoing it.
+        """
+        if self.should_cancel is not None and self.should_cancel():
+            raise SyncCancelled("Sync cancelled by the user.")
+
     def _run(self, report: SyncReport, dry_run: bool) -> None:
         folder = self.settings.remote_folder or os.path.basename(self.project_path)
+        self._check_cancelled()
         root = self.provider.ensure_root(folder, self.state.root)
         if root != self.state.root:
             self.state.root = root
 
+        self._check_cancelled()
         scan: ScanResult = scan_project(
             self.project_path, self.settings, baseline=self.state.entries
         )
@@ -226,6 +263,7 @@ class SyncEngine:
         local = scan.entries
         remote = {entry.rel_path: entry for entry in self.provider.list_entries(root) if not entry.is_dir}
         base = self.state.entries
+        self._check_cancelled()
 
         # A conflict copy created by an earlier pass is a normal file from here
         # on: it uploads like any other, so both machines can see the divergence.
@@ -247,6 +285,7 @@ class SyncEngine:
         self._progress("plan")
 
         for position, rel_path in enumerate(plan, start=1):
+            self._check_cancelled()
             self._index = position
             self._progress("visit", rel_path)
             try:

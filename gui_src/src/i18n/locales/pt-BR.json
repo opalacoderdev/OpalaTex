@@ -1165,7 +1165,8 @@
     "messageQueueFailed": "Nao foi possivel enfileirar a mensagem.",
     "messageQueueError": "Nao foi possivel enfileirar a mensagem: {{error}}",
     "messageCancelError": "Nao foi possivel cancelar a mensagem: {{error}}",
-    "slashCommandWhileRunning": "Comandos de barra nao podem ser executados enquanto o agente trabalha. Pare o agente primeiro."
+    "slashCommandWhileRunning": "Comandos de barra nao podem ser executados enquanto o agente trabalha. Pare o agente primeiro.",
+    "projectCloudCopyRemoved": "Cópia na nuvem de {{name}} apagada."
   },
   "onboarding": {
     "welcome": "Bem-vindo ao OpalaTex! 🚀",
@@ -1230,7 +1231,11 @@
     "title": "Remover Projeto",
     "confirmMessage": "Tem certeza que deseja remover o projeto <1>'{{projectName}}'</1>?",
     "deleteDir": "Deletar também o diretório associado ao projeto",
-    "removeBtn": "Remover"
+    "removeBtn": "Remover",
+    "deleteCloud": "Apagar também a cópia na nuvem ({{provider}}: {{folder}})",
+    "deleteCloudTrash": "A pasta vai para a lixeira, de onde pode ser restaurada por tempo limitado.",
+    "deleteCloudPermanent": "Este armazenamento não tem lixeira: a pasta é apagada permanentemente.",
+    "deleteCloudOtherMachines": "Outros computadores que sincronizam este projeto param de sincronizá-lo e mantêm a própria cópia."
   },
   "askModal": {
     "title": "Entrada Necessária",
@@ -1389,7 +1394,14 @@
       "delete-remote": "Removendo da nuvem",
       "delete-local": "Removendo local",
       "conflict": "Conflito em"
-    }
+    },
+    "cancel": "Cancelar sincronização",
+    "cancelling": "Cancelando…",
+    "cancelHint": "Para depois do arquivo que está sendo transferido agora. O que já foi transferido continua sincronizado.",
+    "cancelled": "Sincronização cancelada. O que foi transferido antes da parada está sincronizado; o restante vai na próxima passagem.",
+    "republish": "Enviar novamente como nova cópia",
+    "republishConfirm": "Enviar este projeto para a nuvem novamente como uma nova cópia?",
+    "turnOff": "Desativar a sincronização com a nuvem"
   },
   "cloudDownload": {
     "title": "Baixar um projeto da nuvem",
@@ -1409,7 +1421,10 @@
     "progress": "Baixando {{examined}} de {{total}} — {{path}}",
     "download": "Baixar projeto",
     "downloading": "Baixando…",
-    "envNotice": "O .env do projeto não é espelhado, então as chaves de API ficam no computador em que foram digitadas. Informe as suas nas configurações do projeto depois de baixar."
+    "envNotice": "O .env do projeto não é espelhado, então as chaves de API ficam no computador em que foram digitadas. Informe as suas nas configurações do projeto depois de baixar.",
+    "cancel": "Cancelar download",
+    "cancelling": "Cancelando — terminando o arquivo em andamento…",
+    "cancelled": "Download cancelado. A cópia parcial foi removida; nada foi adicionado aos seus projetos."
   },
   "explorer": {
     "cloudSynced": "Sincronizado com a nuvem",

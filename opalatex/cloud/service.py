@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import threading
 import time
 import traceback
@@ -86,6 +87,8 @@ class SyncProgress:
     current_action: str = ""
     recent: list[dict[str, str]] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
+    # Set by :func:`request_cancel`; the engine polls it between files.
+    cancel_requested: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -98,6 +101,7 @@ class SyncProgress:
             "current_action": self.current_action,
             "recent": list(self.recent),
             "counts": dict(self.counts),
+            "cancel_requested": self.cancel_requested,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
         }
@@ -121,6 +125,29 @@ def _begin_progress(project_path: str, dry_run: bool) -> SyncProgress:
     with _PROGRESS_LOCK:
         _PROGRESS[_key(project_path)] = progress
     return progress
+
+
+def request_cancel(project_path: str) -> bool:
+    """Ask the pass running for `project_path` to stop at the next file.
+
+    Covers every kind of pass that reports progress — a manual or background
+    sync, a preview, a download into a new folder — because they all register
+    here under the path they write to. Returns False when nothing is running,
+    so the caller can tell "stopping" from "there was nothing to stop".
+    """
+    with _PROGRESS_LOCK:
+        progress = _PROGRESS.get(_key(project_path))
+        if progress is None or not progress.active:
+            return False
+        progress.cancel_requested = True
+        return True
+
+
+def _cancel_check(progress: SyncProgress):
+    def should_cancel() -> bool:
+        with _PROGRESS_LOCK:
+            return progress.cancel_requested
+    return should_cancel
 
 
 def _end_progress(project_path: str) -> None:
@@ -231,13 +258,17 @@ def sync_project(
             persist=persist,
             allow_bulk_delete=allow_bulk_delete,
             on_progress=lambda event: _record_progress(progress, event),
+            should_cancel=_cancel_check(progress),
         )
         report = engine.run(dry_run=dry_run)
         outcome.report = report
 
-        if settings.include_chats and not dry_run:
+        # A cancelled pass stops here: merging the conversations would start
+        # another round of transfers the user just asked to stop.
+        if settings.include_chats and not dry_run and not report.cancelled:
             outcome.merge = _reconcile_conversations(
-                project_name, project_path, backend, state, direction, allow_bulk_delete, report
+                project_name, project_path, backend, state, direction, allow_bulk_delete, report,
+                should_cancel=_cancel_check(progress),
             )
     except CloudAuthError as exc:
         outcome.error = str(exc)
@@ -262,6 +293,7 @@ def _reconcile_conversations(
     direction: str,
     allow_bulk_delete: bool,
     report: SyncReport,
+    should_cancel=None,
 ) -> Optional[chats.MergeStats]:
     """Fold the other machine's conversation history into this one's, then
     publish the union.
@@ -309,9 +341,13 @@ def _reconcile_conversations(
         direction=direction,
         persist=lambda current: save_state(project_path, current),
         allow_bulk_delete=allow_bulk_delete,
+        should_cancel=should_cancel,
     ).run()
     report.uploaded.extend(p for p in follow_up.uploaded if p not in report.uploaded)
     report.errors.extend(follow_up.errors)
+    if follow_up.cancelled:
+        report.cancelled = True
+        report.aborted = report.aborted or follow_up.aborted
     return stats
 
 
@@ -347,6 +383,9 @@ class CloneOutcome:
     provider: str = ""
     report: Optional[SyncReport] = None
     error: str = ""
+    # The user stopped the download; see `partial_copy_removed`.
+    cancelled: bool = False
+    partial_copy_removed: bool = False
 
     @property
     def ok(self) -> bool:
@@ -355,6 +394,8 @@ class CloneOutcome:
     def to_dict(self) -> dict[str, Any]:
         return {
             "ok": self.ok,
+            "cancelled": self.cancelled,
+            "partial_copy_removed": self.partial_copy_removed,
             "project_path": self.project_path,
             "remote_folder": self.remote_folder,
             "provider": self.provider,
@@ -385,6 +426,10 @@ def list_remote_projects(
                 pass
 
 
+def _expand_destination(destination: str) -> str:
+    return os.path.abspath(os.path.expanduser(str(destination or "").strip()))
+
+
 def prepare_destination(destination: str) -> str:
     """Validate where a clone is about to land, and create the directory.
 
@@ -394,7 +439,7 @@ def prepare_destination(destination: str) -> str:
     happened to be there. Refusing loudly is the only answer that cannot
     silently merge two unrelated projects.
     """
-    expanded = os.path.abspath(os.path.expanduser(str(destination or "").strip()))
+    expanded = _expand_destination(destination)
     if not expanded or expanded == os.path.abspath(os.sep):
         raise CloudError("A destination folder is required.")
     if os.path.exists(expanded):
@@ -420,6 +465,7 @@ def clone_project(
     remote_root: str = "",
     settings_overrides: Optional[dict[str, Any]] = None,
     provider: Optional[CloudStorageProvider] = None,
+    destination_is_new: Optional[bool] = None,
 ) -> CloneOutcome:
     """Download a mirrored project into `destination`, blocking.
 
@@ -438,8 +484,18 @@ def clone_project(
     Registering the project with the application (its row in `sessions.db`, its
     conversations) is the caller's job — this layer knows about storage, not
     about the project store.
+
+    A download the user cancels (:func:`request_cancel` on the destination) is
+    different from one that fails: nobody needs to inspect what arrived, so the
+    partial copy is removed. That is safe because the destination was verified
+    empty before the first byte, so everything in it came from this clone and
+    is still in the cloud. The directory itself is removed only when this clone
+    created it — `destination_is_new` says so for a caller that already created
+    it while validating; left as None, it is decided here.
     """
     outcome = CloneOutcome(remote_folder=remote_name, provider=provider_id)
+    if destination_is_new is None:
+        destination_is_new = not os.path.exists(_expand_destination(destination))
     overrides = dict(settings_overrides or {})
     project_path = ""
     backend: Optional[CloudStorageProvider] = None
@@ -450,8 +506,10 @@ def clone_project(
         # one caller shape covers "the folder is wrong" and "the network died".
         project_path = prepare_destination(destination)
         outcome.project_path = project_path
-        backend = provider or get_cloud_provider(provider_id, dict(provider_config or {}))
+        # Registered before anything slow, so a cancel that arrives while the
+        # backend is still connecting is not lost.
         progress = _begin_progress(project_path, dry_run=False)
+        backend = provider or get_cloud_provider(provider_id, dict(provider_config or {}))
 
         settings = CloudSettings.from_dict(
             {
@@ -472,8 +530,19 @@ def clone_project(
             direction=PULL,
             persist=lambda current: save_state(project_path, current),
             on_progress=lambda event: _record_progress(progress, event),
+            should_cancel=_cancel_check(progress),
         )
         outcome.report = engine.run()
+        if outcome.report.cancelled:
+            outcome.cancelled = True
+            outcome.partial_copy_removed = _discard_partial_clone(
+                project_path, remove_directory=bool(destination_is_new)
+            )
+            if not outcome.partial_copy_removed:
+                outcome.error = (
+                    f"Download cancelled, but the partial copy in {project_path} could "
+                    f"not be removed. Delete that folder before downloading again."
+                )
     except CloudError as exc:
         outcome.error = str(exc)
     except OSError as exc:
@@ -489,6 +558,95 @@ def clone_project(
             except Exception:
                 pass
     return outcome
+
+
+def _discard_partial_clone(project_path: str, *, remove_directory: bool) -> bool:
+    """Undo a cancelled clone: empty the destination, and remove it if it is new.
+
+    Only called after `prepare_destination` confirmed the folder was empty when
+    the clone began, so nothing removed here predates the clone.
+    """
+    try:
+        for name in os.listdir(project_path):
+            absolute = os.path.join(project_path, name)
+            if os.path.isdir(absolute) and not os.path.islink(absolute):
+                shutil.rmtree(absolute)
+            else:
+                os.remove(absolute)
+        if remove_directory:
+            os.rmdir(project_path)
+    except OSError:
+        return False
+    return True
+
+
+# ─── Deleting a project's cloud copy ──────────────────────────────────────────
+
+def cloud_link(project_path: str) -> dict[str, Any]:
+    """Whether this project has a copy in the cloud, without touching the network.
+
+    Asked when the user is about to delete the project, so the dialog can offer
+    to delete that copy too. A project has one once a pass has recorded its
+    remote folder; enabling sync without ever completing a pass leaves nothing
+    to delete.
+    """
+    state = load_state(project_path)
+    settings = state.settings
+    link: dict[str, Any] = {
+        "linked": bool(settings.provider and state.root),
+        "provider": settings.provider,
+        "provider_name": "",
+        "remote_folder": settings.remote_folder or os.path.basename(os.path.abspath(project_path)),
+        "recoverable": False,
+    }
+    if not link["linked"]:
+        return link
+    try:
+        backend = build_provider(settings)
+    except CloudError as exc:
+        link["error"] = str(exc)
+        return link
+    try:
+        link["provider_name"] = backend.display_name or settings.provider
+        link["recoverable"] = backend.capabilities().recoverable_root_deletion
+    finally:
+        try:
+            backend.close()
+        except Exception:
+            pass
+    return link
+
+
+def delete_remote_project(
+    project_path: str, *, provider: Optional[CloudStorageProvider] = None
+) -> dict[str, Any]:
+    """Delete the project's folder in the cloud. Blocking.
+
+    Other machines that still mirror the project find the folder gone on their
+    next pass and stop there (:class:`CloudRootMissing`) with their own copy
+    untouched. Callers should go through :meth:`CloudSyncManager.delete_remote_copy`,
+    which first stops any pass running for the project.
+    """
+    state = load_state(project_path)
+    settings = state.settings
+    if not (settings.provider and state.root):
+        return {"deleted": False, "reason": "This project has no copy in the cloud."}
+    backend = provider or build_provider(settings)
+    try:
+        backend.delete_root(state.root)
+    finally:
+        if provider is None:
+            try:
+                backend.close()
+            except Exception:
+                pass
+    remote_folder = settings.remote_folder or os.path.basename(os.path.abspath(project_path))
+    # This machine's link to the folder is gone too; left in place, a later
+    # pass here would stop on the missing root instead of saying nothing.
+    state.root = ""
+    state.entries = {}
+    save_state(project_path, state)
+    return {"deleted": True, "provider": settings.provider, "remote_folder": remote_folder}
 
 
 KEEP_LOCAL = "keep_local"
@@ -837,6 +995,31 @@ class CloudSyncManager:
                 return False
             registration.task = loop.create_task(self._run_loop(registration))
         return True
+
+    def delete_remote_copy(
+        self,
+        project_path: str,
+        *,
+        wait_seconds: float = 30.0,
+        provider: Optional[CloudStorageProvider] = None,
+    ) -> dict[str, Any]:
+        """Delete the project's cloud folder once no pass is using it. Blocking.
+
+        A pass still running would keep writing into the folder being removed,
+        so it is cancelled and waited for first — it stops after the file in
+        flight. Stopping the background task is the caller's job, from the event
+        loop that owns it (:meth:`deactivate`); this runs in a worker thread.
+        """
+        request_cancel(project_path)
+        lock = self._lock_for(project_path)
+        if not lock.acquire(timeout=wait_seconds):
+            raise CloudError(
+                "A sync of this project is still finishing. Try again in a moment."
+            )
+        try:
+            return delete_remote_project(project_path, provider=provider)
+        finally:
+            lock.release()
 
     def deactivate(self, project_path: str) -> None:
         registration = self._projects.pop(_key(project_path), None)

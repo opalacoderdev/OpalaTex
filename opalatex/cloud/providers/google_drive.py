@@ -45,7 +45,9 @@ from ..base import (
     Capabilities,
     CloudAuthError,
     CloudError,
+    CloudNotFound,
     CloudQuotaExceeded,
+    CloudRootMissing,
     CloudStorageProvider,
     CloudTransientError,
     RemoteEntry,
@@ -360,6 +362,8 @@ class GoogleDriveProvider(CloudStorageProvider):
             max_file_size=MAX_FILE_SIZE,
             server_side_versioning=True,
             project_listing=True,
+            # `delete_root` moves the folder to the Drive trash.
+            recoverable_root_deletion=True,
         )
 
     # -- authorization ---------------------------------------------------------
@@ -453,13 +457,26 @@ class GoogleDriveProvider(CloudStorageProvider):
 
     def ensure_root(self, folder_name: str, existing_root: str = "") -> str:
         if existing_root:
-            node = self._get_file(existing_root)
-            if node is not None and node.mime_type == FOLDER_MIME:
-                if existing_root != self._indexed_root:
-                    self._reset_index()
-                return existing_root
-            # The folder was deleted or belongs to another account. Falling
-            # through re-creates it rather than failing every sync from here on.
+            # Only a definite answer counts as "gone": a 404, or the folder in
+            # the trash. A network failure propagates as itself, so it cannot
+            # be read as a deletion.
+            try:
+                item = self._api_json(
+                    "GET", f"{API_BASE}/files/{existing_root}", params={"fields": _FILE_FIELDS}
+                )
+            except CloudNotFound:
+                item = None
+            if not item or item.get("trashed") or item.get("mimeType") != FOLDER_MIME:
+                # Re-creating it here used to look helpful, and it wiped other
+                # machines: their baseline against a new, empty folder reads as
+                # "every file was deleted in the cloud". See CloudRootMissing.
+                raise CloudRootMissing(
+                    "This project's folder is no longer in Google Drive — it was deleted, "
+                    "moved to the trash, or belongs to a different Google account."
+                )
+            if existing_root != self._indexed_root:
+                self._reset_index()
+            return existing_root
         container = self._ensure_folder(_safe_name(CONTAINER_FOLDER), parent="root")
         root = self._ensure_folder(_safe_name(folder_name), parent=container)
         if root != self._indexed_root:
@@ -586,6 +603,21 @@ class GoogleDriveProvider(CloudStorageProvider):
             body={"trashed": True},
         )
         self._files.pop(rel_path, None)
+
+    def delete_root(self, root: str) -> None:
+        # Trashed, never deleted permanently, for the same reason `delete` does:
+        # the user can still restore it from Drive for about 30 days.
+        try:
+            self._api_json(
+                "PATCH",
+                f"{API_BASE}/files/{root}",
+                params={"fields": "id"},
+                body={"trashed": True},
+            )
+        except CloudNotFound:
+            pass
+        if root == self._indexed_root:
+            self._reset_index()
 
     def about(self) -> dict:
         try:
@@ -949,7 +981,7 @@ class GoogleDriveProvider(CloudStorageProvider):
                     _backoff(attempt)
                     continue
                 if exc.code == 404:
-                    raise CloudError(f"Not found: {detail}")
+                    raise CloudNotFound(f"Not found: {detail}")
                 raise CloudError(f"Drive API {exc.code}: {detail}")
             except urllib.error.URLError as exc:
                 last_error = CloudTransientError(f"Network error: {exc.reason}")

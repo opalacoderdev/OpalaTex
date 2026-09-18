@@ -60,6 +60,7 @@ import CloudDownloadModal from './components/modals/CloudDownloadModal';
 import OnboardingModal from './components/modals/OnboardingModal';
 import DirPickerModal from './components/modals/DirPickerModal';
 import DeleteProjectModal from './components/modals/DeleteProjectModal';
+import { useCustomDialog } from './components/modals/CustomDialogProvider';
 
 import EditModelsModal from './components/modals/EditModelsModal';
 import AddModelModal from './components/modals/AddModelModal';
@@ -247,6 +248,7 @@ const isUnsupportedSystemFile = (filePath) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
   const { t } = useTranslation();
+  const { showAlert } = useCustomDialog();
 
   // ── Projects / files ──────────────────────────────────────────────────────
   const [projects, setProjects] = useState([]);
@@ -552,6 +554,7 @@ export default function App() {
   const [editingProject, setEditingProject] = useState(null);
   const [editProjError, setEditProjError] = useState('');
   const [projectToDelete, setProjectToDelete] = useState(null);
+  const [deleteCloudLink, setDeleteCloudLink] = useState(null);
   const [confirmRequest, setConfirmRequest] = useState(null);
   // Non-modal agent requests need slots that front-end prompts cannot overwrite.
   // The user can open new-file/delete/etc. confirmations while either floating
@@ -2636,17 +2639,40 @@ export default function App() {
   };
 
   const handleDeleteProject = (projName) => {
+    setDeleteCloudLink(null);
     setProjectToDelete(projName);
+    // Whether the dialog can offer to delete the cloud copy too. Local state
+    // only, so the dialog does not wait on the network.
+    const projectPath = projects.find(p => p.name === projName)?.project_path
+      || (activeProject?.name === projName ? activeProject.project_path : '');
+    if (!projectPath) return;
+    fetch(`/api/cloud/link?${new URLSearchParams({ projectPath })}`)
+      .then(res => res.json())
+      .then(link => setDeleteCloudLink(link && !link.error ? link : null))
+      .catch(() => setDeleteCloudLink(null));
   };
 
-  const confirmDeleteProject = async (deleteDir) => {
+  const confirmDeleteProject = async (deleteDir, deleteCloud = false) => {
     if (!projectToDelete) return;
     const projName = projectToDelete;
     setProjectToDelete(null);
+    setDeleteCloudLink(null);
     try {
-      const res = await fetch('/api/opalatex/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_name: projName, delete_dir: deleteDir }) });
-      if (res.ok) { addLog('info', t('app.projectRemoved', { name: projName })); if (activeProject?.name === projName) setActiveProject(null); fetchProjects(); }
-      else { const data = await res.json(); addLog('error', t('app.projectDeleteError', { error: data.error })); }
+      const res = await fetch('/api/opalatex/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project_name: projName, delete_dir: deleteDir, delete_cloud: deleteCloud }) });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        addLog('info', t('app.projectRemoved', { name: projName }));
+        if (data?.cloud?.deleted) addLog('info', t('app.projectCloudCopyRemoved', { defaultValue: 'Cloud copy of {{name}} deleted.', name: projName }));
+        if (activeProject?.name === projName) setActiveProject(null);
+        fetchProjects();
+      }
+      else {
+        const data = await res.json();
+        addLog('error', t('app.projectDeleteError', { error: data.error }));
+        // A failed cloud deletion leaves the project fully in place; the log
+        // alone is easy to miss once the dialog has closed.
+        if (deleteCloud) showAlert(t('app.projectDeleteError', { error: data.error }));
+      }
     } catch (err) { addLog('error', t('app.projectDeleteError', { error: err.message })); }
   };
 
@@ -4930,7 +4956,8 @@ export default function App() {
 
       <DeleteProjectModal
         projectToDelete={projectToDelete}
-        onCancel={() => setProjectToDelete(null)}
+        cloudLink={deleteCloudLink}
+        onCancel={() => { setProjectToDelete(null); setDeleteCloudLink(null); }}
         onConfirm={confirmDeleteProject}
       />
 

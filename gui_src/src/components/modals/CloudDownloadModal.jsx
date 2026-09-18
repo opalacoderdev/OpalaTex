@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  X, CloudDownload, RefreshCw, AlertTriangle, Check, FolderOpen, Cloud, CloudOff, ExternalLink,
+  X, CloudDownload, RefreshCw, AlertTriangle, Check, FolderOpen, Cloud, CloudOff, ExternalLink, Square,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { handleExternalClick } from '../../utils/openExternal';
@@ -31,6 +31,8 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(null);
   const [pendingAuthUrl, setPendingAuthUrl] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+  const [notice, setNotice] = useState('');
 
   // Guards a state update from an in-flight request after the modal closed.
   const mounted = useRef(true);
@@ -165,7 +167,9 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
     if (!selected || !parentPath || !folderName) return;
     setBusy('download');
     setError('');
+    setNotice('');
     setProgress(null);
+    setCancelling(false);
 
     // The pass runs in a worker thread on the server, so its progress is polled
     // the same way the sync panel polls a running pass.
@@ -193,12 +197,38 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
       });
       const payload = await res.json();
       if (!res.ok || payload.error) { setError(payload.error || `HTTP ${res.status}`); return; }
+      if (payload.cancelled) {
+        setNotice(t('cloudDownload.cancelled', 'Download cancelled. The partial copy was removed; nothing was added to your projects.'));
+        return;
+      }
       onDownloaded?.(payload);
     } catch (e) {
       setError(String(e));
     } finally {
       clearInterval(timer);
-      if (mounted.current) { setBusy(''); setProgress(null); }
+      if (mounted.current) { setBusy(''); setProgress(null); setCancelling(false); }
+    }
+  };
+
+  // The download registers its progress under the destination folder, so that
+  // is what names it here. The server stops after the file in flight and
+  // removes what had arrived; the pending clone request then reports it.
+  const cancelDownload = async () => {
+    if (!destination) return;
+    setCancelling(true);
+    try {
+      const res = await fetch('/api/cloud/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath: destination }),
+      });
+      const payload = await res.json();
+      if (payload.error) { setError(payload.error); setCancelling(false); return; }
+      // Not registered yet means the request is still validating the folder;
+      // there is nothing to stop until the transfer begins.
+      if (!payload.cancel_requested) setCancelling(false);
+    } catch (e) {
+      if (mounted.current) { setError(String(e)); setCancelling(false); }
     }
   };
 
@@ -234,6 +264,12 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
             >
               <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '1px' }} />
               <span>{error}</span>
+            </div>
+          )}
+
+          {notice && (
+            <div style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)', padding: '8px 10px', border: '1px solid var(--vscode-border)', borderRadius: '3px' }}>
+              {notice}
             </div>
           )}
 
@@ -429,7 +465,9 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
 
           {downloading && (
             <div style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>
-              {progress?.total
+              {cancelling
+                ? t('cloudDownload.cancelling', 'Cancelling — finishing the file in progress…')
+                : progress?.total
                 ? t('cloudDownload.progress', {
                     examined: progress.examined,
                     total: progress.total,
@@ -446,14 +484,27 @@ export default function CloudDownloadModal({ onClose, onDownloaded, parentPath, 
         </div>
 
         <div className="vscode-modal-footer titlebar items-center">
-          <button
-            className="vscode-button"
-            onClick={onClose}
-            disabled={downloading}
-            style={{ background: 'transparent', border: '1px solid var(--vscode-border)', color: 'var(--vscode-text-fg)' }}
-          >
-            {t('cloudSync.close', 'Close')}
-          </button>
+          {downloading ? (
+            <button
+              className="vscode-button"
+              onClick={cancelDownload}
+              disabled={cancelling}
+              style={{ background: 'transparent', border: '1px solid var(--vscode-border)', color: 'var(--vscode-text-fg)' }}
+            >
+              <Square size={11} />
+              {cancelling
+                ? t('cloudSync.cancelling', 'Cancelling…')
+                : t('cloudDownload.cancel', 'Cancel download')}
+            </button>
+          ) : (
+            <button
+              className="vscode-button"
+              onClick={onClose}
+              style={{ background: 'transparent', border: '1px solid var(--vscode-border)', color: 'var(--vscode-text-fg)' }}
+            >
+              {t('cloudSync.close', 'Close')}
+            </button>
+          )}
           <button
             className="vscode-button"
             onClick={download}

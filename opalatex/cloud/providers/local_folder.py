@@ -26,6 +26,7 @@ from ..base import (
     Capabilities,
     CloudError,
     CloudPreconditionFailed,
+    CloudRootMissing,
     CloudStorageProvider,
     RemoteEntry,
     RemoteProject,
@@ -81,7 +82,13 @@ class LocalFolderProvider(CloudStorageProvider):
             # a state file copied from another machine can carry a path that
             # exists here but belongs to something else entirely.
             if _is_within(candidate, self.base_dir):
-                os.makedirs(candidate, exist_ok=True)
+                if not os.path.isdir(candidate):
+                    # See CloudRootMissing: re-creating it would let the
+                    # baseline read an empty folder as mass deletion.
+                    raise CloudRootMissing(
+                        f"This project's folder is no longer in {self.base_dir} — it was "
+                        f"deleted or moved."
+                    )
                 return candidate
         root = os.path.join(self.base_dir, _safe_folder_name(folder_name))
         os.makedirs(root, exist_ok=True)
@@ -175,6 +182,17 @@ class LocalFolderProvider(CloudStorageProvider):
         except IsADirectoryError:
             raise CloudError(f"Refusing to delete a directory: {rel_path}")
         _prune_empty_parents(os.path.dirname(target), os.path.abspath(root))
+
+    def delete_root(self, root: str) -> None:
+        # A plain directory has no trash, so this is permanent; the capability
+        # says so and the UI warns before the user confirms.
+        target = os.path.abspath(root)
+        if target == self.base_dir or not _is_within(target, self.base_dir):
+            raise CloudError(f"Refusing to delete a folder outside the project mirror: {root!r}")
+        if os.path.islink(target):
+            raise CloudError(f"Refusing to delete a symbolic link: {root!r}")
+        if os.path.isdir(target):
+            shutil.rmtree(target)
 
     def about(self) -> dict:
         usage = shutil.disk_usage(self.base_dir) if os.path.isdir(self.base_dir) else None

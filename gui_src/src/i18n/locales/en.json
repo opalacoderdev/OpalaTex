@@ -1165,7 +1165,8 @@
     "messageQueueFailed": "The message could not be queued.",
     "messageQueueError": "Could not queue the message: {{error}}",
     "messageCancelError": "Could not cancel the message: {{error}}",
-    "slashCommandWhileRunning": "Slash commands cannot run while the agent is working. Stop the agent first."
+    "slashCommandWhileRunning": "Slash commands cannot run while the agent is working. Stop the agent first.",
+    "projectCloudCopyRemoved": "Cloud copy of {{name}} deleted."
   },
   "onboarding": {
     "welcome": "Welcome to OpalaTex! ",
@@ -1230,7 +1231,11 @@
     "title": "Remove Project",
     "confirmMessage": "Are you sure you want to remove the project <1>'{{projectName}}'</1>?",
     "deleteDir": "Also delete the directory associated with the project",
-    "removeBtn": "Remove"
+    "removeBtn": "Remove",
+    "deleteCloud": "Also delete the copy in the cloud ({{provider}}: {{folder}})",
+    "deleteCloudTrash": "The folder goes to the trash, where it can be restored for a limited time.",
+    "deleteCloudPermanent": "This storage has no trash: the folder is deleted permanently.",
+    "deleteCloudOtherMachines": "Other computers that sync this project stop syncing it and keep their own copy."
   },
   "askModal": {
     "title": "Input Required",
@@ -1389,7 +1394,14 @@
       "delete-remote": "Removing from the cloud",
       "delete-local": "Removing locally",
       "conflict": "Conflict on"
-    }
+    },
+    "cancel": "Cancel sync",
+    "cancelling": "Cancelling…",
+    "cancelHint": "Stops after the file being transferred now. What already moved stays synced.",
+    "cancelled": "Sync cancelled. What moved before the stop is synced; the rest goes on the next pass.",
+    "republish": "Upload again as a new copy",
+    "republishConfirm": "Upload this project to the cloud again as a new copy?",
+    "turnOff": "Turn off cloud sync"
   },
   "cloudDownload": {
     "title": "Download a project from the cloud",
@@ -1409,7 +1421,10 @@
     "progress": "Downloading {{examined}} of {{total}} — {{path}}",
     "download": "Download project",
     "downloading": "Downloading…",
-    "envNotice": "The project .env is not mirrored, so API keys stay on the computer they were entered on. Add yours in the project settings after downloading."
+    "envNotice": "The project .env is not mirrored, so API keys stay on the computer they were entered on. Add yours in the project settings after downloading.",
+    "cancel": "Cancel download",
+    "cancelling": "Cancelling — finishing the file in progress…",
+    "cancelled": "Download cancelled. The partial copy was removed; nothing was added to your projects."
   },
   "explorer": {
     "cloudSynced": "Synced to the cloud",

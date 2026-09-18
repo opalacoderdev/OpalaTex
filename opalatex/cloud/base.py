@@ -56,6 +56,21 @@ class CloudQuotaExceeded(CloudError):
     """The account is out of storage. Not retryable without user action."""
 
 
+class CloudNotFound(CloudError):
+    """The backend answered that the addressed item does not exist."""
+
+
+class CloudRootMissing(CloudError):
+    """The project's remote folder, recorded by an earlier pass, is gone.
+
+    It was deleted or trashed — typically because the project was deleted from
+    the cloud on another machine — or it is not visible to the account now
+    connected. A replacement must *not* be created silently: reconciling the
+    baseline against a new, empty folder reads as "every file was deleted in
+    the cloud" and deletes the working copy.
+    """
+
+
 # ─── Value objects ────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -109,6 +124,9 @@ class Capabilities:
     # folder (a single WebDAV URL, say) has nothing to enumerate, and the UI
     # offers the "download a project" flow only where this is true.
     project_listing: bool = False
+    # Whether `delete_root` can be undone from the provider's own UI (a trash
+    # or recycle bin). The UI says which it is before the user confirms.
+    recoverable_root_deletion: bool = False
 
 
 @dataclass
@@ -243,7 +261,10 @@ class CloudStorageProvider(ABC):
 
         When `existing_root` is a handle from a previous session it is validated
         and reused, so renaming the folder in the provider's own UI does not
-        orphan the project.
+        orphan the project. When that folder no longer exists, raise
+        :class:`CloudRootMissing` instead of creating a replacement; any other
+        failure to check it (a network error) propagates as itself, so it is
+        never mistaken for a deletion.
         """
 
     def list_projects(self) -> list["RemoteProject"]:
@@ -295,6 +316,18 @@ class CloudStorageProvider(ABC):
         Providers that support a recycle bin should prefer it over a permanent
         delete: a sync bug must not be able to destroy the user's only copy.
         """
+
+    def delete_root(self, root: str) -> None:
+        """Remove the project's whole remote folder, as returned by `ensure_root`.
+
+        Used when the user deletes a project and asks for its cloud copy to go
+        too. Deleting a folder that is already gone is not an error. Providers
+        with a recycle bin must use it and report ``recoverable_root_deletion``.
+        Not abstract: a backend that cannot do it keeps working without it.
+        """
+        raise CloudError(
+            f"{self.display_name or self.id or 'This backend'} cannot delete a project folder."
+        )
 
     # -- optional hooks --------------------------------------------------------
 

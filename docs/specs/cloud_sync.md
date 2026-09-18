@@ -206,6 +206,49 @@ Nothing exercised it — pull-only was API-only until the clone used it. In PULL
 the engine now parks the remote version beside the local one, reports the
 conflict and leaves the baseline untouched for a two-way pass to settle.
 
+## Cancelling a sync or a download
+
+| Question | Decision |
+| --- | --- |
+| What can be cancelled | Any running pass: a manual or background sync, a preview, a download. All register their progress under the path they write to, and `POST /api/cloud/cancel {projectPath}` flags that path. |
+| When it takes effect | Between files. The file in flight finishes; interrupting inside one transfer would need a cancel token in the provider facade. |
+| A cancelled sync | Keeps everything it already moved in the baseline, skips the conversation merge, and reports `cancelled`. The next pass continues from there — it is a partial pass, not a failure to undo. |
+| A cancelled download | Removes the partial copy, and the destination folder too when the download created it. Nothing is registered. |
+
+### Why a cancelled download is deleted when a failed one is kept
+
+A failed download is left on disk because something went wrong and what arrived
+may help explain it. A cancelled one has nothing to explain: the user said they
+do not want it. Leaving it would also leave a non-empty folder that the next
+download into the same place refuses. Deleting it cannot lose anything: the
+destination was verified empty before the first byte, so every file in it came
+from the clone and is still in the cloud.
+
+## Deleting a project's cloud copy
+
+| Question | Decision |
+| --- | --- |
+| Offered when | The project has a cloud folder recorded by a pass. The delete dialog asks `/api/cloud/link`, which reads local state only. |
+| Default | Off. Removing a project from this computer is not a reason to remove it everywhere. |
+| Google Drive | The folder goes to the Drive trash (recoverable for a limited time), like every other Drive delete. |
+| Local folder | Removed permanently; it has no trash. The dialog says so before the user confirms. |
+| Order | Cloud first, and it can veto: if the cloud copy cannot be deleted, nothing local is deleted either. |
+| Other computers | Their next pass finds the folder gone and stops with their files intact (`remote_missing`). The sync panel offers to upload a new copy or turn sync off. |
+
+### Why a vanished folder is no longer re-created
+
+Both providers used to answer "the recorded folder is gone" by creating a new,
+empty one. Against the baseline, an empty folder reads as "every file was
+deleted in the cloud", so the pass deleted the working copy. The bulk-delete
+guard only intervenes at ten or more files; a smaller project on another
+computer was wiped outright. That was already reachable by trashing the folder
+by hand in Drive. Offering deletion from the app would have made it routine.
+Now the engine stops and the user decides.
+
+A network failure while checking the folder is not a deletion. Only a definite
+answer counts (Drive: 404 or trashed). Anything else propagates as the error it
+is.
+
 ## Why a conflict asks instead of deciding
 
 The engine never merges, and it never picks a winner: it keeps the working copy,
@@ -314,7 +357,10 @@ Implement `CloudStorageProvider` in `opalatex/cloud/providers/`, add an entry to
 `opalatex/cloud/registry.py`, and add the module to `hiddenimports` in
 `OpalaTex.spec`. `list_projects` is optional — a backend that cannot enumerate
 leaves `Capabilities.project_listing` false and the download flow reports that
-instead of showing an empty account. Nothing in the engine or the service layer should need to
+instead of showing an empty account. `delete_root` is optional too — without it the delete dialog's cloud
+option fails with the backend's message and nothing is deleted; set `recoverable_root_deletion` when it
+goes to a trash. `ensure_root` must raise `CloudRootMissing` for a recorded root that no longer exists,
+never create a replacement. Nothing in the engine or the service layer should need to
 change; if it does, the facade has leaked and that is the bug to fix first.
 
 `tests/test_cloud_sync.py` is the contract suite — point its `provider` fixture

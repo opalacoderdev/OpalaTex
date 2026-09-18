@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   X, Cloud, CloudOff, RefreshCw, AlertTriangle, Check, ExternalLink, KeyRound,
-  ChevronDown, ChevronRight, ArrowUp, ArrowDown, Trash2,
+  ChevronDown, ChevronRight, ArrowUp, ArrowDown, Trash2, Square,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './CustomDialogProvider';
@@ -100,6 +100,33 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
   useEffect(() => { loadStatus(); loadGoogleClient(); }, [loadStatus, loadGoogleClient]);
 
   const passRunning = !!status?.syncing || !!status?.progress?.active;
+  const [cancelRequested, setCancelRequested] = useState(false);
+  const cancelling = cancelRequested || !!status?.progress?.cancel_requested;
+
+  // The flag belongs to one pass; the next one starts uncancelled.
+  useEffect(() => {
+    if (!passRunning && busy !== 'sync' && busy !== 'preview') setCancelRequested(false);
+  }, [passRunning, busy]);
+
+  // Stops whichever pass is running — one started here, or a background one.
+  // The engine checks between files, so the file in flight still finishes.
+  const cancelSync = async () => {
+    setCancelRequested(true);
+    setError('');
+    try {
+      const res = await fetch('/api/cloud/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath }),
+      });
+      const payload = await res.json();
+      if (payload.error) { setError(payload.error); setCancelRequested(false); return; }
+      if (!payload.cancel_requested) setCancelRequested(false);
+      await loadStatus();
+    } catch (e) {
+      if (mounted.current) { setError(String(e)); setCancelRequested(false); }
+    }
+  };
 
   useEffect(() => {
     // The panel is the place the user watches a pass from, so while one is
@@ -295,6 +322,33 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
     }
   };
 
+  // The cloud folder this project mirrored to is gone — typically deleted
+  // together with the project on another computer. The engine stopped without
+  // touching anything; publishing a fresh copy means forgetting the old
+  // baseline first, or it would read the new, empty folder as mass deletion.
+  const republish = async () => {
+    const ok = await showConfirm(
+      t('cloudSync.republishConfirm', 'Upload this project to the cloud again as a new copy?'),
+    );
+    if (!ok) return;
+    setBusy('sync');
+    setError('');
+    try {
+      const res = await fetch('/api/cloud/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath }),
+      });
+      const payload = await res.json();
+      if (payload.error) { setError(payload.error); setBusy(''); return; }
+    } catch (e) {
+      setError(String(e));
+      setBusy('');
+      return;
+    }
+    await runSync();
+  };
+
   const providers = status?.providers || [];
   const currentProvider = providers.find((p) => p.id === settings?.provider);
   const connected = !!status?.connected;
@@ -434,6 +488,20 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
                 >
                   {busy === 'preview' ? t('cloudSync.previewing', 'Checking…') : t('cloudSync.preview', 'Preview changes')}
                 </button>
+                {(passRunning || busy === 'sync' || busy === 'preview') && (
+                  <button
+                    className="vscode-button"
+                    disabled={cancelling}
+                    onClick={cancelSync}
+                    title={t('cloudSync.cancelHint', 'Stops after the file being transferred now. What already moved stays synced.')}
+                    style={{ background: 'transparent', border: '1px solid var(--vscode-border)', color: 'var(--vscode-text-fg)' }}
+                  >
+                    <Square size={11} />
+                    <span style={{ marginLeft: '6px' }}>
+                      {cancelling ? t('cloudSync.cancelling', 'Cancelling…') : t('cloudSync.cancel', 'Cancel sync')}
+                    </span>
+                  </button>
+                )}
               </div>
 
               {status?.last_sync_at && (
@@ -448,6 +516,21 @@ export default function CloudSyncModal({ activeProject, onClose, onWorkspaceChan
 
               {status?.progress && (status.progress.active || status.progress.recent?.length > 0) && (
                 <SyncProgressView progress={status.progress} active={passRunning} />
+              )}
+
+              {lastReport?.remote_missing && settings.enabled && (
+                <div className="flex items-center" style={{ gap: '8px', flexWrap: 'wrap' }}>
+                  <button className="vscode-button" disabled={!!busy} onClick={republish}>
+                    {t('cloudSync.republish', 'Upload again as a new copy')}
+                  </button>
+                  <button
+                    className="vscode-button"
+                    disabled={!!busy}
+                    onClick={() => saveSettings({ enabled: false })}
+                  >
+                    {t('cloudSync.turnOff', 'Turn off cloud sync')}
+                  </button>
+                </div>
               )}
 
               {lastReport && (
@@ -826,7 +909,14 @@ function SyncReportView({ report, onResolve, resolvingPath }) {
         <div key={item.path} style={{ color: 'var(--vscode-fg-danger)' }}>{item.path}: {item.message}</div>
       ))}
 
-      {report.aborted && (
+      {report.cancelled && (
+        <div style={{ color: 'var(--vscode-text-subtle)' }}>
+          <Square size={10} style={{ display: 'inline', marginRight: '4px' }} />
+          {t('cloudSync.cancelled', 'Sync cancelled. What moved before the stop is synced; the rest goes on the next pass.')}
+        </div>
+      )}
+
+      {report.aborted && !report.cancelled && (
         <div style={{ color: 'var(--vscode-fg-danger)' }}>
           <AlertTriangle size={12} style={{ display: 'inline', marginRight: '4px' }} />
           {report.aborted}
