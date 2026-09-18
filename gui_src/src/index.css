@@ -3454,8 +3454,17 @@ select {
     display: none !important;
   }
 
-  /* Chat printing (default behavior) */
-  body:not(.printing-editor) .vscode-editor-panel {
+  /* Chat printing (default behavior). The chat-bottom and studio layouts
+     mount the chat *inside* the editor panel, so hiding the panel outright
+     printed a blank page there: keep the panel when it holds the chat and
+     hide everything else in it instead. */
+  body:not(.printing-editor) .vscode-editor-panel:not(:has(> .vscode-chat)) {
+    display: none !important;
+  }
+  body:not(.printing-editor) .vscode-editor-panel:has(> .vscode-chat) {
+    display: block !important;
+  }
+  body:not(.printing-editor) .vscode-editor-panel:has(> .vscode-chat) > :not(.vscode-chat) {
     display: none !important;
   }
   body:not(.printing-editor) .vscode-chat {
