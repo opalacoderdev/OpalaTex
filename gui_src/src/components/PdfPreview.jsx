@@ -3,12 +3,14 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { viewportPointToApp, viewportPxToApp } from '../utils/uiScale';
+import { clampViewAnchor, isAnchorLaidOut, scrollTopForAnchor, viewAnchorAt } from '../utils/pdfViewState';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare, Sparkles } from 'lucide-react';
+import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare, Sparkles, MonitorPlay } from 'lucide-react';
 import PdfContextMenu, { ANNOTATION_COLORS } from './PdfContextMenu';
 import PdfTranslationPopup from './PdfTranslationPopup';
 import PdfAnnotationLayer from './PdfAnnotationLayer';
 import PdfNotePopup from './PdfNotePopup';
+import PdfPresentMode from './PdfPresentMode';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -19,12 +21,25 @@ const PDF_DOCUMENT_OPTIONS = {
   verbosity: pdfjs.VerbosityLevel.ERRORS,
 };
 
-const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onAskAboutPdf, isAgentRunning = false, uiScale = 1 }, ref) => {
+const DEFAULT_PDF_SCALE = 1.2;
+
+// How long a restored position may wait for the pages above it to be laid out.
+// react-pdf sizes a page as soon as pdf.js loads it, before painting it, so this
+// is normally a few polls; past the limit the position is applied to whatever
+// layout exists rather than silently dropped.
+const VIEW_RESTORE_INTERVAL_MS = 50;
+const VIEW_RESTORE_ATTEMPTS = 100;
+
+// `initialViewState` ({ scale, anchor }) is read once, at mount, and
+// `onViewStateChange` reports the same shape as the user scrolls and zooms. The
+// owner keeps it per document so a viewer unmounted by a tab switch comes back
+// where it was left (see utils/pdfViewState.js).
+const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onAskAboutPdf, isAgentRunning = false, uiScale = 1, initialViewState = null, onViewStateChange }, ref) => {
   const { t, i18n } = useTranslation();
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
   const [highlight, setHighlight] = useState(null);
-  const [scale, setScale] = useState(1.2);
+  const [scale, setScale] = useState(() => (initialViewState?.scale > 0 ? initialViewState.scale : DEFAULT_PDF_SCALE));
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -45,6 +60,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const [notePopup, setNotePopup] = useState(null);
   const [annotationError, setAnnotationError] = useState('');
   const [annotationTooltip, setAnnotationTooltip] = useState(null);
+  const [isPresenting, setIsPresenting] = useState(false);
   const containerRef = useRef(null);
   const translationRequestRef = useRef(0);
   const scrollPosRef = useRef(0);
@@ -55,6 +71,13 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const pdfDocumentRef = useRef(null);
   const navigationHistoryRef = useRef([]);
   const pageScrollRafRef = useRef(null);
+  // The position a newly mounted viewer returns to, consumed by its first
+  // document load, and the latest position reported, which a zoom change reports
+  // again together with the new scale.
+  const pendingViewAnchorRef = useRef(initialViewState?.anchor || null);
+  const lastViewAnchorRef = useRef(initialViewState?.anchor || null);
+  const onViewStateChangeRef = useRef(onViewStateChange);
+  onViewStateChangeRef.current = onViewStateChange;
 
   const searchNeedle = searchQuery.trim().toLowerCase();
   const hasSearchNeedle = searchNeedle.length > 0;
@@ -115,6 +138,37 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     }
   }, []);
 
+  // Every page's place in the scroll content, in the app CSS pixels `scrollTop`
+  // uses — the same `offsetTop` measure `scrollToPage` relies on. A page is
+  // `ready` once react-pdf has sized its canvas, which it does when pdf.js loads
+  // the page and before painting it, so a ready page has its final height.
+  // Only the wrappers: react-pdf's own page element inside each one carries
+  // `data-page-number` too, and its `offsetTop` is measured from the wrapper.
+  const pageLayout = () => {
+    const container = containerRef.current;
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('.pdf-page-wrapper[data-page-number]'))
+      .map((el) => ({
+        page: parseInt(el.getAttribute('data-page-number'), 10),
+        top: el.offsetTop,
+        height: el.offsetHeight,
+        ready: Boolean(el.querySelector('canvas')?.style.height),
+      }))
+      .filter((entry) => !Number.isNaN(entry.page));
+  };
+
+  const rememberViewAnchor = () => {
+    const container = containerRef.current;
+    if (!container) return;
+    const pages = pageLayout();
+    const anchor = viewAnchorAt(container.scrollTop, pages);
+    // A position measured against placeholders would name the wrong page once
+    // they grow, so it is not worth remembering.
+    if (!anchor || !isAnchorLaidOut(anchor, pages)) return;
+    lastViewAnchorRef.current = anchor;
+    onViewStateChangeRef.current?.({ scale, anchor });
+  };
+
   const handleScroll = () => {
     if (isReloadingPdfRef.current) return;
     if (containerRef.current) {
@@ -125,8 +179,14 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     pageScrollRafRef.current = window.requestAnimationFrame(() => {
       pageScrollRafRef.current = null;
       updateCurrentPageFromScroll();
+      rememberViewAnchor();
     });
   };
+
+  // A zoom with no scroll after it must still be remembered.
+  useEffect(() => {
+    onViewStateChangeRef.current?.({ scale, anchor: lastViewAnchorRef.current });
+  }, [scale]);
 
   useEffect(() => {
     return () => {
@@ -760,7 +820,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   };
 
   const handleResetZoom = () => {
-    setScale(1.2);
+    setScale(DEFAULT_PDF_SCALE);
   };
 
   const focusSearchInput = () => {
@@ -1030,6 +1090,29 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     document.body.removeChild(link);
   };
 
+  // ── Presentation mode ──────────────────────────────────────────────────
+  // Starts on the page in view and hands the last page shown back to the
+  // viewer, so leaving a talk finds the document where the talk ended.
+  const handleStartPresentation = () => {
+    if (!pdfUrl || !numPages) return;
+    setContextMenu(null);
+    setAnnotationTooltip(null);
+    setIsPresenting(true);
+  };
+
+  const handleExitPresentation = (page) => {
+    setIsPresenting(false);
+    if (page && page !== currentPage) scrollToPage(page);
+  };
+
+  // A compile error replaces the document with the error view (see below), and
+  // a closed document leaves nothing to show. The presentation ends with it
+  // rather than lingering hidden and reappearing on the next successful build.
+  const hasRenderableDocument = !(errorLog && !directUrl) && Boolean(base64Pdf || sourceUrl || directUrl);
+  useEffect(() => {
+    if (!hasRenderableDocument) setIsPresenting(false);
+  }, [hasRenderableDocument]);
+
   useEffect(() => {
     if (containerRef.current) {
       restoreScrollPosRef.current = containerRef.current.scrollTop;
@@ -1055,20 +1138,49 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     pdfDocumentRef.current = null;
   }, [base64Pdf, sourceUrl, directUrl]);
 
+  // Return to a remembered position once the pages it depends on are laid out.
+  // Abandoned if the document is replaced meanwhile (a recompile), since the new
+  // load decides its own position.
+  const restoreViewAnchor = (anchor, pdfDocument, attempt = 0) => {
+    const container = containerRef.current;
+    if (!container || pdfDocumentRef.current !== pdfDocument) return;
+    const pages = pageLayout();
+    if (!isAnchorLaidOut(anchor, pages) && attempt < VIEW_RESTORE_ATTEMPTS) {
+      window.setTimeout(() => restoreViewAnchor(anchor, pdfDocument, attempt + 1), VIEW_RESTORE_INTERVAL_MS);
+      return;
+    }
+    const top = scrollTopForAnchor(anchor, pages);
+    if (top != null) {
+      container.scrollTop = top;
+      scrollPosRef.current = container.scrollTop;
+    }
+    isReloadingPdfRef.current = false;
+    updateCurrentPageFromScroll();
+    if (onDocumentReady) onDocumentReady();
+  };
+
   function onDocumentLoadSuccess(pdfDocument) {
     pdfDocumentRef.current = pdfDocument;
     setNumPages(pdfDocument.numPages);
     setCurrentPage(1);
-    setTimeout(() => {
-      if (containerRef.current) {
-        const nextScrollTop = restoreScrollPosRef.current || scrollPosRef.current;
-        containerRef.current.scrollTop = nextScrollTop;
-        scrollPosRef.current = nextScrollTop;
-      }
-      isReloadingPdfRef.current = false;
-      updateCurrentPageFromScroll();
-      if (onDocumentReady) onDocumentReady();
-    }, 150);
+    // Only the first load after mounting returns to a remembered position; a
+    // later reload (recompile, annotation toggle) keeps the scroll it had.
+    const rememberedAnchor = clampViewAnchor(pendingViewAnchorRef.current, pdfDocument.numPages);
+    pendingViewAnchorRef.current = null;
+    if (rememberedAnchor) {
+      restoreViewAnchor(rememberedAnchor, pdfDocument);
+    } else {
+      setTimeout(() => {
+        if (containerRef.current) {
+          const nextScrollTop = restoreScrollPosRef.current || scrollPosRef.current;
+          containerRef.current.scrollTop = nextScrollTop;
+          scrollPosRef.current = nextScrollTop;
+        }
+        isReloadingPdfRef.current = false;
+        updateCurrentPageFromScroll();
+        if (onDocumentReady) onDocumentReady();
+      }, 150);
+    }
     // Everything the file holds is now painted into the canvas, so the overlay
     // starts empty and only picks up marks made from here on.
     loadAnnotations({ markAsRendered: true });
@@ -1321,6 +1433,27 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
           <Download size={18} />
         </button>
         <button
+          type="button"
+          onClick={handleStartPresentation}
+          disabled={!pdfUrl || !numPages}
+          className="flex items-center justify-center rounded-md transition-colors"
+          style={{
+            width: '32px',
+            height: '32px',
+            background: 'var(--vscode-input-bg)',
+            border: '1px solid var(--vscode-border)',
+            color: pdfUrl && numPages ? 'var(--vscode-text-fg)' : 'var(--vscode-descriptionForeground)',
+            opacity: pdfUrl && numPages ? 1 : 0.5,
+            cursor: pdfUrl && numPages ? 'pointer' : 'default',
+          }}
+          onMouseEnter={(e) => { if (pdfUrl && numPages) { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; } }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = pdfUrl && numPages ? 'var(--vscode-text-fg)' : 'var(--vscode-descriptionForeground)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+          title={t('pdfPreview.present', 'Present (full screen)')}
+          aria-label={t('pdfPreview.present', 'Present (full screen)')}
+        >
+          <MonitorPlay size={18} />
+        </button>
+        <button
           onClick={handleSearchToggle}
           className="flex items-center justify-center rounded-md transition-colors"
           style={{
@@ -1511,19 +1644,19 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         </button>
         <button
           onClick={handleResetZoom}
-          disabled={scale === 1.2}
+          disabled={scale === DEFAULT_PDF_SCALE}
           className="flex items-center justify-center rounded-md transition-colors"
           style={{
             width: '32px',
             height: '32px',
             background: 'var(--vscode-input-bg)',
             border: '1px solid var(--vscode-border)',
-            color: scale === 1.2 ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-text-fg)',
-            opacity: scale === 1.2 ? 0.5 : 1,
-            cursor: scale === 1.2 ? 'default' : 'pointer',
+            color: scale === DEFAULT_PDF_SCALE ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-text-fg)',
+            opacity: scale === DEFAULT_PDF_SCALE ? 0.5 : 1,
+            cursor: scale === DEFAULT_PDF_SCALE ? 'default' : 'pointer',
           }}
-          onMouseEnter={(e) => { if (scale !== 1.2) { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; } }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = scale === 1.2 ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+          onMouseEnter={(e) => { if (scale !== DEFAULT_PDF_SCALE) { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; } }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = scale === DEFAULT_PDF_SCALE ? 'var(--vscode-descriptionForeground)' : 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
           title={t('editorPanel.resetZoom')}
         >
           <RotateCcw size={18} />
@@ -1800,6 +1933,16 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         onRetry={handleRetryTranslation}
         onCopy={handleCopyTranslation}
       />
+
+      {isPresenting && pdfUrl && (
+        <PdfPresentMode
+          fileUrl={pdfUrl}
+          initialPageCount={numPages || 0}
+          startPage={currentPage}
+          uiScale={uiScale}
+          onExit={handleExitPresentation}
+        />
+      )}
     </div>
   );
 });

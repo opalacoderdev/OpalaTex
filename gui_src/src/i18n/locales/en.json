@@ -312,6 +312,8 @@
     "noDocument": "No document compiled yet. Write some LaTeX and compile!",
     "noSearchResults": "No results",
     "pageDividerLabel": "Page {{page}} of {{total}}",
+    "present": "Present (full screen)",
+    "presentationLabel": "PDF presentation",
     "previousMatch": "Previous match",
     "searchPdf": "Search PDF",
     "searchPlaceholder": "Search PDF...",

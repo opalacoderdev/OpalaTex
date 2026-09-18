@@ -3135,6 +3135,57 @@ input:focus, select:focus, textarea:focus {
   padding-bottom: 32px;
 }
 
+/* ── PDF presentation mode (PdfPresentMode.jsx) ─────────────────────────────
+   The same overlay geometry as the deck editor's `.deck-present`, which lives
+   in the lazily loaded slides.css and so cannot be relied on here. */
+.pdf-present {
+  position: fixed;
+  left: 0;
+  top: 0;
+  /* Not `inset: 0`: a fixed element's viewport-relative size resolves against
+     the real viewport and is then multiplied by the app's zoom, overflowing
+     the screen by exactly uiScale. --ui-vw/--ui-vh are zoom-corrected. */
+  width: calc(100 * var(--ui-vw, 1vw));
+  height: calc(100 * var(--ui-vh, 1vh));
+  z-index: 9999;
+  overflow: hidden;
+  background: #000;
+  outline: none;
+  cursor: default;
+  user-select: none;
+}
+
+.pdf-present-document {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* The current page and its hidden neighbours share one grid cell, so each is
+   centred on its own size and advancing never shifts the layout. */
+.pdf-present-page {
+  grid-area: 1 / 1;
+}
+
+.pdf-present-status {
+  grid-area: 1 / 1;
+  color: #6f6f6f;
+  font: 13px system-ui, sans-serif;
+}
+
+.pdf-present-hud {
+  /* Absolute inside the overlay, not fixed: a fixed offset would be measured
+     from the unzoomed viewport and drift off the corner as the zoom changes. */
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  color: #6f6f6f;
+  font: 12px system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
 /* The pages must NOT be centered by the scrolling container itself.
    With `align-items: center`, a page wider than the viewport (zoom in)
    overflows equally on both sides, and the scrollable overflow region only

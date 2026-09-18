@@ -312,6 +312,8 @@
     "noDocument": "Nenhum documento compilado. Escreva o LaTeX e compile.",
     "noSearchResults": "Sem resultados",
     "pageDividerLabel": "Pagina {{page}} de {{total}}",
+    "present": "Apresentar (tela cheia)",
+    "presentationLabel": "Apresentação do PDF",
     "previousMatch": "Resultado anterior",
     "searchPdf": "Buscar no PDF",
     "searchPlaceholder": "Buscar no PDF...",

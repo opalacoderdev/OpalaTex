@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser-level checks for the deck editor.
+"""Browser-level checks for the deck editor and the PDF viewer.
 
     npm run test:browser              both interface scales
     npm run test:browser -- 1         one scale
@@ -52,6 +52,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GUI_SRC = os.path.dirname(os.path.dirname(HERE))
 HARNESS_PATH = "/test/browser/harness.html"
 STORE_PATH = "/test/browser/store.html"
+PDF_PATH = "/test/browser/pdf.html"
 
 # Wide enough that the editor lays out its three columns, and a shape at the
 # far corner of the slide still has somewhere to overflow to if it wants.
@@ -691,6 +692,301 @@ async def check_presentation(page: Page, check: Checks) -> None:
     await asyncio.sleep(0.4)
     check("escape leaves the presentation",
           await page.js("!document.querySelector('.deck-present')"))
+
+
+async def open_pdf_harness(page: Page, pages: int = 5) -> bool:
+    """Navigate to the PDF harness at the suite's scale and wait for its pages."""
+    base = page.url.split(HARNESS_PATH)[0]
+    scale = page.url.split("uiScale=")[-1]
+    await page.cmd("Page.navigate", {"url": f"{base}{PDF_PATH}?uiScale={scale}"})
+    return await wait_for_pdf_pages(page, pages)
+
+
+async def wait_for_pdf_pages(page: Page, count: int, timeout: float = 30.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if await page.js("!!window.__ready && "
+                         f"document.querySelectorAll('.pdf-page-wrapper canvas').length === {count}"):
+            return True
+        await asyncio.sleep(0.2)
+    return False
+
+
+PDF_VIEW_POSITION = (
+    "(() => { const c = document.querySelector('.pdf-preview-scroll'); if (!c) return null;"
+    "  const zoom = [...document.querySelectorAll('.pdf-preview-controls span')]"
+    "    .find(s => /^\\d+%$/.test(s.textContent.trim()));"
+    "  const nav = document.querySelector('.pdf-preview-controls input[placeholder]');"
+    "  return {top: c.scrollTop, max: c.scrollHeight - c.clientHeight,"
+    "          zoom: zoom && zoom.textContent.trim(), page: nav && nav.getAttribute('placeholder')}; })()"
+)
+
+
+async def check_pdf_tab_switch(page: Page, check: Checks) -> None:
+    """Leaving a PDF for another tab and coming back returns to where it was left.
+
+    A tab of another kind replaces the viewer, which unmounts it, so its scroll
+    position and zoom used to be lost and every return opened on page one. Only
+    a browser can answer whether the position really survives: a remounted
+    viewer lays its pages out asynchronously, and a position applied before that
+    finishes lands on whatever page happens to be there.
+    """
+    if not check("pdf viewer renders the tab fixture", await open_pdf_harness(page)):
+        return
+    await asyncio.sleep(0.5)
+
+    zoom_in = await page.js(
+        "(() => { const i = document.querySelector('.pdf-preview-controls .lucide-zoom-in');"
+        "  const b = i && i.closest('button'); if (!b) return null; const r = b.getBoundingClientRect();"
+        "  return {x: r.left + r.width / 2, y: r.top + r.height / 2}; })()"
+    )
+    if not check("pdf zoom in button found", zoom_in is not None):
+        return
+    await page.click(zoom_in["x"], zoom_in["y"])
+    await asyncio.sleep(0.8)
+
+    # Part-way into a page rather than at its top, so a restore that only found
+    # the right page would still be caught.
+    async def park(page_number: int, fraction: float) -> float:
+        return await page.js(
+            "(() => { const c = document.querySelector('.pdf-preview-scroll');"
+            f"  const p = c.querySelector('[data-page-number=\"{page_number}\"]');"
+            f"  c.scrollTop = Math.round(p.offsetTop + p.offsetHeight * {fraction}); return c.scrollTop; }})()"
+        )
+
+    async def settle_at(predicate, timeout: float = 8.0):
+        deadline = time.time() + timeout
+        state = None
+        while time.time() < deadline:
+            state = await page.js(PDF_VIEW_POSITION)
+            if state and predicate(state):
+                return state, True
+            await asyncio.sleep(0.15)
+        return state, False
+
+    target = await park(3, 0.5)
+    await asyncio.sleep(0.6)
+    before = await page.js(PDF_VIEW_POSITION)
+    check("the fixture scrolls far enough to park mid-page",
+          before["top"] < before["max"] and abs(before["top"] - target) <= 1,
+          f"top={before['top']} max={before['max']}")
+
+    await page.js("window.__openTab('source')")
+    await asyncio.sleep(0.4)
+    check("a tab of another kind unmounts the viewer",
+          await page.js("!document.querySelector('.pdf-preview-scroll') && !!document.getElementById('not-a-pdf')"))
+
+    await page.js("window.__openTab('main')")
+    await wait_for_pdf_pages(page, 5)
+    back, ok = await settle_at(lambda s: abs(s["top"] - before["top"]) <= 2)
+    check("returning to the pdf restores its scroll position", ok,
+          f"before={before['top']} after={back and back['top']}")
+    check("and its zoom", back is not None and back["zoom"] == before["zoom"],
+          f"before={before['zoom']} after={back and back['zoom']}")
+    check("and the page in view", back is not None and back["page"] == before["page"],
+          f"before={before['page']} after={back and back['page']}")
+
+    await page.js("window.__openTab('other')")
+    await wait_for_pdf_pages(page, 2)
+    await asyncio.sleep(0.6)
+    other = await page.js(PDF_VIEW_POSITION)
+    check("another pdf opens at its own position, not the last one's",
+          other is not None and other["top"] < 40 and other["zoom"] == "120%",
+          f"top={other and other['top']} zoom={other and other['zoom']}")
+    other_target = await park(2, 0.3)
+    await asyncio.sleep(0.6)
+
+    await page.js("window.__openTab('main')")
+    await wait_for_pdf_pages(page, 5)
+    _, ok = await settle_at(lambda s: abs(s["top"] - before["top"]) <= 2)
+    check("each pdf keeps a position of its own", ok)
+    await page.js("window.__openTab('other')")
+    await wait_for_pdf_pages(page, 2)
+    _, ok = await settle_at(lambda s: abs(s["top"] - other_target) <= 2)
+    check("including the second one", ok)
+
+    # Recompiled while the user was elsewhere, down to two pages: the remembered
+    # page 3 no longer exists.
+    await page.js("window.__recompile(2)")
+    await asyncio.sleep(0.3)
+    await page.js("window.__openTab('main')")
+    await wait_for_pdf_pages(page, 2)
+    page_two = await page.js(
+        "(() => { const p = document.querySelector('[data-page-number=\"2\"]'); return p && p.offsetTop; })()"
+    )
+    shrunk, ok = await settle_at(lambda s: page_two is not None and abs(s["top"] - page_two) <= 2)
+    check("a pdf that lost the remembered page opens at its new last page", ok,
+          f"top={shrunk and shrunk['top']} page 2 at={page_two}")
+
+
+async def check_pdf_presentation(page: Page, check: Checks) -> None:
+    """A PDF presented page by page must fill the screen, sharply, on the right page.
+
+    The PDF overlay crosses the same zoom boundary as the deck's, with one more
+    way to get it wrong: the page is a canvas, so a backing store sized for the
+    unzoomed page is stretched and blurred rather than clipped. Which page is on
+    screen is read from the canvas pixels — every fixture page is its own flat
+    colour — because the counter could advance over a canvas that never did.
+    """
+    if not check("pdf viewer renders the fixture", await open_pdf_harness(page)):
+        return
+    await asyncio.sleep(0.5)
+
+    async def key(name: str, code: int) -> None:
+        for kind in ("keyDown", "keyUp"):
+            await page.cmd("Input.dispatchKeyEvent", {
+                "type": kind, "key": name, "code": name, "windowsVirtualKeyCode": code,
+            })
+
+    async def shown(expected_hud: str, timeout: float = 8.0):
+        """The visible page once it has actually painted, or None.
+
+        Painted is react-pdf's own signal: the canvas stays `visibility: hidden`
+        until its render task resolves. The pixels are no signal on their own —
+        the canvas is opaque black before anything is drawn on it.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            state = await page.js(
+                "(() => { const hud = document.querySelector('.pdf-present-hud');"
+                "  const p = [...document.querySelectorAll('.pdf-present-page')]"
+                "    .find(e => e.style.visibility === 'visible');"
+                "  const c = p && p.querySelector('canvas');"
+                "  if (!hud || !c || !c.width || c.style.visibility === 'hidden') return null;"
+                "  const px = c.getContext('2d').getImageData(c.width >> 1, c.height >> 1, 1, 1).data;"
+                "  const r = c.getBoundingClientRect();"
+                "  return {hud: hud.textContent, rgba: [...px], l: r.left, t: r.top, r: r.right, b: r.bottom,"
+                "          w: r.width, h: r.height, bw: c.width, dpr: devicePixelRatio,"
+                "          vw: innerWidth, vh: innerHeight,"
+                "          hudBox: hud.getBoundingClientRect().toJSON()}; })()"
+            )
+            if state and state["hud"] == expected_hud:
+                return state
+            await asyncio.sleep(0.15)
+        return None
+
+    def is_page(state, number: int) -> bool:
+        rgb = [round(v * 255) for v in pages[number - 1]["rgb"]]
+        return all(abs(a - b) <= 3 for a, b in zip(state["rgba"][:3], rgb))
+
+    pages = await page.js("window.__pages")
+
+    button = await page.js(
+        "(() => { const b = [...document.querySelectorAll('.pdf-preview-controls button')]"
+        "   .find(x => /Present|Apresentar/.test(x.getAttribute('aria-label') || ''));"
+        "  if (!b || b.disabled) return null; const r = b.getBoundingClientRect();"
+        "  return {x: r.left + r.width / 2, y: r.top + r.height / 2}; })()"
+    )
+    if not check("pdf present button found", button is not None):
+        return
+    # The page in view is the one at the centre of the viewer, as its toolbar
+    # reports it — which depends on the window height, so it is read, not assumed.
+    in_view = await page.js(
+        "document.querySelector('.pdf-preview-controls input[placeholder]')?.getAttribute('placeholder')"
+    )
+    await page.click(button["x"], button["y"])
+
+    opened = await shown(f"{in_view} / 5")
+    if not check("pdf presentation opens on the page in view", opened is not None,
+                 f"page in view={in_view}"):
+        return
+    await key("Home", 36)
+    first = await shown("1 / 5")
+    if not check("home goes to the first page", first is not None):
+        return
+    vw, vh = first["vw"], first["vh"]
+    overlay = await page.rect(".pdf-present")
+    check("pdf overlay covers the viewport exactly",
+          abs(overlay["w"] - vw) < 2 and abs(overlay["h"] - vh) < 2,
+          f"overlay={overlay['w']:.0f}x{overlay['h']:.0f} viewport={vw}x{vh}")
+    check("the first page is the one drawn", is_page(first, 1), f"rgba={first['rgba']}")
+
+    def fits(state, number: int, label: str) -> None:
+        spec = pages[number - 1]
+        check(f"{label} fits inside the viewport",
+              state["l"] >= -1 and state["t"] >= -1 and state["r"] <= vw + 1 and state["b"] <= vh + 1,
+              f"l={state['l']:.0f} t={state['t']:.0f} r={state['r']:.0f} b={state['b']:.0f}")
+        check(f"{label} keeps its aspect ratio",
+              abs(state["w"] / state["h"] - spec["w"] / spec["h"]) < 0.01,
+              f"ratio={state['w'] / state['h']:.4f} expected={spec['w'] / spec['h']:.4f}")
+        # Canvas CSS sizes are floored in app pixels, so up to one app pixel —
+        # uiScale viewport pixels — can be lost to rounding.
+        check(f"{label} is as large as it can be",
+              abs(state["w"] - vw) < 3 or abs(state["h"] - vh) < 3,
+              f"page={state['w']:.0f}x{state['h']:.0f} viewport={vw}x{vh}")
+        check(f"{label} is rendered at screen resolution",
+              abs(state["bw"] - state["w"] * state["dpr"]) <= 3,
+              f"backing={state['bw']} displayed={state['w'] * state['dpr']:.0f}")
+
+    fits(first, 1, "a 4:3 page")
+    hud = first["hudBox"]
+    check("pdf page counter stays on screen", hud["right"] <= vw + 1 and hud["bottom"] <= vh + 1,
+          f"hud right={hud['right']:.0f} bottom={hud['bottom']:.0f}")
+
+    await key("ArrowRight", 39)
+    portrait = await shown("2 / 5")
+    if check("arrow right advances to a page that is drawn", portrait is not None and is_page(portrait, 2)):
+        fits(portrait, 2, "a portrait page")
+    # The neighbours start rendering when this page becomes current, so they are
+    # given a moment — but they must finish while it is still on screen, which is
+    # what makes the next advance instant.
+    neighbours, deadline = 0, time.time() + 3
+    while time.time() < deadline:
+        neighbours = await page.js(
+            "[...document.querySelectorAll('.pdf-present-page canvas')]"
+            "  .filter(c => c.width > 0 && c.style.visibility !== 'hidden').length"
+        )
+        if neighbours == 3:
+            break
+        await asyncio.sleep(0.1)
+    check("the pages either side are rendered in the background", neighbours == 3,
+          f"painted canvases={neighbours}")
+
+    await key("ArrowRight", 39)
+    wide = await shown("3 / 5")
+    if check("a wide page is reached", wide is not None and is_page(wide, 3)):
+        fits(wide, 3, "a wide page")
+
+    await key("End", 35)
+    last = await shown("5 / 5")
+    check("end jumps to the last page", last is not None and is_page(last, 5))
+    await key("ArrowRight", 39)
+    await asyncio.sleep(0.3)
+    check("advancing past the last page stays there", (await shown("5 / 5")) is not None)
+    await key("Home", 36)
+    check("home returns from the last page", (await shown("1 / 5")) is not None)
+
+    await page.click(vw * 0.8, vh / 2)
+    check("a click on the right advances", (await shown("2 / 5")) is not None)
+    await asyncio.sleep(UNPAIR)
+    await page.click(vw * 0.1, vh / 2)
+    check("a click on the left goes back", (await shown("1 / 5")) is not None)
+    for _ in range(2):
+        await asyncio.sleep(UNPAIR)
+        await page.click(vw * 0.8, vh / 2)
+    check("clicks reach the third page", (await shown("3 / 5")) is not None)
+
+    await key("Escape", 27)
+    await asyncio.sleep(1.2)
+    check("escape leaves the pdf presentation",
+          await page.js("!document.querySelector('.pdf-present')"))
+    in_view = await page.js(
+        "document.querySelector('.pdf-preview-controls input[placeholder]')?.getAttribute('placeholder')"
+    )
+    check("the viewer is left on the last page presented", in_view == "3", f"page in view={in_view}")
+
+    await page.click(button["x"], button["y"])
+    reopened = await shown("3 / 5")
+    check("presenting again starts where the viewer is", reopened is not None and is_page(reopened, 3))
+
+    await key("End", 35)
+    await shown("5 / 5")
+    await page.js("window.__recompile(3)")
+    rebuilt = await shown("3 / 3")
+    check("a recompile that drops pages keeps presenting its new last page",
+          rebuilt is not None and is_page(rebuilt, 3))
+    await key("Escape", 27)
+    await asyncio.sleep(0.4)
 
 
 
@@ -1592,6 +1888,8 @@ SUITE = (
     check_rail_keyboard,
     check_terminal_selection,
     check_presentation,
+    check_pdf_tab_switch,
+    check_pdf_presentation,
 )
 
 
@@ -1625,7 +1923,9 @@ def main(argv: list[str]) -> int:
     base_url = f"http://localhost:{vite_port}"
 
     vite = subprocess.Popen(
-        ["npx", "vite", "--port", str(vite_port), "--strictPort"],
+        # Resolved through PATH/PATHEXT: on Windows the executable is `npx.cmd`,
+        # which CreateProcess does not find under the bare name.
+        [shutil.which("npx") or "npx", "vite", "--port", str(vite_port), "--strictPort"],
         cwd=GUI_SRC, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
     )
     browser = None

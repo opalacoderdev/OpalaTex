@@ -115,9 +115,22 @@ export default function EditorPanel({
   // exact, whereas a source line is not — block heights depend on lazy
   // mounting and async math rendering.
   const richTextScrollTopsRef = useRef({});
+  // Where each PDF view was left — page, position within it, zoom — keyed by
+  // the document being viewed. Switching to a tab of another kind unmounts the
+  // viewer, so without this every return to a PDF started again at page one.
+  const pdfViewStatesRef = useRef({});
   const documentActionsMenuRef = useRef(null);
   
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
+  // Identity of the document the PDF viewer shows. A standalone PDF is its own
+  // file; the compiled preview is the project's output, shared by every .tex
+  // tab, so moving between the project's sources never resets it. The viewer
+  // is keyed by this too, so opening a second PDF starts at its own position
+  // instead of inheriting the scroll offset of the one before it.
+  const pdfViewKey = isPdfFile
+    ? `file:${activeProject?.project_path || ''}:${selectedFile}`
+    : `latex:${activeProject?.project_path || ''}`;
+  const rememberPdfViewState = (state) => { pdfViewStatesRef.current[pdfViewKey] = state; };
   const isHtmlFile = selectedFile && /\.(html|htm)$/i.test(selectedFile);
   const isMarkdownFile = !!selectedFile && selectedFile.toLowerCase().endsWith('.md');
   // Presentations have a JSON model but are edited on a canvas and stored as a
@@ -1778,8 +1791,11 @@ export default function EditorPanel({
           </Suspense>
         ) : isPdfFile ? (
           <div style={{ height: '100%', background: 'var(--vscode-editor-bg)' }}>
-            <PdfPreview 
+            <PdfPreview
+              key={pdfViewKey}
               ref={pdfPreviewRef}
+              initialViewState={pdfViewStatesRef.current[pdfViewKey]}
+              onViewStateChange={rememberPdfViewState}
               directUrl={`/api/file/raw?projectPath=${encodeURIComponent(activeProject?.project_path)}&filePath=${encodeURIComponent(selectedFile)}`}
               base64Pdf={null}
               isCompiling={false}
@@ -1809,8 +1825,11 @@ export default function EditorPanel({
         >
           {renderTexEditorSurface()}
           <div style={{ height: '100%', background: 'var(--vscode-editor-bg)', borderLeft: '1px solid var(--vscode-border)' }}>
-            <PdfPreview 
+            <PdfPreview
+              key={pdfViewKey}
               ref={pdfPreviewRef}
+              initialViewState={pdfViewStatesRef.current[pdfViewKey]}
+              onViewStateChange={rememberPdfViewState}
               base64Pdf={null}
               sourceUrl={pdfUrl}
               isCompiling={isCompiling} 
