@@ -83,7 +83,7 @@ export default function SettingsModal({
   const [imageGen, setImageGen] = React.useState({ enabled: true, model: '', size: '1024x1024', output_dir: 'figures' });
   const [imageModels, setImageModels] = React.useState([]);
   const [isRestarting, setIsRestarting] = React.useState(false);
-  const [runtimeInfo, setRuntimeInfo] = React.useState({ platform: '', running_in_snap: false, version: '0.2.14' });
+  const [runtimeInfo, setRuntimeInfo] = React.useState({ platform: '', running_in_snap: false, version: '0.2.15' });
 
   const activeTab = (settingsTab === 'preferences' || !['general', 'dependencies', 'about'].includes(settingsTab))
     ? 'general'
