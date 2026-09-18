@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
+from . import transport
 from .base import CloudAuthError, CloudTransientError
 
 # How long the loopback listener waits for the user to finish in the browser.
@@ -323,7 +324,7 @@ def post_form(url: str, payload: dict[str, str], timeout: float = 30.0) -> dict:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with transport.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         detail = _read_error(exc)

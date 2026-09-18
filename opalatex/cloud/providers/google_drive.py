@@ -37,7 +37,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from .. import oauth
+from .. import oauth, transport
 from ..atomic import discard_file, replace_file
 from ..base import (
     AuthChallenge,
@@ -919,7 +919,7 @@ class GoogleDriveProvider(CloudStorageProvider):
 
             request = urllib.request.Request(target, data=body, method=method, headers=headers)
             try:
-                with urllib.request.urlopen(request, timeout=120) as raw:
+                with transport.urlopen(request, timeout=120) as raw:
                     if stream_to is not None:
                         _copy_stream(raw, stream_to)
                         return _Response(raw.status, dict(raw.headers), {})

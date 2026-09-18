@@ -244,6 +244,37 @@ cheap — they come from a tree scan — so that scan is memoized for a few seco
 and dropped at the end of a pass. The parts that change by the second (the file
 in flight, the conflicts) are overlaid on every call.
 
+## Why the HTTP calls do not go through plain `urllib`
+
+Staying stdlib-only (see *The Drive backend is stdlib-only*) quietly imported
+one of `urllib`'s weaknesses: `socket.create_connection` walks the addresses a
+host resolves to **in order**, spending the entire socket timeout on each one
+that does not answer before trying the next.
+
+That is harmless until a host's addresses are not uniformly reachable. Observed
+on a user's connection: `www.googleapis.com` resolved to 8 AAAA and 8 A records,
+**six of the AAAA blackholed** while all 8 A records answered in ~40 ms.
+Resolvers return every IPv6 address first, and the Drive backend's socket
+timeout is 120 s because it streams large files — so a listing that needs three
+requests could wait tens of minutes. The symptom was a spinner that never
+resolved and no error anywhere, because nothing had failed *yet*.
+
+The same machine's browser and its other Drive sync client worked normally,
+which is exactly why this looked like an application bug and not a network
+fault: both implement RFC 8305 (Happy Eyeballs), racing the families rather than
+exhausting one. `cloud/transport.py` now does the same — interleave families,
+start an attempt every 250 ms, first socket to complete wins, losers closed.
+
+It also splits a timeout that `create_connection` conflates. The **connect**
+phase is capped at 10 s, so a silent address costs seconds rather than minutes;
+the **read** phase keeps whatever the caller asked for, so a large upload or
+download is not truncated by a short bound. Both the Drive provider and
+`oauth.py` route through it; a stalled token refresh hangs a sync just as a
+stalled API call does.
+
+`tests/test_cloud_transport.py` pins the behaviour with a fake resolver, so the
+dead-IPv6 case is reproducible without depending on the network under test.
+
 ## Why change detection is not the shadow git repo
 
 Reusing `.opalatex/.shadowgit` looks obvious — it already tracks content hashes
