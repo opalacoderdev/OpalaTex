@@ -844,7 +844,7 @@ def _empty_response_failure_message() -> str:
 _FENCED_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
 
 
-def _has_unfenced_tool_call_payload(response: str) -> bool:
+def _has_unfenced_tool_call_payload(response: str, tool_schemas=()) -> bool:
     """True when tool-call JSON appears outside every fenced code block.
 
     A model that *shows* JSON to the user fences it; a model that failed to issue
@@ -852,12 +852,47 @@ def _has_unfenced_tool_call_payload(response: str) -> bool:
     keeps a legitimate "give me a JSON example" answer deliverable, because the
     payload detector matches any object carrying `name` plus `arguments` and that
     shape occurs in real data too.
+
+    *tool_schemas* are the OpenAI-format schemas of the tools the agent was
+    offered. With them, a third encoding is caught: the arguments object alone,
+    with no name around it. Observed with ``ollama_chat/gpt-oss:20b``, which
+    issued ``ask_question`` under a garbled name, got "not found" back, and then
+    printed the question's arguments as its answer. Such an object carries no
+    tool-call markers at all, so it is recognized by fitting a tool's parameter
+    schema exactly (`tools_accepting_arguments`) -- and, like the other two
+    encodings, it is never executed on that basis.
     """
-    from opalatex.memgpt_runtime import _strip_serialized_tool_calls
+    from agenticblocks.utils.tool_calls import tools_accepting_arguments
+    from opalatex.memgpt_runtime import _iter_json_spans, _strip_serialized_tool_calls
 
     unfenced = _FENCED_BLOCK_RE.sub(" ", str(response or ""))
     _, had_payload = _strip_serialized_tool_calls(unfenced)
-    return had_payload
+    if had_payload:
+        return True
+    schemas = list(tool_schemas or ())
+    if not schemas:
+        return False
+    for start, end in _iter_json_spans(unfenced):
+        try:
+            parsed = json.loads(unfenced[start:end])
+        except Exception:
+            continue
+        if tools_accepting_arguments(parsed, schemas):
+            return True
+    return False
+
+
+def _agent_tool_schemas(agent) -> list[dict]:
+    """Return the schemas of the tools *agent* last offered its model.
+
+    ``tools`` is refreshed from ``tools_provider`` before every request, so it is
+    the snapshot the model actually saw. A wrapper exposing the block as
+    ``.agent`` is unwrapped the same way the callback wiring does it.
+    """
+    from agenticblocks.tools.a2a_bridge import block_to_tool_schema
+
+    target = agent if hasattr(agent, "tools") else getattr(agent, "agent", None)
+    return [block_to_tool_schema(tool) for tool in (getattr(target, "tools", None) or [])]
 
 
 def _serialized_tool_call_retry_prompt() -> str:
@@ -890,6 +925,22 @@ def _report_rejected_serialized_response(response: str, limit: int = 400) -> Non
     })
 
 
+def _report_unknown_tool_call(name: str) -> None:
+    """List a call to a tool the agent was not offered in the Problems panel.
+
+    No tool ran, so wrap_tool emitted nothing and the call would leave no trace.
+    Problems only, not Thinking: the model usually recovers within the turn, and
+    a line in the reasoning stream would read as the model's own thought.
+    """
+    from opalatex.i18n import _
+
+    print_event("problem", {
+        "tool": name,
+        "severity": "error",
+        "message": _("unknown_tool_called", tool=name),
+    })
+
+
 async def _correct_serialized_tool_calls(agent, response, thought_chunks, meta_overrides, resp_obj=None):
     """Return ``(response, resp_obj)``, corrected when the response is a tool call written as text.
 
@@ -913,7 +964,7 @@ async def _correct_serialized_tool_calls(agent, response, thought_chunks, meta_o
     attempts = 0
     while (
         response
-        and _has_unfenced_tool_call_payload(response)
+        and _has_unfenced_tool_call_payload(response, _agent_tool_schemas(agent))
         and attempts < SERIALIZED_TOOL_CALL_MAX_CORRECTION_ATTEMPTS
     ):
         attempts += 1
@@ -931,7 +982,7 @@ async def _correct_serialized_tool_calls(agent, response, thought_chunks, meta_o
             resp_obj = await agent.run(retry_input)
         response = _sanitize_model_response(resp_obj.response or "", thought_chunks)
 
-    if response and _has_unfenced_tool_call_payload(response):
+    if response and _has_unfenced_tool_call_payload(response, _agent_tool_schemas(agent)):
         _report_rejected_serialized_response(response)
         raise RuntimeError(_serialized_tool_call_failure_message())
     return response, resp_obj
@@ -2325,7 +2376,11 @@ async def handle_run(data: dict):
 
         last = messages[-1] if messages else {}
         content = last.get("content") or ""
-        if _should_emit_iteration_reflection(last):
+        # A bare arguments object is a tool call written as text too, and the
+        # Reflection panel is for prose, so it is filtered like the other shapes.
+        if _should_emit_iteration_reflection(last) and not _has_unfenced_tool_call_payload(
+            str(content), _agent_tool_schemas(agent)
+        ):
             print_event("reflection", {"content": str(content), "agent": agent_type})
 
         raw_max_steps = (
@@ -2345,6 +2400,9 @@ async def handle_run(data: dict):
             "agent": agent_type,
         })
 
+    def _on_unknown_tool(name: str, _arguments: str) -> None:
+        _report_unknown_tool_call(name)
+
     # Inline editing has a final-response-only transport contract. Do not bind
     # callbacks that could emit intermediate model content.
     if agent_type != "inline_editor":
@@ -2362,6 +2420,11 @@ async def handle_run(data: dict):
             agent.on_iteration = _on_iteration
         elif hasattr(agent, "agent") and hasattr(agent.agent, "on_iteration"):
             agent.agent.on_iteration = _on_iteration
+
+        if hasattr(agent, "on_unknown_tool"):
+            agent.on_unknown_tool = _on_unknown_tool
+        elif hasattr(agent, "agent") and hasattr(agent.agent, "on_unknown_tool"):
+            agent.agent.on_unknown_tool = _on_unknown_tool
 
     if agent_type != "inline_editor":
         print_event("agent_started", {"agent": agent_type, "model": agent.model})

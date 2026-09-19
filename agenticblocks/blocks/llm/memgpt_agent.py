@@ -21,6 +21,7 @@ from agenticblocks.core.block import Block
 from agenticblocks.core.function_block import as_tool
 from agenticblocks.runtime.state import TokenUsage, _current_ctx
 from agenticblocks.utils.parsers import split_inline_reasoning
+from agenticblocks.utils.tool_calls import unknown_tool_message
 
 
 DEFAULT_RECURSIVE_SUMMARY = "No history has been evicted yet."
@@ -256,6 +257,15 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     how full the context window is.
     Signature: `def callback(usage: TokenUsage) -> Any`.
     Can be a synchronous or asynchronous function."""
+    on_unknown_tool: Optional[Callable[[str, str], Any]] = None
+    """Optional callback invoked when the model calls a tool it was not offered.
+
+    The call is not executed; the model receives a corrective tool result that
+    lists the available tools. This hook lets a host surface the failed call,
+    which otherwise leaves no trace outside the conversation because no tool
+    ran. Receives the tool name and the raw arguments string.
+    Signature: `def callback(name: str, arguments: str) -> Any`.
+    Can be a synchronous or asynchronous function."""
 
     inbox: Optional[MessageInbox] = None
     """Optional channel for messages submitted while this run is already in flight.
@@ -287,6 +297,14 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     recursive_summary: str = DEFAULT_RECURSIVE_SUMMARY
 
     model_config = {"arbitrary_types_allowed": True}
+
+    async def _invoke_on_unknown_tool(self, name: str, arguments: Any) -> None:
+        if self.on_unknown_tool:
+            raw = arguments if isinstance(arguments, str) else json.dumps(arguments, default=str)
+            if inspect.iscoroutinefunction(self.on_unknown_tool):
+                await self.on_unknown_tool(name, raw)
+            else:
+                self.on_unknown_tool(name, raw)
 
     async def _invoke_on_message_delivery(self, item: "InboxItem") -> None:
         if self.on_message_delivery:
@@ -962,9 +980,17 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                     acted_this_round = True
                     matched_block = next((b for b in agent_tools if b.name == function_name), None)
                     if not matched_block:
-                        err_res = {"role": "tool", "tool_call_id": tool_call.id, "name": function_name, "content": json.dumps({"error": f"Tool '{function_name}' not found."})}
+                        err_res = {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "name": function_name,
+                            "content": json.dumps({"error": unknown_tool_message(
+                                function_name, tool_call.function.arguments, litellm_tools
+                            )}),
+                        }
                         self.internal_history.append(err_res)
                         messages.append(err_res)
+                        await self._invoke_on_unknown_tool(function_name, tool_call.function.arguments)
                         continue
 
                     try:

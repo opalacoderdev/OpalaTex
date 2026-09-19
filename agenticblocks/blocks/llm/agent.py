@@ -16,6 +16,7 @@ from agenticblocks.core.block import Block
 from agenticblocks.tools.a2a_bridge import block_to_tool_schema
 from agenticblocks.runtime.state import TokenUsage, _current_ctx
 from agenticblocks.utils.parsers import split_inline_reasoning
+from agenticblocks.utils.tool_calls import unknown_tool_message
 from agenticblocks.utils.messages import build_user_content, history_accepts_user_message
 from agenticblocks.blocks.llm.inbox import InboxItem, MessageInbox
 
@@ -376,6 +377,13 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     """Optional callback invoked after each LLM call with token statistics.
     Signature: `def callback(usage: TokenUsage) -> Any`.
     Can be a synchronous or asynchronous function."""
+    on_unknown_tool: Optional[Callable[[str, str], Any]] = None
+    """Optional callback invoked when the model calls a tool it was not offered.
+
+    The call is not executed; the model receives a corrective tool result that
+    lists the available tools. Receives the tool name and the raw arguments string.
+    Signature: `def callback(name: str, arguments: str) -> Any`.
+    Can be a synchronous or asynchronous function."""
     on_thinking: Optional[Callable[[str], Any]] = None
     """Optional callback invoked after each LLM call with the model's reasoning content.
     Fires once per LLM call (not per-token) with the full reasoning text for that call.
@@ -437,6 +445,14 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
             })
             delivered.append(item)
         return delivered
+
+    async def _invoke_on_unknown_tool(self, name: str, arguments: Any) -> None:
+        if self.on_unknown_tool:
+            raw = arguments if isinstance(arguments, str) else json.dumps(arguments, default=str)
+            if inspect.iscoroutinefunction(self.on_unknown_tool):
+                await self.on_unknown_tool(name, raw)
+            else:
+                self.on_unknown_tool(name, raw)
 
     async def _invoke_on_iteration(self, iteration: int, messages: List[Dict[str, Any]]) -> None:
         if self.on_iteration:
@@ -858,13 +874,17 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                 # Look for the matching native tool (connected blocks).
                 matched_block = next((b for b in self.tools if b.name == function_name), None)
                 if not matched_block:
-                    tool_result_content = json.dumps({"error": f"Tool '{function_name}' not found. Please fix your tool call and try again. CRITICAL: Do NOT apologize to the user for this error. Correct it silently."})
+                    tool_result_content = json.dumps({"error": (
+                        unknown_tool_message(function_name, tool_call.function.arguments, litellm_tools)
+                        + " CRITICAL: Do NOT apologize to the user for this error. Correct it silently."
+                    )})
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "name": function_name,
                         "content": tool_result_content
                     })
+                    await self._invoke_on_unknown_tool(function_name, tool_call.function.arguments)
                     if function_name in self.termination_tools:
                         termination_reason = f"termination tool '{function_name}' not found"
                         await self._invoke_on_iteration(iteration_count, messages)

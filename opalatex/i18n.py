@@ -142,6 +142,7 @@ _STRINGS = {
         "serialized_tool_call_retry_info": "The model wrote a tool call as text instead of issuing it. Forcing an automatic correction attempt...",
         "serialized_tool_call_unresolved_error": "The agent kept writing tool calls as text instead of issuing them, so no answer was delivered. This model may not support native tool calling on the current route \u2014 check the orchestrator model and its provider in Project Settings.",
         "serialized_tool_call_rejected_payload": "Response rejected because it contained a tool call written as text (nothing was executed). First {n} characters: {excerpt}",
+        "unknown_tool_called": "The model called a tool that does not exist: '{tool}'. Nothing was executed; the model was sent the list of available tools.",
         "project_exists_in_folder": "The folder is already being used by the project '{name}'. Only one project per folder is allowed.",
         "no_model_configured": "No model is configured for this project. Select an orchestrator model in the chat toolbar (or in Project Settings > Orchestrator) before running the agent."
     },
@@ -284,6 +285,7 @@ _STRINGS = {
         "serialized_tool_call_retry_info": "O modelo escreveu uma chamada de ferramenta como texto em vez de executá-la. Forçando uma tentativa de correção automática...",
         "serialized_tool_call_unresolved_error": "O agente continuou escrevendo chamadas de ferramenta como texto em vez de executá-las, então nenhuma resposta foi entregue. Este modelo pode não suportar chamada nativa de ferramentas na rota atual \u2014 verifique o modelo do orquestrador e o provedor nas Configurações do Projeto.",
         "serialized_tool_call_rejected_payload": "Resposta rejeitada porque continha uma chamada de ferramenta escrita como texto (nada foi executado). Primeiros {n} caracteres: {excerpt}",
+        "unknown_tool_called": "O modelo chamou uma ferramenta que não existe: '{tool}'. Nada foi executado; o modelo recebeu a lista de ferramentas disponíveis.",
         "project_exists_in_folder": "Esta pasta já está sendo usada pelo projeto '{name}'. Só é permitido um projeto por pasta.",
         "no_model_configured": "Nenhum modelo está configurado para este projeto. Selecione um modelo orquestrador na barra do chat (ou em Configurações do Projeto > Orquestrador) antes de executar o agente."
     }
