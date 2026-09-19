@@ -3440,14 +3440,17 @@ select {
     color: black !important;
   }
 
-  /* A printed document never carries the screen's magnification: neither the
-     interface scale (`.vscode-app` zoom) nor the Markdown preview's own zoom
-     (FormattedMessage's root, the container's only child). The PDF viewer has
-     its own zoom. The preview zoom also broke pagination: a zoomed subtree
+  /* A printed document never carries the screen's magnification: not the
+     interface scale (`.vscode-app` zoom), not the Markdown preview's own zoom
+     (FormattedMessage's root, the container's only child), and not the chat's
+     (`.vscode-chat-history`). The PDF viewer has its own zoom, and the chat's
+     is persisted in localStorage, so a PDF exported months apart would not
+     even match itself. Those zooms also broke pagination: a zoomed subtree
      inside the editor's flex column printed taller than the box Chromium
      reserved for it, so the last lines ran past the editor area. The app's
      width is `100vw / scale` to compensate its zoom, so it goes with it. */
   .vscode-app,
+  .vscode-chat-history,
   .markdown-preview-container > div {
     zoom: 1 !important;
   }
@@ -3487,6 +3490,14 @@ select {
   body:not(.printing-editor) .vscode-chat {
     width: 100% !important;
     border: none !important;
+  }
+  /* The printed chat is the conversation: everything else the panel holds is
+     window chrome. Listing those pieces by name does not work — the web-search
+     bar and the MCP panel are styled inline and carry no class of their own —
+     so the history is named instead and its siblings (header, toolbars, the
+     composer with its model selector and send button) go. */
+  body:not(.printing-editor) .vscode-chat > :not(.vscode-chat-history) {
+    display: none !important;
   }
   body:not(.printing-editor) .vscode-chat-msg-content {
     color: black !important;
