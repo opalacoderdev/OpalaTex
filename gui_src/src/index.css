@@ -3440,11 +3440,28 @@ select {
     color: black !important;
   }
 
+  /* A printed document never carries the screen's magnification: neither the
+     interface scale (`.vscode-app` zoom) nor the Markdown preview's own zoom
+     (FormattedMessage's root, the container's only child). The PDF viewer has
+     its own zoom. The preview zoom also broke pagination: a zoomed subtree
+     inside the editor's flex column printed taller than the box Chromium
+     reserved for it, so the last lines ran past the editor area. The app's
+     width is `100vw / scale` to compensate its zoom, so it goes with it. */
+  .vscode-app,
+  .markdown-preview-container > div {
+    zoom: 1 !important;
+  }
+  .vscode-app {
+    width: auto !important;
+  }
+
   /* Hide UI elements not meant for printing */
-  .vscode-activitybar, 
-  .vscode-sidebar, 
-  .vscode-tabs, 
-  .vscode-bottom-panel, 
+  .vscode-activitybar,
+  .vscode-sidebar,
+  .vscode-tabs,
+  .vscode-bottom-panel,
+  .vscode-resizer-horizontal,
+  .vscode-resizer-vertical,
   .vscode-chat-header, 
   .vscode-chat-toolbar,
   #web-search-toggle,
