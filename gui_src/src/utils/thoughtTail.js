@@ -32,12 +32,38 @@ export const appendThoughtChunk = (state, content, tokens, limit) => {
 export const thoughtTailText = (state) => state.chunks.map(chunk => chunk.text).join('');
 
 // Build the visible tail of a finished list of chunks ({ content, tokens }).
+//
+// Measured in one pass, cut once at the end, rather than by replaying
+// `appendThoughtChunk`: that rebuilt the kept window for every chunk, which is
+// quadratic in the number of chunks and is what made reopening a long chat take
+// tens of seconds. Reasoning arrives roughly one token per chunk, so a chat with
+// a hundred thousand chunks keeps a window of tens of thousands of them, and
+// copying that window per chunk dominated everything else on the load path.
+//
+// The result is identical. `end` strictly increases, so the smallest index
+// satisfying `end - startOf(index) <= limit` only ever moves forward: dropping
+// chunks as they go and cutting once at the end settle on the same index.
 export const tailThoughtChunks = (items, limit) => {
-  let state = createThoughtTail();
+  const chunks = [];
+  let lastTokens = 0;
   for (const item of items || []) {
-    state = appendThoughtChunk(state, item.content, item.tokens, limit);
+    const text = String(item?.content || '');
+    if (!text) continue;
+    const tokens = Number(item?.tokens);
+    const end = Number.isFinite(tokens) && tokens > lastTokens
+      ? tokens
+      : lastTokens + estimateTokens(text);
+    chunks.push({ text, end });
+    lastTokens = end;
   }
-  return state;
+  if (!chunks.length) return createThoughtTail();
+  // A chunk starts where the previous one ended; the first one starts at zero,
+  // since nothing has been omitted before the list begins.
+  const startOf = (index) => (index === 0 ? 0 : chunks[index - 1].end);
+  let first = 0;
+  while (first < chunks.length - 1 && lastTokens - startOf(first) > limit) first += 1;
+  const omittedTokens = startOf(first);
+  return { chunks: chunks.slice(first), startTokens: omittedTokens, lastTokens, omittedTokens };
 };
 
 // Estimate-only tail for plain text (the Output panel merges text without counts).

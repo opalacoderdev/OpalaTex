@@ -55,6 +55,7 @@ export default function ModelForm({
   const [extraModelParams, setExtraModelParams] = useState([]);
   const [supportsImageGeneration, setSupportsImageGeneration] = useState(false);
   const [imageRoute, setImageRoute] = useState('images_api');
+  const [supportsSpeechSynthesis, setSupportsSpeechSynthesis] = useState(false);
   const [error, setError] = useState('');
   const [showNewConnection, setShowNewConnection] = useState(connections.length === 0);
 
@@ -80,6 +81,7 @@ export default function ModelForm({
       setExtraModelParams(extraModelParamsToRows(editingModel.extra_model_params));
       setSupportsImageGeneration(!!editingModel.supports_image_generation);
       setImageRoute(editingModel.image_route || 'images_api');
+      setSupportsSpeechSynthesis(!!editingModel.supports_speech_synthesis);
       setShowNewConnection(false);
     } else {
       setSupportsThinking(false);
@@ -302,6 +304,11 @@ export default function ModelForm({
       extra_model_params: parsedExtraParams.params,
       supports_image_generation: supportsImageGeneration,
       image_route: supportsImageGeneration ? imageRoute : '',
+      supports_speech_synthesis: supportsSpeechSynthesis,
+      // One route exists today, so it is implied rather than asked for. The
+      // field is still written, because the catalog is what a future engine
+      // plugs into (models_store.SPEECH_ROUTES).
+      speech_route: supportsSpeechSynthesis ? 'audio_speech' : '',
     }, { reset });
     if (result?.ok === false) {
       setError(result.error === 'model_save_failed'
@@ -676,6 +683,20 @@ export default function ModelForm({
               </span>
             </div>
           )}
+        </div>
+
+        <div className="vscode-form-group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={supportsSpeechSynthesis}
+              onChange={e => setSupportsSpeechSynthesis(e.target.checked)}
+            />
+            {t('modelForm.supportsSpeechSynthesisLabel', 'Speech synthesis (text to speech)')}
+          </label>
+          <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+            {t('modelForm.supportsSpeechSynthesisHint', 'This entry answers /v1/audio/speech and is used only for pronunciation, never for chat. Covers hosted providers and any OpenAI-compatible local server (Kokoro-FastAPI, openedai-speech, LocalAI, Piper) registered with its api_base.')}
+          </span>
         </div>
 
         {(selectedConnection && name) && (

@@ -9,6 +9,7 @@ import {
   presetForScale,
 } from '../../utils/uiScale';
 import { useCustomDialog } from './CustomDialogProvider';
+import SpeechVoiceManager from './SpeechVoiceManager.jsx';
 import i18n from '../../i18n/index.js';
 import { safeSetLocalStorage } from '../../utils/storage';
 import { writeClipboard } from '../../utils/clipboard';
@@ -82,6 +83,12 @@ export default function SettingsModal({
   const [isCustomTranslateLang, setIsCustomTranslateLang] = React.useState(false);
   const [imageGen, setImageGen] = React.useState({ enabled: true, model: '', size: '1024x1024', output_dir: 'figures' });
   const [imageModels, setImageModels] = React.useState([]);
+  const [speech, setSpeech] = React.useState({
+    enabled: false, engine: 'local', local_voice: '',
+    model: '', voice: '', response_format: 'mp3', speed: 1.0,
+  });
+  const [speechModels, setSpeechModels] = React.useState([]);
+  const [speechFormats, setSpeechFormats] = React.useState(['mp3', 'opus', 'aac', 'flac', 'wav']);
   const [isRestarting, setIsRestarting] = React.useState(false);
   const [runtimeInfo, setRuntimeInfo] = React.useState({ platform: '', running_in_snap: false, version: '0.2.16' });
 
@@ -139,6 +146,17 @@ export default function SettingsModal({
         const { models, routes, ...rest } = cfg;
         setImageGen(prev => ({ ...prev, ...rest }));
         setImageModels(Array.isArray(models) ? models : []);
+      })
+      .catch(() => { });
+
+    fetch('/api/settings/speech')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (!cfg) return;
+        const { models, routes, formats, problem, ...rest } = cfg;
+        setSpeech(prev => ({ ...prev, ...rest }));
+        setSpeechModels(Array.isArray(models) ? models : []);
+        if (Array.isArray(formats) && formats.length) setSpeechFormats(formats);
       })
       .catch(() => { });
 
@@ -230,6 +248,15 @@ export default function SettingsModal({
   const saveImageGenSettings = (next) => {
     setImageGen(next);
     fetch('/api/settings/image-generation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    }).catch(() => { });
+  };
+
+  const saveSpeechSettings = (next) => {
+    setSpeech(next);
+    fetch('/api/settings/speech', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(next),
@@ -534,7 +561,117 @@ export default function SettingsModal({
                   />
                 )}
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
-                  {t('settingsModal.translateToHint', 'Target language used by the PDF viewer\'s "Translate selection" action.')}
+                  {t('settingsModal.translateToHint', 'Target language used by the "Translate selection" action in the PDF viewer and the Markdown preview.')}
+                </span>
+              </div>
+
+              {/* Pronunciation. Next to "Translate to" on purpose: the passage
+                  someone most often wants to hear is the one they just had
+                  translated, and the two share a language vocabulary. */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.speech', 'Pronunciation')}</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--vscode-text-fg)' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!speech.enabled}
+                    onChange={(e) => saveSpeechSettings({ ...speech, enabled: e.target.checked })}
+                  />
+                  {t('settingsModal.speechEnabled', 'Offer "Pronounce selection" in document menus')}
+                </label>
+
+                {speech.enabled && (
+                  <>
+                    <div className="flex" style={{ gap: '12px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                        <input
+                          type="radio"
+                          name="speech-engine"
+                          checked={(speech.engine || 'local') === 'local'}
+                          onChange={() => saveSpeechSettings({ ...speech, engine: 'local' })}
+                        />
+                        {t('settingsModal.speechEngineLocal', 'Downloaded voice (offline)')}
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                        <input
+                          type="radio"
+                          name="speech-engine"
+                          checked={speech.engine === 'remote'}
+                          onChange={() => saveSpeechSettings({ ...speech, engine: 'remote' })}
+                        />
+                        {t('settingsModal.speechEngineRemote', 'Speech endpoint')}
+                      </label>
+                    </div>
+
+                    {(speech.engine || 'local') === 'local' ? (
+                      <SpeechVoiceManager
+                        selected={speech.local_voice || ''}
+                        onSelect={(key) => saveSpeechSettings({ ...speech, local_voice: key })}
+                      />
+                    ) : speechModels.length === 0 ? (
+                      <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                        {t('settingsModal.speechNoModels', 'No speech-capable model is registered. Add one in "Edit Models" and tick "Speech synthesis" — a hosted one, or a local server such as Kokoro-FastAPI, openedai-speech, LocalAI or Piper registered with its api_base.')}
+                      </span>
+                    ) : (
+                      <>
+                        <select
+                          className="vscode-settings-input"
+                          style={{ width: '100%' }}
+                          value={speech.model || ''}
+                          onChange={(e) => saveSpeechSettings({ ...speech, model: e.target.value })}
+                        >
+                          <option value="">{t('settingsModal.speechModelPlaceholder', 'Select a speech model...')}</option>
+                          {speechModels.map(m => (
+                            <option key={m.id} value={m.id}>
+                              {m.id}{m.connection_label ? ` (${m.connection_label})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex" style={{ gap: '8px' }}>
+                          <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
+                            <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.speechVoice', 'Voice')}</label>
+                            <input
+                              type="text"
+                              className="vscode-settings-input"
+                              value={speech.voice || ''}
+                              placeholder="alloy"
+                              onChange={(e) => setSpeech({ ...speech, voice: e.target.value })}
+                              onBlur={() => saveSpeechSettings(speech)}
+                            />
+                          </div>
+                          <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
+                            <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.speechFormat', 'Audio format')}</label>
+                            <select
+                              className="vscode-settings-input"
+                              value={speech.response_format || 'mp3'}
+                              onChange={(e) => saveSpeechSettings({ ...speech, response_format: e.target.value })}
+                            >
+                              {speechFormats.map(fmt => (
+                                <option key={fmt} value={fmt}>{fmt}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="flex flex-col" style={{ gap: '4px', maxWidth: '140px' }}>
+                      <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.speechSpeed', 'Speed')}</label>
+                      <input
+                        type="number"
+                        min="0.25"
+                        max="4"
+                        step="0.05"
+                        className="vscode-settings-input"
+                        value={speech.speed ?? 1}
+                        onChange={(e) => setSpeech({ ...speech, speed: e.target.value })}
+                        onBlur={() => saveSpeechSettings({ ...speech, speed: Number(speech.speed) || 1 })}
+                      />
+                    </div>
+                  </>
+                )}
+
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.speechHint', 'Reads a selected excerpt aloud in the PDF viewer, the Markdown preview and the chat. A downloaded voice runs entirely on this machine and needs no account; it uses the system espeak-ng to turn text into phonemes. The browser\'s own voices are not used: the app window ships no speech engine.')}
                 </span>
               </div>
 

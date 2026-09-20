@@ -11,6 +11,11 @@ import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 
 import { turnEndFromContent } from '../utils/turnMarkers.js';
 import TextContextMenu from './TextContextMenu.jsx';
+import TranslationPopup from './TranslationPopup.jsx';
+import SpeechPopup from './SpeechPopup.jsx';
+import { useSnippetTranslation } from '../hooks/useSnippetTranslation.js';
+import { useSnippetSpeech } from '../hooks/useSnippetSpeech.js';
+import { buildQuoteExcerptPrompt } from '../utils/askAboutPrompt.js';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
 import ModelSelect from './ModelSelect.jsx';
 import TutorialMenu from './TutorialMenu.jsx';
@@ -115,7 +120,7 @@ export default function ChatPanel({
   onEditModels,
   onModelChange,
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { showPrompt, showAlert, showConfirm } = useCustomDialog();
   const historyRef = useRef(null);
   const inputRef = useRef(null);
@@ -134,6 +139,60 @@ export default function ChatPanel({
   const evolveAbortControllerRef = useRef(null);
   const originalPromptRef = useRef('');
   const { menu, onContextMenu, handleCopy, handleSelectAll, close: closeMenu } = useTextContextMenu();
+
+  // The conversation is a document surface too: an excerpt in a chat bubble is
+  // as worth translating or hearing as one in a PDF, and it is frequently the
+  // agent's own answer in a language the reader is still learning. Same request
+  // lifecycle, same popups, same menu items as the viewers (§2.13).
+  const {
+    translation,
+    translate: runTranslation,
+    retry: retryTranslation,
+    copy: copyTranslation,
+    close: closeTranslation,
+  } = useSnippetTranslation({
+    projectName: activeProject?.name,
+    model: activeProject?.model || '',
+    uiLanguage: i18n.language,
+  });
+  const {
+    speech,
+    availability: speechAvailability,
+    refreshAvailability: refreshSpeechAvailability,
+    speak,
+    toggle: toggleSpeech,
+    replay: replaySpeech,
+    retry: retrySpeech,
+    close: closeSpeech,
+  } = useSnippetSpeech({});
+
+  const handleChatContextMenu = useCallback((e) => {
+    closeTranslation();
+    // Re-read when the menu opens so configuring speech in Settings takes
+    // effect without reopening the chat.
+    refreshSpeechAvailability();
+    onContextMenu(e);
+  }, [onContextMenu, closeTranslation, refreshSpeechAvailability]);
+
+  const handleQuoteExcerpt = useCallback((m) => {
+    const prompt = buildQuoteExcerptPrompt(t, m?.selectedText);
+    if (!prompt) return;
+    // Staged, never sent: the user finishes the question and presses Send,
+    // exactly as "Ask about" does in the document viewers.
+    setChatInput((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n\n${prompt}` : prompt));
+    closeMenu();
+  }, [t, setChatInput, closeMenu]);
+
+  const handleTranslateExcerpt = useCallback((m) => {
+    closeMenu();
+    runTranslation(m?.selectedText, { x: m.x, y: m.y });
+  }, [closeMenu, runTranslation]);
+
+  const handlePronounceExcerpt = useCallback((m) => {
+    closeMenu();
+    speak(m?.selectedText, { x: m.x, y: m.y });
+  }, [closeMenu, speak]);
+
 
   useEffect(() => {
     if (!showHeartbeatMenu) return;
@@ -1109,6 +1168,27 @@ export default function ChatPanel({
         onCopy={handleCopy}
         onPaste={handlePaste}
         onSelectAll={() => handleSelectAll(historyRef)}
+        onAskAbout={handleQuoteExcerpt}
+        onTranslate={handleTranslateExcerpt}
+        onPronounce={handlePronounceExcerpt}
+        canPronounce={speechAvailability.enabled}
+        pronounceUnavailableHint={speechAvailability.problem}
+      />
+
+      <TranslationPopup
+        state={translation}
+        onClose={closeTranslation}
+        onRetry={retryTranslation}
+        onCopy={copyTranslation}
+        onSpeak={speechAvailability.enabled ? speak : undefined}
+      />
+
+      <SpeechPopup
+        state={speech}
+        onClose={closeSpeech}
+        onToggle={toggleSpeech}
+        onReplay={replaySpeech}
+        onRetry={retrySpeech}
       />
       {/* Header */}
       <div className="vscode-chat-header">
@@ -1621,7 +1701,7 @@ export default function ChatPanel({
       )}
 
       {/* Message history */}
-      <div className="vscode-chat-history" ref={historyRef} onScroll={handleHistoryScroll} onContextMenu={onContextMenu} style={{ zoom: chatZoom }}>
+      <div className="vscode-chat-history" ref={historyRef} onScroll={handleHistoryScroll} onContextMenu={handleChatContextMenu} style={{ zoom: chatZoom }}>
         {chatMessages.map((msg, i) => {
           if (isHiddenChatSystemMessage(msg)) {
             return null;

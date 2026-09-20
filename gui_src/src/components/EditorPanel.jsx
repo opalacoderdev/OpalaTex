@@ -14,6 +14,12 @@ import { safeSetLocalStorage } from '../utils/storage';
 import InlinePromptOverlay from './InlinePromptOverlay';
 import EditorContextMenuOverlay from './EditorContextMenuOverlay';
 import TabContextMenu from './TabContextMenu';
+import MarkdownContextMenu from './MarkdownContextMenu';
+import TranslationPopup from './TranslationPopup';
+import SpeechPopup from './SpeechPopup';
+import { useSnippetTranslation } from '../hooks/useSnippetTranslation';
+import { useSnippetSpeech } from '../hooks/useSnippetSpeech';
+import { findSelectionHeading, readSelectionWithin } from '../utils/documentSelection';
 import { FormattedMessage } from '../utils/formatMessage';
 import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 import { viewportPointToApp } from '../utils/uiScale';
@@ -71,6 +77,7 @@ export default function EditorPanel({
   onLatexCompileSuccess,
   onFixLatexProblem,
   onAskAboutPdf,
+  onAskAboutMarkdown,
   isAgentRunning,
   onTextStatsChange,
   // Set by a layout that is built around a visible preview (the studio). It
@@ -78,7 +85,7 @@ export default function EditorPanel({
   // the toolbar toggles keep working once the user is inside the layout.
   openPreviewByDefault,
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { showAlert } = useCustomDialog();
   const [isDiffMode, setIsDiffMode] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -105,6 +112,10 @@ export default function EditorPanel({
   const [editorContextMenu, setEditorContextMenu] = useState(null);
   // Right-click menu for the tab bar: { x, y, filePath } or null.
   const [tabContextMenu, setTabContextMenu] = useState(null);
+  // Right-click menu for the rendered Markdown preview: { x, y, selectedText,
+  // heading } or null. The preview had no menu at all before — the app
+  // suppresses the native one globally — so a right-click there did nothing.
+  const [markdownContextMenu, setMarkdownContextMenu] = useState(null);
   const [markdownZoomLevel, setMarkdownZoomLevel] = useState(1.0);
   const pendingEditorLineRef = useRef(null);
   // Last known Rich Text active/initial line, per file — keyed by file path
@@ -120,6 +131,76 @@ export default function EditorPanel({
   // viewer, so without this every return to a PDF started again at page one.
   const pdfViewStatesRef = useRef({});
   const documentActionsMenuRef = useRef(null);
+  // The element the rendered Markdown preview draws into. Selections are
+  // scoped to it: text selected elsewhere in the app is not an excerpt of this
+  // document, and translating it would quote something the user never pointed
+  // at (utils/documentSelection.js).
+  const markdownPreviewRef = useRef(null);
+
+  // Same request, same race guard and same popup as the PDF viewer (§2.13).
+  const {
+    translation,
+    translate: runTranslation,
+    retry: retryTranslation,
+    copy: copyTranslation,
+    close: closeTranslation,
+  } = useSnippetTranslation({
+    projectName: activeProject?.name,
+    model: activeProject?.model || '',
+    uiLanguage: i18n.language,
+  });
+
+  const {
+    speech,
+    availability: speechAvailability,
+    refreshAvailability: refreshSpeechAvailability,
+    speak,
+    toggle: toggleSpeech,
+    replay: replaySpeech,
+    retry: retrySpeech,
+    close: closeSpeech,
+  } = useSnippetSpeech({});
+
+  // The selection is read here, at right-click time, and not when a menu item
+  // is pressed: pressing one collapses the selection, so reading it in the
+  // handler would find nothing and the action would silently do nothing.
+  const handleMarkdownContextMenu = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const container = markdownPreviewRef.current;
+    closeTranslation();
+    // Re-read at menu-open time rather than caching for the session, so
+    // configuring speech in Settings takes effect without reopening the file.
+    refreshSpeechAvailability();
+    setMarkdownContextMenu({
+      ...viewportPointToApp(event.clientX, event.clientY),
+      selectedText: readSelectionWithin(container),
+      heading: findSelectionHeading(container),
+    });
+  };
+
+  const handleCopyMarkdownSelection = (menu) => {
+    if (!menu?.selectedText) return;
+    Promise.resolve(navigator.clipboard?.writeText?.(menu.selectedText)).catch(() => {});
+  };
+
+  const handleAskAboutMarkdown = (menu) => {
+    if (!onAskAboutMarkdown || !selectedFile) return;
+    onAskAboutMarkdown({
+      documentPath: selectedFile,
+      heading: menu.heading || '',
+      selectedText: menu.selectedText || '',
+    });
+  };
+
+  const handleTranslateMarkdownSelection = (menu) => {
+    runTranslation(menu.selectedText, { x: menu.x, y: menu.y });
+  };
+
+  const handlePronounceMarkdownSelection = (menu) => {
+    speak(menu.selectedText, { x: menu.x, y: menu.y });
+  };
+
   
   const isPdfFile = selectedFile && selectedFile.toLowerCase().endsWith('.pdf');
   // Identity of the document the PDF viewer shows. A standalone PDF is its own
@@ -1245,8 +1326,15 @@ export default function EditorPanel({
       />
     ) : (
       <div
-        ref={linked ? previewScrollRef : undefined}
+        ref={(el) => {
+          markdownPreviewRef.current = el;
+          // Only one of the two layouts is mounted at a time, so a single
+          // element is the preview; the linked one additionally drives the
+          // side-by-side scroll sync.
+          if (linked) previewScrollRef.current = el;
+        }}
         onScroll={linked ? syncEditorScrollFromPreview : undefined}
+        onContextMenu={handleMarkdownContextMenu}
         style={{ padding: '20px', overflowY: 'auto', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, boxSizing: 'border-box' }}
         className="markdown-preview-container"
       >
@@ -1886,6 +1974,34 @@ export default function EditorPanel({
           </div>
         )}
       </div>
+
+      <MarkdownContextMenu
+        menu={markdownContextMenu}
+        onClose={() => setMarkdownContextMenu(null)}
+        onCopy={handleCopyMarkdownSelection}
+        onAskAbout={handleAskAboutMarkdown}
+        onTranslate={handleTranslateMarkdownSelection}
+        onPronounce={handlePronounceMarkdownSelection}
+        canAsk={Boolean(onAskAboutMarkdown && activeProject && selectedFile)}
+        canPronounce={speechAvailability.enabled}
+        pronounceUnavailableHint={speechAvailability.problem}
+      />
+
+      <TranslationPopup
+        state={translation}
+        onClose={closeTranslation}
+        onRetry={retryTranslation}
+        onCopy={copyTranslation}
+        onSpeak={speechAvailability.enabled ? speak : undefined}
+      />
+
+      <SpeechPopup
+        state={speech}
+        onClose={closeSpeech}
+        onToggle={toggleSpeech}
+        onReplay={replaySpeech}
+        onRetry={retrySpeech}
+      />
 
       {/* Inline prompt overlay (rendered inside the panel for correct stacking) */}
       {inlinePrompt && (

@@ -1,7 +1,8 @@
-import React, { useEffect, useLayoutEffect, useRef } from 'react';
-import { readUiScale, viewportPxToApp } from '../utils/uiScale';
-import { MessageSquareQuote, Languages, Highlighter, Underline, Strikethrough, StickyNote, Trash2, PenLine } from 'lucide-react';
+import React from 'react';
+import { Highlighter, Underline, Strikethrough, StickyNote, Trash2, PenLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import ContextMenuSurface from './ContextMenuSurface';
+import SnippetActions from './SnippetActions';
 
 /**
  * Right-click context menu for the PDF viewer.
@@ -11,6 +12,11 @@ import { useTranslation } from 'react-i18next';
  * only apply to a selected excerpt, so they stay disabled while the selection is
  * empty. When the click landed on an existing annotation, `menu.annotation` holds
  * it and the menu leads with the actions for that mark.
+ *
+ * What is left here is what is genuinely PDF-specific: the annotations. The
+ * excerpt actions below the separator are shared with every other document
+ * surface (SnippetActions), and the frame — placement, viewport clamp,
+ * dismissal, keeping the selection alive — is shared too (ContextMenuSurface).
  */
 
 // Highlighter colors offered for a new mark. Kept deliberately short: a long
@@ -22,7 +28,10 @@ export default function PdfContextMenu({
   onClose,
   onAskAbout,
   onTranslate,
+  onPronounce,
   canAsk = true,
+  canPronounce = false,
+  pronounceUnavailableHint = '',
   canAnnotate = false,
   annotationColor = ANNOTATION_COLORS[0],
   onAnnotate,
@@ -30,41 +39,6 @@ export default function PdfContextMenu({
   onRemoveAnnotation,
 }) {
   const { t } = useTranslation();
-  const menuRef = useRef(null);
-
-  // Close on click outside, on another right-click, or on Escape.
-  useEffect(() => {
-    if (!menu) return undefined;
-    const handleClick = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
-    };
-    const handleKey = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('mousedown', handleClick, true);
-    document.addEventListener('contextmenu', handleClick, true);
-    document.addEventListener('keydown', handleKey, true);
-    return () => {
-      document.removeEventListener('mousedown', handleClick, true);
-      document.removeEventListener('contextmenu', handleClick, true);
-      document.removeEventListener('keydown', handleKey, true);
-    };
-  }, [menu, onClose]);
-
-  // Keep the menu inside the viewport.
-  useLayoutEffect(() => {
-    if (!menu || !menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
-    // Compared in viewport pixels, written back as a CSS length inside the
-    // zoomed app — see viewportPxToApp.
-    const scale = readUiScale();
-    if (rect.right > window.innerWidth) {
-      menuRef.current.style.left = `${Math.max(4, viewportPxToApp(window.innerWidth - rect.width, scale) - 5)}px`;
-    }
-    if (rect.bottom > window.innerHeight) {
-      menuRef.current.style.top = `${Math.max(4, viewportPxToApp(window.innerHeight - rect.height, scale) - 5)}px`;
-    }
-  }, [menu]);
 
   if (!menu) return null;
 
@@ -82,6 +56,7 @@ export default function PdfContextMenu({
   const markupItem = (kind, Icon, labelKey, fallback) => (
     <div
       className={`vscode-context-menu-item${hasSelection ? '' : ' vscode-context-menu-item-disabled'}`}
+      role="menuitem"
       aria-disabled={!hasSelection}
       title={hasSelection ? undefined : t('pdfContextMenu.annotateNeedsSelection', 'Select some text in the PDF first.')}
       onClick={() => { if (hasSelection) run(onAnnotate, kind, annotationColor); }}
@@ -92,20 +67,17 @@ export default function PdfContextMenu({
   );
 
   return (
-    <div
-      ref={menuRef}
-      className="vscode-context-menu"
-      style={{ top: `${menu.y}px`, left: `${menu.x}px` }}
-      // Pressing inside the menu must not move the caret, which would collapse the
-      // PDF text selection the markup actions are about to annotate. The geometry
-      // is captured on right-click anyway, but keeping the selection alive also
-      // keeps it visible while the user picks a color, and lets a retry work.
-      onMouseDown={(event) => event.preventDefault()}
+    <ContextMenuSurface
+      x={menu.x}
+      y={menu.y}
+      onClose={onClose}
+      ariaLabel={t('pdfContextMenu.label', 'PDF actions')}
     >
       {canAnnotate && target && (
         <>
           <div
             className={`vscode-context-menu-item${canEditTarget ? '' : ' vscode-context-menu-item-disabled'}`}
+            role="menuitem"
             aria-disabled={!canEditTarget}
             title={canEditTarget ? undefined : t('pdfContextMenu.annotationNotEditable', 'This annotation was made by other software and cannot be edited here.')}
             onClick={() => { if (canEditTarget) run(onEditNote); }}
@@ -115,6 +87,7 @@ export default function PdfContextMenu({
           </div>
           <div
             className={`vscode-context-menu-item${canEditTarget ? '' : ' vscode-context-menu-item-disabled'}`}
+            role="menuitem"
             aria-disabled={!canEditTarget}
             onClick={() => { if (canEditTarget) run(onRemoveAnnotation); }}
           >
@@ -145,6 +118,7 @@ export default function PdfContextMenu({
           {markupItem('strikeout', Strikethrough, 'pdfContextMenu.strikeout', 'Strike through')}
           <div
             className="vscode-context-menu-item"
+            role="menuitem"
             onClick={() => run(onEditNote)}
           >
             <StickyNote size={13} style={{ color: 'var(--vscode-fg-warning)' }} />
@@ -154,27 +128,15 @@ export default function PdfContextMenu({
         </>
       )}
 
-      <div
-        className={`vscode-context-menu-item${canAsk ? '' : ' vscode-context-menu-item-disabled'}`}
-        aria-disabled={!canAsk}
-        onClick={() => { if (canAsk) run(onAskAbout); }}
-      >
-        <MessageSquareQuote size={13} style={{ color: '#007acc' }} />
-        <span>
-          {hasSelection
-            ? t('pdfContextMenu.askAboutSelection', 'Ask about the selected excerpt')
-            : t('pdfContextMenu.askAboutDocument', 'Ask about this document')}
-        </span>
-      </div>
-      <div
-        className={`vscode-context-menu-item${hasSelection ? '' : ' vscode-context-menu-item-disabled'}`}
-        aria-disabled={!hasSelection}
-        title={hasSelection ? undefined : t('pdfContextMenu.translateNeedsSelection', 'Select some text in the PDF first.')}
-        onClick={() => { if (hasSelection) run(onTranslate); }}
-      >
-        <Languages size={13} style={{ color: 'var(--vscode-fg-link)' }} />
-        <span>{t('pdfContextMenu.translate', 'Translate selection')}</span>
-      </div>
-    </div>
+      <SnippetActions
+        hasSelection={hasSelection}
+        canAsk={canAsk}
+        canPronounce={canPronounce}
+        pronounceUnavailableHint={pronounceUnavailableHint}
+        onAskAbout={() => run(onAskAbout)}
+        onTranslate={() => run(onTranslate)}
+        onPronounce={onPronounce ? (() => run(onPronounce)) : undefined}
+      />
+    </ContextMenuSurface>
   );
 }

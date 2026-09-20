@@ -784,7 +784,7 @@
     "translateToInterface": "Mesmo idioma da interface",
     "translateToOther": "Outro (digite um idioma)",
     "translateToOtherPlaceholder": "ex.: Norueguês",
-    "translateToHint": "Idioma de destino usado pela ação \"Traduzir seleção\" do visualizador de PDF.",
+    "translateToHint": "Idioma de destino usado pela ação \"Traduzir seleção\" no visualizador de PDF e na pré-visualização Markdown.",
     "translateLangPtBR": "Português (Brasil)",
     "translateLangEn": "Inglês",
     "translateLangEs": "Espanhol",
@@ -799,7 +799,17 @@
     "interfaceSize_medium": "Médio",
     "interfaceSize_large": "Grande",
     "interfaceSize_extraLarge": "Extra Grande",
-    "interfaceSizeHint": "Amplia toda a interface, não apenas o texto. Também disponível em qualquer lugar com Ctrl+Shift+Mais, Ctrl+Shift+Menos e Ctrl+Shift+0."
+    "interfaceSizeHint": "Amplia toda a interface, não apenas o texto. Também disponível em qualquer lugar com Ctrl+Shift+Mais, Ctrl+Shift+Menos e Ctrl+Shift+0.",
+    "speech": "Pronúncia",
+    "speechEnabled": "Oferecer \"Pronunciar seleção\" nos menus de documento",
+    "speechNoModels": "Nenhum modelo com suporte a voz está registrado. Adicione um em \"Editar Modelos\" e marque \"Síntese de voz\" — um serviço hospedado ou um servidor local como Kokoro-FastAPI, openedai-speech, LocalAI ou Piper registrado com seu api_base.",
+    "speechModelPlaceholder": "Selecione um modelo de voz...",
+    "speechVoice": "Voz",
+    "speechFormat": "Formato de áudio",
+    "speechSpeed": "Velocidade",
+    "speechHint": "Lê em voz alta o trecho selecionado no visualizador de PDF, na pré-visualização Markdown e no chat. Uma voz baixada roda inteiramente nesta máquina e não exige conta; ela usa o espeak-ng do sistema para converter texto em fonemas. As vozes do próprio navegador não são usadas: a janela do aplicativo não traz nenhum motor de voz.",
+    "speechEngineLocal": "Voz baixada (offline)",
+    "speechEngineRemote": "Endpoint de voz"
   },
   "hardwareModal": {
     "title": "Configuração de Hardware",
@@ -957,7 +967,9 @@
       "chat_multimodal": "Chat completions com saída de imagem",
       "images_apiHint": "O contrato padrão da API de Imagens da OpenAI. Funciona com OpenAI, Gemini/Imagen, Stability e qualquer servidor local compatível (LocalAI, Docker Model Runner, vLLM-Omni) configurado pela URL base da conexão.",
       "chat_multimodalHint": "Para modelos que devolvem a imagem dentro de uma resposta de chat, como o gemini-2.5-flash-image. Use quando o modelo servir para refinar a imagem conversando."
-    }
+    },
+    "supportsSpeechSynthesisLabel": "Síntese de voz (texto para fala)",
+    "supportsSpeechSynthesisHint": "Esta entrada responde a /v1/audio/speech e é usada apenas para pronúncia, nunca para chat. Cobre provedores hospedados e qualquer servidor local compatível com OpenAI (Kokoro-FastAPI, openedai-speech, LocalAI, Piper) registrado com seu api_base."
   },
   "connectionForm": {
     "addTitle": "Adicionar Conexão",
@@ -1166,7 +1178,10 @@
     "messageQueueError": "Nao foi possivel enfileirar a mensagem: {{error}}",
     "messageCancelError": "Nao foi possivel cancelar a mensagem: {{error}}",
     "slashCommandWhileRunning": "Comandos de barra nao podem ser executados enquanto o agente trabalha. Pare o agente primeiro.",
-    "projectCloudCopyRemoved": "Cópia na nuvem de {{name}} apagada."
+    "projectCloudCopyRemoved": "Cópia na nuvem de {{name}} apagada.",
+    "markdownSectionLabel": "Seção",
+    "markdownSelectedExcerptLabel": "Trecho selecionado na pré-visualização Markdown",
+    "quotedExcerptLabel": "Sobre este trecho"
   },
   "onboarding": {
     "welcome": "Bem-vindo ao OpalaTex! 🚀",
@@ -1281,16 +1296,23 @@
     "addNote": "Adicionar uma nota aqui",
     "annotateNeedsSelection": "Selecione um trecho no PDF primeiro.",
     "annotationNotEditable": "Esta anotação foi feita por outro programa e não pode ser editada aqui.",
-    "askAboutDocument": "Perguntar sobre este documento",
-    "askAboutSelection": "Perguntar sobre o trecho selecionado",
     "editNote": "Editar nota",
     "highlight": "Destacar",
     "highlightColor": "Cor do destaque",
     "removeAnnotation": "Remover anotação",
     "strikeout": "Tachar",
+    "underline": "Sublinhar",
+    "label": "Ações do PDF"
+  },
+  "snippetActions": {
+    "askAboutDocument": "Perguntar sobre este documento",
+    "askAboutSelection": "Perguntar sobre o trecho selecionado",
     "translate": "Traduzir seleção",
-    "translateNeedsSelection": "Selecione um trecho no PDF primeiro.",
-    "underline": "Sublinhar"
+    "pronounce": "Pronunciar seleção",
+    "needsSelection": "Selecione um trecho de texto primeiro."
+  },
+  "markdownContextMenu": {
+    "label": "Ações da pré-visualização"
   },
   "pdfNote": {
     "addTitle": "Adicionar uma nota",
@@ -1303,7 +1325,7 @@
     "saving": "Salvando…",
     "title": "Nota"
   },
-  "pdfTranslation": {
+  "translation": {
     "title": "Tradução",
     "selectedExcerpt": "Trecho selecionado",
     "translatingTo": "Traduzindo para {{language}}...",
@@ -1313,7 +1335,31 @@
     "retry": "Tentar novamente",
     "increaseText": "Aumentar o tamanho do texto",
     "decreaseText": "Diminuir o tamanho do texto",
-    "dragHint": "Arraste para mover esta janela"
+    "dragHint": "Arraste para mover esta janela",
+    "speakSource": "Pronunciar o trecho",
+    "speakResult": "Pronunciar a tradução"
+  },
+  "speech": {
+    "title": "Pronúncia",
+    "synthesizing": "Sintetizando…",
+    "play": "Reproduzir",
+    "pause": "Pausar",
+    "replay": "Reproduzir novamente",
+    "retry": "Tentar novamente",
+    "failed": "Falha na pronúncia: {{error}}",
+    "notConfigured": "A pronúncia ainda não foi configurada. Configure em Configurações > Geral > Pronúncia.",
+    "unsupported": "O endpoint configurado não possui rota de síntese de voz.",
+    "connection": "Não foi possível alcançar o endpoint de síntese de voz.",
+    "auth": "O endpoint de síntese de voz rejeitou as credenciais.",
+    "undecodable": "O áudio chegou, mas este navegador não conseguiu decodificá-lo. Tente outro formato de saída nas Configurações."
+  },
+  "speechVoices": {
+    "installedOnly": "Vozes instaladas",
+    "refresh": "Atualizar o catálogo de vozes",
+    "catalogOffline": "Não foi possível acessar o catálogo de vozes. As vozes instaladas continuam funcionando offline.",
+    "empty": "Nenhuma voz instalada ainda. Escolha um idioma acima para ver o que pode ser baixado.",
+    "download": "Baixar ({{size}})",
+    "remove": "Remover esta voz"
   },
   "cloudSync": {
     "title": "Sincronização na nuvem",

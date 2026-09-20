@@ -7,7 +7,11 @@ import { clampViewAnchor, isAnchorLaidOut, scrollTopForAnchor, viewAnchorAt } fr
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare, Sparkles, MonitorPlay } from 'lucide-react';
 import PdfContextMenu, { ANNOTATION_COLORS } from './PdfContextMenu';
-import PdfTranslationPopup from './PdfTranslationPopup';
+import TranslationPopup from './TranslationPopup';
+import SpeechPopup from './SpeechPopup';
+import { useSnippetTranslation } from '../hooks/useSnippetTranslation';
+import { useSnippetSpeech } from '../hooks/useSnippetSpeech';
+import { readSelectionWithin } from '../utils/documentSelection';
 import PdfAnnotationLayer from './PdfAnnotationLayer';
 import PdfNotePopup from './PdfNotePopup';
 import PdfPresentMode from './PdfPresentMode';
@@ -50,7 +54,6 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const [canGoBack, setCanGoBack] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [contextMenu, setContextMenu] = useState(null);
-  const [translation, setTranslation] = useState(null);
   const [annotations, setAnnotations] = useState([]);
   // Ids of annotations the *rendered* bytes do not contain yet. Everything else is
   // already painted by pdf.js from its appearance stream, so drawing it again in
@@ -62,7 +65,31 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
   const [annotationTooltip, setAnnotationTooltip] = useState(null);
   const [isPresenting, setIsPresenting] = useState(false);
   const containerRef = useRef(null);
-  const translationRequestRef = useRef(0);
+
+  // Translating an excerpt is not a PDF feature — the same request, the same
+  // race guard and the same popup serve the Markdown preview (§2.13).
+  const {
+    translation,
+    translate: runTranslation,
+    retry: handleRetryTranslation,
+    copy: handleCopyTranslation,
+    close: closeTranslation,
+  } = useSnippetTranslation({
+    projectName: activeProject?.name,
+    model: activeProject?.model || '',
+    uiLanguage: i18n.language,
+  });
+
+  const {
+    speech,
+    availability: speechAvailability,
+    refreshAvailability: refreshSpeechAvailability,
+    speak,
+    toggle: toggleSpeech,
+    replay: replaySpeech,
+    retry: retrySpeech,
+    close: closeSpeech,
+  } = useSnippetSpeech({});
   const scrollPosRef = useRef(0);
   const restoreScrollPosRef = useRef(0);
   const isReloadingPdfRef = useRef(false);
@@ -267,15 +294,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
 
   // Text the user selected inside this viewer, or '' when the selection is
   // empty or lives outside the PDF surface.
-  const readPdfSelection = () => {
-    const selection = window.getSelection?.();
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return '';
-    const container = containerRef.current;
-    if (!container) return '';
-    const range = selection.getRangeAt(0);
-    if (!container.contains(range.commonAncestorContainer)) return '';
-    return selection.toString().trim();
-  };
+  const readPdfSelection = () => readSelectionWithin(containerRef.current);
 
   // ── Annotations ────────────────────────────────────────────────────────
   // Marks are stored inside the PDF itself (see opalatex/pdf_annotations.py), so
@@ -719,7 +738,10 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     event.preventDefault();
     const pageEl = event.target?.closest?.('[data-page-number]');
     const page = pageEl ? parseInt(pageEl.getAttribute('data-page-number'), 10) : currentPage;
-    setTranslation(null);
+    closeTranslation();
+    // Re-read at menu-open time rather than cached for the session, so
+    // configuring speech in Settings takes effect without reopening the PDF.
+    refreshSpeechAvailability();
     setNotePopup(null);
     setContextMenu({
       ...viewportPointToApp(event.clientX, event.clientY),
@@ -746,69 +768,12 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     });
   };
 
-  const runTranslation = async (snippet, anchorPoint) => {
-    const requestId = translationRequestRef.current + 1;
-    translationRequestRef.current = requestId;
-
-    setTranslation({
-      x: anchorPoint.x,
-      y: anchorPoint.y,
-      sourceText: snippet,
-      status: 'loading',
-      targetLanguage: '',
-      translatedText: '',
-      error: '',
-    });
-
-    try {
-      // Read the configured target language at request time so a change in
-      // Settings takes effect without reopening the document.
-      const settings = await fetch('/api/settings/translation')
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null);
-      const targetLang = (settings?.translate_target_lang || '').trim() || i18n.language || 'en';
-
-      const res = await fetch('/api/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: snippet,
-          project_name: activeProject?.name,
-          target_lang: targetLang,
-          model: activeProject?.model || '',
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (translationRequestRef.current !== requestId) return;
-      if (!res.ok) {
-        throw new Error(data.error || res.statusText || 'request failed');
-      }
-      setTranslation((prev) => (prev ? {
-        ...prev,
-        status: 'done',
-        targetLanguage: data.target_language || targetLang,
-        translatedText: data.translated_text || '',
-      } : prev));
-    } catch (err) {
-      if (translationRequestRef.current !== requestId) return;
-      setTranslation((prev) => (prev ? { ...prev, status: 'error', error: err.message } : prev));
-    }
-  };
-
   const handleTranslateSelection = (menu) => {
-    const snippet = (menu.selectedText || '').trim();
-    if (!snippet) return;
-    runTranslation(snippet, { x: menu.x, y: menu.y });
+    runTranslation(menu.selectedText, { x: menu.x, y: menu.y });
   };
 
-  const handleRetryTranslation = () => {
-    if (!translation?.sourceText) return;
-    runTranslation(translation.sourceText, { x: translation.x, y: translation.y });
-  };
-
-  const handleCopyTranslation = (text) => {
-    if (!text) return;
-    Promise.resolve(navigator.clipboard?.writeText?.(text)).catch(() => {});
+  const handlePronounceSelection = (menu) => {
+    speak(menu.selectedText, { x: menu.x, y: menu.y });
   };
 
   const handleZoomIn = () => {
@@ -1886,6 +1851,9 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         onClose={() => setContextMenu(null)}
         onAskAbout={handleAskAboutPdf}
         onTranslate={handleTranslateSelection}
+        onPronounce={handlePronounceSelection}
+        canPronounce={speechAvailability.enabled}
+        pronounceUnavailableHint={speechAvailability.problem}
         canAsk={Boolean(onAskAboutPdf)}
         canAnnotate={canAnnotate && showAnnotations}
         annotationColor={annotationColor}
@@ -1927,11 +1895,20 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         </div>
       )}
 
-      <PdfTranslationPopup
+      <SpeechPopup
+        state={speech}
+        onClose={closeSpeech}
+        onToggle={toggleSpeech}
+        onReplay={replaySpeech}
+        onRetry={retrySpeech}
+      />
+
+      <TranslationPopup
         state={translation}
-        onClose={() => { translationRequestRef.current += 1; setTranslation(null); }}
+        onClose={closeTranslation}
         onRetry={handleRetryTranslation}
         onCopy={handleCopyTranslation}
+        onSpeak={speechAvailability.enabled ? speak : undefined}
       />
 
       {isPresenting && pdfUrl && (

@@ -990,7 +990,7 @@ class AsyncHTTPServer:
         status_msg = {
             200: "OK", 206: "Partial Content", 400: "Bad Request",
             401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
-            500: "Internal Server Error",
+            500: "Internal Server Error", 503: "Service Unavailable",
         }.get(status_code, "Error")
         if (content_type.startswith("text/") or 
             content_type in ("application/javascript", "application/json", "image/svg+xml")):
@@ -1012,7 +1012,7 @@ class AsyncHTTPServer:
         status_msg = {
             200: "OK", 206: "Partial Content", 400: "Bad Request",
             401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
-            500: "Internal Server Error",
+            500: "Internal Server Error", 503: "Service Unavailable",
         }.get(status_code, "Error")
         if (content_type.startswith("text/") or
             content_type in ("application/javascript", "application/json", "image/svg+xml")):
@@ -1040,7 +1040,7 @@ class AsyncHTTPServer:
         status_msg = {
             200: "OK", 206: "Partial Content", 400: "Bad Request",
             401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 416: "Range Not Satisfiable",
-            500: "Internal Server Error",
+            500: "Internal Server Error", 503: "Service Unavailable",
         }.get(status_code, "Error")
         response_headers = [
             f"HTTP/1.1 {status_code} {status_msg}",
@@ -5373,6 +5373,127 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        # 7k4. Speech synthesis config — GET
+        elif path == '/api/settings/speech' and method == 'GET':
+            from opalatex.speech_config import (
+                ENGINES, SUPPORTED_FORMATS, configuration_problem, load_config,
+            )
+            from opalatex.models_store import SPEECH_ROUTES, list_speech_synthesis_models
+            try:
+                cfg = dict(load_config())
+                cfg["models"] = [
+                    {
+                        "id": m.get("id", ""),
+                        "name": m.get("name", ""),
+                        "provider": m.get("provider", ""),
+                        "speech_route": m.get("speech_route", ""),
+                        "connection_label": m.get("connection_label", ""),
+                    }
+                    for m in list_speech_synthesis_models()
+                ]
+                cfg["routes"] = list(SPEECH_ROUTES)
+                cfg["formats"] = list(SUPPORTED_FORMATS)
+                cfg["engines"] = list(ENGINES)
+                # The viewers read this to decide whether to offer "Pronounce"
+                # at all. An empty string means it is ready; anything else is
+                # the reason, shown on the disabled item rather than discovered
+                # by pressing it and getting nothing.
+                cfg["problem"] = configuration_problem()
+                self.send_response(writer, 200, json.dumps(cfg).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7k5. Speech synthesis config — POST (save)
+        elif path == '/api/settings/speech' and method == 'POST':
+            from opalatex.speech_config import configuration_problem, load_config, save_config
+            try:
+                save_config(data)
+                self.send_response(writer, 200, json.dumps({
+                    "success": True, **load_config(), "problem": configuration_problem(),
+                }).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7k6. Downloadable local voices (Piper) — list / download / remove
+        elif path.startswith('/api/speech/voices'):
+            from opalatex import speech_config, voice_store
+            from opalatex.voice_store import VoiceStoreError
+
+            def _voice_error(exc):
+                status = {
+                    "bad_request": 400, "not_found": 404,
+                    "connection": 503, "corrupt": 502,
+                }.get(getattr(exc, "kind", "unknown"), 500)
+                self.send_response(writer, status, json.dumps({
+                    "error": str(exc), "kind": getattr(exc, "kind", "unknown"),
+                }).encode('utf-8'), "application/json")
+
+            if path == '/api/speech/voices' and method == 'GET':
+                from agenticblocks.blocks.speech import availability_problem
+                refresh = query.get('refresh', ['0'])[0] in ('1', 'true')
+                installed = voice_store.installed_voices()
+                try:
+                    catalog = voice_store.list_catalog(refresh=refresh)
+                    catalog_error = ""
+                except VoiceStoreError as e:
+                    # Being offline must not empty the list of what is already
+                    # installed — the local engine works without a network.
+                    catalog, catalog_error = [], str(e)
+                self.send_response(writer, 200, json.dumps({
+                    "catalog": catalog,
+                    "catalog_error": catalog_error,
+                    "installed": installed,
+                    "selected": str(speech_config.load_config().get("local_voice", "") or ""),
+                    "downloads": voice_store.download_progress(),
+                    # The phonemizer is the one piece the app cannot install for
+                    # the user (GPL-3.0, used from the system, never bundled).
+                    "phonemizer_problem": availability_problem(),
+                }).encode('utf-8'), "application/json")
+                return
+
+            if path == '/api/speech/voices/download' and method == 'POST':
+                key = str(data.get("key") or "").strip()
+                if voice_store.is_downloading(key):
+                    self.send_response(writer, 409, json.dumps({
+                        "error": f"'{key}' is already downloading.", "kind": "busy",
+                    }).encode('utf-8'), "application/json")
+                    return
+                try:
+                    # 63 MB off the event loop: this server runs one loop for
+                    # everything, so a blocking read here would freeze the IDE.
+                    summary = await asyncio.to_thread(voice_store.download_voice, key)
+                    self.send_response(writer, 200, json.dumps({
+                        "success": True, "voice": summary,
+                        "installed": voice_store.installed_voices(),
+                    }).encode('utf-8'), "application/json")
+                except VoiceStoreError as e:
+                    _voice_error(e)
+                except Exception as e:
+                    self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                return
+
+            if path == '/api/speech/voices/remove' and method == 'POST':
+                try:
+                    key = str(data.get("key") or "").strip()
+                    voice_store.remove_voice(key)
+                    voice_store.clear_download_progress(key)
+                    # A configuration pointing at a voice that is gone would
+                    # fail at synthesis time; clear it here instead.
+                    cfg = speech_config.load_config()
+                    if str(cfg.get("local_voice", "") or "") == key:
+                        speech_config.save_config({**cfg, "local_voice": ""})
+                    self.send_response(writer, 200, json.dumps({
+                        "success": True, "installed": voice_store.installed_voices(),
+                    }).encode('utf-8'), "application/json")
+                except VoiceStoreError as e:
+                    _voice_error(e)
+                except Exception as e:
+                    self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                return
+
+            self.send_response(writer, 404, b'{"error":"unknown voices endpoint"}', "application/json")
+            return
+
         # 7m. Language — GET
         elif path == '/api/settings/language' and method == 'GET':
             from opalatex.ui_settings import load_ui_settings
@@ -5667,6 +5788,67 @@ class AsyncHTTPServer:
                 self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/speech' and method == 'POST':
+            from agenticblocks.blocks.speech import SpeechSynthesisError
+            from opalatex.speech import execute_speech_synthesis, resolve_language_tag
+            from opalatex.ui_settings import load_ui_settings
+            from opalatex import speech_config
+
+            snippet = str(data.get("text") or "")
+            if not snippet.strip():
+                self.send_response(writer, 400, b'{"error":"text is required"}', "application/json")
+                return
+
+            # Refused before a request is made rather than after: the feature is
+            # opt-in and needs an endpoint nothing else in the app requires, so
+            # "not configured" is a first-class answer with an instruction in it.
+            problem = speech_config.configuration_problem()
+            if problem:
+                self.send_response(writer, 503, json.dumps({
+                    "error": problem, "kind": "not_configured",
+                }).encode('utf-8'), "application/json")
+                return
+
+            cfg = load_ui_settings()
+            language = resolve_language_tag(
+                data.get("lang"),
+                cfg.get("translate_target_lang"),
+                cfg.get("lang"),
+            )
+            try:
+                audio, mime = await execute_speech_synthesis(
+                    snippet,
+                    voice=str(data.get("voice") or "").strip(),
+                    language=language,
+                    model=str(data.get("model") or "").strip() or None,
+                    speed=data.get("speed"),
+                    response_format=str(data.get("format") or "").strip(),
+                )
+                # The bytes are the response. Wrapping them in base64 inside a
+                # JSON envelope would cost a third of the payload again and buy
+                # nothing: an <audio> element takes a URL.
+                self.send_response(writer, 200, audio, mime)
+            except ValueError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e), "kind": "bad_request"}).encode('utf-8'), "application/json")
+            except SpeechSynthesisError as e:
+                # The classified kind travels with the message so the UI can be
+                # specific about what to fix, the way image generation is
+                # (PROJECT_DESIGN 2.12). Nothing falls back to another provider.
+                status = {
+                    "auth": 401,
+                    "bad_request": 400,
+                    "too_long": 400,
+                    "not_configured": 503,
+                    "connection": 503,
+                    "unsupported": 503,
+                    "unknown_route": 500,
+                }.get(getattr(e, "kind", "unknown"), 500)
+                self.send_response(writer, status, json.dumps({
+                    "error": str(e), "kind": getattr(e, "kind", "unknown"),
+                }).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e), "kind": "unknown"}).encode('utf-8'), "application/json")
 
         # ── PDF annotations (standalone PDFs) ──────────────────────────────
         # Stored inside the PDF itself, so they interoperate with Zotero,

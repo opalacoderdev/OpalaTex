@@ -5,6 +5,7 @@ import {
   appendThoughtChunk,
   clampThoughtContextTokens,
   createThoughtTail,
+  DEFAULT_THOUGHT_CONTEXT_TOKENS,
   tailTextByTokens,
   tailThoughtChunks,
   thoughtTailText,
@@ -47,6 +48,36 @@ test('appending one chunk at a time gives the same tail as building it at once',
   for (const item of items) state = appendThoughtChunk(state, item.content, item.tokens, 70);
   assert.equal(thoughtTailText(state), thoughtTailText(tailThoughtChunks(items, 70)));
   assert.equal(thoughtTailText(state), 'c3 c4 ');
+});
+
+// Reasoning is streamed at roughly one token per chunk, so a long chat holds
+// over a hundred thousand of them and the visible tail keeps tens of thousands.
+// Rebuilding that window once per chunk made reopening such a chat take tens of
+// seconds, and the two tests below are what a return to it would trip on: the
+// same tail, built within a budget no linear pass can miss and no quadratic one
+// can meet.
+const streamedChunks = (count) => Array.from({ length: count }, (_, i) => ({ content: `${i % 10} ` }));
+
+test('the tail of a heavily chunked stream matches chunk-by-chunk appending', () => {
+  const items = streamedChunks(3000);
+  let state = createThoughtTail();
+  for (const item of items) state = appendThoughtChunk(state, item.content, item.tokens, 400);
+  const batch = tailThoughtChunks(items, 400);
+  assert.equal(thoughtTailText(batch), thoughtTailText(state));
+  assert.equal(batch.omittedTokens, state.omittedTokens);
+  assert.equal(batch.lastTokens, state.lastTokens);
+});
+
+test('building the tail of a long chat stays linear in the number of chunks', () => {
+  const items = streamedChunks(120000);
+  const started = performance.now();
+  const state = tailThoughtChunks(items, DEFAULT_THOUGHT_CONTEXT_TOKENS);
+  const elapsed = performance.now() - started;
+  // The tail is the most recent `limit` tokens, at two characters per chunk.
+  assert.equal(thoughtTailText(state).length, DEFAULT_THOUGHT_CONTEXT_TOKENS * 2);
+  // Two orders of magnitude of headroom over a linear pass, and an order of
+  // magnitude under the quadratic one this replaced.
+  assert.ok(elapsed < 2000, `building the tail took ${Math.round(elapsed)}ms`);
 });
 
 test('the newest chunk is always shown, even when it alone exceeds the limit', () => {

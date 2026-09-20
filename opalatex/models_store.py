@@ -22,6 +22,11 @@ _LOCAL_OLLAMA_CONNECTION_ID = "ollama-local"
 # registered by `agenticblocks.blocks.image.adapters`.
 IMAGE_ROUTES = ("images_api", "chat_multimodal")
 
+# Likewise for `agenticblocks.blocks.speech.adapters`. One route today, but the
+# field exists so a speech engine LiteLLM does not cover is a catalog entry
+# rather than a code change, exactly as for images.
+SPEECH_ROUTES = ("audio_speech",)
+
 # User-defined model parameters are forwarded as LiteLLM/model kwargs.  Keep
 # transport, credentials, AgenticBlocks execution controls, and catalog fields
 # under application control; accepting any of these through the generic editor
@@ -44,6 +49,7 @@ RESERVED_EXTRA_MODEL_PARAM_NAMES = frozenset({
     "output_cost_per_second",
     "supports_thinking", "requires_single_system_message", "prompt_profile",
     "orchestrator_policy", "supports_image_generation", "image_route", "num_ctx",
+    "supports_speech_synthesis", "speech_route",
     "think", "extra_model_params",
     "temperature", "max_tokens", "seed", "top_p", "top_k", "min_p",
     "frequency_penalty", "presence_penalty", "repetition_penalty", "reasoning_effort",
@@ -238,12 +244,23 @@ def normalize_model_entry(model: Dict[str, Any]) -> Dict[str, Any]:
     entry["supports_image_generation"] = bool(entry.get("supports_image_generation", False))
     _image_route = str(entry.get("image_route", "") or "").strip().lower()
     entry["image_route"] = _image_route if _image_route in IMAGE_ROUTES else ""
+    # Speech is a third capability, independent of the other two: a TTS endpoint
+    # answers /v1/audio/speech and nothing else, so an entry that declares it is
+    # never a candidate for the orchestrator, a worker, or image generation.
+    entry["supports_speech_synthesis"] = bool(entry.get("supports_speech_synthesis", False))
+    _speech_route = str(entry.get("speech_route", "") or "").strip().lower()
+    entry["speech_route"] = _speech_route if _speech_route in SPEECH_ROUTES else ""
     return entry
 
 
 def list_image_generation_models() -> List[Dict[str, Any]]:
     """Return the catalog entries declared as image-capable."""
     return [m for m in load_models() if m.get("supports_image_generation")]
+
+
+def list_speech_synthesis_models() -> List[Dict[str, Any]]:
+    """Return the catalog entries declared as speech-capable."""
+    return [m for m in load_models() if m.get("supports_speech_synthesis")]
 
 
 def normalize_connection_entry(connection: Dict[str, Any]) -> Dict[str, Any]:

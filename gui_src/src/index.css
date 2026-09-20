@@ -2453,8 +2453,8 @@ input:focus, select:focus, textarea:focus {
   color: #ffffff !important;
 }
 
-/* PDF viewer translation popup */
-.pdf-translate-popup {
+/* Snippet translation popup — shared by the PDF viewer and the Markdown preview */
+.snippet-translate-popup {
   position: fixed;
   z-index: 1100;
   width: 380px;
@@ -2469,12 +2469,12 @@ input:focus, select:focus, textarea:focus {
   overflow: hidden;
 }
 
-.light-theme .pdf-translate-popup {
+.light-theme .snippet-translate-popup {
   background-color: #ffffff;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
 }
 
-.pdf-translate-popup-header {
+.snippet-translate-popup-header {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2489,25 +2489,25 @@ input:focus, select:focus, textarea:focus {
   touch-action: none;
 }
 
-.pdf-translate-popup-header.is-dragging {
+.snippet-translate-popup-header.is-dragging {
   cursor: grabbing;
 }
 
 /* While dragging, the pointer regularly leaves the header: nothing under it
    should highlight or start a selection. */
-.pdf-translate-popup.is-dragging {
+.snippet-translate-popup.is-dragging {
   user-select: none;
 }
 
-.pdf-translate-popup-header button {
+.snippet-translate-popup-header button {
   cursor: pointer;
 }
 
-.pdf-translate-popup-header-spacer {
+.snippet-translate-popup-header-spacer {
   flex: 1;
 }
 
-.pdf-translate-popup-zoom-btn {
+.snippet-translate-popup-zoom-btn {
   background: none;
   border: none;
   color: inherit;
@@ -2518,16 +2518,16 @@ input:focus, select:focus, textarea:focus {
   border-radius: 3px;
 }
 
-.pdf-translate-popup-zoom-btn:hover:not(:disabled) {
+.snippet-translate-popup-zoom-btn:hover:not(:disabled) {
   background-color: color-mix(in srgb, var(--vscode-text-fg) 14%, transparent);
 }
 
-.pdf-translate-popup-zoom-btn:disabled {
+.snippet-translate-popup-zoom-btn:disabled {
   opacity: 0.35;
   cursor: default;
 }
 
-.pdf-translate-popup-zoom-level {
+.snippet-translate-popup-zoom-level {
   font-size: 11px;
   font-weight: 400;
   min-width: 34px;
@@ -2536,7 +2536,7 @@ input:focus, select:focus, textarea:focus {
   font-variant-numeric: tabular-nums;
 }
 
-.pdf-translate-popup-close {
+.snippet-translate-popup-close {
   background: none;
   border: none;
   color: inherit;
@@ -2546,7 +2546,7 @@ input:focus, select:focus, textarea:focus {
   align-items: center;
 }
 
-.pdf-translate-popup-body {
+.snippet-translate-popup-body {
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -2555,19 +2555,37 @@ input:focus, select:focus, textarea:focus {
   overflow-y: auto;
 }
 
-.pdf-translate-popup-label {
-  font-size: calc(10px * var(--pdf-translate-text-scale, 1));
+.snippet-translate-popup-speak {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin-left: 6px;
+  vertical-align: middle;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: var(--vscode-fg-link);
+  cursor: pointer;
+}
+
+.snippet-translate-popup-speak:hover {
+  background-color: var(--vscode-list-hover-bg);
+}
+
+.snippet-translate-popup-label {
+  font-size: calc(10px * var(--snippet-translate-text-scale, 1));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--vscode-descriptionForeground, #888);
 }
 
-.pdf-translate-popup-source {
-  font-size: calc(11px * var(--pdf-translate-text-scale, 1));
+.snippet-translate-popup-source {
+  font-size: calc(11px * var(--snippet-translate-text-scale, 1));
   line-height: 1.45;
   white-space: pre-wrap;
   color: var(--vscode-descriptionForeground, #888);
-  max-height: calc(90px * var(--pdf-translate-text-scale, 1));
+  max-height: calc(90px * var(--snippet-translate-text-scale, 1));
   overflow-y: auto;
   padding: 6px 8px;
   border-radius: 4px;
@@ -2575,14 +2593,14 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid var(--vscode-border);
 }
 
-.pdf-translate-popup-result {
-  font-size: calc(12.5px * var(--pdf-translate-text-scale, 1));
+.snippet-translate-popup-result {
+  font-size: calc(12.5px * var(--snippet-translate-text-scale, 1));
   line-height: 1.5;
   white-space: pre-wrap;
   user-select: text;
 }
 
-.pdf-translate-popup-status {
+.snippet-translate-popup-status {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2590,18 +2608,171 @@ input:focus, select:focus, textarea:focus {
   color: var(--vscode-descriptionForeground, #888);
 }
 
-.pdf-translate-popup-error {
+.snippet-translate-popup-error {
   font-size: 12px;
   line-height: 1.45;
   color: var(--vscode-errorForeground, #f48771);
 }
 
-.pdf-translate-popup-footer {
+.snippet-translate-popup-footer {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
   border-top: 1px solid var(--vscode-border);
+}
+
+/* Local voice manager (Settings > General > Pronunciation). A voice is a real
+   63 MB download, so the list states the size before the user commits and
+   reports progress while it runs. */
+.speech-voice-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid var(--vscode-border);
+  border-radius: 4px;
+}
+
+.speech-voice-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--vscode-border);
+}
+
+.speech-voice-row:last-child { border-bottom: none; }
+.speech-voice-row.is-selected { background-color: var(--vscode-list-active-bg, rgba(0, 122, 204, 0.18)); }
+
+.speech-voice-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.speech-voice-name {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  color: var(--vscode-text-fg);
+  min-width: 0;
+}
+
+.speech-voice-lang {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.speech-voice-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  background: none;
+  border: 1px solid var(--vscode-border);
+  border-radius: 3px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.speech-voice-btn:hover:not(:disabled) { background-color: var(--vscode-list-hover-bg); }
+.speech-voice-btn:disabled { opacity: 0.5; cursor: default; }
+
+.speech-voice-progress {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+}
+
+.speech-voice-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  border-radius: 4px;
+  color: var(--vscode-errorForeground, #f48771);
+  background-color: rgba(244, 135, 113, 0.1);
+}
+
+/* Snippet pronunciation player. Deliberately a single row: it carries a
+   transport, not a document, and it sits over the text the user is reading. */
+.snippet-speech-popup {
+  position: fixed;
+  z-index: 1100;
+  max-width: min(420px, calc(100 * var(--ui-vw) - 24px));
+  display: flex;
+  flex-direction: column;
+  background-color: var(--vscode-sidebar-bg);
+  color: var(--vscode-text-fg);
+  border: 1px solid var(--vscode-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.light-theme .snippet-speech-popup {
+  background-color: #ffffff;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+}
+
+.snippet-speech-popup-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.snippet-speech-popup-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* The excerpt is context for the transport, not the content: one line, elided,
+   so the player never grows into a second reading surface. */
+.snippet-speech-popup-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snippet-speech-popup-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.snippet-speech-popup-btn:hover {
+  background-color: var(--vscode-list-hover-bg);
+}
+
+.snippet-speech-popup-error {
+  padding: 0 8px 8px 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--vscode-errorForeground, #f48771);
 }
 
 /* ── Agent request windows ────────────────────────────────────────────────

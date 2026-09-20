@@ -784,7 +784,7 @@
     "translateToInterface": "Same as interface language",
     "translateToOther": "Other (type a language)",
     "translateToOtherPlaceholder": "e.g. Norwegian",
-    "translateToHint": "Target language used by the PDF viewer's \"Translate selection\" action.",
+    "translateToHint": "Target language used by the \"Translate selection\" action in the PDF viewer and the Markdown preview.",
     "translateLangPtBR": "Português (Brasil)",
     "translateLangEn": "English",
     "translateLangEs": "Español",
@@ -799,7 +799,17 @@
     "interfaceSize_medium": "Medium",
     "interfaceSize_large": "Large",
     "interfaceSize_extraLarge": "Extra Large",
-    "interfaceSizeHint": "Scales the whole interface, not just text. Also available anywhere with Ctrl+Shift+Plus, Ctrl+Shift+Minus and Ctrl+Shift+0."
+    "interfaceSizeHint": "Scales the whole interface, not just text. Also available anywhere with Ctrl+Shift+Plus, Ctrl+Shift+Minus and Ctrl+Shift+0.",
+    "speech": "Pronunciation",
+    "speechEnabled": "Offer \"Pronounce selection\" in document menus",
+    "speechNoModels": "No speech-capable model is registered. Add one in \"Edit Models\" and tick \"Speech synthesis\" — a hosted one, or a local server such as Kokoro-FastAPI, openedai-speech, LocalAI or Piper registered with its api_base.",
+    "speechModelPlaceholder": "Select a speech model...",
+    "speechVoice": "Voice",
+    "speechFormat": "Audio format",
+    "speechSpeed": "Speed",
+    "speechHint": "Reads a selected excerpt aloud in the PDF viewer, the Markdown preview and the chat. A downloaded voice runs entirely on this machine and needs no account; it uses the system espeak-ng to turn text into phonemes. The browser's own voices are not used: the app window ships no speech engine.",
+    "speechEngineLocal": "Downloaded voice (offline)",
+    "speechEngineRemote": "Speech endpoint"
   },
   "hardwareModal": {
     "title": "Hardware Configuration",
@@ -957,7 +967,9 @@
       "chat_multimodal": "Chat completions with image output",
       "images_apiHint": "The standard OpenAI Images contract. Works with OpenAI, Gemini/Imagen, Stability and any compatible local server (LocalAI, Docker Model Runner, vLLM-Omni) set through the connection's base URL.",
       "chat_multimodalHint": "For models that return the image inside a chat reply, such as gemini-2.5-flash-image. Use it when the model is meant to refine an image conversationally."
-    }
+    },
+    "supportsSpeechSynthesisLabel": "Speech synthesis (text to speech)",
+    "supportsSpeechSynthesisHint": "This entry answers /v1/audio/speech and is used only for pronunciation, never for chat. Covers hosted providers and any OpenAI-compatible local server (Kokoro-FastAPI, openedai-speech, LocalAI, Piper) registered with its api_base."
   },
   "connectionForm": {
     "addTitle": "Add Connection",
@@ -1166,7 +1178,10 @@
     "messageQueueError": "Could not queue the message: {{error}}",
     "messageCancelError": "Could not cancel the message: {{error}}",
     "slashCommandWhileRunning": "Slash commands cannot run while the agent is working. Stop the agent first.",
-    "projectCloudCopyRemoved": "Cloud copy of {{name}} deleted."
+    "projectCloudCopyRemoved": "Cloud copy of {{name}} deleted.",
+    "markdownSectionLabel": "Section",
+    "markdownSelectedExcerptLabel": "Excerpt selected in the Markdown preview",
+    "quotedExcerptLabel": "About this excerpt"
   },
   "onboarding": {
     "welcome": "Welcome to OpalaTex! ",
@@ -1281,16 +1296,23 @@
     "addNote": "Add a note here",
     "annotateNeedsSelection": "Select some text in the PDF first.",
     "annotationNotEditable": "This annotation was made by other software and cannot be edited here.",
-    "askAboutDocument": "Ask about this document",
-    "askAboutSelection": "Ask about the selected excerpt",
     "editNote": "Edit note",
     "highlight": "Highlight",
     "highlightColor": "Highlight color",
     "removeAnnotation": "Remove annotation",
     "strikeout": "Strike through",
+    "underline": "Underline",
+    "label": "PDF actions"
+  },
+  "snippetActions": {
+    "askAboutDocument": "Ask about this document",
+    "askAboutSelection": "Ask about the selected excerpt",
     "translate": "Translate selection",
-    "translateNeedsSelection": "Select some text in the PDF first.",
-    "underline": "Underline"
+    "pronounce": "Pronounce selection",
+    "needsSelection": "Select some text first."
+  },
+  "markdownContextMenu": {
+    "label": "Preview actions"
   },
   "pdfNote": {
     "addTitle": "Add a note",
@@ -1303,7 +1325,7 @@
     "saving": "Saving…",
     "title": "Note"
   },
-  "pdfTranslation": {
+  "translation": {
     "title": "Translation",
     "selectedExcerpt": "Selected excerpt",
     "translatingTo": "Translating to {{language}}...",
@@ -1313,7 +1335,31 @@
     "retry": "Try again",
     "increaseText": "Increase text size",
     "decreaseText": "Decrease text size",
-    "dragHint": "Drag to move this window"
+    "dragHint": "Drag to move this window",
+    "speakSource": "Pronounce the excerpt",
+    "speakResult": "Pronounce the translation"
+  },
+  "speech": {
+    "title": "Pronunciation",
+    "synthesizing": "Synthesizing…",
+    "play": "Play",
+    "pause": "Pause",
+    "replay": "Play again",
+    "retry": "Try again",
+    "failed": "Pronunciation failed: {{error}}",
+    "notConfigured": "Pronunciation is not configured yet. Set it up in Settings > General > Pronunciation.",
+    "unsupported": "The configured endpoint has no speech route.",
+    "connection": "The speech endpoint could not be reached.",
+    "auth": "The speech endpoint rejected the credentials.",
+    "undecodable": "The audio arrived but this browser could not decode it. Try another output format in Settings."
+  },
+  "speechVoices": {
+    "installedOnly": "Installed voices",
+    "refresh": "Refresh the voice catalog",
+    "catalogOffline": "The voice catalog could not be reached. Installed voices still work offline.",
+    "empty": "No voice installed yet. Pick a language above to see what can be downloaded.",
+    "download": "Download ({{size}})",
+    "remove": "Remove this voice"
   },
   "cloudSync": {
     "title": "Cloud sync",

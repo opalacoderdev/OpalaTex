@@ -41,6 +41,7 @@ import {
 } from './utils/studioLayout';
 import BottomPanel from './components/BottomPanel';
 import ContextMenu from './components/ContextMenu';
+import { buildAskAboutDocumentPrompt } from './utils/askAboutPrompt';
 import MoveToModal from './components/MoveToModal';
 
 // Modals
@@ -3566,43 +3567,48 @@ export default function App() {
     }
   };
 
-  const buildAskAboutPdfPrompt = ({ pdfPath, sourceFile, page, totalPages, selectedText }) => {
-    const location = totalPages
-      ? `${t('app.pdfPageLabel', 'Page')} ${page}/${totalPages}`
-      : `${t('app.pdfPageLabel', 'Page')} ${page}`;
-    return [
-      `${t('app.askAboutPdfPrompt', 'Consulting about')} ${pdfPath}`,
-      '',
-      `- ${t('app.projectPathLabel', 'Project path')}: ${activeProject?.project_path || ''}`,
-      sourceFile && sourceFile !== pdfPath
-        ? `- ${t('app.pdfSourceFileLabel', 'LaTeX source open in the editor')}: ${sourceFile}`
-        : '',
-      `- ${location}`,
-      '',
-      selectedText
-        ? [
-          `${t('app.pdfSelectedExcerptLabel', 'Excerpt selected in the PDF viewer')}:`,
-          '````text',
-          selectedText,
-          '````',
-          '',
-        ].join('\n')
-        : '',
-      // Left open on purpose: the composer is pre-filled, not sent, so the
-      // caret lands here for the user to finish the question and press Send.
-      t('app.askAboutPdfQuestionLabel', 'My question:') + ' ',
-    ].filter((part) => part !== '').join('\n');
-  };
-
   // "Ask about" only stages the question: it opens the chat and pre-fills the
   // composer so the user completes the prompt and sends it themselves. It never
   // starts a turn, and it never replaces text the user has already typed.
-  const handleAskAboutPdf = (details) => {
-    if (!activeProject || !details?.pdfPath) return;
+  //
+  // The staged text has one shape for every document (utils/askAboutPrompt.js);
+  // only the locator differs, because a PDF has pages and a rendered Markdown
+  // preview has sections.
+  const stageAskAboutPrompt = (prompt) => {
     setIsChatVisible(true);
-    const prompt = buildAskAboutPdfPrompt(details);
     setChatInput((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n\n${prompt}` : prompt));
     setChatInputFocusSignal((prev) => prev + 1);
+  };
+
+  const handleAskAboutPdf = ({ pdfPath, sourceFile, page, totalPages, selectedText } = {}) => {
+    if (!activeProject || !pdfPath) return;
+    const locator = totalPages
+      ? `${t('app.pdfPageLabel', 'Page')} ${page}/${totalPages}`
+      : `${t('app.pdfPageLabel', 'Page')} ${page}`;
+    stageAskAboutPrompt(buildAskAboutDocumentPrompt(t, {
+      documentPath: pdfPath,
+      projectPath: activeProject?.project_path || '',
+      sourceFile,
+      sourceFileLabel: t('app.pdfSourceFileLabel', 'LaTeX source open in the editor'),
+      locator,
+      selectedText,
+      excerptLabel: t('app.pdfSelectedExcerptLabel', 'Excerpt selected in the PDF viewer'),
+    }));
+  };
+
+  const handleAskAboutMarkdown = ({ documentPath, heading, selectedText } = {}) => {
+    if (!activeProject || !documentPath) return;
+    // A rendered preview has no page numbers and no dependable mapping back to
+    // source lines, so the section the excerpt was read in is the locator. It
+    // is omitted rather than guessed when the excerpt sits above the first
+    // heading.
+    stageAskAboutPrompt(buildAskAboutDocumentPrompt(t, {
+      documentPath,
+      projectPath: activeProject?.project_path || '',
+      locator: heading ? `${t('app.markdownSectionLabel', 'Section')}: ${heading}` : '',
+      selectedText,
+      excerptLabel: t('app.markdownSelectedExcerptLabel', 'Excerpt selected in the Markdown preview'),
+    }));
   };
 
   const handleEditUserMessage = async (messageIndex, originalMessage, editedContent) => {
@@ -4620,6 +4626,7 @@ export default function App() {
               onLatexCompileSuccess={handleLatexCompileSuccess}
               onFixLatexProblem={handleFixLatexProblem}
               onAskAboutPdf={handleAskAboutPdf}
+              onAskAboutMarkdown={handleAskAboutMarkdown}
               isAgentRunning={isAgentRunning}
               onTextStatsChange={setEditorTextStats}
               openPreviewByDefault={isStudioLayout || isDocumentLayout}

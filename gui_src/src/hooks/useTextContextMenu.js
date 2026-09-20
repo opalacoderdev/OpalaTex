@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { viewportPointToApp } from '../utils/uiScale';
 import { readClipboard } from '../utils/clipboard.js';
+import { readSelectionWithin } from '../utils/documentSelection.js';
 
 export function useTextContextMenu() {
   const [menu, setMenu] = useState(null);
@@ -8,8 +9,14 @@ export function useTextContextMenu() {
   const onContextMenu = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
+    // The excerpt is captured here, not when a menu item is pressed: pressing
+    // one collapses the selection, so a handler reading it then finds nothing.
+    // It is scoped to the element the menu was opened on, so a selection made
+    // somewhere else in the app is not offered as this surface's excerpt
+    // (utils/documentSelection.js).
+    const selectedText = readSelectionWithin(e.currentTarget);
     // Positioned with left/top inside the zoomed app — see viewportPointToApp.
-    setMenu(viewportPointToApp(e.clientX, e.clientY));
+    setMenu({ ...viewportPointToApp(e.clientX, e.clientY), selectedText });
   }, []);
 
   const close = useCallback(() => setMenu(null), []);
