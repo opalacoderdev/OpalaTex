@@ -50,19 +50,30 @@ def _requirements_txt():
     return _floors((ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines())
 
 
-def _pyproject():
+def _pyproject_gui_extra():
+    """The Qt floors now live in the ``gui`` extra, not in the base install.
+
+    The base install is the command-line interface and never imports Qt; the
+    desktop application asks for it with ``pip install 'opalatex[gui]'``. The
+    floors themselves are unchanged and still have to match requirements.txt.
+    """
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return _floors(data["project"]["optional-dependencies"]["gui"])
+
+
+def _pyproject_base():
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     return _floors(data["project"]["dependencies"])
 
 
 def test_every_qt_package_is_declared_with_a_floor_in_both_files():
-    for source, floors in (("requirements.txt", _requirements_txt()), ("pyproject.toml", _pyproject())):
+    for source, floors in (("requirements.txt", _requirements_txt()), ("pyproject.toml", _pyproject_gui_extra())):
         assert set(floors) == set(VERIFIED), f"{source} must declare all of {sorted(VERIFIED)}"
         assert all(floors.values()), f"{source} declares a Qt package without a floor"
 
 
 def test_the_floor_is_never_below_the_verified_release():
-    for source, floors in (("requirements.txt", _requirements_txt()), ("pyproject.toml", _pyproject())):
+    for source, floors in (("requirements.txt", _requirements_txt()), ("pyproject.toml", _pyproject_gui_extra())):
         for name, verified in VERIFIED.items():
             assert floors[name] >= verified, (
                 f"{source}: {name}>={floors[name]} is below the verified {verified}; "
@@ -72,4 +83,16 @@ def test_the_floor_is_never_below_the_verified_release():
 
 def test_both_files_agree():
     """The snap installs from pyproject.toml, a checkout from requirements.txt."""
-    assert _requirements_txt() == _pyproject()
+    assert _requirements_txt() == _pyproject_gui_extra()
+
+
+def test_the_base_install_carries_no_qt():
+    """`pip install opalatex` must not pull several hundred MB the CLI never loads.
+
+    Every Qt and pywebview import in the package sits inside a function of
+    `opalatex/ide_server.py`, so the base install stays Qt-free by construction;
+    this keeps a dependency line from quietly putting it back.
+    """
+    assert _pyproject_base() == {}, (
+        "Qt belongs to the 'gui' extra, not to [project].dependencies"
+    )

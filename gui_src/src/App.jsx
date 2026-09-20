@@ -393,6 +393,12 @@ export default function App() {
   // Bumped when something outside the chat (e.g. the PDF viewer's "Ask about")
   // drops text into the composer and the caret should land there.
   const [chatInputFocusSignal, setChatInputFocusSignal] = useState(0);
+  // Bumped whenever a speech or dictation setting is saved. The surfaces that
+  // gate a *control* on readiness (the chat's microphone above all) have no
+  // "on open" moment to re-read at, so they watch this instead — see
+  // hooks/useDictation.js.
+  const [speechSettingsSignal, setSpeechSettingsSignal] = useState(0);
+  const bumpSpeechSettings = useCallback(() => setSpeechSettingsSignal((n) => n + 1), []);
   const [pendingAttachments, setPendingAttachments] = useState([]);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
   // Messages typed while a turn is running, waiting to be handed to it. An entry
@@ -4627,6 +4633,7 @@ export default function App() {
               onFixLatexProblem={handleFixLatexProblem}
               onAskAboutPdf={handleAskAboutPdf}
               onAskAboutMarkdown={handleAskAboutMarkdown}
+              speechSettingsSignal={speechSettingsSignal}
               isAgentRunning={isAgentRunning}
               onTextStatsChange={setEditorTextStats}
               openPreviewByDefault={isStudioLayout || isDocumentLayout}
@@ -4661,6 +4668,7 @@ export default function App() {
               chatInput={chatInput}
               setChatInput={setChatInput}
               chatInputFocusSignal={chatInputFocusSignal}
+              speechSettingsSignal={speechSettingsSignal}
               isAgentRunning={isAgentRunning}
               agentStepInfo={agentStepInfo}
               heartbeatMode={heartbeatMode}
@@ -4753,6 +4761,7 @@ export default function App() {
               chatInput={chatInput}
               setChatInput={setChatInput}
               chatInputFocusSignal={chatInputFocusSignal}
+              speechSettingsSignal={speechSettingsSignal}
               isAgentRunning={isAgentRunning}
               agentStepInfo={agentStepInfo}
               heartbeatMode={heartbeatMode}
@@ -4891,6 +4900,7 @@ export default function App() {
 
       {isSettingsOpen && (
         <SettingsModal
+          onSpeechSettingsChange={bumpSpeechSettings}
           onClose={() => setIsSettingsOpen(false)}
           settingsTab={settingsTab}
           setSettingsTab={setSettingsTab}

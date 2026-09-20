@@ -413,7 +413,8 @@ def opalatex_tool(name: str, description: str, is_safe: bool = False):
 
             # Now we are in 'edit' or 'plan' mode, and the tool is NOT safe.
             is_run_command_safe = False
-            question = f"O agente quer usar a ferramenta '{name}'. Permitir?"
+            from .i18n import _ as _translate
+            question = _translate("tool_permission_question", tool=name)
             
             if name == "run_command":
                 cmd = kwargs.get("command") or (args[0] if args else "")
@@ -422,7 +423,7 @@ def opalatex_tool(name: str, description: str, is_safe: bool = False):
                 if base_cmd in SAFE_SHELL_COMMANDS and not is_writing:
                     is_run_command_safe = True
                 else:
-                    question = f"O agente quer executar o comando: '{cmd}'. Permitir?"
+                    question = _translate("command_permission_question", command=cmd)
             
             if is_run_command_safe:
                 return True
@@ -442,31 +443,24 @@ def opalatex_tool(name: str, description: str, is_safe: bool = False):
                 if res.startswith("Execution blocked"):
                     return res
                 
-                # Ask user for permission using a custom confirm modal
-                import uuid
+                # Ask the user for permission. Every front-end answers this the
+                # same way (agent_stdin.request_user_input): the GUI over HTTP,
+                # the stdin protocol with an `input_response` command, the CLI
+                # with a terminal prompt.
                 import asyncio
-                from opalatex.agent_stdin import print_event, _gui_input_pending
-                loop = asyncio.get_event_loop()
-                req_id = str(uuid.uuid4())
-                fut = loop.create_future()
-                _gui_input_pending[req_id] = fut
-                
-                print_event("input_request", {
-                    "id": req_id,
-                    "prompt": res,
-                    "type": "confirm",
-                    "options": ["yes", "no", "always"],
-                    "default": "yes"
-                })
-                
+                from opalatex.agent_stdin import request_user_input
                 try:
-                    raw = await asyncio.wait_for(asyncio.shield(fut), timeout=86400.0) # wait up to 24h
+                    raw = await request_user_input(
+                        res,
+                        options=["yes", "no", "always"],
+                        default="yes",
+                        input_type="confirm",
+                    )
                     ans = str(raw).strip().lower()
                 except asyncio.TimeoutError:
+                    # An unanswered permission request is not permission.
                     ans = "no"
-                finally:
-                    _gui_input_pending.pop(req_id, None)
-                    
+
                 if ans not in ("yes", "y", "s", "sim", "true", "1", "always", "a"):
                     _DENIED_TOOLS.add(name)
                     return f"Execution blocked: The user denied permission to use '{name}'. Choose a safe alternative or explain what is needed."
@@ -2549,47 +2543,35 @@ async def create_plan(plan_content: str) -> str:
     
     T.info("Presenting Proposed Plan to user for approval...")
     
-    # Emit custom input_request with markdown_content instead of using T.aconfirm
-    import uuid
+    # The plan travels as `markdown_content` so a front-end can render it and
+    # let the user edit it before approving; the answer comes back through the
+    # one input channel every front-end implements.
     import asyncio
-    from opalatex.agent_stdin import print_event, _gui_input_pending
-    
-    loop = asyncio.get_event_loop()
-    req_id = str(uuid.uuid4())
-    fut = loop.create_future()
-    _gui_input_pending[req_id] = fut
-    
-    print_event("input_request", {
-        "id": req_id,
-        "prompt": "Review the proposed plan below:",
-        "markdown_content": plan_content,
-        "type": "confirm",
-        "options": ["yes", "no"],
-        "default": "no"
-    })
-    
+    from opalatex.agent_stdin import request_user_input
+
     try:
-        raw = await asyncio.wait_for(asyncio.shield(fut), timeout=86400.0) # wait up to 24h
-        
-        # Try parsing JSON if the frontend sent the edited content
+        raw = await request_user_input(
+            "Review the proposed plan below:",
+            options=["yes", "no"],
+            default="no",
+            input_type="confirm",
+            markdown_content=plan_content,
+        )
+
+        # A front-end that allows editing answers with JSON carrying the edited plan.
         import json
         try:
             data = json.loads(raw)
             approved_str = data.get("response", "no")
             edited_plan = data.get("editedContent", plan_content)
         except Exception:
-            approved_str = raw.strip()
+            approved_str = str(raw).strip()
             edited_plan = plan_content
-            
+
         approved = approved_str.lower() in ("yes", "y", "s", "sim", "true", "1")
     except asyncio.TimeoutError:
         _record_mode_event("[PLAN EXPIRED] No approval was received. Execution remains blocked.")
         raise ValueError("Plan approval expired without a response. The plan was NOT approved; do not execute it.")
-    finally:
-        _gui_input_pending.pop(req_id, None)
-        print_event("input_request_closed", {"id": req_id})
-        if not fut.done():
-            fut.cancel()
     
     if approved:
         prev_mode = getattr(_PROJECT_SESSION, "_initial_mode", "plan")

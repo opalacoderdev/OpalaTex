@@ -53,10 +53,15 @@ def _normalize(name: str) -> str:
 
 
 def qt_floors(pyproject: Path = ROOT / "pyproject.toml") -> dict[str, Version]:
-    """The minimum version pyproject.toml declares for each Qt package."""
+    """The minimum version pyproject.toml declares for each Qt package.
+
+    Qt belongs to the ``gui`` extra, not to the base install: the base install is
+    the command-line interface and never imports it. The build installs
+    ``.[gui]``, so that is the list this gate has to read.
+    """
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     floors: dict[str, Version] = {}
-    for line in data["project"]["dependencies"]:
+    for line in data["project"]["optional-dependencies"]["gui"]:
         req = Requirement(line)
         name = _normalize(req.name)
         if name in QT_PACKAGES:

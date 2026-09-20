@@ -12,6 +12,7 @@ LaTeX compilation is performed locally with Tectonic. All editor features work w
 - Local models through Ollama and configurable external providers
 - Project, terminal, Git, and document-export tools
 - English and Brazilian Portuguese interface
+- A command-line interface that runs the same agent without the desktop window
 
 ## Minimum Software Requirements
 
@@ -91,6 +92,82 @@ sudo snap remove opalatex
 ## Feedback and bug reports
 
 Open **Settings > About > Send feedback on GitHub** inside OpalaTex. The application opens a pre-filled issue at the [OpalaTex issue tracker](https://github.com/opalacoderdev/OpalaTex/issues) with version and runtime information. Nothing is submitted automatically, so review the issue and remove private information before publishing it.
+
+## Command-line interface
+
+The same agent, projects and skills, in a terminal instead of a window. It is the base
+install, with no desktop stack:
+
+```bash
+uv tool install opalatex     # or: pip install opalatex
+```
+
+The desktop application needs the `gui` extra:
+
+```bash
+pip install "opalatex[gui]"
+```
+
+LaTeX compilation uses a `tectonic` found on your `PATH`.
+
+### Usage
+
+```bash
+cd my-thesis
+opalatex --cli                       # interactive session for the project in this folder
+opalatex --cli --here                # register this folder as a new project first
+opalatex --cli --project my-thesis   # pick a project by name
+
+opalatex -p "fix the compilation errors in chapter 3"   # one turn, then exit
+echo "summarise the changes" | opalatex -p -            # prompt from standard input
+```
+
+The answer streams as the model writes it, tool calls appear as `⏺ tool_name(...)` with
+their results, and reasoning is dimmed (`/thoughts off`, `/tools off` to quieten them).
+`Ctrl+C` interrupts the running turn without ending the session — what the agent had
+already written is kept, and `/resume` continues from there. In `edit` mode the agent
+asks for permission in the terminal before each change; in `plan` mode it presents the
+plan for approval.
+
+`/help` lists the commands by section with the arguments each one takes, and
+`/help <command>` shows worked examples — `/help /models`, `/help /providers`,
+`/help /chat`. Beyond the commands shared with the desktop chat, the terminal adds
+`/chat` (list, create, switch conversations), `/compile`, `/cost` and `/resume`.
+
+### Registering a model
+
+A usable model is two records: a provider connection holding the credentials, and a
+catalog entry naming a model under it. Both are managed from any text front-end.
+
+```bash
+/providers add label="Ollama Gil" provider=ollama api_base=http://192.168.0.10:11434/v1
+/providers add label="OpenAI" provider=openai api_key=sk-...
+/providers                                    # list connections
+
+/models add name=gemma4:26b connection=ollama-gil num_ctx=65000 supports_thinking=true
+/models list                                  # the catalog
+/models show ollama/gemma4:26b
+/models set ollama/gemma4:26b profile=light policy=delegate
+/models remove ollama/gemma4:26b
+
+/set-main-model ollama/gemma4:26b             # point this project at it
+```
+
+Any of these also runs as a one-shot, so a machine can be set up from a script:
+
+```bash
+opalatex -p '/providers add label="Ollama Gil" provider=ollama api_base=http://192.168.0.10:11434/v1'
+opalatex -p '/models add name=gemma4:26b connection=ollama-gil num_ctx=65000'
+```
+
+`/set-main-model` only stores an id; without a catalog entry behind it there is no API
+base, no key and no capabilities. An unrecognised field is refused rather than guessed
+at, so a typo cannot become an invisible setting — a parameter you do want forwarded to
+the provider is written `extra.keep_alive=30m`.
+
+The editor features — PDF preview, SyncTeX, rich-text and WYSIWYG modes, PDF
+annotations, presentation mode, dictation and read-aloud — are part of the window and
+have no terminal equivalent.
 
 ## Development setup
 

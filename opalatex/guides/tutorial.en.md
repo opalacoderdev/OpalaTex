@@ -551,3 +551,96 @@ of starting over.
 prompts: `/help`, `/clear`, `/skills`, `/models`, `/set-main-model <id>`,
 `/set-worker-model <id>`, `/undo`, `/commit <msg>`, and others. Type `/help` for the
 full list.
+
+## command-line :: Can I run OpalaTex from the terminal, without the window?
+
+Yes. The same agent, the same projects, the same skills — rendered in a terminal
+instead of a window.
+
+**Starting it** — `opalatex --cli` opens the interactive session. Run it inside a
+project directory and it opens that project; add `--here` to register the current
+directory as a new project, or `--project <name>` to pick one by name.
+
+**A single question** — `opalatex -p "fix the compilation errors in chapter 3"` runs one
+turn and exits, which is the form to use in a script or a Makefile. `-p -` reads the
+prompt from standard input.
+
+**What you see while it works** — the answer streams in as the model writes it, each
+tool call appears as `⏺ tool_name(...)` with its result underneath, and the reasoning
+is shown dimmed. `/thoughts off` and `/tools off` quieten either one.
+
+**Interrupting** — `Ctrl+C` stops the running turn, not the session: whatever the agent
+had already written is saved, and `/resume` continues from there. `Ctrl+D` or `/exit`
+quits.
+
+**Approving things** — in `edit` mode the agent asks in the terminal before each change,
+and in `plan` mode it shows the plan for approval the same way the window does. `/mode`
+switches between `auto`, `plan` and `edit`.
+
+**Commands** — `/help` lists them by section with the arguments each one takes, and
+`/help <command>` shows that command's worked examples (`/help /models`,
+`/help /providers`, `/help /chat`). Everything in the desktop chat works here, plus a
+few that only make sense in a terminal: `/chat` to list, create and switch conversations, `/compile` to build the PDF
+with Tectonic, `/cost` to see how full the context window is, and `/resume`.
+
+**Installing just this** — the command-line interface is the base install:
+`pip install opalatex` or `uv tool install opalatex` gives you the agent without the
+desktop stack. The window needs `pip install "opalatex[gui]"`. LaTeX compilation uses a
+`tectonic` found on your `PATH`.
+
+**What it cannot do** — anything that is the editor rather than the agent: the PDF
+preview, SyncTeX, the rich-text and WYSIWYG modes, PDF annotations, presentation mode,
+dictation and read-aloud. Those live in the window.
+
+## cli-models :: How do I register a model and a provider from the terminal?
+
+A usable model is two records, and you create both from any text front-end — the
+`--cli` session, `opalatex -p`, the stdin protocol, or this chat's command box.
+
+**1. The provider connection** holds the credentials, shared by every model under it:
+
+```
+/providers add label="Ollama Gil" provider=ollama api_base=http://192.168.0.10:11434/v1
+/providers add label="OpenAI" provider=openai api_key=sk-...
+/providers                       # list them, with how many models each one carries
+```
+
+The id is derived from the label (`ollama-gil`); pass `id=<your-id>` to choose it.
+Running `add` again with the same id edits that connection, and leaving `api_key` out
+keeps the stored one — only `api_key=` (empty) clears it.
+
+**2. The catalog model** names a model under a connection and describes it:
+
+```
+/models add name=gemma4:26b connection=ollama-gil num_ctx=65000 supports_thinking=true
+/models add name=gpt-4o-mini connection=openai temperature=0.3
+/models list
+/models show ollama/gemma4:26b
+/models set ollama/gemma4:26b profile=light policy=delegate
+/models remove ollama/gemma4:26b
+```
+
+**3. Point the project at it:**
+
+```
+/set-main-model ollama/gemma4:26b
+/set-worker-model ollama/gemma4:26b
+```
+
+**Why both steps matter** — `/set-main-model` only stores an id. Without a catalog
+entry behind it there is no API base, no key and no capabilities, so the run reaches the
+provider unauthenticated and every per-model setting reads as unset.
+
+**Fields** — `name`, `connection` (alias of `connection_id`), `id`, `num_ctx` (alias
+`context`), `supports_thinking` (alias `thinking`), `requires_single_system_message`,
+`prompt_profile` (alias `profile`: `full` or `light`), `orchestrator_policy` (alias
+`policy`: `direct` or `delegate`), `temperature`, `max_tokens`, `seed`, `top_p`, `top_k`,
+`min_p`, `frequency_penalty`, `presence_penalty`, `repetition_penalty`,
+`reasoning_effort`, `supports_image_generation`, `image_route`,
+`supports_speech_synthesis`, `speech_route`.
+
+Anything else is refused rather than guessed at, so a typo cannot become an invisible
+setting. A parameter you *do* want forwarded to the provider is written with a prefix:
+`extra.keep_alive=30m`.
+
+Values with spaces are quoted: `label="My provider"`.

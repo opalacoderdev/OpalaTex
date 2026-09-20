@@ -16,7 +16,7 @@ import { useTranslation } from 'react-i18next';
 
 const formatMb = (bytes) => `${Math.round((Number(bytes) || 0) / 1e6)} MB`;
 
-export default function SpeechVoiceManager({ selected, onSelect }) {
+export default function SpeechVoiceManager({ selected, onSelect, onChanged }) {
   const { t } = useTranslation();
   const [state, setState] = useState({
     catalog: [], installed: [], downloads: {}, phonemizer_problem: '', catalog_error: '',
@@ -86,6 +86,7 @@ export default function SpeechVoiceManager({ selected, onSelect }) {
       pollRef.current = null;
       setBusy('');
       load();
+      onChanged?.();
     }
   };
 
@@ -106,6 +107,7 @@ export default function SpeechVoiceManager({ selected, onSelect }) {
     } finally {
       setBusy('');
       load();
+      onChanged?.();
     }
   };
 

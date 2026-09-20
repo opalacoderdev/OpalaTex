@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
-import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock, Activity, Zap, ChevronDown } from 'lucide-react';
+import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock, Activity, Zap, ChevronDown, Mic, Square } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { FormattedMessage } from '../utils/formatMessage';
@@ -15,6 +15,7 @@ import TranslationPopup from './TranslationPopup.jsx';
 import SpeechPopup from './SpeechPopup.jsx';
 import { useSnippetTranslation } from '../hooks/useSnippetTranslation.js';
 import { useSnippetSpeech } from '../hooks/useSnippetSpeech.js';
+import { useDictation } from '../hooks/useDictation.js';
 import { buildQuoteExcerptPrompt } from '../utils/askAboutPrompt.js';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
 import ModelSelect from './ModelSelect.jsx';
@@ -77,6 +78,7 @@ export default function ChatPanel({
   chatMessages,
   chatInput,
   chatInputFocusSignal = 0,
+  speechSettingsSignal = 0,
   setChatInput,
   isAgentRunning,
   agentStepInfo = { step: 0, maxSteps: null },
@@ -164,7 +166,7 @@ export default function ChatPanel({
     replay: replaySpeech,
     retry: retrySpeech,
     close: closeSpeech,
-  } = useSnippetSpeech({});
+  } = useSnippetSpeech({ settingsSignal: speechSettingsSignal });
 
   const handleChatContextMenu = useCallback((e) => {
     closeTranslation();
@@ -173,6 +175,19 @@ export default function ChatPanel({
     refreshSpeechAvailability();
     onContextMenu(e);
   }, [onContextMenu, closeTranslation, refreshSpeechAvailability]);
+
+  // Dictation: record, stop, insert. The transcript lands in the composer for
+  // the user to read and send — it never starts a turn, because transcription
+  // makes mistakes and an unreviewed one would reach the agent as if it had
+  // been typed.
+  const handleDictatedText = useCallback((text) => {
+    setChatInput((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')} ${text}` : text));
+  }, [setChatInput]);
+
+  const dictation = useDictation({
+    onText: handleDictatedText,
+    settingsSignal: speechSettingsSignal,
+  });
 
   const handleQuoteExcerpt = useCallback((m) => {
     const prompt = buildQuoteExcerptPrompt(t, m?.selectedText);
@@ -1171,7 +1186,7 @@ export default function ChatPanel({
         onAskAbout={handleQuoteExcerpt}
         onTranslate={handleTranslateExcerpt}
         onPronounce={handlePronounceExcerpt}
-        canPronounce={speechAvailability.enabled}
+        canPronounce={speechAvailability.ready}
         pronounceUnavailableHint={speechAvailability.problem}
       />
 
@@ -1180,7 +1195,7 @@ export default function ChatPanel({
         onClose={closeTranslation}
         onRetry={retryTranslation}
         onCopy={copyTranslation}
-        onSpeak={speechAvailability.enabled ? speak : undefined}
+        onSpeak={speechAvailability.ready ? speak : undefined}
       />
 
       <SpeechPopup
@@ -2485,6 +2500,23 @@ export default function ChatPanel({
             </div>
           );
         })()}
+        {dictation.state === 'error' && (
+          <div className="vscode-chat-dictation-error" role="status">
+            <AlertTriangle size={12} style={{ flexShrink: 0 }} />
+            <span>
+              {dictation.error === 'denied'
+                ? t('dictation.denied', 'Microphone access was refused. Allow it and try again.')
+                : dictation.error === 'silent'
+                  ? t('dictation.silent', 'Nothing was recorded — check the microphone and try again.')
+                  : dictation.error === 'unsupported'
+                    ? t('dictation.unsupported', 'This window cannot reach a microphone.')
+                    : t('dictation.failed', 'Transcription failed: {{error}}', { error: dictation.error })}
+            </span>
+            <button type="button" onClick={dictation.dismissError} aria-label={t('common.close', 'Close')}>
+              <X size={12} />
+            </button>
+          </div>
+        )}
         <div className="vscode-chat-input-row">
           {/* Hidden file input */}
           <input
@@ -2510,6 +2542,39 @@ export default function ChatPanel({
           >
             <Paperclip size={15} />
           </button>
+          {/* Microphone. Shown whenever the user asked for it in Settings, and
+              disabled *with its reason* when it cannot run yet. Hiding it when
+              not ready meant ticking the box appeared to do nothing, which is
+              indistinguishable from a broken build — the failure this replaced.
+              A model still downloading is exactly that state. */}
+          {dictation.availability.offered && (
+            <button
+              type="button"
+              onClick={dictation.toggle}
+              disabled={!activeProject || !dictation.availability.ready
+                        || dictation.state === 'transcribing'}
+              title={
+                !dictation.availability.ready
+                  ? (dictation.availability.problem
+                     || t('dictation.notReady', 'Dictation is not ready yet.'))
+                  : dictation.state === 'recording'
+                    ? t('dictation.stop', 'Stop recording and transcribe')
+                    : dictation.state === 'transcribing'
+                      ? t('dictation.transcribing', 'Transcribing…')
+                      : t('dictation.start', 'Dictate a message')
+              }
+              aria-label={t('dictation.start', 'Dictate a message')}
+              className={`vscode-chat-mic-btn${dictation.state === 'recording' ? ' is-recording' : ''}`}
+            >
+              {dictation.state === 'recording' ? (
+                <Square size={13} />
+              ) : dictation.state === 'transcribing' ? (
+                <RefreshCw size={14} className="animate-spin" />
+              ) : (
+                <Mic size={15} />
+              )}
+            </button>
+          )}
           <textarea
             ref={inputRef}
             rows={1}

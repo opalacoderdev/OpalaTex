@@ -29,15 +29,11 @@ dependencies = [
     "instructor>=1.15.1",
     "litellm>=1.95.0",
     "chromadb>=0.4.0",
-    "pywebview>=4.0",
-    "pywinpty>=2.0.0; sys_platform == 'win32'",
-    # Oldest Qt verified to run OpalaTex on Windows; see requirements.txt and
-    # PROJECT_DESIGN.md 2.16.1 (6.8: PDF viewer breaks; 6.10.2: agent crashes).
-    "PyQt6>=6.11.0",
-    "PyQt6-Qt6>=6.11.2",
-    "PyQt6-WebEngine>=6.11.0",
-    "PyQt6-WebEngine-Qt6>=6.11.2",
-    "qtpy>=2.4.0",
+    # Symbol extraction for search_code (opalatex/code_index.py). Declared here
+    # and not only in requirements.txt: a pip install without it degraded to the
+    # regex path silently.
+    "tree-sitter>=0.25.0",
+    "tree-sitter-language-pack>=1.8.0",
     "ddgs>=6.0",
     "Pillow>=10.0.0",
     "python-docx>=1.1.2",
@@ -53,8 +49,41 @@ dependencies = [
     "pytest-asyncio>=0.23.0",
 ]
 
+# The base install is the command-line interface: `pip install opalatex` (or
+# `uv tool install opalatex`) gives a working agent -- projects, skills, tools,
+# LaTeX compilation through a `tectonic` on PATH -- with no desktop stack.
+#
+# The desktop application needs the `gui` extra. Qt alone is several hundred MB
+# that the CLI never imports: every Qt and pywebview import in the package is
+# inside a function of `opalatex/ide_server.py`, so requiring them of every
+# install only made the CLI expensive, never more capable. `opalatex --gui`
+# without the extra fails with a diagnostic naming it (opalatex/cli.py), rather
+# than falling back to a different interface than the one that was asked for.
 [project.optional-dependencies]
 embeddings = ["sentence-transformers>=3.0.0"]
+
+# Local speech-to-text for the chat's dictation button (opalatex/transcription.py).
+# MIT, CPU-only, and it brings ctranslate2 + av rather than torch. Models are
+# downloaded on demand, not bundled.
+speech = ["faster-whisper>=1.1.0"]
+
+gui = [
+    "pywebview>=4.0",
+    "pywinpty>=2.0.0; sys_platform == 'win32'",
+    # Oldest Qt verified to run OpalaTex on Windows; see requirements.txt and
+    # PROJECT_DESIGN.md 2.16.1 (6.8: PDF viewer breaks; 6.10.2: agent crashes).
+    "PyQt6>=6.11.0",
+    "PyQt6-Qt6>=6.11.2",
+    "PyQt6-WebEngine>=6.11.0",
+    "PyQt6-WebEngine-Qt6>=6.11.2",
+    "qtpy>=2.4.0",
+    "faster-whisper>=1.1.0",
+]
+
+# What the packaged desktop releases install.
+all = [
+    "opalatex[gui,embeddings]",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/opalacoderdev/OpalaTex"

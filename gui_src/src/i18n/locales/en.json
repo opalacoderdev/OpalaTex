@@ -809,7 +809,16 @@
     "speechSpeed": "Speed",
     "speechHint": "Reads a selected excerpt aloud in the PDF viewer, the Markdown preview and the chat. A downloaded voice runs entirely on this machine and needs no account; it uses the system espeak-ng to turn text into phonemes. The browser's own voices are not used: the app window ships no speech engine.",
     "speechEngineLocal": "Downloaded voice (offline)",
-    "speechEngineRemote": "Speech endpoint"
+    "speechEngineRemote": "Speech endpoint",
+    "dictation": "Dictation",
+    "dictationEnabled": "Offer a microphone button in the chat",
+    "dictationModel": "Model",
+    "dictationLanguage": "Language",
+    "dictationLanguageAuto": "Detect automatically",
+    "dictationDownload": "Download",
+    "dictationRemove": "Remove",
+    "dictationDownloading": "Downloading…",
+    "dictationHint": "Records from the microphone and types what you said into the chat composer, for you to review before sending. The model runs on this machine, so nothing is uploaded. Larger models are markedly more accurate outside English: on a Portuguese test sentence, tiny and base both misheard a word while small reproduced it exactly."
   },
   "hardwareModal": {
     "title": "Hardware Configuration",
@@ -1360,6 +1369,16 @@
     "empty": "No voice installed yet. Pick a language above to see what can be downloaded.",
     "download": "Download ({{size}})",
     "remove": "Remove this voice"
+  },
+  "dictation": {
+    "start": "Dictate a message",
+    "stop": "Stop recording and transcribe",
+    "transcribing": "Transcribing…",
+    "denied": "Microphone access was refused. Allow it and try again.",
+    "silent": "Nothing was recorded — check the microphone and try again.",
+    "unsupported": "This window cannot reach a microphone.",
+    "failed": "Transcription failed: {{error}}",
+    "notReady": "Dictation is not ready yet."
   },
   "cloudSync": {
     "title": "Cloud sync",

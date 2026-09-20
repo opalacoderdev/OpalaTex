@@ -12,13 +12,18 @@ The diagram below outlines the communication between the OpalaTex React/Vite fro
 graph TD
     subgraph Client [OpalaTex Client - Local Machine]
         FE[React/Vite Front-end] <-->|HTTP / WebSocket / streamed JSON events| BE[Python Local Server - ide_server.py]
-        BE <-->|JSON IPC / task orchestration| Bridge[Agent IPC Bridge - agent_stdin.py]
+        CLI[Terminal Front-end - cli.py / cli_render.py] <-->|in-process calls / same event stream| Bridge
+        BE <-->|JSON IPC / task orchestration| Bridge[Agent Turn Engine - agent_stdin.py]
         Bridge <-->|AgenticBlocks Framework| Agent[Orchestrator Agent - memgpt_runtime.py]
     end
 
     BE <-->|LiteLLM| Provider[Local Ollama or user-configured third-party API]
     FE -->|Donation link only, no account or billing data| Web[OpalaWebPage - www.opalacoder.com]
 ```
+
+There are two front-ends and **one** agent turn engine. The desktop window reaches
+`agent_stdin.handle_run` over HTTP; the command-line interface calls it in process and
+renders the same event stream to a terminal (§2.20).
 
 ---
 
@@ -42,6 +47,7 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
   - `opalatex/latex_compiler.py`: Handles compiling LaTeX using Tectonic (`tectonic` CLI), supporting full, partial (chapter/file), and fast single-pass draft compilation (`tectonic -X compile` with `-r 0`).
   - `synctex_parser.py`: Maps PDF rendering view back to the corresponding LaTeX lines.
 - **Snippet Translation (`opalatex/translation.py`)**: A provider-neutral translation of a text excerpt, used by the *Translate selection* action in the PDF viewer and the Markdown preview. See §2.13.
+- **Dictation (`opalatex/transcription.py`, `opalatex/transcription_config.py`)**: Transcribes a recording from the chat composer with a Whisper model running on this machine. See §2.13.3.
 - **Snippet Pronunciation (`opalatex/speech.py`, `opalatex/speech_config.py`, `opalatex/voice_store.py`)**: Reads a text excerpt aloud, either from a Piper voice downloaded into `<opalatex home>/voices/` and run in-process, or through the OpenAI speech contract against a hosted provider or a local server. Used by the *Pronounce selection* action in the PDF viewer, the Markdown preview and the chat. See §2.13.1.
 - **Image Generation (`opalatex/image_gen_config.py`)**: Global settings (enabled, model, size, output folder) for the `generate_image` tool, which produces project files through the provider-neutral `ImageGenerationBlock` of the vendored AgenticBlocks. See §2.12.
 - **Document Export Tools**:
@@ -349,6 +355,22 @@ OpalaTex teaches itself through a **chat**, not a step-by-step tour: the `Gradua
 - **`speed` is inverted on the way in.** Piper's `length_scale` is duration, so it runs opposite to speed: 2× faster is a length scale of 0.5. Getting this backwards makes the control do the precise opposite of what it says, so it is pinned by a test.
 - **Each missing piece names the one thing to do next** (`speech_config.configuration_problem`): disabled → enable it; no voice → download one, with its size; voice selected but absent → download it again; everything present but no espeak-ng → the platform's install command. "Speech is unavailable" tells the user nothing they can act on, and this string is what the disabled menu item shows as its reason. Removing the selected voice clears the setting, since a configuration pointing at a deleted voice would fail at synthesis time instead of at the moment it became wrong.
 
+
+### 2.13.3 Dictation (`agenticblocks/blocks/transcription/`, `gui_src/src/hooks/useDictation.js`)
+
+- **The microphone works in the desktop shell, and that was measured before anything was built.** §2.13.1 records that the browser's *speech synthesis* is dead in QtWebEngine, so the opposite direction could not be assumed. It is not: served from `http://127.0.0.1:3000` the page is a **secure context** (`isSecureContext: true`), so `navigator.mediaDevices.getUserMedia` and `MediaRecorder` are both present, and `ide_server.py`'s pywebview patch already grants `MediaAudioCapture`. Measured from a real `http://127.0.0.1` origin — from a `setHtml` page `mediaDevices` is `undefined`, which is the trap this check exists to avoid.
+- **The audio is converted to 16 kHz mono WAV in the browser** (`gui_src/src/utils/audioWav.js`). `MediaRecorder` produces WebM/Opus and Whisper wants 16 kHz PCM; decoding Opus in Python would mean depending on **ffmpeg, which is not present on the host** (checked). The browser already ships `decodeAudioData` and `OfflineAudioContext`, and `OfflineAudioContext(1, n, 16000)` was verified to work in this shell — so the conversion happens where the tools already are, and the backend accepts a plain WAV with no new dependency. Stereo is **averaged**, not truncated to channel 0: a device recording on one side of a pair would otherwise come through silent. Full-scale samples are scaled asymmetrically (`-32768`/`32767`), because scaling both signs by 32768 overflows the positive peak and turns a loud syllable into noise.
+- **Silence is detected on the client, because Whisper does not report it.** A muted microphone yields a perfectly valid, perfectly *silent* WAV, and Whisper answers silence with confident hallucinated text. `isEffectivelySilent` (RMS) turns that into "nothing was recorded" instead of pasting a sentence the user never said into the composer. The threshold sits below quiet speech, since reporting an empty recording for soft dictation reads as a broken microphone.
+- **Offered and ready are two different questions** (`gui_src/src/utils/featureAvailability.js`). Collapsing them into one boolean is what hid the microphone: the button was rendered only when dictation could *run*, so ticking "offer a microphone button" while the model was still missing made the setting appear to do nothing — indistinguishable from a broken build, which is exactly how it was first reported. `offered` (the user's setting) now decides whether the control exists; `ready` decides whether it is enabled; `problem` is its tooltip. A half-finished setup explains itself instead of vanishing, the same rule the context-menu items already followed.
+- **Readiness is re-read when the settings change, because this control has no "on open" moment** (`App.jsx: speechSettingsSignal`, threaded to `ChatPanel`, `EditorPanel` and `PdfPreview`). The excerpt menus refresh when they open (§2.13.1), which is why they never showed this defect; the microphone's own *presence* is what is gated, so reading availability once on mount meant a Settings change took effect only after a remount. Every write that can flip readiness announces it — the two settings saves, a Whisper model download or removal, and a voice download or removal — following the counter-signal pattern `chatInputFocusSignal` already established rather than introducing an event bus for it.
+- **Record, stop, insert — the transcript is staged, never sent.** The button toggles recording; on stop the text lands in the composer for the user to read and send. Transcription makes mistakes, and an unreviewed one would reach the agent as if it had been typed — the same reason "Ask about" stages a question rather than asking it (§2.13). The microphone button is rendered **only when dictation is actually ready**, so it is never a control that can only fail, and a refused permission is reported as a choice the user can change rather than as an error.
+- **The recording is the request body.** `POST /api/transcribe` takes raw WAV bytes with the language as a query parameter; base64 inside a JSON envelope would cost a third of the payload again for nothing. A body that is not a WAV is refused by magic-number check *before* it reaches the decoder, so "that is not audio" stays a clear message instead of an opaque engine error.
+- **Whisper is the one place Whisper belongs.** It is ASR, not TTS — it cannot be inverted to produce speech, which is why §2.13.2 uses Piper instead. Here it is exactly the right model, and it is multilingual, which `Moonshine` (smaller, MIT) is not: English-only was disqualifying for a bilingual application.
+- **faster-whisper rather than hand-driven ONNX, and the asymmetry with Piper is the reason.** A Piper voice is a single forward pass, so §2.13.2 drives `onnxruntime` directly and costs no dependency. Whisper is autoregressive — mel spectrogram, encoder, a decode loop with KV cache, BPE detokenization — and hand-rolling that buys a dependency-free build at the price of a great deal of code whose failures are silent. `faster-whisper` (MIT) is one call; it adds `ctranslate2` (~40 MB, MIT) and `av`, while `tokenizers` and `huggingface-hub` were already installed. `openai-whisper` was rejected because it pulls torch.
+- **`small` is the default, measured rather than assumed.** On a Portuguese sentence, `tiny` (78 MB) and `base` (148 MB) *both* substituted the same word — `base` additionally dropped accents — while `small` (486 MB) reproduced the sentence exactly, punctuation included. Outside English the first two sizes are not merely worse, they are wrong often enough to make dictation annoying, so the default is the first size that actually works and the smaller ones stay available for whoever wants the disk back. `.en` variants are deliberately **not offered**: this application is bilingual by design and an English-only model silently mistranscribes everything else rather than failing. (One sentence of synthetic speech is a signal, not a benchmark.)
+- **Models are downloaded on demand into `<opalatex home>/whisper/<size>/`**, like voices, and the size from the client is sanitized to an offered value rather than trusted as a path segment. A model counts as installed only when both its weights *and* its tokenizer are present — a directory with one of them loads and then fails mid-transcription — and a partial download is discarded rather than listed. The transfer runs in `asyncio.to_thread`, as does every transcription, because the server runs one event loop for everything (§2.6), and `local_files_only=True` at load time means a missing model is a configuration problem to report, never a download started while the user waits with a recording in hand.
+- **A loaded model is cached, one at a time.** Loading Whisper costs hundreds of milliseconds and hundreds of megabytes, and a dictating user speaks many short clips in a row; a second cached model would be a second copy of the weights for a configuration nobody is using. Removing a model clears the cache, which also releases the handle Windows would otherwise hold.
+
 ### 2.14 PDF Annotations (standalone PDFs)
 - **The marks are written into the PDF itself, not into a sidecar** (`opalatex/pdf_annotations.py`, `/api/pdf/annotations*`): highlight, underline, strike-through and sticky notes become standard PDF annotation objects via PyMuPDF. The decisive argument is not export, it is that **the format is a two-way street**. Someone reading a paper in an academic editor has usually already marked it up in Zotero, Acrobat or a tablet reader; native storage means those marks appear here with no import step, and marks made here travel back out. A private JSON sidecar would read nothing and export nothing — it would be one more island. It also costs less to build: the viewer already renders annotations (`renderAnnotationLayer`, `AnnotationLayer.css`), so only creation was missing, where a sidecar would have needed rendering, persistence and a format invented from scratch.
 - **Only for PDFs opened on their own, never the compiled preview**: the gate is `canAnnotate = directUrl && selectedFile.endsWith('.pdf')`. The LaTeX preview's PDF is a build artifact that `pdflatex` overwrites on every compile, so anything written into it would be destroyed without warning. That single distinction is what makes in-file storage the correct choice here and the wrong one there; for the compiled preview the annotation equivalent is a `\todo` in the source, which survives because it *is* the source.
@@ -532,6 +554,140 @@ The counterpart of §2.18 on the backend: what an agent uses to *write* a deck. 
 - **Converting an existing `.tex` deck is a skill, not a tool** (`skills/tex-to-jpt/`). The mapping from Beamer frames to slides is judgement — which frames are sections, which overlay build should become consecutive slides, what a `$x^2$` inside a bullet should turn into — and judgement belongs in instructions the model reads, not in a function. What is *mechanical* is a script beside it: `scripts/tikz_to_image.py` harvests the deck's own preamble (`\usetikzlibrary`, `\definecolor`, `\newcommand`) into a `standalone` document, compiles it with the tectonic OpalaTex ships, and rasters it through PyMuPDF — because a picture compiled without its preamble either fails cryptically or silently draws something else. The skill also documents what a `.jpt` cannot carry (overlays, `\ref`, themes) so the conversion says so instead of losing it quietly, and what the equation element's KaTeX actually accepts, verified against the shipped version.
 - **Tests**: `tests/test_jpt_format.py` (the JSON model, schema and cross-language byte exactness), `tests/test_jpt_package.py` (container determinism, deduplication, safety and migration), `tests/test_jpt_api.py` (logical reads/writes and media ranges), `tests/test_jpt_authoring.py` (layout properties, every linter rule and the tools), and `tests/test_tex_to_jpt_skill.py` (the conversion skill).
 
+
+### 2.20 Command-Line Interface (`opalatex/cli.py`, `opalatex/cli_render.py`, `opalatex/cli_commands.py`)
+
+The CLI is a **front-end**, not a second product. `opalatex --cli` starts an interactive
+REPL, `opalatex -p "<prompt>"` runs one turn and exits, and both drive the same
+`agent_stdin.handle_run` the desktop window drives. The agent workflow is unchanged: the
+fixed MemGPT chat-orchestrator converses and delegates to skills through `run_skill`.
+
+- **One turn engine.** The REPL previously called `memgpt.run()` directly, which was a
+  thinner, parallel implementation of a turn: no streaming, no tool trace, none of the
+  empty-response or serialized-tool-call recovery, no interrupted-turn persistence, no
+  context measurement, no mode restoration. All of that lives in `handle_run`. Routing
+  the REPL through it is what keeps the two front-ends from drifting, and it is why a
+  fix to turn handling reaches both.
+- **One event stream, two renderers.** `agent_stdin.print_event` publishes every
+  streamed chunk, thought, tool call, problem and final response. `ide_server` installs
+  a hook that forwards them to the browser; `cli_render.install()` installs one that
+  renders them to a terminal. With no hook, `print_event` falls back to writing the raw
+  JSON protocol to stdout — which is what the CLI used to display, one protocol line per
+  token.
+- **Rendering contract**, carried over from the GUI: streamed text is printed raw and
+  never parsed as Markdown while partial; the final `agent_response` is not printed
+  again when the stream already showed it, because there is exactly one user-facing text
+  channel. `stream_retract` (an orphan `</think>` proving published text was reasoning)
+  erases the text when it is still the visible tail of a TTY, and otherwise labels it —
+  it arrives again as a `thought` either way. A `reflection` is held back one event: the
+  closing iteration's reflection *is* the answer, and the desktop app can give it a
+  panel of its own while a terminal has one column. Tool-call narration emitted for
+  panel-based front-ends is tagged `auxiliary` and suppressed where the tool call itself
+  is already shown.
+- **Asking a human.** The two things a tool must ask — permission for an unsafe tool in
+  `edit` mode, and approval of a plan — used to write straight to `_gui_input_pending`,
+  a future only `/api/opalatex/input_response` resolved. Under `--cli` and `--stdin`
+  nothing could answer and both waited out the 24-hour timeout.
+  `agent_stdin.request_user_input` is now the single channel: it always publishes an
+  `input_request` event, and the answer arrives from the GUI over HTTP, from the stdin
+  protocol through an `input_response` command, or from a transport installed with
+  `set_input_transport` (the terminal prompt). An unanswered request still times out;
+  the caller decides what that means, because a tool defaults to refusing and a plan
+  defaults to not approved.
+- **Interruption.** `Ctrl+C` cancels the turn's task — the same thing
+  `/api/opalatex/interrupt` does — so `handle_run` records the interruption and keeps
+  what the agent had written. It used to break the REPL loop, so interrupting a long
+  turn quit the application. `/resume` continues from the stored turn, matching the
+  markers in `agent_stdin.TURN_MARKERS` exactly as the window's Continue button does.
+- **stdout ownership.** The JSON line protocol owns stdout, and `agent_stdin` used to
+  claim it at *import* time by assigning `sys.stdout = sys.stderr`. The REPL imports that
+  module to reuse the turn engine, so every Rich frame the CLI drew went to stderr and
+  `opalatex --cli > log.txt` captured nothing. The redirection now belongs to
+  `claim_stdout_for_protocol()`, called by `start_stdin_server()`.
+- **Project selection.** An explicit `--project`, else the project registered for the
+  working directory (`ProjectStore.find_by_path`), else the interactive menu; `--here`
+  registers the current directory. `--mode` is applied only when passed: writing the
+  flag's default back on every start silently reset a project the window had left in
+  `auto`.
+- **Discoverable help.** `/help` groups the commands into sections and prints each one's
+  argument shape, and `/help <command>` prints its worked examples (`details=` on the
+  registration). The listing used to go through Rich's markup parser, so every usage
+  string written with brackets — `[n]`, `[auto|plan|edit]`,
+  `[list | add key=value...]` — was read as markup and dropped: precisely the commands
+  with a shape worth looking up showed none of it. Help text is now printed literally
+  (`markup=False`), and `handle_slash_command` passes literal text through untouched and
+  fences it, instead of re-reading it with the heuristics that turn ordinary command
+  output into chat Markdown.
+- **Shared command registry.** `cli_commands._registry` backs both the REPL and the
+  GUI's `/`-commands (`agent_stdin.handle_slash_command`). Commands marked `cli_only`
+  (`/chat`, `/resume`, `/thoughts`, `/tools`, `/compile`) are refused by the GUI door
+  rather than silently doing nothing there, and are hidden from its `/help`. The
+  orchestrator a `REPLState` may need is built on first use, so the GUI no longer
+  constructs one per slash command.
+
+#### 2.20.1 Registering a Model from a Text Front-End (`opalatex/cli_catalog.py`)
+
+A usable model is two records, and both were writable only through the desktop Settings
+dialog: a **provider connection** (label, LiteLLM provider, API base, key — credentials
+live here, so rotating a key updates every model under it) and a **catalog model** (a
+name under a connection plus the capabilities and inference parameters that describe it).
+`/set-main-model` only stores an id on the project; with no catalog entry behind that id,
+`config.get_agent_llm_kwargs` resolves no `api_base`, no key and no capabilities, so the
+run reaches the provider unauthenticated and every per-model setting reads as unset.
+
+`/providers` and `/models <subcommand>` manage them. They are in the shared registry and
+are **not** `cli_only`: they change a global store rather than terminal state, so they
+work in the REPL, in `opalatex -p`, over the stdin protocol and in the desktop chat's
+command box. Bare `/models` still answers what the current project runs on.
+
+- **Arguments are `key=value` pairs**, quoted where they contain spaces, with aliases for
+  the way the fields are spoken (`connection`, `thinking`, `profile`, `policy`,
+  `context`). An unrecognised key is **refused with the list of known fields** instead of
+  being forwarded to the provider as an inference parameter: unknown keys are exactly how
+  a typo such as `num_ctxx=5` would become a setting that silently does nothing.
+  Deliberate pass-through parameters are written `extra.<name>=<value>` and land in
+  `extra_model_params`.
+- **Ids follow the desktop form's rule**, now shared through
+  `models_store.suggest_model_id` / `suggest_connection_id` rather than duplicated:
+  `provider/name`, suffixed with the connection id when a different entry already holds
+  that base id — the shape `resolve_runtime_model_id` strips back to `provider/name` for
+  LiteLLM.
+- **A model row never stores its connection's credentials.** `provider`, `api_key`,
+  `api_base` and `connection_label` are joined from the connection on read
+  (`_row_to_model`); writing them back would leave a copy of the key in the model row,
+  stale the moment it is rotated. The desktop form does not send them either.
+- **Editing a connection preserves its key** unless `api_key=` is passed empty, so
+  relabelling does not silently de-authenticate every model under it. Deleting a
+  connection still in use is refused, naming the models that block it.
+
+Two reach fixes came with them, both general rather than specific to the catalog: the
+stdin protocol gained a single `slash_command` command rather than one protocol verb per
+feature, and `opalatex -p` dispatches a prompt beginning with `/` through the registry
+instead of sending it to the model. Registering a model from a shell script is the same
+need a one-shot prompt serves, and handing `/models add …` to the model as though it were
+a question would have been the wrong action entirely.
+
+#### 2.20.1 Distribution
+
+The base install is the command-line interface: `pip install opalatex` or
+`uv tool install opalatex` yields a working agent — projects, skills, tools, and LaTeX
+compilation through a `tectonic` on `PATH` — with no desktop stack. The desktop
+application is the `gui` extra (`pip install "opalatex[gui]"`), which the packaged
+builds and the snap install.
+
+Every Qt and pywebview import in the package sits inside a function of `ide_server.py`,
+so the split is structural rather than conditional: `opalatex.cli`, `cli_render`,
+`agent_stdin` and `memgpt_runtime` import none of them, and a test asserts it. Requesting
+`--gui` without the extra fails with a diagnostic naming it; it must not fall back to the
+CLI, which would substitute a different product for the one that was asked for.
+
+Feature parity is complete for everything that is the *agent* (skills, file and document
+tools, web search, image generation, Git and shadow checkpoints, Tectonic compilation,
+cloud mirroring) and absent for everything that is the *editor* (PDF preview, SyncTeX,
+rich-text and WYSIWYG modes, PDF annotations, presentation mode, dictation and
+read-aloud), which the terminal has no surface for.
+
+---
 
 ## 3. OpalaWebPage (Marketing Site)
 

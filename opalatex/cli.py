@@ -1,25 +1,36 @@
-"""OpalaTex CLI – entry point."""
+"""OpalaTex CLI – entry point.
+
+The REPL is a terminal front-end over the same turn engine the desktop app runs:
+every message goes through ``agent_stdin.handle_run``, and the structured events
+that turn publishes are rendered by ``opalatex/cli_render.py``. It used to call
+``memgpt.run()`` directly, which was a second, thinner implementation of a turn --
+no streaming, no tool trace, no empty-response or serialized-tool-call recovery,
+no interrupted-turn persistence, no context measurement. Those all live in
+``handle_run``; routing through it is what keeps the two front-ends from drifting.
+
+The agent workflow itself is untouched: the fixed MemGPT chat-orchestrator
+converses and delegates to skills through ``run_skill`` exactly as before.
+"""
 
 import asyncio
 import argparse
 import os
+import signal
 import sys
 
 from . import __version__
 from .config import DEFAULT_MODEL, DEFAULT_MAX_RETRIES, DEFAULT_MODE, DEFAULT_DB_PATH, DEFAULT_LANG
 from .project import ProjectStore, ProjectData
 from . import terminal as T
-from agenticblocks.blocks.llm.agent import AgentInput
 from .i18n import _, set_lang
 from rich.markup import escape as _escape
 from .cli_commands import REPLState, _registry
 
-def _inject_project(project: ProjectData, prompt: str) -> str:
-    """Prepend project context to every prompt sent to agents."""
-    return project.context_header() + prompt
+#: Where the REPL keeps its input history between sessions.
+HISTORY_FILENAME = "cli_history"
 
 
-# ─── Project startup menu ─────────────────────────────────────────────────────
+# ─── Project startup ──────────────────────────────────────────────────────────
 
 async def startup_menu(store: ProjectStore, args) -> ProjectData:
     """Show the project selection/creation menu and return a ready ProjectData."""
@@ -37,9 +48,7 @@ async def startup_menu(store: ProjectStore, args) -> ProjectData:
             idx = options.index(choice) - 1
             name = projects[idx]["name"]
             project = store.load(name)
-            project.mode = args.mode
-            project.model = args.model
-            store.save(project)
+            _apply_mode_override(project, store, args)
             T.success(f"Project '{project.project_name or project.name}' loaded.")
             return project
     else:
@@ -47,19 +56,28 @@ async def startup_menu(store: ProjectStore, args) -> ProjectData:
         return await _create_project(store, args)
 
 
-async def _create_project(store: ProjectStore, args) -> ProjectData:
+async def _create_project(store: ProjectStore, args, project_path: str = "") -> ProjectData:
     """Interactively create a new project.
 
     A new project starts minimal: only the mandatory chat-orchestrator skill is
     active. Other skills are opt-in — the user adds them with /addskill (which
     writes <project>/skills.yaml). No development skill is auto-loaded.
+
+    ``project_path``, when given, is used without asking: it is the directory the
+    user already chose by running the CLI there.
     """
     from .skills import discover_skills, MANDATORY_SKILLS
 
-    project_name = T.ask("Project name").strip() or "default"
-    cwd = os.getcwd()
-    entered_path = T.ask(f"Project path [{cwd}]").strip()
-    project_path = os.path.abspath(entered_path if entered_path else cwd)
+    default_name = os.path.basename(os.path.abspath(project_path)) if project_path else ""
+    prompt = f"Project name [{default_name}]" if default_name else "Project name"
+    project_name = T.ask(prompt).strip() or default_name or "default"
+
+    if project_path:
+        project_path = os.path.abspath(project_path)
+    else:
+        cwd = os.getcwd()
+        entered_path = T.ask(f"Project path [{cwd}]").strip()
+        project_path = os.path.abspath(entered_path if entered_path else cwd)
 
     if not os.path.exists(project_path):
         os.makedirs(project_path, exist_ok=True)
@@ -78,7 +96,7 @@ async def _create_project(store: ProjectStore, args) -> ProjectData:
 
     project = store.create(
         name=db_key,
-        mode=args.mode,
+        mode=args.mode or DEFAULT_MODE,
         model=args.model,
         project_name=project_name,
         project_path=project_path,
@@ -89,109 +107,373 @@ async def _create_project(store: ProjectStore, args) -> ProjectData:
     return project
 
 
-# ─── REPL Loop ────────────────────────────────────────────────────────────────
+def _apply_mode_override(project: ProjectData, store: ProjectStore, args) -> None:
+    """Apply ``--mode`` only when it was actually passed.
 
-async def repl_loop(project: ProjectData, store: ProjectStore, max_retries: int) -> None:
+    The mode is a stored, per-project setting that the desktop app also reads and
+    writes. Writing the flag's default over it on every start meant opening the
+    CLI silently reset a project the user had left in 'auto' back to 'plan', for
+    the GUI too.
+    """
+    if getattr(args, "mode", None):
+        project.mode = args.mode
+        store.save(project)
+
+
+async def resolve_project(store: ProjectStore, args) -> ProjectData:
+    """Pick the project this run works on.
+
+    Order: an explicit ``--project``, then the project registered for the working
+    directory, then the interactive menu. The directory step is what makes
+    ``cd thesis && opalatex --cli`` open that project the way a shell tool is
+    expected to, instead of asking which of the user's projects they meant while
+    standing inside one of them.
+    """
+    if args.project:
+        if not store.exists(args.project):
+            T.error(f"Project '{args.project}' not found.")
+            raise T.AppExit()
+        project = store.load(args.project)
+        _apply_mode_override(project, store, args)
+        return project
+
+    cwd = os.getcwd()
+    registered = store.find_by_path(cwd)
+    if registered:
+        project = store.load(registered)
+        _apply_mode_override(project, store, args)
+        T.success(f"Project '{project.project_name or project.name}' loaded from {cwd}.")
+        return project
+
+    if args.here:
+        return await _create_project(store, args, project_path=cwd)
+
+    return await startup_menu(store, args)
+
+
+# ─── Agent turns ──────────────────────────────────────────────────────────────
+
+def _install_sigint(handler) -> callable:
+    """Route SIGINT to *handler* for the duration of a turn; return the undo.
+
+    Ctrl+C used to break out of the REPL's ``while`` loop, so interrupting a
+    long turn quit the application. It now cancels the turn's task, which is the
+    same thing /api/opalatex/interrupt does in the desktop app: ``handle_run``
+    catches the cancellation, records the interruption, and keeps whatever the
+    agent had already written.
+    """
+    loop = asyncio.get_event_loop()
+    previous = signal.getsignal(signal.SIGINT)
+
+    try:
+        loop.add_signal_handler(signal.SIGINT, handler)
+
+        def restore() -> None:
+            try:
+                loop.remove_signal_handler(signal.SIGINT)
+            except (NotImplementedError, RuntimeError):
+                pass
+            try:
+                signal.signal(signal.SIGINT, previous)
+            except (TypeError, ValueError, OSError):
+                pass
+
+        return restore
+    except (NotImplementedError, RuntimeError):
+        # Windows has no add_signal_handler. The C-level handler runs in the
+        # main thread, so it can only hand the work back to the loop.
+        def _forward(_signum, _frame) -> None:
+            loop.call_soon_threadsafe(handler)
+
+        try:
+            signal.signal(signal.SIGINT, _forward)
+        except (TypeError, ValueError, OSError):
+            return lambda: None
+
+        def restore_windows() -> None:
+            try:
+                signal.signal(signal.SIGINT, previous)
+            except (TypeError, ValueError, OSError):
+                pass
+
+        return restore_windows
+
+
+def _adopt_turn_state(state: REPLState) -> None:
+    """Take over the project/store/orchestrator the finished turn owns.
+
+    ``handle_run`` keeps them in module globals for the duration of a turn
+    (PROJECT_DESIGN 2.6) and writes the turn's history and mode into them, so the
+    REPL's own references are stale the moment a turn ends.
+    """
+    from . import agent_stdin
+
+    if agent_stdin.current_project is not None:
+        state.project = agent_stdin.current_project
+    if agent_stdin.current_store is not None:
+        state.store = agent_stdin.current_store
+    if agent_stdin.current_memgpt is not None:
+        state.memgpt = agent_stdin.current_memgpt
+
+
+async def run_turn(
+    state: REPLState,
+    prompt: str,
+    *,
+    db_path: str,
+    resume_interrupted: bool = False,
+) -> bool:
+    """Run one agent turn and render it. Returns False when it was interrupted."""
+    from . import agent_stdin
+
+    if state.renderer is not None:
+        state.renderer.begin_turn()
+
+    data = {
+        "agent": "chat_orchestrator",
+        "prompt": prompt,
+        "project_name": state.project.name,
+        "project_path": state.project.project_path,
+        "chat_id": state.project.current_chat_id,
+        "db": db_path,
+    }
+    if resume_interrupted:
+        data["resume_interrupted"] = True
+
+    task = asyncio.ensure_future(agent_stdin.handle_run(data))
+
+    def _cancel() -> None:
+        if not task.done():
+            T.warning(_("cli_interrupting"))
+            task.cancel()
+
+    restore_sigint = _install_sigint(_cancel)
+    try:
+        # Waiting on the task rather than awaiting it keeps a cancellation from
+        # propagating into this coroutine, which was never cancelled itself.
+        await asyncio.wait({task})
+    finally:
+        restore_sigint()
+        _adopt_turn_state(state)
+
+    if task.cancelled():
+        T.warning(_("cli_turn_interrupted"))
+        return False
+
+    error = task.exception()
+    if error is not None:
+        # handle_run reports everything it catches through the event stream; a
+        # failure reaching here escaped it, so it has not been shown yet.
+        T.error(_("unexpected_error", err=error))
+        if os.environ.get("OPALATEX_DEBUG") == "1":
+            import traceback
+
+            traceback.print_exception(type(error), error, error.__traceback__)
+    return True
+
+
+def _has_model(project: ProjectData) -> bool:
+    return bool(str(getattr(project, "model", "") or "").strip())
+
+
+# ─── REPL ─────────────────────────────────────────────────────────────────────
+
+def _history_path() -> str:
+    from .config import get_opalatex_home
+
+    return os.path.join(get_opalatex_home(), HISTORY_FILENAME)
+
+
+def _setup_readline() -> None:
+    """Persistent input history and slash-command completion, when available."""
+    try:
+        import readline
+    except ImportError:  # pragma: no cover - Windows without pyreadline
+        return
+
+    path = _history_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if os.path.exists(path):
+            readline.read_history_file(path)
+        readline.set_history_length(2000)
+    except OSError:
+        pass
+
+    names = _registry.names()
+
+    def complete(text: str, index: int):
+        if not text.startswith("/"):
+            return None
+        matches = [name for name in names if name.startswith(text)]
+        return matches[index] + " " if index < len(matches) else None
+
+    try:
+        readline.set_completer(complete)
+        readline.set_completer_delims(" \t\n")
+        readline.parse_and_bind("tab: complete")
+    except Exception:
+        pass
+
+
+def _save_readline_history() -> None:
+    try:
+        import readline
+
+        readline.write_history_file(_history_path())
+    except Exception:
+        pass
+
+
+def _read_prompt(state: REPLState) -> str:
+    """Read one line from the user. Raises EOFError on Ctrl+D."""
+    T.console.print(
+        f"\n[bold cyan]{_escape(state.display_name)}[/bold cyan] "
+        f"[dim]({state.project.mode})[/dim]"
+    )
+    raw = input("› ").strip()
+    T._check_cancel(raw)
+    return raw
+
+
+async def repl_loop(project: ProjectData, store: ProjectStore, args) -> None:
     from .tools import set_project_context
     from .skills import active_skills
+    from . import cli_render
 
     set_project_context(project, store)
+    renderer = cli_render.install()
+    _setup_readline()
+
+    state = REPLState(project, store, renderer=renderer)
 
     T.section(f"Active Project: {_escape(project.project_name or project.name)}")
     T.console.print(f"  [dim]Path:   {_escape(project.project_path)}[/dim]")
     _active = ", ".join(s["name"] for s in active_skills(project.project_path))
     T.console.print(f"  [dim]Skills: {_active}[/dim]")
+    T.console.print(f"  [dim]{_('type_help')} {_('cli_interrupt_hint')}[/dim]")
 
-    # REPLState builds the MemGPT chat-orchestrator (and seeds its memory from
-    # project.history).
-    state = REPLState(project, store)
+    if not _has_model(state.project):
+        T.warning(_("cli_no_model_configured"))
 
-    async def _resume_via_memgpt() -> None:
-        """Route resume through the MemGPT: it will call run_skill to continue."""
-        store.append_message(state.project, "user", "[RESUME] continue the previous implementation")
-        with T.spinner(_("agent_thinking")):
-            resp = await state.memgpt.run(AgentInput(
-                prompt=_inject_project(state.project,
-                    "Continue or complete the previous implementation that was interrupted.")
-            ))
-        if resp.response:
-            T.console.print(f"\n[bold green]OpalaTex:[/bold green] {resp.response.strip()}\n")
-            store.append_message(state.project, "assistant", resp.response.strip())
-        store.save(state.project)
-
-    if state.project.request and state.project.plan_text and not state.project.results:
-        T.warning(_("pending_demand", request=state.project.request[:50]))
-        choice = T.choose(_("resume_or_clear"), [_("resume"), _("clear")])
-        if choice == _("resume"):
-            await _resume_via_memgpt()
-        else:
-            state.project.clear_state()
-            store.save(state.project)
-    else:
-        checkpoint_path = os.path.join(project.project_path, CHECKPOINT_SUBPATH)
-        if os.path.exists(checkpoint_path):
-            T.warning("[yellow]Foi detectada uma execução de agente não finalizada (checkpoint salvo).[/yellow]")
-            choice = T.choose(_("resume_or_clear"), [_("resume"), _("clear")])
-            if choice == _("resume"):
-                await _resume_via_memgpt()
-            else:
-                try:
-                    os.remove(checkpoint_path)
-                except Exception:
-                    pass
+    await _offer_resume_at_startup(state, args)
 
     while True:
         try:
-            user_input = T.ask(f"OpalaTex ({state.display_name})")
+            user_input = _read_prompt(state)
             if not user_input:
                 continue
 
             if user_input.startswith("/"):
-                cmd, *args = user_input.split(maxsplit=1)
+                cmd, *rest = user_input.split(maxsplit=1)
                 if cmd not in _registry:
                     T.error(_("unknown_command", cmd=cmd))
                     continue
-                result = await _registry.dispatch(state, cmd, args)
+                result = await _registry.dispatch(state, cmd, rest)
                 if result == "break":
                     break
-                elif result == "continue":
-                    continue
+                if result == "resume":
+                    T.info(_("cli_resume_starting"))
+                    await run_turn(state, "", db_path=args.db, resume_interrupted=True)
+                continue
 
-            else:
-                # Skills-oriented architecture: the fixed MemGPT chat-orchestrator
-                # handles BOTH conversation and orchestration. It converses directly
-                # and, when a request matches a skill, calls run_skill(...) which
-                # spawns a sub-agent (whose dialogue is mirrored back into the MemGPT
-                # memory by the interceptor). No separate intent classifier.
-                store.append_message(state.project, "user", user_input)
-                with T.spinner(_("agent_thinking")):
-                    resp_obj = await state.memgpt.run(
-                        AgentInput(prompt=_inject_project(state.project, user_input))
-                    )
-                response = resp_obj.response.strip() if resp_obj.response else ""
-                if response:
-                    T.console.print(f"\n[bold green]OpalaTex:[/bold green] {response}\n")
-                    store.append_message(state.project, "assistant", response)
-                store.save(state.project)
+            if not _has_model(state.project):
+                T.error(_("cli_no_model_configured"))
+                continue
+
+            await run_turn(state, user_input, db_path=args.db)
 
         except KeyboardInterrupt:
-            T.info(_("repl_interrupted"))
-            break
+            # At the prompt, not during a turn: nothing is running to interrupt.
+            T.console.print()
+            T.info(_("cli_interrupt_hint"))
         except EOFError:
             T.info(_("exiting"))
             break
         except T.UserCancelled:
             T.info(_("repl_cancelled"))
-            state.project.clear_state()
-            store.save(state.project)
         except T.AppExit:
             T.info(_("exiting"))
             break
         except Exception as e:
-            T.section(_("phase_5"))
             import traceback
+
             traceback.print_exc()
             T.error(_("unexpected_error", err=e))
+
+    _save_readline_history()
+    cli_render.uninstall()
+
+
+async def _offer_resume_at_startup(state: REPLState, args) -> None:
+    """Offer to continue a turn this chat never finished.
+
+    The previous code looked for a checkpoint *file* whose path constant no
+    longer existed anywhere in the project -- the REPL raised ``NameError`` here
+    on every start. Checkpoints moved to shadow Git (``opalatex/vcs.py``) and an
+    unfinished turn is now recorded in the chat itself, with the same markers the
+    desktop app's "Continue" button matches (``agent_stdin.TURN_MARKERS``).
+    """
+    from .agent_stdin import unfinished_turn_content
+
+    if not unfinished_turn_content(getattr(state.project, "history", []) or []):
+        return
+    T.warning(_("cli_unfinished_turn_detected"))
+    if not await T.aconfirm(_("resume_or_clear") + f" [{_('resume')}]", default=True):
+        return
+    T.info(_("cli_resume_starting"))
+    await run_turn(state, "", db_path=args.db, resume_interrupted=True)
+
+
+# ─── One-shot ─────────────────────────────────────────────────────────────────
+
+async def run_once(project: ProjectData, store: ProjectStore, prompt: str, args) -> int:
+    """Run a single prompt and exit. The scriptable form of the REPL."""
+    from .tools import set_project_context
+    from . import cli_render
+
+    set_project_context(project, store)
+    if not _has_model(project):
+        T.error(_("cli_no_model_configured"))
+        return 2
+
+    renderer = cli_render.install()
+    state = REPLState(project, store, renderer=renderer)
+    try:
+        completed = await run_turn(state, prompt, db_path=args.db)
+    finally:
+        cli_render.uninstall()
+    return 0 if completed else 130
+
+
+async def run_command_once(project: ProjectData, store: ProjectStore, line: str, args) -> int:
+    """Run a single slash command and exit.
+
+    Registering a model, switching mode or listing checkpoints from a shell
+    script is the same need a one-shot prompt serves, and sending `/models add
+    ...` to the model as if it were a question would be the wrong action
+    entirely.
+    """
+    from .tools import set_project_context
+    from . import cli_render
+
+    set_project_context(project, store)
+    cmd, *rest = line.split(maxsplit=1)
+    if cmd not in _registry:
+        T.error(_("unknown_command", cmd=cmd))
+        return 2
+
+    renderer = cli_render.install()
+    state = REPLState(project, store, renderer=renderer)
+    try:
+        result = await _registry.dispatch(state, cmd, rest)
+        if result == "resume":
+            T.info(_("cli_resume_starting"))
+            completed = await run_turn(state, "", db_path=args.db, resume_interrupted=True)
+            return 0 if completed else 130
+    finally:
+        cli_render.uninstall()
+    return 0
 
 
 # ─── CLI entrypoint ───────────────────────────────────────────────────────────
@@ -202,8 +484,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="OpalaTex – project-centric coding agent",
     )
     parser.add_argument("--version", action="version", version=f"OpalaTex {__version__}")
-    parser.add_argument("--mode", choices=["auto", "plan", "edit"], default=DEFAULT_MODE)
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LLM model (default: {DEFAULT_MODEL})")
+    parser.add_argument(
+        "--mode", choices=["auto", "plan", "edit"], default=None,
+        help="Override the project's stored mode for this run onwards (default: keep it)",
+    )
+    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LLM model for a project created in this run (default: {DEFAULT_MODEL})")
     parser.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES)
     parser.add_argument("--db", default=DEFAULT_DB_PATH)
     parser.add_argument("--lang", choices=["en", "pt"], default=DEFAULT_LANG)
@@ -213,7 +498,47 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stdin", action="store_true", help="Start agent server in stdin/stdout mode")
     parser.add_argument("--gui", action="store_true", help="Start agent server with React Web GUI (Default)")
     parser.add_argument("--cli", action="store_true", help="Start in interactive CLI REPL mode")
+    parser.add_argument("--project", metavar="NAME", help="Work on this project instead of the one in the current directory")
+    parser.add_argument("--here", action="store_true", help="Create a project for the current directory when none is registered for it")
+    parser.add_argument(
+        "-p", "--prompt", metavar="TEXT",
+        help="Run a single prompt and exit, instead of starting the REPL. Reads stdin when TEXT is '-'.",
+    )
     return parser
+
+
+def _read_stdin_prompt() -> str:
+    data = sys.stdin.read()
+    return data.strip()
+
+
+def gui_bundle_path() -> str:
+    """Absolute path of the built React front-end inside the package."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "gui", "index.html")
+
+
+def _start_gui_or_explain() -> None:
+    """Launch the desktop window, or say plainly why this install cannot.
+
+    The graphical interface needs the ``gui`` extra and the built front-end
+    bundle, which a command-line install carries neither of. Starting anyway
+    would leave ``start_gui_server`` serving its API with no pages and opening a
+    browser on a blank one; falling back to the REPL instead would substitute a
+    different product for the one that was asked for. Both are worse than saying
+    what is missing.
+
+    A missing *pywebview* is deliberately not checked here: the server's own
+    fallback opens the built front-end in the default browser, which is still the
+    graphical interface.
+    """
+    bundle = gui_bundle_path()
+    if not os.path.exists(bundle):
+        T.error(_("cli_gui_unavailable"))
+        T.console.print(f"[dim]Front-end bundle not found at {_escape(bundle)}[/dim]")
+        sys.exit(2)
+    from .ide_server import start_gui_server
+
+    start_gui_server(host="127.0.0.1", port=3000)
 
 
 def main() -> None:
@@ -229,6 +554,7 @@ def main() -> None:
     if args.debug:
         from opalatex.config import setup_debug_logging
         setup_debug_logging()
+        os.environ["OPALATEX_DEBUG"] = "1"
 
     set_lang(args.lang)
 
@@ -261,17 +587,32 @@ def main() -> None:
             T.error(f"Project '{args.delete}' not found.")
         sys.exit(0)
 
+    # A prompt is a command-line run by definition; the REPL and the window are
+    # both interactive, and neither can carry one.
+    if args.prompt:
+        prompt = _read_stdin_prompt() if args.prompt == "-" else args.prompt
+        if not prompt:
+            T.error("Empty prompt.")
+            sys.exit(2)
+        try:
+            project = asyncio.run(resolve_project(store, args))
+        except T.AppExit:
+            sys.exit(2)
+        if prompt.startswith("/"):
+            sys.exit(asyncio.run(run_command_once(project, store, prompt, args)))
+        sys.exit(asyncio.run(run_once(project, store, prompt, args)))
+
     # Default to launching the GUI server unless --cli is explicitly passed
     if not getattr(args, "cli", False):
-        from .ide_server import start_gui_server
-        start_gui_server(host="127.0.0.1", port=3000)
+        _start_gui_or_explain()
         sys.exit(0)
 
-    T.print_banner(version=__version__, mode=args.mode)
-
     try:
-        project = asyncio.run(startup_menu(store, args))
-        asyncio.run(repl_loop(project, store, max_retries=args.max_retries))
+        project = asyncio.run(resolve_project(store, args))
+        # After resolution, so the banner reports the mode this session will
+        # actually run in rather than the configured default.
+        T.print_banner(version=__version__, mode=project.mode)
+        asyncio.run(repl_loop(project, store, args))
     except KeyboardInterrupt:
         T.warning(_("repl_interrupted"))
         sys.exit(0)

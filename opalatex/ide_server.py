@@ -5494,6 +5494,107 @@ class AsyncHTTPServer:
             self.send_response(writer, 404, b'{"error":"unknown voices endpoint"}', "application/json")
             return
 
+        # 7k7. Dictation settings — GET / POST
+        elif path == '/api/settings/transcription' and method == 'GET':
+            from opalatex import transcription_config as tc
+            try:
+                cfg = dict(tc.load_config())
+                cfg["models"] = tc.catalog()
+                cfg["compute_types"] = list(tc.COMPUTE_TYPES)
+                cfg["downloads"] = tc.download_progress()
+                # The composer reads this to decide whether to offer the
+                # microphone at all; "" means ready.
+                cfg["problem"] = tc.configuration_problem()
+                self.send_response(writer, 200, json.dumps(cfg).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        elif path == '/api/settings/transcription' and method == 'POST':
+            from opalatex import transcription_config as tc
+            try:
+                tc.save_config(data)
+                self.send_response(writer, 200, json.dumps({
+                    "success": True, **tc.load_config(),
+                    "problem": tc.configuration_problem(),
+                }).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7k8. Transcription models — download / remove
+        elif path == '/api/transcription/models' and method == 'POST':
+            from opalatex import transcription_config as tc
+            from opalatex.transcription_config import ModelStoreError
+
+            action = str(data.get("action") or "download").strip()
+            size = str(data.get("size") or "").strip()
+            try:
+                if action == "remove":
+                    tc.remove_model(size)
+                else:
+                    if tc.is_downloading(size):
+                        self.send_response(writer, 409, json.dumps({
+                            "error": f"'{size}' is already downloading.", "kind": "busy",
+                        }).encode('utf-8'), "application/json")
+                        return
+                    # Hundreds of megabytes off the event loop: this server runs
+                    # one loop for everything, so a blocking read would freeze
+                    # the IDE for the whole transfer.
+                    await asyncio.to_thread(tc.download_model, size)
+                self.send_response(writer, 200, json.dumps({
+                    "success": True,
+                    "models": tc.catalog(),
+                    "problem": tc.configuration_problem(),
+                }).encode('utf-8'), "application/json")
+            except ModelStoreError as e:
+                status = {
+                    "bad_request": 400, "not_found": 404, "not_configured": 503,
+                    "connection": 503, "corrupt": 502,
+                }.get(getattr(e, "kind", "unknown"), 500)
+                self.send_response(writer, status, json.dumps({
+                    "error": str(e), "kind": getattr(e, "kind", "unknown"),
+                }).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+        # 7k9. Dictation — the recording arrives as a raw 16 kHz mono WAV body
+        elif path == '/api/transcribe' and method == 'POST':
+            from agenticblocks.blocks.transcription import TranscriptionError
+            from opalatex import transcription_config as tc
+            from opalatex.transcription import execute_transcription
+
+            problem = tc.configuration_problem()
+            if problem:
+                self.send_response(writer, 503, json.dumps({
+                    "error": problem, "kind": "not_configured",
+                }).encode('utf-8'), "application/json")
+                return
+
+            # The body is the audio, not JSON: base64 in an envelope would cost
+            # a third of the payload again for no benefit.
+            audio = body or b""
+            language = (query.get('lang', [''])[0] or '').strip()
+            try:
+                result = await execute_transcription(audio, language=language)
+                self.send_response(writer, 200, json.dumps({
+                    "success": True,
+                    "text": result.text,
+                    "language": result.language,
+                    "duration": result.duration,
+                }).encode('utf-8'), "application/json")
+            except ValueError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e), "kind": "bad_request"}).encode('utf-8'), "application/json")
+            except TranscriptionError as e:
+                status = {
+                    "auth": 401, "bad_request": 400, "too_long": 400,
+                    "not_configured": 503, "connection": 503,
+                    "unknown_route": 500,
+                }.get(getattr(e, "kind", "unknown"), 500)
+                self.send_response(writer, status, json.dumps({
+                    "error": str(e), "kind": getattr(e, "kind", "unknown"),
+                }).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e), "kind": "unknown"}).encode('utf-8'), "application/json")
+
         # 7m. Language — GET
         elif path == '/api/settings/language' and method == 'GET':
             from opalatex.ui_settings import load_ui_settings

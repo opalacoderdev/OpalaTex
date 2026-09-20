@@ -1,5 +1,7 @@
 """REPL command registry and handlers for OpalaTex CLI."""
 
+import asyncio
+
 from .project import ProjectStore, ProjectData
 from . import terminal as T
 from .i18n import _
@@ -9,14 +11,46 @@ from rich.markup import escape as _escape
 # ─── REPL state container ─────────────────────────────────────────────────────
 
 class REPLState:
-    def __init__(self, project: ProjectData, store: ProjectStore):
+    """The project a command operates on, plus the orchestrator it may need.
+
+    ``renderer`` is the terminal event renderer when the command-line interface
+    built this state, and ``None`` when the GUI did (it renders the same events
+    itself). Commands that only make sense in a terminal check it.
+    """
+
+    def __init__(
+        self,
+        project: ProjectData,
+        store: ProjectStore,
+        renderer: object | None = None,
+    ):
         self.project = project
         self.store = store
-        # Skills-oriented architecture: the fixed MemGPT chat-orchestrator, built
-        # once per session (classic memory accumulates across turns) and rebuilt on
-        # /load and /clear. It both converses and delegates to skills via run_skill.
-        from .memgpt_runtime import build_chat_orchestrator
-        self.memgpt = build_chat_orchestrator(project, store)
+        self.renderer = renderer
+        self._memgpt = None
+
+    @property
+    def memgpt(self):
+        """The fixed MemGPT chat-orchestrator, built on first use.
+
+        Skills-oriented architecture: it both converses and delegates to skills
+        via run_skill. Building it seeds memory from the project's history and
+        reads every active skill, which is real work -- and most commands never
+        touch it. The GUI builds one REPLState per slash command, so `/help` used
+        to construct a whole orchestrator to print a list.
+        """
+        if self._memgpt is None:
+            from .memgpt_runtime import build_chat_orchestrator
+            self._memgpt = build_chat_orchestrator(self.project, self.store)
+        return self._memgpt
+
+    @memgpt.setter
+    def memgpt(self, value) -> None:
+        self._memgpt = value
+
+    def invalidate_memgpt(self) -> None:
+        """Drop the built orchestrator so the next use reflects changed state."""
+        self._memgpt = None
 
     @property
     def display_name(self) -> str:
@@ -26,29 +60,85 @@ class REPLState:
 # ─── Command registry ─────────────────────────────────────────────────────────
 
 class CommandRegistry:
+    """The slash commands, shared by the CLI REPL and the GUI chat.
+
+    Both front-ends dispatch through this one registry
+    (``agent_stdin.handle_slash_command`` is the GUI's door), so a command added
+    here appears in both. ``cli_only`` marks the ones that do not: a command that
+    needs a terminal renderer, or that changes state the GUI tracks in its own
+    UI, would be a no-op reporting success there.
+    """
+
     def __init__(self):
         self._cmds: dict[str, tuple] = {}
 
-    def register(self, *names: str, usage: str = "", description: str = ""):
+    def register(self, *names: str, usage: str = "", description: str = "",
+                 cli_only: bool = False, details: str = ""):
+        """Register *names* for one handler.
+
+        ``usage`` is the argument shape, ``details`` the worked examples shown
+        by ``/help <command>``. A command with subcommands and ``key=value``
+        fields cannot be learned from a one-line listing, so the listing points
+        at the details instead of trying to carry them.
+        """
         def decorator(fn):
             for name in names:
-                self._cmds[name] = (fn, usage, description)
+                self._cmds[name] = (fn, usage, description, cli_only, details)
             return fn
         return decorator
 
     def __contains__(self, cmd: str) -> bool:
         return cmd in self._cmds
 
-    def help_lines(self) -> list[tuple[str, str]]:
+    def is_cli_only(self, cmd: str) -> bool:
+        entry = self._cmds.get(cmd)
+        return bool(entry and entry[3])
+
+    def names(self) -> list[str]:
+        """Every registered command name, for shell completion."""
+        return sorted(self._cmds)
+
+    def aliases(self, cmd: str) -> list[str]:
+        """Every name that reaches the same handler as *cmd*, primary first."""
+        handler = self._cmds[cmd][0]
+        return [name for name, entry in self._cmds.items() if entry[0] is handler]
+
+    def entry(self, cmd: str) -> dict | None:
+        """The full record behind a command name."""
+        record = self._cmds.get(cmd)
+        if record is None:
+            return None
+        fn, usage, description, cli_only, details = record
+        names = self.aliases(cmd)
+        return {
+            "name": names[0],
+            "aliases": names[1:],
+            "usage": usage,
+            "description": description,
+            "cli_only": cli_only,
+            "details": details,
+        }
+
+    def entries(self, include_cli_only: bool = True) -> list[dict]:
+        """One record per handler, in registration order."""
         seen, result = set(), []
-        for name, (fn, usage, desc) in self._cmds.items():
-            if fn not in seen:
-                seen.add(fn)
-                result.append((f"{name} {usage}".strip(), desc))
+        for name, (fn, _usage, _desc, cli_only, _details) in self._cmds.items():
+            if fn in seen:
+                continue
+            seen.add(fn)
+            if cli_only and not include_cli_only:
+                continue
+            result.append(self.entry(name))
         return result
 
+    def help_lines(self, include_cli_only: bool = True) -> list[tuple[str, str]]:
+        return [
+            (f"{e['name']} {e['usage']}".strip(), e["description"])
+            for e in self.entries(include_cli_only)
+        ]
+
     async def dispatch(self, state: REPLState, cmd: str, args: list[str]) -> str | None:
-        fn, _, _ = self._cmds[cmd]
+        fn = self._cmds[cmd][0]
         return await fn(state, args)
 
 
@@ -57,12 +147,104 @@ _registry = CommandRegistry()
 
 # ─── Command handlers ─────────────────────────────────────────────────────────
 
-@_registry.register("/help", "/h", description="Show this help message")
-async def cmd_help(_state: REPLState, _args: list[str]) -> None:
+#: Which section of `/help` each command belongs to, in display order.
+#:
+#: Kept here rather than on each decorator so the order of the listing is
+#: explicit and does not depend on which module imported first. A command
+#: missing from this map is a bug the help would hide, so a test fails on it.
+COMMAND_GROUPS: dict[str, tuple[str, ...]] = {
+    "help_group_session": ("/help", "/mode", "/cost", "/resume", "/thoughts", "/tools", "/exit"),
+    "help_group_projects": ("/list", "/load", "/rename", "/delete"),
+    "help_group_chats": ("/chat", "/history", "/clear_chat", "/clear"),
+    "help_group_models": (
+        "/models", "/providers", "/set-main-model", "/set-worker-model",
+        "/set-model-param",
+    ),
+    "help_group_skills": ("/skills", "/lsskills", "/addskill", "/rmskill",
+                          "/list_assets", "/load_asset"),
+    "help_group_vcs": ("/commit", "/undo", "/checkpoints", "/restoreckp", "/removechk"),
+    "help_group_build": ("/compile",),
+}
+
+
+def _grouped_entries(include_cli_only: bool) -> list[tuple[str, list[dict]]]:
+    """`/help` sections, each with the entries that belong to it."""
+    available = {e["name"]: e for e in _registry.entries(include_cli_only)}
+    groups = []
+    for group_key, names in COMMAND_GROUPS.items():
+        members = [available.pop(name) for name in names if name in available]
+        if members:
+            groups.append((group_key, members))
+    if available:
+        # Anything not placed still has to be reachable.
+        groups.append(("help_group_other", list(available.values())))
+    return groups
+
+
+def _print_command(entry: dict, indent: str = "    ") -> None:
+    """Name and argument shape on one line, description under it.
+
+    Everything is escaped: a usage string like `[list | show <id>]` is Rich
+    markup by accident, and printing it unescaped silently swallowed the
+    argument shape of every command that had one -- which is most of the
+    commands anyone needs to look up.
+    """
+    signature = f"{entry['name']} {entry['usage']}".strip()
+    alias_note = f"  (also {', '.join(entry['aliases'])})" if entry["aliases"] else ""
+    T.console.print(
+        f"{indent}{signature}{alias_note}",
+        markup=False, highlight=False, soft_wrap=True, style="green",
+    )
+    if entry["description"]:
+        T.console.print(
+            f"{indent}    {entry['description']}",
+            markup=False, highlight=False, style="dim",
+        )
+
+
+@_registry.register(
+    "/help", "/h",
+    usage="[command]",
+    description="List the commands, or show one command's arguments and examples",
+)
+async def cmd_help(state: REPLState, args: list[str]) -> str | None:
+    include_cli_only = state.renderer is not None
+    wanted = " ".join(args).split()
+
+    if wanted:
+        name = wanted[0]
+        if not name.startswith("/"):
+            name = "/" + name
+        entry = _registry.entry(name)
+        if entry is None:
+            T.error(_("unknown_command", cmd=name))
+            return "continue"
+        if entry["cli_only"] and not include_cli_only:
+            # It exists; it just does nothing here. Saying "unknown" would send
+            # the reader looking for a typo they did not make.
+            T.error(_("cli_command_cli_only", cmd=name))
+            return "continue"
+        T.console.print()
+        _print_command(entry, indent="  ")
+        if entry["details"]:
+            T.console.print()
+            for line in entry["details"].strip("\n").split("\n"):
+                # soft_wrap leaves wrapping to the terminal instead of inserting
+                # a break, so a long example line stays one line when copied.
+                T.console.print(
+                    f"  {line}" if line.strip() else "",
+                    markup=False, highlight=False, soft_wrap=True,
+                )
+        T.console.print()
+        return "continue"
+
     T.console.print(f"\n[cyan]{_('available_commands')}[/cyan]")
-    for display, desc in _registry.help_lines():
-        T.console.print(f"  [green]{display:<28}[/green] {desc}")
-    T.console.print()
+    for group_key, members in _grouped_entries(include_cli_only):
+        T.console.print(f"\n  [bold]{_(group_key)}[/bold]")
+        for entry in members:
+            _print_command(entry)
+    T.console.print(f"\n  [dim]{_escape(_('help_more'))}[/dim]\n")
+    return "continue"
 
 
 @_registry.register("/clear", description="Clear project memory and ALL chats histories")
@@ -80,8 +262,7 @@ async def cmd_clear(state: REPLState, _args: list[str]) -> None:
             model_params=state.project.model_params,
             use_shared_memory=state.project.use_shared_memory,
         )
-        from .memgpt_runtime import build_chat_orchestrator
-        state.memgpt = build_chat_orchestrator(state.project, state.store)
+        state.invalidate_memgpt()
         from .archival import clear_archival
         clear_archival(state.project.name)
         # Every chat is gone, so no stored measurement describes anything.
@@ -89,7 +270,7 @@ async def cmd_clear(state: REPLState, _args: list[str]) -> None:
         reset_context_usage()
         T.success("Project global memory and all chats cleared.")
     else:
-        T.warning("Ação cancelada.")
+        T.warning(_("cli_action_cancelled"))
 
 @_registry.register("/clear_chat", description="Clear only the current chat's history and its isolated memory (if any)")
 async def cmd_clear_chat(state: REPLState, _args: list[str]) -> None:
@@ -97,11 +278,10 @@ async def cmd_clear_chat(state: REPLState, _args: list[str]) -> None:
     if await T.aconfirm(f"Are you sure you want to clear chat '{chat_id}' history?"):
         from .chat_ops import clear_chat
         state.project = clear_chat(state.project, state.store, chat_id)
-        from .memgpt_runtime import build_chat_orchestrator
-        state.memgpt = build_chat_orchestrator(state.project, state.store)
+        state.invalidate_memgpt()
         T.success(f"Chat '{chat_id}' cleared.")
     else:
-        T.warning("Ação cancelada.")
+        T.warning(_("cli_action_cancelled"))
 
 
 
@@ -150,10 +330,9 @@ async def cmd_load(state: REPLState, args: list[str]) -> str | None:
     if loaded:
         state.project = loaded
         set_project_context(state.project, state.store)
-        # Rebuild the MemGPT for the newly loaded project (re-scopes file tools and
-        # reseeds memory from the loaded project's history).
-        from .memgpt_runtime import build_chat_orchestrator
-        state.memgpt = build_chat_orchestrator(state.project, state.store)
+        # Drop the MemGPT so the next turn rebuilds it for the newly loaded
+        # project (re-scopes file tools, reseeds memory from its history).
+        state.invalidate_memgpt()
         T.success(f"Project '{name}' loaded.")
         T.console.print(f"  [dim]Skills: {', '.join(state.project.skills)}[/dim]")
         if state.project.request and state.project.plan_text and not state.project.results:
@@ -200,9 +379,8 @@ async def cmd_delete(state: REPLState, args: list[str]) -> str | None:
 
 
 def _rebuild_memgpt(state: REPLState) -> None:
-    """Rebuild the MemGPT so a skills.yaml change takes effect immediately."""
-    from .memgpt_runtime import build_chat_orchestrator
-    state.memgpt = build_chat_orchestrator(state.project, state.store)
+    """Drop the MemGPT so a skills.yaml or model change takes effect immediately."""
+    state.invalidate_memgpt()
 
 
 @_registry.register("/lsskills", description="List active skills for this project")
@@ -261,8 +439,23 @@ async def cmd_rmskill(state: REPLState, args: list[str]) -> str | None:
 
 # ─── Model commands ───────────────────────────────────────────────────────────
 
-@_registry.register("/models", description="Show the models in use for this project")
+_CATALOG_ACTIONS = ("list", "show", "add", "set", "remove")
+
+
+@_registry.register(
+    "/models",
+    usage="[list | show <id> | add key=value... | set <id> key=value... | remove <id>]",
+    description="Show the models this project uses, or manage the model catalog",
+    details='A usable model is two records: a provider connection holding the\ncredentials (/providers), and a catalog entry naming a model under it.\n\nExamples:\n  /models                                  what this project runs on\n  /models list                             every model in the catalog\n  /models show ollama/gemma4:26b           one entry in full\n  /models add name=gemma4:26b connection=ollama-gil num_ctx=65000 supports_thinking=true\n  /models add name=gpt-4o-mini connection=openai temperature=0.3\n  /models set ollama/gemma4:26b profile=light policy=delegate\n  /models remove ollama/gemma4:26b\n\nThen point the project at it with /set-main-model <id>.\n\nFields: name, connection (=connection_id), id, num_ctx (=context),\n  supports_thinking (=thinking), requires_single_system_message,\n  prompt_profile (=profile: full|light), orchestrator_policy (=policy:\n  direct|delegate), temperature, max_tokens, seed, top_p, top_k, min_p,\n  frequency_penalty, presence_penalty, repetition_penalty, reasoning_effort,\n  supports_image_generation, image_route, supports_speech_synthesis, speech_route.\n\nAny other field is refused, so a typo cannot become an invisible setting.\nA parameter you do want sent to the provider is written extra.<name>=<value>,\nfor example extra.keep_alive=30m. Quote values with spaces.',
+)
 async def cmd_models(state: REPLState, _args: list[str]) -> None:
+    # With a subcommand this is the catalog (opalatex/cli_catalog.py); bare, it
+    # answers the question it always answered -- what this project runs on.
+    parts = " ".join(_args).split()
+    if parts and parts[0].lower() in _CATALOG_ACTIONS:
+        from .cli_catalog import catalog_models
+        return await catalog_models(state, parts[0].lower(), parts[1:])
+
     from .config import DEFAULT_MODEL, WORKER_MODEL
     main_model = state.project.model or DEFAULT_MODEL
     alt_model = state.project.worker_model or WORKER_MODEL
@@ -275,7 +468,13 @@ async def cmd_models(state: REPLState, _args: list[str]) -> None:
         T.console.print(f"  [cyan]parameters[/cyan]")
         for k, v in params.items():
             T.console.print(f"    {k}: {v}")
-    T.console.print(f"\n[dim]Change with /set-main-model <id>, /set-worker-model <id>, or /set-model-param <name> <value>.[/dim]\n")
+    T.console.print(
+        f"\n[dim]Change with /set-main-model <id>, /set-worker-model <id>, "
+        f"or /set-model-param <name> <value>.[/dim]"
+    )
+    T.console.print(
+        f"[dim]{_('cli_models_catalog_hint')}[/dim]\n"
+    )
 
 
 @_registry.register("/set-main-model", usage="<model_id>",
@@ -561,7 +760,7 @@ async def cmd_restoreckp(state: REPLState, args: list[str]) -> str | None:
         else:
             T.error(msg)
     else:
-        T.warning("Ação cancelada.")
+        T.warning(_("cli_action_cancelled"))
     return "continue"
 
 
@@ -586,7 +785,7 @@ async def cmd_removechk(state: REPLState, args: list[str]) -> str | None:
         else:
             T.error(msg)
     else:
-        T.warning("Ação cancelada.")
+        T.warning(_("cli_action_cancelled"))
     return "continue"
 
 
@@ -634,7 +833,208 @@ async def cmd_history(state: REPLState, args: list[str]) -> str | None:
     return "continue"
 
 
+# ─── Turn and session commands ────────────────────────────────────────────────
+
+_MODES = ("auto", "plan", "edit")
+
+
+@_registry.register("/mode", usage="[auto | plan | edit]",
+                    description="Show or set how much the agent may do on its own",
+                    details='Examples:\n  /mode                 show the current mode\n  /mode auto            act freely, no questions\n  /mode plan            read-only until you approve a plan\n  /mode edit            ask before each change\n\nThe mode is stored on the project, so the desktop app sees the same value.')
+async def cmd_mode(state: REPLState, args: list[str]) -> str | None:
+    if not args:
+        T.info(_("cli_mode_current", mode=state.project.mode))
+        return "continue"
+    mode = args[0].strip().lower()
+    if mode not in _MODES:
+        T.error(_("cli_usage_mode"))
+        return "continue"
+    state.project.mode = mode
+    state.store.save(state.project)
+    # The mode is read from the live session object by the tool permission gate
+    # (opalatex/tools.py), so the context has to be re-pointed at the saved project.
+    from .tools import set_project_context
+    set_project_context(state.project, state.store)
+    T.success(_("cli_mode_set", mode=mode))
+    return "continue"
+
+
+@_registry.register("/chat", usage="[list | new <name> | switch <name>]",
+                    description="List, create, or switch the chat this project is talking in",
+                    cli_only=True, details='Examples:\n  /chat                                    list this project\'s chats\n  /chat new "Chapter 3 review"             create one and switch to it\n  /chat switch "Chapter 3"                 switch by name (a prefix is enough)\n  /chat switch 7ac7a997-6a13-435f-8ad1     switch by id\n\nEach chat keeps its own history and working context. To empty the current\none use /clear_chat; /clear wipes every chat in the project.')
+async def cmd_chat(state: REPLState, args: list[str]) -> str | None:
+    import uuid
+
+    from .tools import set_project_context
+
+    parts = " ".join(args).split()
+    action = parts[0].lower() if parts else "list"
+    rest = " ".join(parts[1:]).strip()
+    chats = list(getattr(state.project, "chats", []) or [])
+
+    if action == "list":
+        T.console.print(f"\n[dim]{_('cli_chats_header')}[/dim]")
+        for chat in chats:
+            mark = "[green]*[/green]" if chat["id"] == state.project.current_chat_id else " "
+            T.console.print(f"  {mark} [cyan]{_escape(chat['name'])}[/cyan]  [dim]{chat['id']}[/dim]")
+        T.console.print()
+        return "continue"
+
+    if action == "new":
+        if not rest:
+            T.error(_("cli_usage_chat"))
+            return "continue"
+        chat_id = str(uuid.uuid4())
+        state.store.create_chat(state.project.name, chat_id, rest)
+        target = chat_id
+    elif action == "switch":
+        if not rest:
+            T.error(_("cli_usage_chat"))
+            return "continue"
+        needle = rest.lower()
+        match = next(
+            (c for c in chats if c["id"] == rest or c["name"].lower() == needle),
+            None,
+        ) or next((c for c in chats if c["name"].lower().startswith(needle)), None)
+        if match is None:
+            T.error(_("cli_chat_not_found", name=rest))
+            return "continue"
+        target = match["id"]
+    else:
+        T.error(_("cli_usage_chat"))
+        return "continue"
+
+    loaded = state.store.load(state.project.name, chat_id=target)
+    if loaded is None:
+        T.error(_("cli_chat_not_found", name=rest))
+        return "continue"
+    state.project = loaded
+    set_project_context(state.project, state.store)
+    state.invalidate_memgpt()
+    name = next(
+        (c["name"] for c in (loaded.chats or []) if c["id"] == target), rest
+    )
+    T.success(_("cli_chat_created" if action == "new" else "cli_chat_switched", name=name))
+    return "continue"
+
+
+@_registry.register("/cost", "/context",
+                    description="Show how much of the context window this chat occupies")
+async def cmd_cost(state: REPLState, _args: list[str]) -> str | None:
+    from .token_usage import context_scope_key, get_context_usage
+
+    # The in-process measurement belongs to the turn that just ran; the stored
+    # one survives a restart and is what a freshly opened session has. Prefer the
+    # live value and fall back to the stored one, exactly as the chat panel does.
+    usage = get_context_usage(
+        context_scope_key(state.project.project_path or "", state.project.current_chat_id)
+    ) or state.store.get_chat_context_usage(
+        state.project.name, state.project.current_chat_id
+    )
+    used = int((usage or {}).get("prompt_tokens") or 0)
+    if not used:
+        T.info(_("cli_cost_none"))
+        return "continue"
+    window = int((usage or {}).get("context_window") or 0)
+    pct = f"{(used / window * 100):.0f}%" if window else "?"
+    T.console.print(f"\n[dim]{_('cli_cost_header', chat=state.project.current_chat_id)}[/dim]")
+    T.console.print(f"  [cyan]prompt tokens[/cyan]  {used}")
+    T.console.print(f"  [cyan]context window[/cyan] {window or '?'}")
+    T.console.print(f"  [cyan]occupancy[/cyan]      {pct}\n")
+    return "continue"
+
+
+@_registry.register("/resume", "/continue",
+                    description="Continue the turn that was interrupted in this chat",
+                    cli_only=True)
+async def cmd_resume(state: REPLState, _args: list[str]) -> str | None:
+    """Hand the REPL a sentinel: only the loop can start an agent turn."""
+    from .agent_stdin import unfinished_turn_content
+
+    if not unfinished_turn_content(getattr(state.project, "history", []) or []):
+        T.info(_("cli_resume_nothing"))
+        return "continue"
+    return "resume"
+
+
+def _toggle(state: REPLState, args: list[str], attribute: str, feature_key: str) -> str:
+    if state.renderer is None:
+        T.error(_("cli_renderer_required"))
+        return "continue"
+    current = bool(getattr(state.renderer, attribute))
+    wanted = args[0].strip().lower() if args else ("off" if current else "on")
+    if wanted not in ("on", "off"):
+        T.error("Usage: on|off")
+        return "continue"
+    setattr(state.renderer, attribute, wanted == "on")
+    feature = _(feature_key)
+    T.success(_("cli_toggle_on" if wanted == "on" else "cli_toggle_off", feature=feature))
+    return "continue"
+
+
+@_registry.register("/thoughts", usage="[on|off]",
+                    description="Show or hide the model's reasoning while it works",
+                    cli_only=True)
+async def cmd_thoughts(state: REPLState, args: list[str]) -> str | None:
+    return _toggle(state, args, "show_thoughts", "cli_feature_thoughts")
+
+
+@_registry.register("/tools", usage="[on|off]",
+                    description="Show or hide tool calls and their results",
+                    cli_only=True)
+async def cmd_tools(state: REPLState, args: list[str]) -> str | None:
+    return _toggle(state, args, "show_tools", "cli_feature_tools")
+
+
+@_registry.register("/compile", usage="[file.tex]",
+                    description="Compile the project with Tectonic and report the result",
+                    cli_only=True)
+async def cmd_compile(state: REPLState, args: list[str]) -> str | None:
+    import os
+
+    from .latex_compiler import compile_latex, guess_main_file
+
+    project_dir = state.project.project_path
+    target = args[0].strip() if args else (
+        state.project.main_file or guess_main_file(project_dir)
+    )
+    if not target:
+        T.error("No .tex file found in the project. Pass one: /compile <file.tex>")
+        return "continue"
+    path = target if os.path.isabs(target) else os.path.join(project_dir, target)
+    if not os.path.exists(path):
+        T.error(f"File not found: {path}")
+        return "continue"
+
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        content = handle.read()
+
+    with T.spinner(f"Compiling {os.path.basename(path)}..."):
+        result = await asyncio.to_thread(
+            compile_latex,
+            content,
+            file_path=path,
+            main_file=os.path.basename(path),
+            project_dir=project_dir,
+            include_pdf_base64=False,
+        )
+
+    if result.get("success"):
+        T.success(f"PDF written to {result.get('pdf_path') or '(unknown path)'}")
+    else:
+        T.error("Compilation failed.")
+        log = str(result.get("log") or "").strip()
+        if log:
+            T.console.print(f"[dim]{_escape(log[-2000:])}[/dim]")
+    return "continue"
+
+
 @_registry.register("/exit", "/quit", description=_("exit_desc"))
 async def cmd_exit(_state: REPLState, _args: list[str]) -> str:
     T.info(_("exiting"))
     return "break"
+
+
+# Provider connections and catalog models register themselves into `_registry`.
+# Imported at the end so the registry above already exists when they do.
+from . import cli_catalog  # noqa: E402,F401  (import for side effect)

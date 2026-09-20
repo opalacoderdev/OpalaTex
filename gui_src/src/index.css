@@ -2622,6 +2622,63 @@ input:focus, select:focus, textarea:focus {
   border-top: 1px solid var(--vscode-border);
 }
 
+/* Dictation: the composer's microphone. Recording is a state the user must be
+   able to see at a glance, because the alternative is a hot microphone nobody
+   noticed. */
+.vscode-chat-mic-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+}
+
+.vscode-chat-mic-btn:hover:not(:disabled) { color: var(--vscode-text-fg); }
+.vscode-chat-mic-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.vscode-chat-mic-btn.is-recording {
+  color: var(--vscode-errorForeground, #f48771);
+  animation: chat-mic-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes chat-mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Respect a reduced-motion preference: the colour alone still reports the
+   state, so the pulse is decoration rather than information. */
+@media (prefers-reduced-motion: reduce) {
+  .vscode-chat-mic-btn.is-recording { animation: none; }
+}
+
+.vscode-chat-dictation-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 8px 4px 8px;
+  padding: 5px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  border-radius: 4px;
+  color: var(--vscode-errorForeground, #f48771);
+  background-color: rgba(244, 135, 113, 0.1);
+}
+
+.vscode-chat-dictation-error span { flex: 1; min-width: 0; }
+
+.vscode-chat-dictation-error button {
+  display: flex;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+}
+
 /* Local voice manager (Settings > General > Pronunciation). A voice is a real
    63 MB download, so the list states the size before the user commits and
    reports progress while it runs. */

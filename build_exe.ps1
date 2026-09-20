@@ -12,7 +12,7 @@ if (Test-Path "$VenvScripts\python.exe") {
 
 Write-Host "`n[1/4] Instalando PyInstaller e dependencias..."
 pip install pyinstaller wheel setuptools
-pip install .
+pip install ".[gui]"
 
 # The Qt packaged here is the Qt every install.ps1 user gets, so the floor is
 # checked against what is actually installed before packaging starts.

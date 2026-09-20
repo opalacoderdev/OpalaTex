@@ -214,7 +214,8 @@ Recognized commands:
 * `/addskill <name>` / `/rmskill <name>`: add or remove skill
 * `/list_assets [type]`: list Asset Store assets (`skill` or `template`)
 * `/load_asset <type> <id|*>`: install an Asset Store asset into this project
-* `/models`: show configured models
+* `/models`: show the models this project uses; with a subcommand (`list`, `show <id>`, `add key=value...`, `set <id> key=value...`, `remove <id>`) it manages the model catalog
+* `/providers` or `/provider` (`list`, `add key=value...`, `remove <id>`): manage provider connections — a connection holds the credentials, a catalog model names a model under one
 * `/set-main-model <id>`: set primary model
 * `/set-worker-model <id>`: set worker model
 * `/set-model-param <name> <value>`: set a per-project model parameter
@@ -223,6 +224,12 @@ Recognized commands:
 * `/checkpoints`: list shadow checkpoints
 * `/restoreckp <id>`: restore the project to a checkpoint
 * `/removechk <id>`: remove a checkpoint from history
+* `/mode [auto|plan|edit]`: show or set how much the agent may do on its own
+* `/cost` or `/context`: show how much of the context window this chat occupies
+* `/chat [list|new <name>|switch <name>]`: list, create, or switch chat *(command-line interface only)*
+* `/resume` or `/continue`: continue the turn that was interrupted in this chat *(command-line interface only)*
+* `/thoughts [on|off]` / `/tools [on|off]`: show or hide reasoning and tool calls *(command-line interface only)*
+* `/compile [file.tex]`: compile the project with Tectonic *(command-line interface only)*
 * `/exit` or `/quit`: exit OpalaTex
 
 If the user types a command without `/`, guide them to use the slashed form in normal text instead of executing or guessing.

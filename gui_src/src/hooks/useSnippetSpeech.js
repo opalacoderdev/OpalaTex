@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { UNAVAILABLE, availabilityFromSettings } from '../utils/featureAvailability.js';
 
 /**
  * The request and playback lifecycle behind "Pronounce selection".
@@ -18,8 +19,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * `speech` is { x, y, sourceText, status, error, kind } or null, where status
  * is 'loading' | 'playing' | 'paused' | 'done' | 'error'.
  */
-export function useSnippetSpeech({ model, language } = {}) {
-  const [availability, setAvailability] = useState({ enabled: false, problem: '' });
+export function useSnippetSpeech({ model, language, settingsSignal = 0 } = {}) {
+  // `offered` is what the user asked for in Settings; `ready` is whether it can
+  // actually run. Keeping them apart is what lets a surface show a disabled
+  // control *with its reason* instead of hiding it, so a half-finished setup is
+  // visible rather than silently absent.
+  const [availability, setAvailability] = useState({ ...UNAVAILABLE });
   const [speech, setSpeech] = useState(null);
   const requestRef = useRef(0);
   const audioRef = useRef(null);
@@ -45,18 +50,22 @@ export function useSnippetSpeech({ model, language } = {}) {
     try {
       const res = await fetch('/api/settings/speech');
       if (!res.ok) throw new Error('unavailable');
-      const cfg = await res.json();
-      const next = { enabled: !cfg.problem, problem: String(cfg.problem || '') };
+      const next = availabilityFromSettings(await res.json());
       setAvailability(next);
       return next;
     } catch {
       // The backend not answering is not the same as speech being misconfigured,
       // but from the menu's point of view the action is equally unavailable.
-      const next = { enabled: false, problem: '' };
+      const next = { ...UNAVAILABLE };
       setAvailability(next);
       return next;
     }
   }, []);
+
+  // Re-read when the settings that govern this change. The menus also refresh
+  // on open, but a surface whose *control* is what gets gated has no such
+  // moment — see useDictation, where this was the actual defect.
+  useEffect(() => { refreshAvailability(); }, [refreshAvailability, settingsSignal]);
 
   const speak = useCallback(async (snippet, anchorPoint, options = {}) => {
     const text = String(snippet || '').trim();

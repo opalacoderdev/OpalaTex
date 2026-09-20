@@ -38,7 +38,7 @@ const VIEW_RESTORE_ATTEMPTS = 100;
 // `onViewStateChange` reports the same shape as the user scrolls and zooms. The
 // owner keeps it per document so a viewer unmounted by a tab switch comes back
 // where it was left (see utils/pdfViewState.js).
-const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onAskAboutPdf, isAgentRunning = false, uiScale = 1, initialViewState = null, onViewStateChange }, ref) => {
+const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onAskAboutPdf, speechSettingsSignal = 0, isAgentRunning = false, uiScale = 1, initialViewState = null, onViewStateChange }, ref) => {
   const { t, i18n } = useTranslation();
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
@@ -89,7 +89,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     replay: replaySpeech,
     retry: retrySpeech,
     close: closeSpeech,
-  } = useSnippetSpeech({});
+  } = useSnippetSpeech({ settingsSignal: speechSettingsSignal });
   const scrollPosRef = useRef(0);
   const restoreScrollPosRef = useRef(0);
   const isReloadingPdfRef = useRef(false);
@@ -1852,7 +1852,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         onAskAbout={handleAskAboutPdf}
         onTranslate={handleTranslateSelection}
         onPronounce={handlePronounceSelection}
-        canPronounce={speechAvailability.enabled}
+        canPronounce={speechAvailability.ready}
         pronounceUnavailableHint={speechAvailability.problem}
         canAsk={Boolean(onAskAboutPdf)}
         canAnnotate={canAnnotate && showAnnotations}
@@ -1908,7 +1908,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         onClose={closeTranslation}
         onRetry={handleRetryTranslation}
         onCopy={handleCopyTranslation}
-        onSpeak={speechAvailability.enabled ? speak : undefined}
+        onSpeak={speechAvailability.ready ? speak : undefined}
       />
 
       {isPresenting && pdfUrl && (

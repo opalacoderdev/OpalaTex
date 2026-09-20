@@ -7,7 +7,7 @@ echo "=========================================="
 
 echo -e "\n[1/4] Instalando dependencias e PyInstaller..."
 pip install pyinstaller wheel setuptools
-pip install .
+pip install ".[gui]"
 
 # The Qt packaged here is the Qt every install.sh user gets, so the floor is
 # checked against what is actually installed before packaging starts.

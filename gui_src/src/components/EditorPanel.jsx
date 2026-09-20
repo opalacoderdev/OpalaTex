@@ -78,6 +78,7 @@ export default function EditorPanel({
   onFixLatexProblem,
   onAskAboutPdf,
   onAskAboutMarkdown,
+  speechSettingsSignal = 0,
   isAgentRunning,
   onTextStatsChange,
   // Set by a layout that is built around a visible preview (the studio). It
@@ -159,7 +160,7 @@ export default function EditorPanel({
     replay: replaySpeech,
     retry: retrySpeech,
     close: closeSpeech,
-  } = useSnippetSpeech({});
+  } = useSnippetSpeech({ settingsSignal: speechSettingsSignal });
 
   // The selection is read here, at right-click time, and not when a menu item
   // is pressed: pressing one collapses the selection, so reading it in the
@@ -1892,6 +1893,7 @@ export default function EditorPanel({
               selectedFile={selectedFile}
               onSyncTexNavigate={handleSyncTexNavigate}
               onAskAboutPdf={onAskAboutPdf}
+              speechSettingsSignal={speechSettingsSignal}
               isAgentRunning={isAgentRunning}
               uiScale={uiScale}
             />
@@ -1930,6 +1932,7 @@ export default function EditorPanel({
               latexCompileProblem={latexCompileProblem}
               onFixLatexProblem={onFixLatexProblem}
               onAskAboutPdf={onAskAboutPdf}
+              speechSettingsSignal={speechSettingsSignal}
               isAgentRunning={isAgentRunning}
               uiScale={uiScale}
             />
@@ -1983,7 +1986,7 @@ export default function EditorPanel({
         onTranslate={handleTranslateMarkdownSelection}
         onPronounce={handlePronounceMarkdownSelection}
         canAsk={Boolean(onAskAboutMarkdown && activeProject && selectedFile)}
-        canPronounce={speechAvailability.enabled}
+        canPronounce={speechAvailability.ready}
         pronounceUnavailableHint={speechAvailability.problem}
       />
 
@@ -1992,7 +1995,7 @@ export default function EditorPanel({
         onClose={closeTranslation}
         onRetry={retryTranslation}
         onCopy={copyTranslation}
-        onSpeak={speechAvailability.enabled ? speak : undefined}
+        onSpeak={speechAvailability.ready ? speak : undefined}
       />
 
       <SpeechPopup

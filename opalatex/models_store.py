@@ -292,6 +292,35 @@ def _generate_connection_id(conn: sqlite3.Connection, base_label: str) -> str:
     return candidate
 
 
+def suggest_connection_id(label: str) -> str:
+    """A free connection id derived from *label*.
+
+    The GUI never needs this: its form owns the whole dialog and generates the
+    id inline. A text front-end has no form, so the same rule has to be callable
+    (`opalatex/cli_catalog.py`).
+    """
+    base = _slugify(label)
+    existing = {c.get("id") for c in load_connections()}
+    if base not in existing:
+        return base
+    suffix = 2
+    while f"{base}-{suffix}" in existing:
+        suffix += 1
+    return f"{base}-{suffix}"
+
+
+def suggest_model_id(provider: str, name: str, connection_id: str) -> str:
+    """The catalog id for a model, matching the desktop form's rule.
+
+    ``provider/name``, suffixed with the connection id when a *different* entry
+    already holds that base id — the same shape ``resolve_runtime_model_id``
+    knows how to strip back to ``provider/name`` for LiteLLM.
+    """
+    base = f"{provider}/{name}"
+    taken = {m.get("id") for m in load_models()}
+    return f"{base}#{connection_id}" if base in taken else base
+
+
 def _migrate_legacy_rows(conn: sqlite3.Connection) -> None:
     """Backfill `connection_id` for rows saved before provider connections existed.
 

@@ -158,7 +158,7 @@ parts:
 
       python3 -m venv --copies "$CRAFT_PART_INSTALL"
       "$CRAFT_PART_INSTALL/bin/python" -m pip install --upgrade pip setuptools wheel
-      "$CRAFT_PART_INSTALL/bin/python" -m pip install .
+      "$CRAFT_PART_INSTALL/bin/python" -m pip install ".[gui]"
       "$CRAFT_PART_INSTALL/bin/python" -c "from opalatex.assetstore import list_assets; assets = list_assets('template'); assert len(assets) > 0, 'No templates found in assetstore'"
 
       # The Google OAuth client is .gitignore'd, so a packaging rule that drops

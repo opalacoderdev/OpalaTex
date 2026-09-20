@@ -61,8 +61,7 @@ export default function SettingsModal({
   panelMaxLines,
   setPanelMaxLines,
   thoughtContextTokens,
-  onThoughtContextTokensChange,
-}) {
+  onThoughtContextTokensChange, onSpeechSettingsChange,}) {
   const { t } = useTranslation();
   const { showAlert, showConfirm } = useCustomDialog();
   const [selectedLang, setSelectedLang] = React.useState('');
@@ -89,6 +88,11 @@ export default function SettingsModal({
   });
   const [speechModels, setSpeechModels] = React.useState([]);
   const [speechFormats, setSpeechFormats] = React.useState(['mp3', 'opus', 'aac', 'flac', 'wav']);
+  const [dictation, setDictation] = React.useState({
+    enabled: false, model: 'small', language: '', compute_type: 'int8',
+  });
+  const [dictationModels, setDictationModels] = React.useState([]);
+  const [dictationBusy, setDictationBusy] = React.useState('');
   const [isRestarting, setIsRestarting] = React.useState(false);
   const [runtimeInfo, setRuntimeInfo] = React.useState({ platform: '', running_in_snap: false, version: '0.2.16' });
 
@@ -157,6 +161,16 @@ export default function SettingsModal({
         setSpeech(prev => ({ ...prev, ...rest }));
         setSpeechModels(Array.isArray(models) ? models : []);
         if (Array.isArray(formats) && formats.length) setSpeechFormats(formats);
+      })
+      .catch(() => { });
+
+    fetch('/api/settings/transcription')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (!cfg) return;
+        const { models, compute_types, downloads, problem, ...rest } = cfg;
+        setDictation(prev => ({ ...prev, ...rest }));
+        setDictationModels(Array.isArray(models) ? models : []);
       })
       .catch(() => { });
 
@@ -254,13 +268,42 @@ export default function SettingsModal({
     }).catch(() => { });
   };
 
+  // Readiness is recomputed by the backend on every one of these, so each
+  // announces it: the chat's microphone gates its own presence on the answer
+  // and has no other moment to re-read (App.jsx: speechSettingsSignal).
   const saveSpeechSettings = (next) => {
     setSpeech(next);
     fetch('/api/settings/speech', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(next),
-    }).catch(() => { });
+    }).catch(() => { }).finally(() => onSpeechSettingsChange?.());
+  };
+
+  const saveDictationSettings = (next) => {
+    setDictation(next);
+    fetch('/api/settings/transcription', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    }).catch(() => { }).finally(() => onSpeechSettingsChange?.());
+  };
+
+  const runDictationModelAction = async (size, action) => {
+    setDictationBusy(size);
+    try {
+      const res = await fetch('/api/transcription/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ size, action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.models)) setDictationModels(data.models);
+    } finally {
+      setDictationBusy('');
+      // Downloading or removing a model is what flips readiness most often.
+      onSpeechSettingsChange?.();
+    }
   };
 
   const saveTranslateTargetLang = (value) => {
@@ -606,6 +649,7 @@ export default function SettingsModal({
                       <SpeechVoiceManager
                         selected={speech.local_voice || ''}
                         onSelect={(key) => saveSpeechSettings({ ...speech, local_voice: key })}
+                        onChanged={onSpeechSettingsChange}
                       />
                     ) : speechModels.length === 0 ? (
                       <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
@@ -672,6 +716,88 @@ export default function SettingsModal({
 
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
                   {t('settingsModal.speechHint', 'Reads a selected excerpt aloud in the PDF viewer, the Markdown preview and the chat. A downloaded voice runs entirely on this machine and needs no account; it uses the system espeak-ng to turn text into phonemes. The browser\'s own voices are not used: the app window ships no speech engine.')}
+                </span>
+              </div>
+
+              {/* Dictation. Below Pronunciation because they are the two
+                  halves of the same idea, and this is the one that listens. */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.dictation', 'Dictation')}</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--vscode-text-fg)' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!dictation.enabled}
+                    onChange={(e) => saveDictationSettings({ ...dictation, enabled: e.target.checked })}
+                  />
+                  {t('settingsModal.dictationEnabled', 'Offer a microphone button in the chat')}
+                </label>
+
+                {dictation.enabled && (
+                  <>
+                    <div className="flex" style={{ gap: '8px' }}>
+                      <div className="flex flex-col" style={{ gap: '4px', flex: 1 }}>
+                        <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{t('settingsModal.dictationLanguage', 'Language')}</label>
+                        <select
+                          className="vscode-settings-input"
+                          value={dictation.language || ''}
+                          onChange={(e) => saveDictationSettings({ ...dictation, language: e.target.value })}
+                        >
+                          <option value="">{t('settingsModal.dictationLanguageAuto', 'Detect automatically')}</option>
+                          {TRANSLATE_LANGUAGES.map(lang => (
+                            <option key={lang.value} value={lang.value.split('-')[0]}>{lang.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="speech-voice-list">
+                      {dictationModels.map((m) => (
+                        <div
+                          key={m.size}
+                          className={`speech-voice-row${dictation.model === m.size ? ' is-selected' : ''}`}
+                        >
+                          <label className="speech-voice-label">
+                            <input
+                              type="radio"
+                              name="dictation-model"
+                              checked={dictation.model === m.size}
+                              disabled={!m.installed}
+                              onChange={() => saveDictationSettings({ ...dictation, model: m.size })}
+                            />
+                            <span className="speech-voice-name">
+                              {m.size}
+                              <span className="speech-voice-lang">{m.size_mb} MB</span>
+                            </span>
+                          </label>
+                          {dictationBusy === m.size ? (
+                            <span className="speech-voice-progress">{t('settingsModal.dictationDownloading', 'Downloading…')}</span>
+                          ) : m.installed ? (
+                            <button
+                              type="button"
+                              className="speech-voice-btn"
+                              disabled={Boolean(dictationBusy)}
+                              onClick={() => runDictationModelAction(m.size, 'remove')}
+                            >
+                              {t('settingsModal.dictationRemove', 'Remove')}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="speech-voice-btn"
+                              disabled={Boolean(dictationBusy)}
+                              onClick={() => runDictationModelAction(m.size, 'download')}
+                            >
+                              {t('settingsModal.dictationDownload', 'Download')}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.dictationHint', 'Records from the microphone and types what you said into the chat composer, for you to review before sending. The model runs on this machine, so nothing is uploaded. Larger models are markedly more accurate outside English: on a Portuguese test sentence, tiny and base both misheard a word while small reproduced it exactly.')}
                 </span>
               </div>
 

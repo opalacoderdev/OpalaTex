@@ -574,3 +574,98 @@ corrigidas em vez de recomeçar do zero.
 prompts: `/help`, `/clear`, `/skills`, `/models`, `/set-main-model <id>`,
 `/set-worker-model <id>`, `/undo`, `/commit <msg>`, entre outros. Digite `/help` para ver
 a lista completa.
+
+## command-line :: Posso usar o OpalaTex pelo terminal, sem a janela?
+
+Pode. O mesmo agente, os mesmos projetos, as mesmas skills — renderizados num terminal
+em vez de numa janela.
+
+**Como iniciar** — `opalatex --cli` abre a sessão interativa. Rode dentro do diretório de
+um projeto e ele abre esse projeto; use `--here` para registrar o diretório atual como um
+projeto novo, ou `--project <nome>` para escolher pelo nome.
+
+**Uma pergunta só** — `opalatex -p "corrija os erros de compilação do capítulo 3"` executa
+um turno e sai, que é a forma de usar em um script ou Makefile. `-p -` lê o prompt da
+entrada padrão.
+
+**O que aparece enquanto ele trabalha** — a resposta vai saindo conforme o modelo escreve,
+cada chamada de ferramenta aparece como `⏺ nome_da_ferramenta(...)` com o resultado
+abaixo, e o raciocínio é mostrado em tom apagado. `/thoughts off` e `/tools off` silenciam
+um ou outro.
+
+**Interromper** — `Ctrl+C` para o turno em execução, não a sessão: o que o agente já havia
+escrito é salvo, e `/resume` continua dali. `Ctrl+D` ou `/exit` encerra.
+
+**Aprovações** — no modo `edit` o agente pergunta no terminal antes de cada alteração, e no
+modo `plan` ele apresenta o plano para aprovação do mesmo jeito que a janela faz. `/mode`
+alterna entre `auto`, `plan` e `edit`.
+
+**Comandos** — `/help` lista tudo por seção, com os argumentos de cada comando, e
+`/help <comando>` mostra os exemplos daquele comando (`/help /models`,
+`/help /providers`, `/help /chat`). Tudo o que existe no chat da janela funciona aqui,
+mais alguns que só fazem sentido num terminal: `/chat` para listar, criar e trocar de conversa, `/compile` para gerar o PDF com
+o Tectonic, `/cost` para ver quanto da janela de contexto está ocupada, e `/resume`.
+
+**Instalar só isso** — a interface de linha de comando é a instalação base:
+`pip install opalatex` ou `uv tool install opalatex` entrega o agente sem a pilha do
+desktop. A janela precisa de `pip install "opalatex[gui]"`. A compilação LaTeX usa um
+`tectonic` encontrado no seu `PATH`.
+
+**O que ela não faz** — tudo o que é editor e não agente: pré-visualização do PDF, SyncTeX,
+os modos rich text e WYSIWYG, anotações em PDF, modo apresentação, ditado e leitura em voz
+alta. Isso vive na janela.
+
+## cli-models :: Como cadastro um modelo e um provedor pelo terminal?
+
+Um modelo utilizável são dois registros, e você cria os dois a partir de qualquer
+interface de texto — a sessão `--cli`, o `opalatex -p`, o protocolo stdin, ou a caixa de
+comandos deste chat.
+
+**1. A conexão de provedor** guarda as credenciais, compartilhadas por todos os modelos
+sob ela:
+
+```
+/providers add label="Ollama Gil" provider=ollama api_base=http://192.168.0.10:11434/v1
+/providers add label="OpenAI" provider=openai api_key=sk-...
+/providers                       # lista, com quantos modelos cada uma carrega
+```
+
+O id vem do rótulo (`ollama-gil`); passe `id=<seu-id>` para escolher. Rodar `add` de novo
+com o mesmo id edita aquela conexão, e omitir `api_key` preserva a chave guardada — só
+`api_key=` (vazio) limpa.
+
+**2. O modelo de catálogo** nomeia um modelo sob uma conexão e o descreve:
+
+```
+/models add name=gemma4:26b connection=ollama-gil num_ctx=65000 supports_thinking=true
+/models add name=gpt-4o-mini connection=openai temperature=0.3
+/models list
+/models show ollama/gemma4:26b
+/models set ollama/gemma4:26b profile=light policy=delegate
+/models remove ollama/gemma4:26b
+```
+
+**3. Aponte o projeto para ele:**
+
+```
+/set-main-model ollama/gemma4:26b
+/set-worker-model ollama/gemma4:26b
+```
+
+**Por que os dois passos importam** — `/set-main-model` só guarda um id. Sem uma entrada
+de catálogo por trás dele não há API base, nem chave, nem capacidades: a execução chega
+ao provedor sem autenticação e toda configuração por modelo fica como não definida.
+
+**Campos** — `name`, `connection` (apelido de `connection_id`), `id`, `num_ctx` (apelido
+`context`), `supports_thinking` (apelido `thinking`), `requires_single_system_message`,
+`prompt_profile` (apelido `profile`: `full` ou `light`), `orchestrator_policy` (apelido
+`policy`: `direct` ou `delegate`), `temperature`, `max_tokens`, `seed`, `top_p`, `top_k`,
+`min_p`, `frequency_penalty`, `presence_penalty`, `repetition_penalty`,
+`reasoning_effort`, `supports_image_generation`, `image_route`,
+`supports_speech_synthesis`, `speech_route`.
+
+Qualquer outro campo é recusado em vez de adivinhado, para que um erro de digitação não
+vire uma configuração invisível. Um parâmetro que você *quer* repassar ao provedor se
+escreve com prefixo: `extra.keep_alive=30m`.
+
+Valores com espaço vão entre aspas: `label="Meu provedor"`.

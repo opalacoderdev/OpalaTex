@@ -47,9 +47,23 @@ sys.stdout = _force_utf8_stream(sys.stdout)
 sys.stderr = _force_utf8_stream(sys.stderr)
 
 
-# Save real stdout and redirect sys.stdout to sys.stderr to prevent pollution
+# The line protocol owns stdout, so the descriptor is captured before anything
+# can replace it. The redirection of `sys.stdout` that keeps stray prints out of
+# that protocol belongs to the protocol itself and is installed by
+# `claim_stdout_for_protocol()`, not by importing this module: the CLI REPL
+# imports it (through `build_chat_orchestrator`) only to reuse the turn engine,
+# and an import-time redirection sent the whole REPL -- Rich included -- to
+# stderr, so `opalatex --cli > log.txt` captured nothing.
 _real_stdout = sys.stdout
-sys.stdout = sys.stderr
+
+
+def claim_stdout_for_protocol() -> None:
+    """Route stray prints to stderr so only the JSON protocol reaches stdout.
+
+    Called by the stdin server. Idempotent.
+    """
+    if sys.stdout is not sys.stderr:
+        sys.stdout = sys.stderr
 
 from agenticblocks.blocks.llm.inbox import (
     InboxClosedError,
@@ -90,6 +104,93 @@ DEFAULT_CONTEXT_WINDOW = 8192
 # Pending GUI input requests: maps request-id -> asyncio.Future so that the
 # /api/opalatex/input_response endpoint can resolve them.
 _gui_input_pending: dict = {}
+
+
+# A front-end that answers `input_request` itself instead of calling back over
+# HTTP. The GUI leaves this unset: it receives the event on its stream and
+# resolves the future through /api/opalatex/input_response. The CLI sets it so
+# the same request is asked in the terminal (opalatex/cli_render.py).
+#
+# It exists because the two things the agent has to ask a human -- permission to
+# run an unsafe tool, and approval of a plan -- were written straight against
+# `_gui_input_pending`, which only the HTTP endpoint resolves. Under `--cli` and
+# under `--stdin` nothing could answer, so both waited out the 24h timeout.
+_input_transport = None  # type: Callable[[dict], Coroutine[Any, Any, str]] | None
+
+
+def set_input_transport(transport) -> None:
+    """Install (or clear, with ``None``) the front-end that answers input requests."""
+    global _input_transport
+    _input_transport = transport
+
+
+async def request_user_input(
+    prompt: str,
+    *,
+    options: list[str] | None = None,
+    default: str = "yes",
+    input_type: str = "confirm",
+    markdown_content: str | None = None,
+    agent: str = "",
+    timeout: float = 86400.0,
+) -> str:
+    """Ask the human a question from inside a tool and return the raw answer.
+
+    The request is always published as an `input_request` event, so every
+    front-end watching the stream can show it. How it is *answered* depends on
+    the front-end: the GUI posts to /api/opalatex/input_response, the stdin
+    protocol sends an ``input_response`` command, and a transport installed with
+    :func:`set_input_transport` answers in-process.
+
+    Raises ``asyncio.TimeoutError`` after *timeout*; callers decide what an
+    unanswered question means, because the two of them disagree (a tool defaults
+    to refusing, a plan defaults to not approved).
+    """
+    import uuid
+
+    loop = asyncio.get_event_loop()
+    req_id = str(uuid.uuid4())
+    fut = loop.create_future()
+    _gui_input_pending[req_id] = fut
+
+    request = {
+        "id": req_id,
+        "prompt": prompt,
+        "type": input_type,
+        "options": list(options or ["yes", "no"]),
+        "default": default,
+    }
+    if markdown_content is not None:
+        request["markdown_content"] = markdown_content
+    if agent:
+        request["agent"] = agent
+
+    transport_task = None
+    try:
+        print_event("input_request", dict(request))
+        if _input_transport is not None:
+            async def _ask_front_end() -> None:
+                try:
+                    answer = await _input_transport(dict(request))
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    _logging.getLogger(__name__).warning(
+                        "Input transport failed for %s: %s", req_id, exc
+                    )
+                    return
+                if not fut.done():
+                    fut.set_result(answer)
+
+            transport_task = loop.create_task(_ask_front_end())
+        return await asyncio.wait_for(asyncio.shield(fut), timeout=timeout)
+    finally:
+        _gui_input_pending.pop(req_id, None)
+        if transport_task is not None and not transport_task.done():
+            transport_task.cancel()
+        if not fut.done():
+            fut.cancel()
+        print_event("input_request_closed", {"id": req_id})
 
 # The out-of-band message inbox of the agent turn currently running, and the
 # project/chat pair it belongs to. `/api/opalatex/message` submits here; the turn
@@ -1033,6 +1134,35 @@ user's question. Reopening the chat then showed an empty-looking exchange and
 failure is real work and is now stored like any other partial turn."""
 
 
+#: Every marker that says an assistant turn ended without an answer. Mirrors
+#: ``gui_src/src/utils/turnMarkers.js``; both front-ends decide the same way
+#: whether a turn can be continued.
+TURN_MARKERS = (
+    INTERRUPTED_AGENT_HISTORY_MARKER,
+    TURN_CUT_SHORT_MARKER,
+    TURN_FAILED_MARKER,
+    TURN_NO_ANSWER_MARKER,
+)
+
+
+def unfinished_turn_content(history: list[dict] | None) -> str:
+    """Return the last assistant message when it ended without an answer, else "".
+
+    A marker is a *suffix*, not the whole message: `_persist_unfinished_turn`
+    stores what the model had written and appends the marker, so this matches by
+    containment the way the front-end does.
+    """
+    for message in reversed(history or []):
+        role = str(message.get("role") or "")
+        if role == "user":
+            return ""
+        if role != "assistant":
+            continue
+        content = str(message.get("content") or "")
+        return content if any(marker in content for marker in TURN_MARKERS) else ""
+    return ""
+
+
 def _turn_visible_text() -> str:
     """Return the visible text streamed by the turn so far."""
     return "".join(_ACTIVE_VISIBLE_CHUNKS or []).strip()
@@ -1165,7 +1295,15 @@ def print_event(event: str, data: dict):
                 thought_content = f"Alert: An error occurred during execution: {data.get('message', '')}"
                 
             if thought_content and _record_turn_thought(thought_content):
-                thought_payload = {"content": thought_content, "agent": data.get("agent")}
+                # Marked as auxiliary: this is narration of an event the
+                # front-end already received, not something the model wrote. A
+                # front-end that shows tool calls on their own (the terminal
+                # renderer does) would otherwise print each of them twice.
+                thought_payload = {
+                    "content": thought_content,
+                    "agent": data.get("agent"),
+                    "auxiliary": True,
+                }
                 _persist_activity_event("thought", thought_payload)
                 hook({"event": "thought", **thought_payload})
         except Exception as ex:
@@ -1725,6 +1863,12 @@ async def handle_slash_command(data: dict) -> dict:
     if cmd not in _registry:
         return {"status": "done", "messages": [f"🔴 Comando desconhecido: {cmd}. Digite /help para ajuda."]}
 
+    # A terminal-only command reaching the GUI would run against a REPLState with
+    # no renderer and report success for something that did not happen.
+    if _registry.is_cli_only(cmd):
+        from opalatex.i18n import _ as _translate
+        return {"status": "done", "messages": [f"🔴 {_translate('cli_command_cli_only', cmd=cmd)}"]}
+
     messages = []
 
     # ---- Capture terminal output helpers ----
@@ -1758,11 +1902,31 @@ async def handle_slash_command(data: dict) -> dict:
             return buf.getvalue()
         return str(obj)
 
+    # A run of literal lines is fenced, so the chat renders it preformatted
+    # instead of collapsing the alignment that makes a usage block readable.
+    literal_run = {"open": False}
+
+    def _close_literal_run():
+        if literal_run["open"]:
+            messages.append("```")
+            literal_run["open"] = False
+
     def _console_print(*args_c, **kwargs_c):
         if not args_c:
             messages.append("")
             return
         raw = " ".join(_render_rich(x) for x in args_c)
+        # `markup=False` is the caller saying this text is literal. The
+        # heuristics below re-read console output as command listings, which
+        # turned `/help`'s worked examples into bullets and ate the argument
+        # shapes they exist to show.
+        if kwargs_c.get("markup") is False:
+            if not literal_run["open"]:
+                messages.append("```")
+                literal_run["open"] = True
+            messages.extend(raw.split("\n"))
+            return
+        _close_literal_run()
         for line in raw.split("\n"):
             stripped = line.strip()
             if not stripped:
@@ -1853,6 +2017,7 @@ async def handle_slash_command(data: dict) -> dict:
         return {"status": "confirm", **confirm_info}
 
     await cmd_task
+    _close_literal_run()
     response_text = "\n".join(m for m in messages if m is not None) or f"Comando {cmd} concluído."
     # A command may have erased the context the panel indicator was describing
     # (/clear, /clear_chat). Return the occupancy that is true now — null once it
@@ -2596,7 +2761,10 @@ async def handle_run(data: dict):
             if hasattr(agent, "tools"):
                 tool_names = [getattr(t, "name", str(t)) for t in agent.tools]
                 #print(f"[DIAGNOSTIC] Registered Tools ({len(tool_names)}): {tool_names}")
-            print(f"{'='*80}\n")
+            # The separator of the commented-out diagnostic block above. It went
+            # to the server console under the GUI, where nobody saw it; under the
+            # CLI it printed a rule into the user's terminal on every turn.
+            #print(f"{'='*80}\n")
 
             with apply_meta_params(agent, _meta_overrides):
                 resp_obj = await agent.run(AgentInput(prompt=prompt, attachments=final_attachments))
@@ -2915,6 +3083,21 @@ async def handle_delete_project(data: dict):
     else:
         print_event("error", {"message": f"Project '{project_name}' not found"})
 
+def handle_input_response(data: dict) -> None:
+    """Answer a pending `input_request` over the stdin protocol.
+
+    The GUI has /api/opalatex/input_response for this; without the same command
+    here, a `--stdin` run that hit a tool-permission prompt or a plan approval
+    had no way to reply and waited out the timeout.
+    """
+    req_id = str(data.get("id") or "")
+    fut = _gui_input_pending.get(req_id)
+    if fut is None or fut.done():
+        print_event("error", {"message": f"No pending input request '{req_id}'"})
+        return
+    fut.set_result(str(data.get("response", "")))
+
+
 async def stdin_server_loop():
     print_event("server_ready", {})
     
@@ -2955,6 +3138,14 @@ async def stdin_server_loop():
                 await handle_update_project(data)
             elif cmd == "delete_project":
                 await handle_delete_project(data)
+            elif cmd == "input_response":
+                handle_input_response(data)
+            elif cmd == "slash_command":
+                # The whole command registry, rather than one protocol command
+                # per feature. A text front-end driving OpalaTex over stdin has
+                # the same commands the REPL and the desktop chat have.
+                result = await handle_slash_command(data)
+                print_event("slash_command_result", result)
             else:
                 print_event("error", {"message": f"Unknown command '{cmd}'"})
                 
@@ -2964,6 +3155,7 @@ async def stdin_server_loop():
             print_event("error", {"message": f"Exception in loop: {e}"})
 
 def start_stdin_server():
+    claim_stdout_for_protocol()
     asyncio.run(stdin_server_loop())
 
 def _ollama_http_status_from_error(message: str) -> int | None:

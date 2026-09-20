@@ -88,7 +88,8 @@ def test_this_environment_passes_the_real_probe():
 @pytest.mark.parametrize("script", ["build_exe.ps1", "build_exe.sh"])
 def test_every_build_script_runs_the_gate_before_packaging(script):
     text = (ROOT / script).read_text(encoding="utf-8")
-    install = text.index("pip install .")
+    # The build installs the desktop extra: the base install has no Qt to gate.
+    install = text.index('pip install ".[gui]"')
     check = text.index("scripts/check_qt_runtime.py")
     package = text.index("pyinstaller --name")
     assert install < check < package, (
