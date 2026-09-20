@@ -18,8 +18,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agenticblocks.blocks.llm.agent import AgentInput
 from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
 from agenticblocks.utils.parsers import (
+    split_channel_markup,
     split_inline_reasoning,
     split_inline_reasoning_parts,
+    strip_chat_control_tokens,
 )
 from opalatex.agent_stdin import _sanitize_model_response, _visible_chat_response
 from opalatex.think_stream import InlineReasoningStreamSplitter
@@ -57,6 +59,32 @@ def test_closing_tag_after_an_opening_one_is_ordinary_text():
 
 def test_content_without_reasoning_is_untouched():
     assert split_inline_reasoning("Plain answer.") == ("", "Plain answer.")
+
+
+def test_channel_markup_separates_reasoning_from_the_answer():
+    parts, visible = split_channel_markup(
+        "<|channel|>analysis<|message|>Weighing the options.<|end|>"
+        "<|start|>assistant<|channel|>final<|message|>The answer."
+    )
+    assert parts == ["Weighing the options."]
+    assert visible == "The answer."
+
+
+def test_channel_markup_falls_back_to_think_parsing():
+    """Both shapes reach the content channel; one splitter has to cover both."""
+    assert split_channel_markup(LEAKED) == (["Cleanup done. Now the final answer in Portuguese. Let me structure it clearly:"], "Analisei os slides 4-9.")
+
+
+def test_an_unknown_channel_is_treated_as_visible():
+    """Dropping a segment because its channel is unrecognised would discard an answer."""
+    parts, visible = split_channel_markup("<|channel|>unknown<|message|>Still an answer.")
+    assert parts == []
+    assert visible == "Still an answer."
+
+
+def test_control_tokens_are_stripped_from_a_segment():
+    """`<|start|>` takes the role name after it, which is why it runs over one line."""
+    assert strip_chat_control_tokens("Hi.<|end|><|start|>assistant") == "Hi."
 
 
 # ── chat history / visible response ───────────────────────────────────────────

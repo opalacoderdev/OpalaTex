@@ -683,64 +683,26 @@ def _strip_empty_think_blocks(content: str) -> str:
     return re.sub(r"<think>\s*</think>\s*", "", str(content or ""), flags=re.IGNORECASE)
 
 
-def _split_think_tags(content: str) -> tuple[str, list[str]]:
-    """Extract inline reasoning from visible model output.
-
-    Covers both non-empty ``<think>…</think>`` blocks and the orphan-close shape
-    (reasoning terminated by ``</think>`` with no opening tag), which is what a
-    thinking-capable model emits through the content channel when the provider is
-    not parsing the reasoning channel for us — see
-    ``agenticblocks.utils.parsers.split_inline_reasoning_parts``.
-    """
-    from agenticblocks.utils.parsers import split_inline_reasoning_parts
-
-    thoughts, visible = split_inline_reasoning_parts(content)
-    visible = _strip_empty_think_blocks(visible).strip()
-    return visible, thoughts
-
-
 def _strip_chat_control_tokens(content: str) -> str:
     """Remove raw chat-template control tokens from model output."""
-    text = str(content or "")
-    text = re.sub(r"<\|message\|>", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"<\|end\|>", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"<\|start\|>[^<\r\n]*", "", text, flags=re.IGNORECASE)
-    return text.strip()
+    from agenticblocks.utils.parsers import strip_chat_control_tokens
+
+    return strip_chat_control_tokens(content)
 
 
 def _split_channel_markup(content: str) -> tuple[str, list[str]]:
-    """Split gpt-oss/Ollama channel markup into visible text and thought text."""
-    text = str(content or "")
-    marker_re = re.compile(
-        r"<\|channel\|>\s*([A-Za-z0-9_-]+)\s*(?:<\|message\|>)?",
-        flags=re.IGNORECASE,
-    )
-    matches = list(marker_re.finditer(text))
-    if not matches:
-        return _split_think_tags(text)
+    """Split gpt-oss/Ollama channel markup into visible text and thought text.
 
-    visible_parts: list[str] = []
-    thought_parts: list[str] = []
-    if matches[0].start() > 0:
-        visible_parts.append(_strip_chat_control_tokens(text[:matches[0].start()]))
+    The splitting itself lives in ``agenticblocks.utils.parsers`` next to the
+    ``<think>`` parsing it falls back to: a reasoning model reaches the content
+    channel in one shape or the other depending on the provider, so every
+    surface that publishes model text needs both, not just the chat. This
+    wrapper only keeps the argument order the chat loop uses.
+    """
+    from agenticblocks.utils.parsers import split_channel_markup
 
-    reasoning_channels = {"thought", "analysis", "reasoning"}
-    visible_channels = {"final", "commentary", "assistant"}
-    for index, match in enumerate(matches):
-        channel = match.group(1).lower()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        segment = _strip_chat_control_tokens(text[match.end():end])
-        if not segment:
-            continue
-        if channel in reasoning_channels:
-            thought_parts.append(segment)
-        elif channel in visible_channels:
-            visible_parts.append(segment)
-        else:
-            visible_parts.append(segment)
-
-    visible, embedded_thoughts = _split_think_tags("\n\n".join(part for part in visible_parts if part))
-    return visible, thought_parts + embedded_thoughts
+    thoughts, visible = split_channel_markup(content)
+    return _strip_empty_think_blocks(visible).strip(), thoughts
 
 
 def _sanitize_model_response(response: str, thought_chunks: list[str]) -> str:

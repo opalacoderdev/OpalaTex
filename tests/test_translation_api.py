@@ -17,6 +17,7 @@ from opalatex.translation import (
     build_translation_system_prompt,
     execute_translation,
     resolve_target_language,
+    strip_model_reasoning,
     strip_plain_text_wrapper,
 )
 
@@ -129,6 +130,56 @@ async def test_execute_translation_unwraps_a_fenced_answer(monkeypatch):
     _stub_agent(monkeypatch, "```text\nUma frase.\n```")
 
     assert await execute_translation("A sentence.", "Brazilian Portuguese") == "Uma frase."
+
+
+def test_system_prompt_forbids_thinking_out_loud():
+    """A reasoning model's monologue reaches the popup as if it were the translation."""
+    prompt = build_translation_system_prompt("English")
+    assert "Do not think out loud" in prompt
+
+
+def test_strip_model_reasoning_drops_a_think_block():
+    assert strip_model_reasoning("<think>The user wants...</think>Takeaway") == "Takeaway"
+
+
+def test_strip_model_reasoning_drops_an_orphan_closing_tag():
+    """Chat templates seed the opening <think>, so only the closing tag is generated."""
+    assert strip_model_reasoning(
+        "The user wants me to translate.\nIt is already English.\n</think>Takeaway"
+    ) == "Takeaway"
+
+
+def test_strip_model_reasoning_drops_channel_markup():
+    assert strip_model_reasoning(
+        "<|channel|>analysis<|message|>Already English, return unchanged.<|end|>"
+        "<|start|>assistant<|channel|>final<|message|>Takeaway"
+    ) == "Takeaway"
+
+
+def test_strip_model_reasoning_leaves_an_ordinary_translation_alone():
+    assert strip_model_reasoning("Uma frase com <think> no meio.") == "Uma frase com <think> no meio."
+
+
+@pytest.mark.asyncio
+async def test_execute_translation_returns_only_the_answer_channel(monkeypatch):
+    """The reported bug: the whole chain of thought was shown as the translation."""
+    _stub_agent(
+        monkeypatch,
+        "The user wants me to detect the language and translate it.\n"
+        "\"Takeaway\" is already English, so I return it unchanged.\n"
+        "</think>Takeaway",
+    )
+
+    assert await execute_translation("Takeaway", "English") == "Takeaway"
+
+
+@pytest.mark.asyncio
+async def test_execute_translation_reports_an_answer_that_is_only_reasoning(monkeypatch):
+    """Silently showing the reasoning is what this replaces; a fenced-off answer is required."""
+    _stub_agent(monkeypatch, "<think>Let me think about this snippet.</think>")
+
+    with pytest.raises(ValueError, match="reasoning only"):
+        await execute_translation("Takeaway", "English")
 
 
 @pytest.mark.asyncio

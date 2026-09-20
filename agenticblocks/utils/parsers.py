@@ -89,3 +89,69 @@ def split_inline_reasoning(content: Optional[str]) -> Tuple[str, str]:
     """
     parts, visible = split_inline_reasoning_parts(content)
     return "\n\n".join(parts).strip(), visible
+
+
+# Chat-template control tokens emitted by models whose harmony/channel format is
+# passed through verbatim by the provider (gpt-oss served by Ollama, notably).
+_CONTROL_MESSAGE_RE = re.compile(r"<\|message\|>", re.IGNORECASE)
+_CONTROL_END_RE = re.compile(r"<\|end\|>", re.IGNORECASE)
+_CONTROL_START_RE = re.compile(r"<\|start\|>[^<\r\n]*", re.IGNORECASE)
+_CHANNEL_MARKER_RE = re.compile(
+    r"<\|channel\|>\s*([A-Za-z0-9_-]+)\s*(?:<\|message\|>)?",
+    re.IGNORECASE,
+)
+
+#: Channel names whose segments are reasoning, not an answer.
+REASONING_CHANNEL_NAMES = frozenset({"thought", "analysis", "reasoning"})
+#: Channel names whose segments are addressed to the user.
+VISIBLE_CHANNEL_NAMES = frozenset({"final", "commentary", "assistant"})
+
+
+def strip_chat_control_tokens(content: Optional[str]) -> str:
+    """Remove raw chat-template control tokens from model output."""
+    text = str(content or "")
+    text = _CONTROL_MESSAGE_RE.sub("", text)
+    text = _CONTROL_END_RE.sub("", text)
+    text = _CONTROL_START_RE.sub("", text)
+    return text.strip()
+
+
+def split_channel_markup(content: Optional[str]) -> Tuple[List[str], str]:
+    """Split channel markup *and* ``<think>`` tags into reasoning and answer.
+
+    Returns ``(reasoning_parts, visible)``, the same shape as
+    ``split_inline_reasoning_parts``, which this function falls back to when the
+    text carries no ``<|channel|>`` markers. It is the widest splitter available:
+    any caller that publishes model text to a user should route it through here,
+    because a reasoning model reaches the content channel in either shape
+    depending on whether the provider parsed the reasoning for us.
+
+    An unknown channel name is treated as visible: dropping a segment because the
+    channel is unrecognised would discard an answer, which is worse than showing
+    one line too many.
+    """
+    text = str(content or "")
+    matches = list(_CHANNEL_MARKER_RE.finditer(text))
+    if not matches:
+        return split_inline_reasoning_parts(text)
+
+    visible_parts: List[str] = []
+    reasoning_parts: List[str] = []
+    if matches[0].start() > 0:
+        visible_parts.append(strip_chat_control_tokens(text[: matches[0].start()]))
+
+    for index, match in enumerate(matches):
+        channel = match.group(1).lower()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        segment = strip_chat_control_tokens(text[match.end():end])
+        if not segment:
+            continue
+        if channel in REASONING_CHANNEL_NAMES:
+            reasoning_parts.append(segment)
+        else:
+            visible_parts.append(segment)
+
+    embedded_reasoning, visible = split_inline_reasoning_parts(
+        "\n\n".join(part for part in visible_parts if part)
+    )
+    return reasoning_parts + embedded_reasoning, visible

@@ -67,8 +67,34 @@ def build_translation_system_prompt(target_language: str) -> str:
         "unchanged.\n"
         "Answer with the translated text as plain text and nothing else: no "
         "preamble, no commentary, no notes, no quotes around it, no JSON, and "
-        "no code fences."
+        "no code fences.\n"
+        "Do not think out loud in your answer: no restatement of these "
+        "instructions, no analysis of what the snippet is, no account of how "
+        "you decided. Reasoning that reaches the answer channel is shown to "
+        "the user as if it were the translation."
     )
+
+
+def strip_model_reasoning(text: str) -> str:
+    """Return only what the model addressed to the user.
+
+    A reasoning model writes its deliberation into the content channel whenever
+    the provider is not parsing a separate reasoning channel for it, and the
+    chat path has removed that for a long time (``agent_stdin``). The translator
+    never did, so a model that reasoned its way to "Takeaway" handed the popup
+    the whole monologue with the translation buried at the end. The shared
+    splitter handles both shapes this arrives in -- ``<think>`` blocks, the
+    orphan closing tag, and ``<|channel|>`` markup.
+
+    Reasoning that carries **no** marker at all cannot be separated here, and is
+    not guessed at: that is a provider-level problem, fixed by registering the
+    model as thinking-capable so its reasoning channel is isolated (see
+    ``config.resolve_think_request``).
+    """
+    from agenticblocks.utils.parsers import split_channel_markup
+
+    _reasoning, visible = split_channel_markup(text)
+    return visible.strip()
 
 
 def strip_plain_text_wrapper(text: str) -> str:
@@ -143,7 +169,12 @@ async def execute_translation(
     wrap_agent_litellm_compat(agent)
     res = await agent.run(_agent_mod.AgentInput(prompt=snippet))
 
-    translated = strip_plain_text_wrapper(res.response)
+    answer = strip_model_reasoning(res.response)
+    if not answer and str(res.response or "").strip():
+        raise ValueError(
+            "The model answered with reasoning only and no translation."
+        )
+    translated = strip_plain_text_wrapper(answer)
     if not translated:
         raise ValueError("The model returned an empty translation.")
     return translated
