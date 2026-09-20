@@ -74,6 +74,14 @@ parts:
       - python3-dev
       - python3-venv
     stage-packages:
+      # espeak-ng (GPL-3.0) is loaded at runtime over ctypes and is deliberately
+      # not vendored into the MIT source tree, but strict confinement hides the
+      # host's copy, so the snap would ship a local voice that can never speak.
+      # Staging the distro packages keeps the library out of the repository
+      # while still giving the confined app something to dlopen; the snap as a
+      # whole is then distributed under the GPL-3.0's terms, exactly as it
+      # already is for the AGPL PyMuPDF payload.
+      - espeak-ng-data
       - git
       - python3.12
       - python3.12-minimal
@@ -86,6 +94,7 @@ parts:
       - libdbus-1-3
       - libdrm2
       - libegl1
+      - libespeak-ng1
       - libevent-2.1-7t64
       - libfontconfig1
       - libfreetype6
@@ -184,6 +193,27 @@ parts:
       craftctl default
 
       arch_triplet="${CRAFT_ARCH_TRIPLET_BUILD_FOR:-x86_64-linux-gnu}"
+
+      # A local voice is silent without both halves of espeak-ng, and the
+      # failure only shows up at synthesis time on a user's machine, so the
+      # build refuses to ship a snap that is missing either one.
+      espeak_lib="$CRAFT_PRIME/usr/lib/$arch_triplet/libespeak-ng.so.1"
+      if [ ! -f "$espeak_lib" ]; then
+        echo "Missing $espeak_lib: local voices would report espeak-ng as not installed."
+        exit 1
+      fi
+      espeak_data=""
+      for candidate in "$CRAFT_PRIME"/usr/lib/*/espeak-ng-data "$CRAFT_PRIME"/usr/share/espeak-ng-data; do
+        if [ -f "$candidate/phontab" ]; then
+          espeak_data="$candidate"
+          break
+        fi
+      done
+      if [ -z "$espeak_data" ]; then
+        echo "Missing espeak-ng-data in the prime tree: espeak_Initialize would fail at runtime."
+        exit 1
+      fi
+
       qt_lib_dir="$CRAFT_PRIME/lib/python3.12/site-packages/PyQt6/Qt6/lib"
       export LD_LIBRARY_PATH="$CRAFT_PRIME/lib:$CRAFT_PRIME/lib/$arch_triplet:$CRAFT_PRIME/usr/lib:$CRAFT_PRIME/usr/lib/$arch_triplet:$qt_lib_dir:${LD_LIBRARY_PATH:-}"
 
