@@ -306,27 +306,20 @@ def clean_evolved_prompt(
     return evolved_prompt
 
 
-def _request_project_prompt_prefix(data: dict) -> str:
-    """Resolve auxiliary calls by explicit project identity, never global state."""
-    name = data.get("project_name")
-    if not name:
-        return ""
-    from opalatex.config import DEFAULT_DB_PATH
-    from opalatex.project import ProjectStore
-    store = ProjectStore(db_path=DEFAULT_DB_PATH)
-    if not isinstance(name, str) or not store.exists(name):
-        raise ValueError("Unknown project")
-    return store.load(name).user_prompt_prefix
-
-
 async def _execute_prompt_evolution(
     prompt: str,
     iterations: int = 1,
     model: str | None = None,
     max_tokens: int = 4096,
-    user_prompt_prefix: str = "",
 ) -> str:
-    """Refine and evolve a prompt iteratively using LLMAgentBlock."""
+    """Refine and evolve a prompt iteratively using LLMAgentBlock.
+
+    The project's user prompt prefix is deliberately not applied here, for the
+    same reason as in ``opalatex.translation``: this is a transform whose input
+    is the user's prompt, not a conversation, and ``prepend_user_prompt`` would
+    fuse the prefix into the very text being rewritten. The prefix already
+    reaches the chat agent that runs the refined prompt.
+    """
     import agenticblocks.blocks.llm.agent as _agent_mod
     from opalatex.litellm_compat import wrap_agent_litellm_compat
     from opalatex.config import get_agent_model, get_agent_llm_kwargs
@@ -356,7 +349,6 @@ async def _execute_prompt_evolution(
         agent = _agent_mod.LLMAgentBlock(
             name="prompt_evolution",
             system_prompt=system_prompt,
-            user_prompt_prefix=user_prompt_prefix,
             model=selected_model,
             model_kwargs=model_kwargs,
             response_schema=PromptEvolutionResult,
@@ -5816,7 +5808,6 @@ class AsyncHTTPServer:
                 selected_model = str(data.get("model") or "").strip()
                 evolved = await _execute_prompt_evolution(
                     prompt_text,
-                    user_prompt_prefix=_request_project_prompt_prefix(data),
                     iterations=iterations,
                     model=selected_model or None,
                     max_tokens=max(1, min(65536, int(cfg.get("prompt_evolution_max_tokens", 4096)))),
@@ -5877,7 +5868,6 @@ class AsyncHTTPServer:
                 translated_text = await execute_translation(
                     snippet,
                     target_language,
-                    user_prompt_prefix=_request_project_prompt_prefix(data),
                     model=str(data.get("model") or "").strip() or None,
                 )
                 self.send_response(writer, 200, json.dumps({

@@ -146,7 +146,6 @@ export default function EditorPanel({
     copy: copyTranslation,
     close: closeTranslation,
   } = useSnippetTranslation({
-    projectName: activeProject?.name,
     model: activeProject?.model || '',
     uiLanguage: i18n.language,
   });

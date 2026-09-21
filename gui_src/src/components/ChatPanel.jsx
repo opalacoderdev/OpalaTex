@@ -153,7 +153,6 @@ export default function ChatPanel({
     copy: copyTranslation,
     close: closeTranslation,
   } = useSnippetTranslation({
-    projectName: activeProject?.name,
     model: activeProject?.model || '',
     uiLanguage: i18n.language,
   });
@@ -446,7 +445,6 @@ export default function ChatPanel({
         signal: controller.signal,
         body: JSON.stringify({
           prompt: rawPrompt,
-          project_name: activeProject.name,
           model: activeProject.model,
           project_path: activeProject?.path || activeProject?.project_name,
           stream: true,

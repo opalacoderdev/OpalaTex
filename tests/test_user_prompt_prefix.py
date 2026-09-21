@@ -64,15 +64,20 @@ async def test_project_prefix_save_reload_clear_and_validation(api):
     assert api.store.load('myproj').user_prompt_prefix == ''
 
 
-def test_auxiliary_calls_resolve_explicit_project(api):
-    from opalatex.ide_server import _request_project_prompt_prefix
-    project = api.store.load('myproj')
-    project.user_prompt_prefix = 'Project rules'
-    api.store.save(project)
-    assert _request_project_prompt_prefix({'project_name': 'myproj'}) == 'Project rules'
-    assert _request_project_prompt_prefix({}) == ''
-    with pytest.raises(ValueError, match='Unknown project'):
-        _request_project_prompt_prefix({'project_name': 'missing'})
+def test_single_shot_transforms_never_receive_the_prefix():
+    """The prefix instructs the chat agent; translation and prompt evolution are transforms.
+
+    ``prepend_user_prompt`` fuses the prefix into the same user message as the
+    payload, so a translator that received it translated it and showed it to
+    the user as the translation, and prompt evolution rewrote it into the
+    refined prompt. Neither call site takes the parameter any more.
+    """
+    import inspect
+    from opalatex.ide_server import _execute_prompt_evolution
+    from opalatex.translation import execute_translation
+
+    for func in (execute_translation, _execute_prompt_evolution):
+        assert 'user_prompt_prefix' not in inspect.signature(func).parameters
 
 
 def test_existing_database_migrates_without_losing_project(api):

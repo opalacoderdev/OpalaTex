@@ -119,10 +119,28 @@ async def test_execute_translation_asks_for_no_response_schema(monkeypatch):
     """A prose answer is a good translation; requiring JSON only adds a failure mode."""
     captured = _stub_agent(monkeypatch, "Uma frase.")
 
-    assert await execute_translation("A sentence.", "Brazilian Portuguese", user_prompt_prefix="Keep names intact.") == "Uma frase."
-    assert captured["user_prompt_prefix"] == "Keep names intact."
+    assert await execute_translation("A sentence.", "Brazilian Portuguese") == "Uma frase."
     assert "response_schema" not in captured
     assert captured["prompt"] == "A sentence."
+
+
+@pytest.mark.asyncio
+async def test_execute_translation_ignores_the_project_prompt_prefix(monkeypatch):
+    """Regression: the chat agent's standing instructions came back translated.
+
+    The prefix shares its user message with the excerpt, so a translator that
+    received it translated it too. It is chat instruction, not translation
+    input, and this agent never sees it.
+    """
+    captured = _stub_agent(monkeypatch, "O gato sentou.")
+
+    with pytest.raises(TypeError):
+        await execute_translation(
+            "The cat sat.", "Brazilian Portuguese", user_prompt_prefix="# TESTING"
+        )
+    assert await execute_translation("The cat sat.", "Brazilian Portuguese") == "O gato sentou."
+    assert "user_prompt_prefix" not in captured
+    assert captured["prompt"] == "The cat sat."
 
 
 @pytest.mark.asyncio
@@ -225,7 +243,7 @@ async def test_translate_endpoint_returns_the_translation_and_target_language(tm
 
     captured = {}
 
-    async def fake_execute(text, target_language, model=None, user_prompt_prefix=""):
+    async def fake_execute(text, target_language, model=None):
         captured.update(text=text, target_language=target_language, model=model)
         return "Uma amostra de texto."
 
@@ -270,7 +288,7 @@ async def test_translate_endpoint_falls_back_to_the_saved_setting(tmp_path, monk
 
     captured = {}
 
-    async def fake_execute(text, target_language, model=None, user_prompt_prefix=""):
+    async def fake_execute(text, target_language, model=None):
         captured["target_language"] = target_language
         return "Ein Text."
 
@@ -301,7 +319,7 @@ async def test_translate_endpoint_falls_back_to_the_ui_language(tmp_path, monkey
 
     captured = {}
 
-    async def fake_execute(text, target_language, model=None, user_prompt_prefix=""):
+    async def fake_execute(text, target_language, model=None):
         captured["target_language"] = target_language
         return "Um texto."
 
@@ -344,7 +362,7 @@ async def test_translate_endpoint_reports_a_model_failure_instead_of_guessing(tm
     settings_file = tmp_path / "ui_settings.json"
     monkeypatch.setattr("opalatex.ui_settings._SETTINGS_PATH", settings_file)
 
-    async def fake_execute(text, target_language, model=None, user_prompt_prefix=""):
+    async def fake_execute(text, target_language, model=None):
         raise RuntimeError("provider unreachable")
 
     monkeypatch.setattr("opalatex.translation.execute_translation", fake_execute)

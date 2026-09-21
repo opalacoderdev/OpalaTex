@@ -19,7 +19,7 @@ import { useCallback, useRef, useState } from 'react';
  * `state` is { x, y, sourceText, status, targetLanguage, translatedText,
  * error } or null, which is exactly what TranslationPopup renders.
  */
-export function useSnippetTranslation({ projectName, model, uiLanguage } = {}) {
+export function useSnippetTranslation({ model, uiLanguage } = {}) {
   const [translation, setTranslation] = useState(null);
   const requestRef = useRef(0);
 
@@ -53,7 +53,6 @@ export function useSnippetTranslation({ projectName, model, uiLanguage } = {}) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
-          project_name: projectName,
           target_lang: targetLang,
           model: model || '',
         }),
@@ -73,7 +72,7 @@ export function useSnippetTranslation({ projectName, model, uiLanguage } = {}) {
       if (requestRef.current !== requestId) return;
       setTranslation((prev) => (prev ? { ...prev, status: 'error', error: err.message } : prev));
     }
-  }, [projectName, model, uiLanguage]);
+  }, [model, uiLanguage]);
 
   // A retry reuses the same excerpt *and* the same coordinates, so a popup the
   // user has already dragged somewhere comfortable stays where they put it.

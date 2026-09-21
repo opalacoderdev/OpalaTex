@@ -75,7 +75,6 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     copy: handleCopyTranslation,
     close: closeTranslation,
   } = useSnippetTranslation({
-    projectName: activeProject?.name,
     model: activeProject?.model || '',
     uiLanguage: i18n.language,
   });

@@ -7,6 +7,16 @@ translates the excerpt perfectly but replies in prose used to produce no
 ``structured_output`` at all, and the caller could only report that the result
 was not valid -- the translation itself was discarded. Nothing here is
 PDF-specific: any caller that has a text snippet and a target language can use it.
+
+The project's user prompt prefix is deliberately **not** applied to this agent.
+That prefix is standing instruction for the chat agent -- how to answer the
+user -- and this is not a conversation: it is a mechanical transform whose
+whole input is the excerpt. ``prepend_user_prompt`` would glue the prefix to
+the front of the same user message that carries the excerpt, with no boundary
+between them, and the model translated the prefix along with the snippet and
+showed it in the popup as the translation. A prefix such as "always answer in
+Portuguese" would also fight the requested target language. Nothing about the
+translation depends on the project, so the project is not consulted.
 """
 
 from __future__ import annotations
@@ -127,7 +137,6 @@ async def execute_translation(
     target_language: str,
     model: str | None = None,
     max_tokens: int = 4096,
-    user_prompt_prefix: str = "",
 ) -> str:
     """Translate *text* into *target_language* and return the translated text.
 
@@ -162,7 +171,6 @@ async def execute_translation(
     agent = _agent_mod.LLMAgentBlock(
         name="snippet_translation",
         system_prompt=build_translation_system_prompt(target_language),
-        user_prompt_prefix=user_prompt_prefix,
         model=selected_model,
         model_kwargs=model_kwargs,
     )
