@@ -1202,6 +1202,11 @@ def chat_orchestrator_system_prompt(project, store=None) -> str:
         if _needs_native_tool_call_reminder(model) else ""
     )
 
+    from .agent_stdin import REPLY_SURFACE_TERMINAL, reply_surface
+    surface_block = (
+        _TERMINAL_REPLY_BLOCK if reply_surface() == REPLY_SURFACE_TERMINAL else ""
+    )
+
     system_prompt = (
         f"{_current_date_instruction()}\n\n"
         f"{body}\n\n"
@@ -1210,8 +1215,34 @@ def chat_orchestrator_system_prompt(project, store=None) -> str:
         f"{blocked_block}"
         f"{native_tool_block}"
         f"{tutorial_block}"
+        f"{surface_block}"
     )
     return system_prompt
+
+
+#: Appended when the replies are read in a terminal (`agent_stdin.reply_surface`).
+#: The skill bodies are written for the desktop chat, which renders Markdown and
+#: typesets math; in a terminal every `**`, `$\frac{a}{b}$` and `![img](path)`
+#: is printed literally. Last in the prompt so it wins over the skill body's
+#: "display images with Markdown" instruction. It governs the chat text only:
+#: the files the agent writes keep whatever syntax their format requires.
+_TERMINAL_REPLY_BLOCK = (
+    "\n## Where your replies are read: a plain-text terminal\n"
+    "The user is talking to you through the OpalaTex command-line interface. Your text "
+    "is printed exactly as written and nothing is rendered: Markdown, HTML and LaTeX math "
+    "show up as literal characters. This overrides any instruction above about formatting "
+    "replies or displaying images.\n"
+    "- Write plain prose. Structure with short paragraphs and simple `-` lists. Do not use "
+    "Markdown headings, bold or italics, tables, links, or image embeds (`![...](...)`); "
+    "name a file by its project-relative path instead.\n"
+    "- Do not typeset mathematics in replies (no `$...$`, `\\(...\\)`, `\\[...\\]`). Write "
+    "formulas in readable plain text with Unicode where it helps, e.g. α² + β ≤ 1, "
+    "∑ᵢ xᵢ / n, sqrt(x).\n"
+    "- When the user has to see source itself (a LaTeX snippet to paste, the exact lines "
+    "you changed, a command), put it in a fenced code block; it is shown verbatim.\n"
+    "- This is about your chat text only. Files you write keep the syntax their format "
+    "requires: .tex stays LaTeX, .md stays Markdown.\n"
+)
 
 
 def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:

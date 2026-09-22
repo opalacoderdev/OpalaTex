@@ -1,11 +1,8 @@
 import os
-import shutil
-import stat
 import subprocess
 import sys
-import tarfile
-import zipfile
 
+from .external_tools import executable_name, find_tool, install_executable_from_archive
 from .subprocess_utils import utf8_text_kwargs
 
 
@@ -30,26 +27,9 @@ def _local_bin_dir() -> str:
     return os.path.join(_app_root(), "bin")
 
 
-def _find_executable_in_dir(directory: str, executable_name: str) -> str:
-    if not directory or not os.path.isdir(directory):
-        return ""
-    direct = os.path.join(directory, executable_name)
-    if os.path.isfile(direct):
-        return direct
-    for root, dirs, files in os.walk(directory):
-        dirs[:] = [d for d in dirs if d not in {".git", "__pycache__"}]
-        if executable_name in files:
-            return os.path.join(root, executable_name)
-    return ""
-
-
 def get_pandoc_path() -> str | None:
-    """Find pandoc in OpalaTex's bundled bin directory or in PATH."""
-    exe_name = "pandoc.exe" if sys.platform == "win32" else "pandoc"
-    local_exe = _find_executable_in_dir(_local_bin_dir(), exe_name)
-    if local_exe:
-        return local_exe
-    return shutil.which("pandoc")
+    """Find pandoc in the user tools dir, OpalaTex's bundled bin directory, or PATH."""
+    return find_tool("pandoc", [_local_bin_dir()])
 
 
 def get_pandoc_download() -> tuple[str, str]:
@@ -66,51 +46,9 @@ def get_pandoc_download() -> tuple[str, str]:
     return f"{base}/{name}", name
 
 
-def _safe_member_name(name: str) -> str:
-    normalized = name.replace("\\", "/")
-    return os.path.basename(normalized)
-
-
-def _install_executable_from_zip(archive_path: str, bin_dir: str, exe_name: str) -> str:
-    with zipfile.ZipFile(archive_path, "r") as zip_ref:
-        for member in zip_ref.infolist():
-            if member.is_dir() or _safe_member_name(member.filename) != exe_name:
-                continue
-            target = os.path.join(bin_dir, exe_name)
-            with zip_ref.open(member, "r") as source, open(target, "wb") as dest:
-                shutil.copyfileobj(source, dest)
-            return target
-    raise FileNotFoundError(f"{exe_name} was not found inside {os.path.basename(archive_path)}")
-
-
-def _install_executable_from_tar(archive_path: str, bin_dir: str, exe_name: str) -> str:
-    with tarfile.open(archive_path, "r:gz") as tar_ref:
-        for member in tar_ref.getmembers():
-            if not member.isfile() or _safe_member_name(member.name) != exe_name:
-                continue
-            source = tar_ref.extractfile(member)
-            if source is None:
-                continue
-            target = os.path.join(bin_dir, exe_name)
-            with source, open(target, "wb") as dest:
-                shutil.copyfileobj(source, dest)
-            return target
-    raise FileNotFoundError(f"{exe_name} was not found inside {os.path.basename(archive_path)}")
-
-
 def install_pandoc_from_archive(archive_path: str, bin_dir: str | None = None) -> str:
-    """Install the pandoc executable from a downloaded archive into bin/."""
-    bin_dir = bin_dir or _local_bin_dir()
-    os.makedirs(bin_dir, exist_ok=True)
-    exe_name = "pandoc.exe" if sys.platform == "win32" else "pandoc"
-    if archive_path.lower().endswith(".zip"):
-        installed = _install_executable_from_zip(archive_path, bin_dir, exe_name)
-    else:
-        installed = _install_executable_from_tar(archive_path, bin_dir, exe_name)
-    if sys.platform != "win32":
-        mode = os.stat(installed).st_mode
-        os.chmod(installed, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return installed
+    """Install the pandoc executable from a downloaded archive into the user tools dir."""
+    return install_executable_from_archive(archive_path, executable_name("pandoc"), bin_dir)
 
 
 def _is_path_within(child: str, parent: str) -> bool:

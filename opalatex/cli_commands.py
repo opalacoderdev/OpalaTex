@@ -1,6 +1,7 @@
 """REPL command registry and handlers for OpalaTex CLI."""
 
 import asyncio
+import os
 
 from .project import ProjectStore, ProjectData
 from . import terminal as T
@@ -154,11 +155,12 @@ _registry = CommandRegistry()
 #: missing from this map is a bug the help would hide, so a test fails on it.
 COMMAND_GROUPS: dict[str, tuple[str, ...]] = {
     "help_group_session": ("/help", "/mode", "/cost", "/resume", "/thoughts", "/tools", "/exit"),
-    "help_group_projects": ("/list", "/load", "/rename", "/delete"),
+    "help_group_projects": ("/project", "/list", "/load", "/rename", "/delete"),
     "help_group_chats": ("/chat", "/history", "/clear_chat", "/clear"),
     "help_group_models": (
-        "/models", "/providers", "/set-main-model", "/set-worker-model",
-        "/set-model-param",
+        "/add-provider", "/add-model", "/models", "/providers",
+        "/set-provider-field", "/set-model-field", "/remove-provider", "/remove-model",
+        "/set-main-model", "/set-worker-model", "/set-model-param",
     ),
     "help_group_skills": ("/skills", "/lsskills", "/addskill", "/rmskill",
                           "/list_assets", "/load_asset"),
@@ -316,29 +318,115 @@ async def cmd_list(state: REPLState, _args: list[str]) -> None:
         T.console.print()
 
 
-@_registry.register("/load", usage="<name>", description="Load another project")
-async def cmd_load(state: REPLState, args: list[str]) -> str | None:
+def warn_if_project_dir_unusable(project: ProjectData) -> bool:
+    """Say, once on opening, when the project's folder cannot hold its state.
+
+    A project created before the folder was checked (under snap, the home
+    directory itself) otherwise surfaces only as "Permission denied" on
+    ``<folder>/.opalatex`` during every turn. A folder that no longer exists is
+    left alone: probing it would recreate it.
+    """
+    from .config import project_dir_error
+    path = project.project_path or ""
+    if not os.path.isdir(path):
+        return False
+    problem = project_dir_error(path)
+    if not problem:
+        return False
+    T.error(problem)
+    T.console.print(f"[dim]{_escape(_('cli_project_dir_unusable_hint'))}[/dim]")
+    return True
+
+
+def _switch_project(state: REPLState, project: ProjectData) -> None:
     from .tools import set_project_context
-    if not args:
-        T.error("Usage: /load <name>")
-        return "continue"
+    state.project = project
+    set_project_context(state.project, state.store)
+    # Drop the MemGPT so the next turn rebuilds it for the newly loaded
+    # project (re-scopes file tools, reseeds memory from its history).
+    state.invalidate_memgpt()
+
+
+@_registry.register("/load", usage="[name]", description="Load another project (bare, in the terminal: choose from the list)")
+async def cmd_load(state: REPLState, args: list[str]) -> str | None:
+    if not args or not args[0].strip():
+        # The terminal gets the project list the window shows; the desktop
+        # chat's command box has no keyboard prompt to show it with.
+        if state.renderer is None:
+            T.error("Usage: /load <name>")
+            return "continue"
+        return await _load_from_list(state)
     name = args[0].strip('"\'')
     if not state.store.exists(name):
         T.error(f"Project '{name}' not found.")
         return "continue"
     loaded = state.store.load(name)
     if loaded:
-        state.project = loaded
-        set_project_context(state.project, state.store)
-        # Drop the MemGPT so the next turn rebuilds it for the newly loaded
-        # project (re-scopes file tools, reseeds memory from its history).
-        state.invalidate_memgpt()
+        _switch_project(state, loaded)
         T.success(f"Project '{name}' loaded.")
         T.console.print(f"  [dim]Skills: {', '.join(state.project.skills)}[/dim]")
+        warn_if_project_dir_unusable(state.project)
         if state.project.request and state.project.plan_text and not state.project.results:
             T.warning(_("pending_demand", request=state.project.request[:50]))
     else:
         T.error(f"Project '{name}' not found.")
+
+
+async def _load_from_list(state: REPLState) -> str:
+    """Pick the project to switch to from the registered ones."""
+    entries = {}
+    for p in state.store.list_projects():
+        if p["name"] == state.project.name:
+            continue
+        path = os.path.abspath(os.path.expanduser(p.get("project_path") or ""))
+        label = f"{p.get('project_name') or p['name']}  —  {path}"
+        if not os.path.isdir(path):
+            label += f"  {_('cli_picker_folder_missing')}"
+        entries[label] = (p["name"], path)
+    if not entries:
+        T.info(_("cli_load_no_other_project"))
+        return "continue"
+    try:
+        picked = T.choose(_("cli_picker_title"), list(entries))
+    except (T.UserCancelled, EOFError):
+        T.warning(_("cli_action_cancelled"))
+        return "continue"
+    name, path = entries[picked]
+    if not os.path.isdir(path):
+        T.error(_("cli_project_dir_missing", path=path))
+        T.console.print(f"[dim]{_escape(_('cli_project_dir_missing_hint', project_key=name))}[/dim]")
+        return "continue"
+    return await cmd_load(state, [name])
+
+
+@_registry.register(
+    "/project", usage="[new]", cli_only=True,
+    description="Show the current project, or create a new one and switch to it",
+    details="Examples:\n  /project        name, folder and model of the current project\n"
+            "  /project new    create a project interactively and switch to it\n\n"
+            "Other projects: /list, /load <name>, /rename, /delete.",
+)
+async def cmd_project(state: REPLState, args: list[str]) -> str | None:
+    sub = args[0].strip().lower() if args and args[0].strip() else ""
+    if not sub:
+        T.console.print(f"\n[dim]Project '{_escape(state.display_name)}' ({_escape(state.project.name)}):[/dim]")
+        T.console.print(f"  [cyan]folder[/cyan]  {_escape(state.project.project_path or '')}")
+        T.console.print(f"  [cyan]model[/cyan]   {_escape(state.project.model or _('cli_model_not_set'))}")
+        T.console.print(f"  [cyan]mode[/cyan]    {_escape(state.project.mode or '')}\n")
+        return "continue"
+    if sub != "new":
+        T.error("Usage: /project [new]")
+        return "continue"
+    import types
+    from .cli import _create_project
+    try:
+        created = await _create_project(state.store, types.SimpleNamespace(mode=None, model=None))
+    except T.UserCancelled:
+        T.warning(_("cli_action_cancelled"))
+        return "continue"
+    _switch_project(state, created)
+    T.console.print(f"  [dim]Path:   {_escape(created.project_path)}[/dim]")
+    return "continue"
 
 
 @_registry.register("/delete", usage="<name>", description="Delete a project")
@@ -456,10 +544,13 @@ async def cmd_models(state: REPLState, _args: list[str]) -> None:
         from .cli_catalog import catalog_models
         return await catalog_models(state, parts[0].lower(), parts[1:])
 
-    from .config import DEFAULT_MODEL, WORKER_MODEL
-    main_model = state.project.model or DEFAULT_MODEL
-    alt_model = state.project.worker_model or WORKER_MODEL
-    alt_origin = "project" if state.project.worker_model else "global (agents.yaml)"
+    # What a turn actually runs on: no main model means the turn refuses to
+    # start (agent_stdin), and an unset worker follows the main model
+    # (config.resolve_agent_model). A built-in default shown here instead read
+    # as a model the user had configured.
+    main_model = state.project.model or _("cli_model_not_set")
+    alt_model = state.project.worker_model or main_model
+    alt_origin = "project" if state.project.worker_model else _("cli_worker_follows_main")
     T.console.print(f"\n[dim]Models for project '{state.display_name}':[/dim]")
     T.console.print(f"  [cyan]main[/cyan]        {main_model}")
     T.console.print(f"  [cyan]worker[/cyan]      {alt_model}  [dim]({alt_origin})[/dim]")
@@ -477,6 +568,19 @@ async def cmd_models(state: REPLState, _args: list[str]) -> None:
     )
 
 
+def _warn_if_not_in_catalog(model_id: str) -> None:
+    """Say when a model id has no catalog entry behind it.
+
+    The id is still stored: a model reachable through credentials in the
+    environment runs without one. But a mistyped id used to be accepted in
+    silence and fail only on the next message, as a connection error.
+    """
+    from .models_store import get_model_by_runtime_id
+    if get_model_by_runtime_id(model_id) is None:
+        from .cli_catalog import report_unknown_model
+        report_unknown_model(model_id, _("cli_model_not_in_catalog", id=model_id))
+
+
 @_registry.register("/set-main-model", usage="<model_id>",
                     description="Set the main model for this project")
 async def cmd_set_main_model(state: REPLState, args: list[str]) -> str | None:
@@ -484,6 +588,7 @@ async def cmd_set_main_model(state: REPLState, args: list[str]) -> str | None:
         T.error("Usage: /set-main-model <model_id>  (e.g. ollama/gemma4:latest)")
         return "continue"
     model_id = args[0].strip()
+    _warn_if_not_in_catalog(model_id)
     state.project.model = model_id
     state.store.save(state.project)
     _rebuild_memgpt(state)
@@ -497,6 +602,7 @@ async def cmd_set_worker_model(state: REPLState, args: list[str]) -> str | None:
         T.error("Usage: /set-worker-model <model_id>  (e.g. gemini/gemini-2.0-flash)")
         return "continue"
     model_id = args[0].strip()
+    _warn_if_not_in_catalog(model_id)
     state.project.worker_model = model_id
     state.store.save(state.project)
     _rebuild_memgpt(state)

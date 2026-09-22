@@ -46,6 +46,7 @@ The client desktop application is a project-centric, AI-integrated LaTeX editor 
   - `opalatex/vcs.py`: Implements user-facing Git features and internal shadow checkpoints around agent turns. Mutating file tools do not create their own checkpoints; each participating agent run, including ephemeral `run_skill` workers, creates labeled start/end checkpoints only when needed.
   - `opalatex/latex_compiler.py`: Handles compiling LaTeX using Tectonic (`tectonic` CLI), supporting full, partial (chapter/file), and fast single-pass draft compilation (`tectonic -X compile` with `-r 0`).
   - `synctex_parser.py`: Maps PDF rendering view back to the corresponding LaTeX lines.
+  - `opalatex/external_tools.py`: Locates and installs the external tools (Tectonic, pandoc). Lookup order is `<opalatex home>/bin` (in-app installs, first so a reinstall replaces the tool in use), then the bundled `bin/` (source checkout, PyInstaller, `$SNAP/bin`), then `PATH`. **Downloads go to `<opalatex home>/bin`, never next to the package**: `site-packages` is a read-only squashfs in the snap, which is why *Install Pandoc* and reinstalling Tectonic failed there with `[Errno 30] Read-only file system`. Only the named executable is extracted from an archive, through a temporary file and `os.replace`, so a running binary can be replaced. The snap stages Debian's `pandoc`, which reads its data files from a compiled-in `/usr/share/pandoc` that is empty inside confinement; the launcher exports `pandoc_datadir=$SNAP/usr/share/pandoc` (the Cabal override for that path) and the build refuses to prime without the data. DOCX export failures are reported in a dialog, not in the PDF preview's compile-error panel, which is collapsed until the first compile and would hide them.
 - **Snippet Translation (`opalatex/translation.py`)**: A provider-neutral translation of a text excerpt, used by the *Translate selection* action in the PDF viewer and the Markdown preview. See §2.13.
 - **Dictation (`opalatex/transcription.py`, `opalatex/transcription_config.py`)**: Transcribes a recording from the chat composer with a Whisper model running on this machine. See §2.13.3.
 - **Snippet Pronunciation (`opalatex/speech.py`, `opalatex/speech_config.py`, `opalatex/voice_store.py`)**: Reads a text excerpt aloud, either from a Piper voice downloaded into `<opalatex home>/voices/` and run in-process, or through the OpenAI speech contract against a hosted provider or a local server. Used by the *Pronounce selection* action in the PDF viewer, the Markdown preview and the chat. See §2.13.1.
@@ -77,6 +78,7 @@ Project mirroring to cloud storage (§2.15) is the one network path the applicat
 ### 2.3.1 Installation, Uninstallation, and Feedback
 
 - **Direct-install uninstallers**: Packaged releases include `uninstall.sh` or `uninstall.ps1`. The Unix installer exposes `opalatex-uninstall`; the Windows installer registers a per-user entry in Installed Apps and creates a Start-menu shortcut. A release predating the bundled uninstaller triggers a fallback fetch, which addresses the repository at `HEAD` so it resolves the default branch rather than a hardcoded branch name that 404s whenever the release branch moves. **That fetch is never fatal**: the application payload is already unpacked by then, so a failure warns and installation completes, and the uninstall entry points are published only when the script is actually present — Windows never offers an uninstall command that cannot run. Default removal deletes only application-owned binaries, links, shortcuts, and exact PATH entries. Global data and every project directory are preserved. Purging global data is a separate explicit, confirmed option, and project directories are never purge targets.
+- **Under snap, user-facing default locations are the real home** (`config.user_home_dir`, `config.expand_user_path`): inside a snap `~` is `$SNAP_USER_DATA` = `~/snap/opalatex/<revision>`, private to one revision. Projects are stored by absolute path, so a project created there (the folder picker's default was the data directory's parent, and the onboarding pilot is `~/OpalaTexPilot`) pointed after the next refresh at the previous revision's directory, which AppArmor makes read-only, and creating a file in it failed. The folder picker's default and `~` in `create-project` resolve to `SNAP_REAL_HOME` under snap (unchanged elsewhere). `create-project` validates the folder by creating a probe file (`config.check_data_dir`), not with `os.access`, which AppArmor denials do not affect.
 - **Snap escape guidance**: `GET /api/app/environment` reports the runtime platform and whether the backend is inside Snap. Settings > About shows direct-install instructions only for Snap, with a copyable command that must be run from a system terminal. The application never attempts to escape confinement or run the host installation itself. Direct installation grants the normal user's permissions, not unrestricted root access, and does not migrate or delete Snap data.
 - **User-controlled feedback**: Settings > About builds a pre-filled URL for the public GitHub issue form containing only the app version, platform, distribution type, and placeholder prose. The existing external-URL endpoint opens it in the system browser. No issue is created and no diagnostic or user content is transmitted until the user reviews and submits the GitHub form.
 
@@ -597,7 +599,21 @@ fixed MemGPT chat-orchestrator converses and delegates to skills through `run_sk
   protocol through an `input_response` command, or from a transport installed with
   `set_input_transport` (the terminal prompt). An unanswered request still times out;
   the caller decides what that means, because a tool defaults to refusing and a plan
-  defaults to not approved.
+  defaults to not approved. The turn's own input hooks (`agent_stdin._turn_ask_hook`,
+  `_turn_confirm_hook`, `_turn_interactive_terminal_hook`, behind `ask_question` and
+  `run_interactive_command`) go through the same channel; they had kept registering
+  their futures by hand, so `ask_question` still hung in the CLI. Free-form requests
+  (`ask`, `interactive_terminal`) carry no yes/no choices, matching the desktop
+  contract (`normalizeInputRequest`). The terminal transport answers each type with
+  the value the desktop dialog would send: the label or typed text for a question, a
+  JSON array for a multi-select (`formatAskResponse`), and for an interactive command
+  it runs the command in the terminal itself and returns `yes`/`cancel` after asking
+  the user how it went.
+- **Background commands.** `run_background_command` sends the command to the IDE's
+  main terminal over HTTP. A front-end without that terminal installs a runner with
+  `agent_stdin.set_background_command_runner`; the CLI's starts a process whose output
+  goes to `<project>/.opalatex/background/command-<time>.log` and stops it when the
+  session ends (`cli_render.uninstall`).
 - **Interruption.** `Ctrl+C` cancels the turn's task — the same thing
   `/api/opalatex/interrupt` does — so `handle_run` records the interruption and keeps
   what the agent had written. It used to break the REPL loop, so interrupting a long
@@ -608,11 +624,46 @@ fixed MemGPT chat-orchestrator converses and delegates to skills through `run_sk
   module to reuse the turn engine, so every Rich frame the CLI drew went to stderr and
   `opalatex --cli > log.txt` captured nothing. The redirection now belongs to
   `claim_stdout_for_protocol()`, called by `start_stdin_server()`.
-- **Project selection.** An explicit `--project`, else the project registered for the
-  working directory (`ProjectStore.find_by_path`), else the interactive menu; `--here`
-  registers the current directory. `--mode` is applied only when passed: writing the
-  flag's default back on every start silently reset a project the window had left in
-  `auto`.
+- **Project selection mirrors the window.** Projects and the model catalog are global
+  (`~/.opalatex/sessions.db`, `models_store`), so both front-ends already share them; the
+  REPL just never showed them and read as a different tool. An explicit `--project` wins.
+  Otherwise `opalatex --cli` opens on the project list (`cli.project_picker`): the
+  registered projects in the window's order (most recently updated first), plus New
+  project, Import an existing project (`project.import_project`, the desktop Import), and,
+  when the working directory is not a project, Create a new project in this directory.
+  The working directory only preselects the answer: its project when it holds one
+  (imported on choice if unregistered), otherwise the first project whose folder exists,
+  which is the window's own fallback when it remembers no project. A project whose folder
+  is gone is listed but refused, as in the window, with the `opalatex --delete` that
+  removes it; every failed choice returns to the list. `--here` skips the list and uses
+  the working directory's project (or creates one there). The one-shot `opalatex -p`
+  keeps resolving from the working directory, since a script has nobody to show a menu
+  to; in a directory that is not a project it asks: create here, create elsewhere, or
+  exit. Bare `/load` in the REPL shows the same list. `--mode` is applied only when
+  passed: writing the flag's default back on every start silently reset a project the
+  window had left in `auto`.
+- **Replies written for a terminal.** The skill bodies are written for the desktop chat,
+  which renders Markdown and typesets math; in a terminal `**`, `$\frac{a}{b}$` and
+  `![..](..)` are printed literally. `cli_render.install()` sets
+  `agent_stdin.set_reply_surface("terminal")`, and `chat_orchestrator_system_prompt`
+  then appends a last block telling the model its text is not rendered: plain prose and
+  `-` lists, no Markdown headings/emphasis/tables/images, formulas in plain text/Unicode
+  instead of LaTeX math, verbatim source only inside fenced code blocks. It governs chat
+  text only; the files the agent writes keep their format's syntax. The prompt is
+  rebuilt every turn, so the same chat reopened in the window gets the window's prompt.
+- **Creating a project.** The main model comes from `--model` when passed, otherwise
+  from the model catalog (the only entry is taken, several are offered as a choice). An
+  empty catalog leaves the project without a model and says so; `--model` has no built-in
+  default, because `DEFAULT_MODEL` stored on the project failed to connect for users who
+  never registered it. The folder is checked with `config.project_dir_error`, which also
+  probes `<folder>/.opalatex` (the desktop create-project endpoint uses the same check):
+  under snap the home directory itself accepts files but not that hidden top-level
+  directory, so the CLI re-asks, suggesting `<folder>/<project name>`. `/project new`
+  (CLI only) runs the same creation from inside the REPL and switches to the new
+  project; bare `/project` shows the current one. Opening a project (startup or
+  `/load`) runs the same folder check and reports a folder that cannot hold the
+  project's state, since projects registered before the check existed would otherwise
+  fail only as "Permission denied" on every turn.
 - **Discoverable help.** `/help` groups the commands into sections and prints each one's
   argument shape, and `/help <command>` prints its worked examples (`details=` on the
   registration). The listing used to go through Rich's markup parser, so every usage
@@ -638,8 +689,11 @@ name under a connection plus the capabilities and inference parameters that desc
 `/set-main-model` only stores an id on the project; with no catalog entry behind that id,
 `config.get_agent_llm_kwargs` resolves no `api_base`, no key and no capabilities, so the
 run reaches the provider unauthenticated and every per-model setting reads as unset.
+`/set-main-model` and `/set-worker-model` therefore warn when the id has no catalog entry
+(the id is still stored, since environment credentials can serve it), and every catalog
+lookup that misses names the closest registered id (`cli_catalog.report_unknown_model`).
 
-`/providers` and `/models <subcommand>` manage them. They are in the shared registry and
+`/providers [list|add|set|remove]` and `/models <subcommand>` manage them with `key=value` fields. They are in the shared registry and
 are **not** `cli_only`: they change a global store rather than terminal state, so they
 work in the REPL, in `opalatex -p`, over the stdin protocol and in the desktop chat's
 command box. Bare `/models` still answers what the current project runs on.
@@ -663,6 +717,23 @@ command box. Bare `/models` still answers what the current project runs on.
 - **Editing a connection preserves its key** unless `api_key=` is passed empty, so
   relabelling does not silently de-authenticate every model under it. Deleting a
   connection still in use is refused, naming the models that block it.
+
+- **Step by step.** `/add-provider` asks for what the desktop Add Connection form asks
+  (label, LiteLLM provider, API key read without echo, base URL -- preset to the local
+  Ollama URL for `ollama`/`ollama_chat`), shows the result and saves on confirmation.
+  `/add-model` refuses with "use /add-provider first" when no connection exists, then
+  asks only the main fields (provider connection, name, `num_ctx`, supports thinking);
+  every other field keeps the default the desktop form starts from, the saved entry is
+  printed in full, and the closing hint names `/set-model-field`. Both read the keyboard,
+  so they are `cli_only`, and a stdin with nobody behind it (EOF) is reported instead of
+  guessed at.
+- **One field at a time.** `/set-provider-field <id> <field> <value>`,
+  `/set-model-field <id> <field> <value>`, `/remove-provider <id>` and
+  `/remove-model <id>` (underscore aliases too) are the `key=value` commands spelled for
+  one change and reuse their parsing and validation, so an unknown field is still
+  refused. A connection's id never changes (models refer to it) and its label/provider
+  cannot be emptied. `/set-model-field` edits the catalog entry, shared by every project
+  using the model; `/set-model-param` stays the per-project override.
 
 Two reach fixes came with them, both general rather than specific to the catalog: the
 stdin protocol gained a single `slash_command` command rather than one protocol verb per

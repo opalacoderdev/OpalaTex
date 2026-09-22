@@ -2088,24 +2088,25 @@ class AsyncHTTPServer:
 
         # 3.7. List subdirectories of a filesystem path
         elif path == '/api/fs/dirs':
+            from opalatex.config import expand_user_path, get_opalatex_home, user_home_dir
+
+            def _default_dir():
+                # In a snap the data directory's parent is a per-revision
+                # directory that turns read-only after the next refresh.
+                if os.environ.get("SNAP_NAME"):
+                    return user_home_dir()
+                return os.path.dirname(get_opalatex_home())
+
             req_path = data.get('path')
             if not req_path or req_path == '~':
-                try:
-                    from opalatex.config import get_opalatex_home
-                    req_path = os.path.dirname(get_opalatex_home())
-                except ImportError:
-                    req_path = os.path.expanduser('~')
-            
-            req_path = os.path.abspath(os.path.expanduser(req_path))
-            
+                req_path = _default_dir()
+
+            req_path = os.path.abspath(expand_user_path(req_path))
+
             if not os.path.exists(req_path) or not os.path.isdir(req_path):
-                try:
-                    from opalatex.config import get_opalatex_home
-                    req_path = os.path.dirname(get_opalatex_home())
-                except ImportError:
-                    req_path = os.path.expanduser('~')
+                req_path = _default_dir()
                 if not os.path.exists(req_path) or not os.path.isdir(req_path):
-                    req_path = os.path.expanduser('~')
+                    req_path = user_home_dir()
 
             try:
                 entries = []
@@ -2254,14 +2255,11 @@ class AsyncHTTPServer:
             try:
                 import sys
                 import urllib.request
-                import zipfile
-                import tarfile
                 import tempfile
-                
+
+                from opalatex.external_tools import executable_name, install_executable_from_archive
+
                 os_name = sys.platform
-                bin_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin")
-                os.makedirs(bin_dir, exist_ok=True)
-                
                 if os_name == "win32":
                     url = "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-pc-windows-msvc.zip"
                     filename = "tectonic.zip"
@@ -2275,19 +2273,16 @@ class AsyncHTTPServer:
                 else:
                     url = "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-gnu.tar.gz"
                     filename = "tectonic.tar.gz"
-                    
+
                 with tempfile.TemporaryDirectory() as tmpdir:
                     archive_path = os.path.join(tmpdir, filename)
                     urllib.request.urlretrieve(url, archive_path)
-                    
-                    if filename.endswith(".zip"):
-                        with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-                            zip_ref.extractall(bin_dir)
-                    else:
-                        with tarfile.open(archive_path, 'r:gz') as tar_ref:
-                            tar_ref.extractall(bin_dir)
-                            
-                self.send_response(writer, 200, b'{"success":true}', "application/json")
+                    installed_path = install_executable_from_archive(archive_path, executable_name("tectonic"))
+
+                self.send_response(writer, 200, json.dumps({
+                    "success": True,
+                    "path": installed_path,
+                }).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
@@ -2390,23 +2385,19 @@ class AsyncHTTPServer:
                 self.send_response(writer, 400, b'{"error":"project_name is required"}', "application/json")
                 return
                 
-            abs_path = os.path.abspath(os.path.expanduser(project_path)) if project_path else os.getcwd()
-            if os.path.exists(abs_path):
-                if not os.path.isdir(abs_path):
-                    self.send_response(writer, 400, json.dumps({"error": f"The path '{project_path}' exists but is not a directory."}).encode('utf-8'), "application/json")
-                    return
-                if not os.access(abs_path, os.W_OK):
-                    self.send_response(writer, 400, json.dumps({"error": f"Permission denied: No write access to directory '{project_path}'."}).encode('utf-8'), "application/json")
-                    return
-            else:
-                try:
-                    os.makedirs(abs_path, exist_ok=True)
-                except PermissionError:
-                    self.send_response(writer, 400, json.dumps({"error": f"Permission denied: Cannot create directory '{project_path}'."}).encode('utf-8'), "application/json")
-                    return
-                except Exception as e:
-                    self.send_response(writer, 400, json.dumps({"error": f"Failed to create directory: {str(e)}"}).encode('utf-8'), "application/json")
-                    return
+            from opalatex.config import expand_user_path, project_dir_error
+
+            abs_path = os.path.abspath(expand_user_path(project_path)) if project_path else os.getcwd()
+            if os.path.exists(abs_path) and not os.path.isdir(abs_path):
+                self.send_response(writer, 400, json.dumps({"error": f"The path '{project_path}' exists but is not a directory."}).encode('utf-8'), "application/json")
+                return
+            # Probe by creating a file: os.access cannot see AppArmor denials,
+            # so a snap-confined read-only directory used to pass this check and
+            # fail only when the user tried to create the first file.
+            message = project_dir_error(abs_path)
+            if message:
+                self.send_response(writer, 400, json.dumps({"error": message}).encode('utf-8'), "application/json")
+                return
                 
             model_params_raw = data.get("model_params")
             model_params = sanitize_model_params(model_params_raw) if isinstance(model_params_raw, dict) else None
@@ -2507,7 +2498,7 @@ class AsyncHTTPServer:
         # 5b. Import existing project
         elif path == '/api/opalatex/import-project' and method == 'POST':
             from opalatex.config import DEFAULT_DB_PATH
-            from opalatex.project import ProjectStore
+            from opalatex.project import ProjectImportError, ProjectStore, import_project
             store = ProjectStore(db_path=DEFAULT_DB_PATH)
 
             project_path = data.get("project_path", "")
@@ -2515,99 +2506,11 @@ class AsyncHTTPServer:
                 self.send_response(writer, 400, b'{"error":"project_path is required"}', "application/json")
                 return
 
-            abs_path = os.path.abspath(os.path.expanduser(project_path))
-            if not os.path.isdir(abs_path):
-                self.send_response(writer, 400, json.dumps({"error": f"Directory does not exist: {project_path}"}).encode('utf-8'), "application/json")
-                return
-
-            # Validate: must have .opalatex/ directory to be a valid project
-            opalatex_dir = os.path.join(abs_path, ".opalatex")
-            if not os.path.isdir(opalatex_dir):
-                self.send_response(writer, 400, json.dumps({
-                    "error": "This directory is not a valid OpalaTex project. A valid project must contain a .opalatex/ directory."
-                }).encode('utf-8'), "application/json")
-                return
-
-            # Check if project is already registered (by path)
-            existing_projects = store.list_projects()
-            for ep in existing_projects:
-                ep_path = os.path.abspath(os.path.expanduser(ep.get("project_path", "")))
-                if os.path.normcase(ep_path) == os.path.normcase(abs_path):
-                    self.send_response(writer, 400, json.dumps({
-                        "error": f"This project is already registered as '{ep.get('project_name', ep.get('name', ''))}'."
-                    }).encode('utf-8'), "application/json")
-                    return
-
-            # Derive project name from directory name
-            project_name = os.path.basename(abs_path) or "Imported Project"
-
-            # Try to read model and API info from .env
-            api_key = ""
-            api_base = ""
-            worker_api_key = ""
-            worker_api_base = ""
-            env_path = os.path.join(abs_path, ".env")
-            if os.path.isfile(env_path):
-                try:
-                    with open(env_path, "r", encoding="utf-8") as f:
-                        for line in f:
-                            line = line.strip()
-                            if line.startswith("OPENAI_API_KEY="):
-                                api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                            elif line.startswith("OPENAI_API_BASE="):
-                                api_base = line.split("=", 1)[1].strip().strip('"').strip("'")
-                            elif line.startswith("WORKER_API_KEY="):
-                                worker_api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                            elif line.startswith("WORKER_API_BASE="):
-                                worker_api_base = line.split("=", 1)[1].strip().strip('"').strip("'")
-                except Exception:
-                    pass
-
-            # An imported project starts with no model configured; the user picks
-            # one from the global model store.
-            model = ""
-
-            # Read skills from skills.yaml
-            skills = ["opalatex"]
             try:
-                from opalatex.skills import read_skills_yaml
-                found_skills = read_skills_yaml(abs_path)
-                if found_skills:
-                    skills = found_skills
-                    if "opalatex" not in skills:
-                        skills = ["opalatex"] + skills
-            except Exception:
-                pass
-
-            existing_name = store.find_by_path(abs_path)
-            if existing_name:
-                existing_proj = store.load(existing_name)
-                existing_project_name = existing_proj.project_name if existing_proj else existing_name
-                err_msg = get_translation("project_exists_in_folder", name=existing_project_name)
-                self.send_response(writer, 400, json.dumps({"error": err_msg}).encode('utf-8'), "application/json")
+                project = import_project(store, project_path)
+            except ProjectImportError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
                 return
-
-            db_key = project_name.replace(" ", "_").lower()
-            original_db_key = db_key
-            counter = 1
-            while store.exists(db_key):
-                db_key = f"{original_db_key}_{counter}"
-                counter += 1
-
-            try:
-                project = store.create(
-                    name=db_key,
-                    mode="auto",
-                    model=model,
-                    project_name=project_name,
-                    project_path=abs_path,
-                    skills=skills,
-                    description="",
-                    api_key=api_key or None,
-                    api_base=api_base or None,
-                    worker_api_key=worker_api_key or None,
-                    worker_api_base=worker_api_base or None,
-                )
             except Exception as e:
                 import traceback
                 traceback.print_exc()

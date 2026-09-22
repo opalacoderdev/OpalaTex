@@ -124,15 +124,54 @@ def set_input_transport(transport) -> None:
     _input_transport = transport
 
 
+# A front-end that runs `run_background_command` itself. The GUI leaves this
+# unset: the tool sends the command to the IDE's main terminal over HTTP. The CLI
+# has no such terminal (and no server to post to), so it installs a runner that
+# starts the command as a background process of its own (opalatex/cli_render.py).
+_background_command_runner = None  # type: Callable[[str, str], Coroutine[Any, Any, str]] | None
+
+
+def set_background_command_runner(runner) -> None:
+    """Install (or clear, with ``None``) the front-end that runs background commands."""
+    global _background_command_runner
+    _background_command_runner = runner
+
+
+def background_command_runner():
+    return _background_command_runner
+
+
+# Where the orchestrator's replies are read. ``None`` is the desktop chat, which
+# renders Markdown and typesets math, so a reply written as Markdown with LaTeX
+# math reads as formatted text. The CLI sets "terminal": nothing is rendered
+# there, and the same reply arrives as a wall of asterisks, `$\alpha$` and
+# `![..](..)`. The system prompt reads this to tell the model which surface it
+# is writing for (`memgpt_runtime.chat_orchestrator_system_prompt`).
+REPLY_SURFACE_TERMINAL = "terminal"
+_reply_surface: str | None = None
+
+
+def set_reply_surface(surface: str | None) -> None:
+    """Install (or clear, with ``None``) the surface the replies are shown on."""
+    global _reply_surface
+    _reply_surface = surface
+
+
+def reply_surface() -> str | None:
+    return _reply_surface
+
+
 async def request_user_input(
     prompt: str,
     *,
     options: list[str] | None = None,
-    default: str = "yes",
+    default: str | None = None,
     input_type: str = "confirm",
     markdown_content: str | None = None,
     agent: str = "",
     timeout: float = 86400.0,
+    is_multi_select: bool | None = None,
+    extra: dict | None = None,
 ) -> str:
     """Ask the human a question from inside a tool and return the raw answer.
 
@@ -145,6 +184,13 @@ async def request_user_input(
     Raises ``asyncio.TimeoutError`` after *timeout*; callers decide what an
     unanswered question means, because the two of them disagree (a tool defaults
     to refusing, a plan defaults to not approved).
+
+    A confirmation carries yes/no choices and a default unless others are given.
+    A free-form request (``ask``, ``interactive_terminal``) carries neither unless
+    given: the desktop app's contract is that an ask never inherits the
+    confirmation's choices (``normalizeInputRequest`` in askQuestion.js).
+    ``extra`` adds type-specific fields, such as the interactive terminal's
+    ``command`` and ``term_id``.
     """
     import uuid
 
@@ -153,13 +199,20 @@ async def request_user_input(
     fut = loop.create_future()
     _gui_input_pending[req_id] = fut
 
+    free_form = input_type in ("ask", "interactive_terminal")
     request = {
         "id": req_id,
         "prompt": prompt,
         "type": input_type,
-        "options": list(options or ["yes", "no"]),
-        "default": default,
     }
+    if options or not free_form:
+        request["options"] = list(options or ["yes", "no"])
+    if default is not None or not free_form:
+        request["default"] = default if default is not None else "yes"
+    if is_multi_select is not None:
+        request["is_multi_select"] = bool(is_multi_select)
+    if extra:
+        request.update(extra)
     if markdown_content is not None:
         request["markdown_content"] = markdown_content
     if agent:
@@ -235,6 +288,50 @@ def _install_turn_input_hooks(confirm_hook, ask_hook, interactive_terminal_hook)
                 setattr(T, name, previous[name])
 
     return restore
+
+
+# The turn's questions go through request_user_input, the one channel every
+# front-end answers: the GUI over /api/opalatex/input_response, the stdin
+# protocol with an `input_response` command, the CLI in the terminal
+# (set_input_transport). Registering the future by hand, as these hooks used
+# to, left the CLI with nothing that could answer, so `ask_question` waited
+# out the 24h timeout. The published event is unchanged for the GUI.
+async def _turn_confirm_hook(prompt_text: str, default: bool = True) -> bool:
+    try:
+        raw = await request_user_input(
+            prompt_text,
+            options=["yes", "no"],
+            default="yes" if default else "no",
+            input_type="confirm",
+        )
+    except asyncio.TimeoutError:
+        return default
+    return str(raw).strip().lower() in ("yes", "y", "s", "sim", "true", "1")
+
+
+async def _turn_ask_hook(prompt_text: str, options: list[str] | None = None, is_multi_select: bool = False) -> str:
+    try:
+        raw = await request_user_input(
+            prompt_text,
+            options=list(options) if options else None,
+            input_type="ask",
+            is_multi_select=bool(is_multi_select) if options else None,
+        )
+    except asyncio.TimeoutError:
+        return ""
+    return str(raw).strip()
+
+
+async def _turn_interactive_terminal_hook(command: str, term_id: str) -> str:
+    try:
+        raw = await request_user_input(
+            "Interactive terminal spawned",
+            input_type="interactive_terminal",
+            extra={"command": command, "term_id": term_id},
+        )
+    except asyncio.TimeoutError:
+        return ""
+    return str(raw).strip()
 
 
 class InboxScopeError(RuntimeError):
@@ -2589,69 +2686,10 @@ async def handle_run(data: dict):
     loop = asyncio.get_event_loop()
     import uuid
 
-    async def _handle_run_confirm_hook(prompt_text: str, default: bool = True) -> bool:
-        req_id = str(uuid.uuid4())
-        fut = loop.create_future()
-        _gui_input_pending[req_id] = fut
-        print_event("input_request", {
-            "id": req_id,
-            "prompt": prompt_text,
-            "type": "confirm",
-            "options": ["yes", "no"],
-            "default": "yes" if default else "no"
-        })
-        try:
-            raw = await asyncio.wait_for(asyncio.shield(fut), timeout=86400.0) # 24h wait
-            return raw.strip().lower() in ("yes", "y", "s", "sim", "true", "1")
-        except asyncio.TimeoutError:
-            return default
-        finally:
-            _gui_input_pending.pop(req_id, None)
-
-    async def _handle_run_ask_hook(prompt_text: str, options: list[str] | None = None, is_multi_select: bool = False) -> str:
-        req_id = str(uuid.uuid4())
-        fut = loop.create_future()
-        _gui_input_pending[req_id] = fut
-        payload = {
-            "id": req_id,
-            "prompt": prompt_text,
-            "type": "ask"
-        }
-        if options:
-            payload["options"] = list(options)
-            payload["is_multi_select"] = bool(is_multi_select)
-        print_event("input_request", payload)
-        try:
-            raw = await asyncio.wait_for(asyncio.shield(fut), timeout=86400.0) # 24h wait
-            return str(raw).strip()
-        except asyncio.TimeoutError:
-            return ""
-        finally:
-            _gui_input_pending.pop(req_id, None)
-
-    async def _handle_run_interactive_terminal_hook(command: str, term_id: str) -> str:
-        req_id = str(uuid.uuid4())
-        fut = loop.create_future()
-        _gui_input_pending[req_id] = fut
-        print_event("input_request", {
-            "id": req_id,
-            "type": "interactive_terminal",
-            "command": command,
-            "term_id": term_id,
-            "prompt": "Interactive terminal spawned"
-        })
-        try:
-            raw = await asyncio.wait_for(asyncio.shield(fut), timeout=86400.0) # 24h wait
-            return str(raw).strip()
-        except asyncio.TimeoutError:
-            return ""
-        finally:
-            _gui_input_pending.pop(req_id, None)
-
     restore_turn_input_hooks = _install_turn_input_hooks(
-        _handle_run_confirm_hook,
-        _handle_run_ask_hook,
-        _handle_run_interactive_terminal_hook,
+        _turn_confirm_hook,
+        _turn_ask_hook,
+        _turn_interactive_terminal_hook,
     )
 
     # Report what the provider charges for each request of this turn, so the

@@ -9,16 +9,10 @@ import hashlib
 import json
 
 def get_tectonic_path():
-    """Find tectonic in the project bin directory or in PATH."""
-    local_bin = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bin")
-    exe_name = "tectonic.exe" if sys.platform == "win32" else "tectonic"
-    local_exe = os.path.join(local_bin, exe_name)
-    
-    if os.path.exists(local_exe):
-        return local_exe
-    
-    # Fallback to PATH
-    return shutil.which("tectonic")
+    """Find tectonic in the user tools dir, the project bin directory, or PATH."""
+    from .external_tools import find_tool
+
+    return find_tool("tectonic", [os.path.join(os.path.dirname(os.path.dirname(__file__)), "bin")])
 
 import re
 

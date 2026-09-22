@@ -214,6 +214,14 @@ parts:
         exit 1
       fi
 
+      # The staged pandoc reads its data files at runtime (the launcher points
+      # pandoc_datadir at them); without them every DOCX export fails.
+      pandoc_data="$CRAFT_PRIME/usr/share/pandoc/data/abbreviations"
+      if [ ! -f "$pandoc_data" ]; then
+        echo "Missing $pandoc_data: DOCX export would fail at runtime."
+        exit 1
+      fi
+
       qt_lib_dir="$CRAFT_PRIME/lib/python3.12/site-packages/PyQt6/Qt6/lib"
       export LD_LIBRARY_PATH="$CRAFT_PRIME/lib:$CRAFT_PRIME/lib/$arch_triplet:$CRAFT_PRIME/usr/lib:$CRAFT_PRIME/usr/lib/$arch_triplet:$qt_lib_dir:${LD_LIBRARY_PATH:-}"
 

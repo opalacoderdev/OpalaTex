@@ -23,4 +23,13 @@ if [ -z "${ESPEAK_DATA_PATH:-}" ]; then
     done
 fi
 
+# The staged Debian pandoc is built without embedded data files and reads them
+# from /usr/share/pandoc, which inside confinement is the base snap and holds
+# nothing ("Could not find data file /usr/share/pandoc/data/abbreviations").
+# pandoc_datadir is the Cabal-generated override for that compiled-in path.
+if [ -z "${pandoc_datadir:-}" ] && [ -d "$SNAP/usr/share/pandoc/data" ]; then
+    pandoc_datadir="$SNAP/usr/share/pandoc"
+    export pandoc_datadir
+fi
+
 exec "$SNAP/bin/python" -m opalatex.cli --gui "$@"

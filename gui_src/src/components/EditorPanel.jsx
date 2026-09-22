@@ -570,7 +570,6 @@ export default function EditorPanel({
     const saved = await saveFile({ suppressCompile: true });
     if (!saved) return;
     setIsExportingDocx(true);
-    setPdfErrorLog('');
     setCleanMessage('');
     try {
       const res = await fetch('/api/latex/export-docx', {
@@ -587,10 +586,12 @@ export default function EditorPanel({
         setCleanMessage(`DOCX: ${data.relative_output_path || data.output_path}`);
       } else {
         if (data.pandoc_found === false) setIsPandocAvailable(false);
-        setPdfErrorLog(data.log || data.error || 'DOCX export failed.');
+        // Not the PDF preview's error panel: it is collapsed until the first
+        // compile, and a DOCX failure is not a LaTeX compile error.
+        await showAlert(t('editorPanel.exportDocxError', 'DOCX export failed: ') + (data.log || data.error || ''));
       }
     } catch (err) {
-      setPdfErrorLog('Failed to export DOCX: ' + err.message);
+      await showAlert(t('editorPanel.exportDocxError', 'DOCX export failed: ') + err.message);
     } finally {
       setIsExportingDocx(false);
     }

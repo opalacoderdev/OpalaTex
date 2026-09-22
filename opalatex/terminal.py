@@ -203,15 +203,22 @@ async def a_interactive_terminal(command: str, term_id: str) -> str:
     return "Interactive terminal is not supported in this environment."
 
 
-def choose(prompt: str, options: list[str]) -> str:
-    """Let user pick from a numbered list; returns chosen option string."""
+def choose(prompt: str, options: list[str], default: str | None = None) -> str:
+    """Let user pick from a numbered list; returns chosen option string.
+
+    With ``default`` (one of ``options``), an empty answer picks it; its number
+    is shown in the prompt.
+    """
     from rich.markup import escape
     console.print(f"\n[bold yellow]?[/bold yellow] {escape(prompt)}")
     for i, opt in enumerate(options, 1):
         console.print(f"  [cyan]{i}[/cyan]) {escape(opt)}")
+    default_hint = f"[{options.index(default) + 1}] " if default in options else ""
     while True:
-        raw = input("  → ").strip()
+        raw = input(f"  {default_hint}→ ").strip()
         _check_cancel(raw)
+        if not raw and default_hint:
+            return default
         if raw.isdigit() and 1 <= int(raw) <= len(options):
             return options[int(raw) - 1]
         # accept text match too

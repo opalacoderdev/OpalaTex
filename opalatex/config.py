@@ -76,6 +76,46 @@ def snap_confinement_hint(path: str) -> str:
     )
 
 
+def user_home_dir() -> str:
+    """The user's own home directory, where their documents belong.
+
+    Inside a snap, ``~`` is ``$SNAP_USER_DATA`` (``~/snap/<name>/<revision>``),
+    which is private to one revision: after a refresh the previous revision's
+    directory is read-only to the app, and it is deleted once that revision is
+    removed. A project created there loses write access on the next update, so
+    user-facing defaults use the real home, which the ``home`` plug grants.
+    """
+    real_home = os.environ.get("SNAP_REAL_HOME", "")
+    if os.environ.get("SNAP_NAME") and real_home:
+        return real_home
+    return os.path.expanduser("~")
+
+
+def expand_user_path(path: str) -> str:
+    """Like ``os.path.expanduser`` for the current user, but using user_home_dir()."""
+    if path == "~" or path.startswith("~/") or path.startswith("~" + os.sep):
+        return user_home_dir() + path[1:]
+    return os.path.expanduser(path)
+
+
+def project_dir_error(path: str) -> str:
+    """A full, user-facing explanation of why `path` cannot be a project folder, or "".
+
+    A project keeps its state in ``<path>/.opalatex``, so that directory is
+    probed as well. Under snap they differ for the home directory itself: the
+    ``home`` interface lets the app write regular files there but not hidden
+    top-level entries, so ``~`` passes a plain probe and then every write of the
+    project's own state fails with "Permission denied".
+    """
+    for candidate in (path, os.path.join(path, ".opalatex")):
+        problem = check_data_dir(candidate)
+        if problem:
+            message = f"Cannot use '{path}' as a project folder: {problem} ('{candidate}')."
+            hint = snap_confinement_hint(candidate)
+            return f"{message} {hint}" if hint else message
+    return ""
+
+
 def data_dir_error(path: str) -> str:
     """A full, user-facing explanation of why `path` is unusable, or ""."""
     problem = check_data_dir(path)

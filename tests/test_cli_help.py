@@ -61,7 +61,7 @@ def capture(state, line, width=200):
     "/mode [auto | plan | edit]",
     "/thoughts [on|off]",
     "/chat [list | new <name> | switch <name>]",
-    "/providers [list | add key=value... | remove <id>]",
+    "/providers [list | add key=value... | set <id> key=value... | remove <id>]",
 ])
 def test_the_listing_shows_the_argument_shape(state, fragment):
     assert fragment in capture(state, "/help")

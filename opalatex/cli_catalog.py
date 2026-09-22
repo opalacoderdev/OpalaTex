@@ -180,9 +180,9 @@ def _mask(secret: str) -> str:
 
 @_registry.register(
     "/providers", "/provider",
-    usage="[list | add key=value... | remove <id>]",
-    description="List, register, or remove a provider connection (credentials)",
-    details='A connection holds the credentials that every model under it uses,\nso rotating a key once updates all of them.\n\nExamples:\n  /providers                               list connections and how many models each carries\n  /providers add label="Ollama Gil" provider=ollama api_base=http://192.168.0.10:11434/v1\n  /providers add label="OpenAI" provider=openai api_key=sk-...\n  /providers add id=openai label="OpenAI" provider=openai api_key=       clear the key\n  /providers remove ollama-gil\n\nFields: label, provider, api_base (=base, =url), api_key (=key), id.\n\nThe id is derived from the label unless you pass id=. Adding with an existing\nid edits that connection, and leaving api_key out keeps the stored one.\nA connection still used by a model is not removed.',
+    usage="[list | add key=value... | set <id> key=value... | remove <id>]",
+    description="List, register, edit, or remove a provider connection (credentials)",
+    details='A connection holds the credentials that every model under it uses,\nso rotating a key once updates all of them.\n\nExamples:\n  /providers                               list connections and how many models each carries\n  /providers add label="Ollama Gil" provider=ollama api_base=http://192.168.0.10:11434/v1\n  /providers add label="OpenAI" provider=openai api_key=sk-...\n  /providers add id=openai label="OpenAI" provider=openai api_key=       clear the key\n  /providers set openai api_key=sk-new    change one field, keep the rest\n  /providers remove ollama-gil\n\nStep by step instead: /add-provider. One field: /set-provider-field.\n\nFields: label, provider, api_base (=base, =url), api_key (=key), id.\n\nThe id is derived from the label unless you pass id=. Adding with an existing\nid edits that connection, and leaving api_key out keeps the stored one.\nA connection still used by a model is not removed.',
 )
 async def cmd_providers(state: REPLState, args: list[str]) -> str | None:
     from .models_store import (
@@ -247,6 +247,18 @@ async def cmd_providers(state: REPLState, args: list[str]) -> str | None:
         ))
         return "continue"
 
+    if action == "set":
+        if len(rest) < 2:
+            T.error(_("cli_usage_providers_set"))
+            return "continue"
+        try:
+            values, _unused = parse_pairs(rest[1:], _CONNECTION_FIELDS, _CONNECTION_ALIASES)
+        except ArgumentError as exc:
+            T.error(str(exc))
+            return "continue"
+        update_connection_fields(rest[0], values)
+        return "continue"
+
     if action == "remove":
         if not rest:
             T.error(_("cli_usage_providers_remove"))
@@ -266,6 +278,40 @@ async def cmd_providers(state: REPLState, args: list[str]) -> str | None:
 
     T.error(_("cli_usage_providers"))
     return "continue"
+
+
+def update_connection_fields(connection_id: str, values: dict[str, Any]) -> bool:
+    """Change some fields of an existing connection, keeping the others.
+
+    The id is what models reference, so it never changes here
+    (`models_store.add_or_update_connection` keeps it stable too); a label or
+    provider cannot be emptied, since the desktop form refuses that as well.
+    """
+    from .models_store import add_or_update_connection, get_connection
+
+    existing = get_connection(connection_id)
+    if existing is None:
+        T.error(_("cli_provider_not_found", id=connection_id))
+        return False
+    if "id" in values and values["id"] != connection_id:
+        T.error(_("cli_provider_id_fixed", id=connection_id))
+        return False
+    if not values:
+        T.error(_("cli_usage_providers_set"))
+        return False
+    payload = dict(existing)
+    payload.update({k: v for k, v in values.items() if k != "id"})
+    for required in ("label", "provider"):
+        if not str(payload.get(required) or "").strip():
+            T.error(_("cli_provider_field_required", field=required))
+            return False
+    try:
+        add_or_update_connection(payload)
+    except Exception as exc:
+        T.error(str(exc))
+        return False
+    T.success(_("cli_provider_updated", id=connection_id))
+    return True
 
 
 # ─── /models (catalog half) ───────────────────────────────────────────────────
@@ -305,6 +351,24 @@ def _print_model(model: dict) -> None:
 _CONNECTION_OWNED = ("provider", "api_key", "api_base", "connection_label")
 
 
+def closest_model_id(model_id: str) -> str:
+    """The catalog id `model_id` most likely meant, or "" when none is close."""
+    import difflib
+    from .models_store import load_models
+
+    ids = [m["id"] for m in load_models() if m.get("id")]
+    matches = difflib.get_close_matches(model_id, ids, n=1, cutoff=0.8)
+    return matches[0] if matches else ""
+
+
+def report_unknown_model(model_id: str, message: str) -> None:
+    """Print `message` for an id missing from the catalog, naming a near miss."""
+    suggestion = closest_model_id(model_id)
+    if suggestion:
+        message = f"{message} {_('cli_model_did_you_mean', id=suggestion)}"
+    T.error(message)
+
+
 async def catalog_models(state: REPLState, action: str, rest: list[str]) -> str:
     """The catalog half of `/models`: list, show, add, set, remove."""
     from .models_store import (
@@ -335,7 +399,7 @@ async def catalog_models(state: REPLState, action: str, rest: list[str]) -> str:
             return "continue"
         model = get_model(" ".join(rest).strip())
         if model is None:
-            T.error(_("cli_model_not_found", id=" ".join(rest).strip()))
+            report_unknown_model(" ".join(rest).strip(), _("cli_model_not_found", id=" ".join(rest).strip()))
             return "continue"
         _print_model(model)
         return "continue"
@@ -348,7 +412,7 @@ async def catalog_models(state: REPLState, action: str, rest: list[str]) -> str:
         if delete_model(model_id):
             T.success(_("cli_model_removed", id=model_id))
         else:
-            T.error(_("cli_model_not_found", id=model_id))
+            report_unknown_model(model_id, _("cli_model_not_found", id=model_id))
         return "continue"
 
     if action == "add":
@@ -390,7 +454,7 @@ async def catalog_models(state: REPLState, action: str, rest: list[str]) -> str:
         model_id, pairs = rest[0], rest[1:]
         model = get_model(model_id)
         if model is None:
-            T.error(_("cli_model_not_found", id=model_id))
+            report_unknown_model(model_id, _("cli_model_not_found", id=model_id))
             return "continue"
         if not pairs:
             T.error(_("cli_usage_models_set"))
@@ -422,3 +486,297 @@ async def catalog_models(state: REPLState, action: str, rest: list[str]) -> str:
 
     T.error(_("cli_usage_models_catalog"))
     return "continue"
+
+
+# ─── Step-by-step registration and single-field commands ─────────────────────
+#
+# `/providers add label=... provider=...` and `/models add name=...
+# connection=...` need the field names up front, which is fine in a script and
+# a wall to someone registering their first model. The wizards below ask for
+# the fields the desktop forms ask for, one at a time, and leave the rest at
+# the same defaults the form starts from. They read the keyboard, so they are
+# terminal-only; the desktop app has its own dialogs.
+#
+# The single-field commands are the key=value commands spelled for one change
+# (`/set-model-field <id> temperature 0.3`), and reuse their validation.
+
+#: Where a local Ollama answers. The desktop New Project form starts from it.
+_OLLAMA_DEFAULT_BASE = "http://localhost:11434/v1"
+_OLLAMA_PROVIDERS = ("ollama", "ollama_chat")
+
+
+class _WizardCancelled(Exception):
+    """The user left a wizard; nothing was saved."""
+
+
+def _prompt_line(label: str, default: str = "", *, secret: bool = False) -> str:
+    """Ask for one value. An empty answer takes ``default``."""
+    shown = f"{label} [{default}]" if default and not secret else label
+    T.console.print(f"\n[bold yellow]?[/bold yellow] {_escape(shown)}")
+    try:
+        if secret:
+            import getpass
+            raw = getpass.getpass("  → ")
+        else:
+            raw = input("  → ")
+    except EOFError:
+        # No keyboard behind stdin (a piped `opalatex -p`): there is nobody to
+        # answer, and waiting or guessing would both be wrong.
+        raise _WizardCancelled(_("cli_wizard_needs_terminal")) from None
+    raw = raw.strip()
+    try:
+        T._check_cancel(raw)
+    except (T.UserCancelled, T.AppExit):
+        raise _WizardCancelled(_("cli_action_cancelled")) from None
+    return raw or default
+
+
+def _prompt_required(label: str, default: str = "") -> str:
+    while True:
+        value = _prompt_line(label, default)
+        if value:
+            return value
+        T.error(_("cli_wizard_required"))
+
+
+def _prompt_bool(label: str, default: bool) -> bool:
+    hint = "Y/n" if default else "y/N"
+    while True:
+        raw = _prompt_line(f"{label} ({hint})").lower()
+        if not raw:
+            return default
+        if raw in _TRUE or raw in ("y", "s", "sim"):
+            return True
+        if raw in _FALSE or raw in ("n", "nao", "não"):
+            return False
+        T.error(_("cli_wizard_yes_no"))
+
+
+def _prompt_optional_int(label: str, default: int | None) -> int | None:
+    shown_default = str(default) if default is not None else _("cli_wizard_auto")
+    while True:
+        raw = _prompt_line(label, shown_default)
+        if raw == shown_default:
+            return default
+        try:
+            value = int(raw)
+        except ValueError:
+            T.error(_("cli_wizard_whole_number"))
+            continue
+        if value > 0:
+            return value
+        T.error(_("cli_wizard_whole_number"))
+
+
+def _connection_choice_label(connection: dict) -> str:
+    return (
+        f"{connection.get('label') or connection['id']}  "
+        f"({connection.get('provider') or '—'}, id={connection['id']})"
+    )
+
+
+@_registry.register(
+    "/add-provider", "/add_provider", cli_only=True,
+    description="Register a provider connection step by step (label, provider, key, URL)",
+    details="Asks for each field of a provider connection, as the desktop\n"
+            "Add Connection form does, and shows the result before saving.\n\n"
+            "Afterwards:\n"
+            "  /add-model                               register a model under it\n"
+            "  /set-provider-field <id> <field> <value> change one field\n"
+            "  /remove-provider <id>                    remove it\n\n"
+            "In one line instead: /providers add label=... provider=...",
+)
+async def cmd_add_provider(state: REPLState, args: list[str]) -> str:
+    from .models_store import add_or_update_connection, suggest_connection_id
+
+    T.info(_("cli_wizard_provider_intro"))
+    try:
+        label = _prompt_required(_("cli_wizard_provider_label"))
+        provider = _prompt_required(_("cli_wizard_provider_provider")).strip().lower()
+        api_key = _prompt_line(_("cli_wizard_provider_key"), secret=True)
+        api_base = _prompt_line(
+            _("cli_wizard_provider_base"),
+            _OLLAMA_DEFAULT_BASE if provider in _OLLAMA_PROVIDERS else "",
+        )
+        payload = {
+            "id": suggest_connection_id(label),
+            "label": label,
+            "provider": provider,
+            "api_key": api_key,
+            "api_base": api_base,
+        }
+        T.console.print(f"\n[dim]{_escape(_('cli_wizard_summary'))}[/dim]")
+        for key in ("id", "label", "provider", "api_base"):
+            T.console.print(f"  [cyan]{key:<10}[/cyan] {_escape(payload[key] or '—')}")
+        T.console.print(f"  [cyan]{'api_key':<10}[/cyan] {_mask(api_key)}")
+        if not _prompt_bool(_("cli_wizard_save"), True):
+            raise _WizardCancelled(_("cli_action_cancelled"))
+    except _WizardCancelled as exc:
+        T.warning(str(exc))
+        return "continue"
+
+    try:
+        add_or_update_connection(payload)
+    except Exception as exc:
+        T.error(str(exc))
+        return "continue"
+    T.success(_("cli_provider_added", id=payload["id"]))
+    T.console.print(f"[dim]{_escape(_('cli_wizard_provider_next', id=payload['id']))}[/dim]")
+    return "continue"
+
+
+@_registry.register(
+    "/add-model", "/add_model", cli_only=True,
+    description="Register a model step by step (provider, name, context window, thinking)",
+    details="Asks for the main fields of a catalog model -- its provider connection,\n"
+            "its name, the context window (num_ctx) and whether it supports thinking --\n"
+            "and leaves every other field at the default the desktop form starts from.\n"
+            "The entry is printed in full once saved.\n\n"
+            "Needs a provider connection first: /add-provider.\n\n"
+            "Afterwards:\n"
+            "  /set-model-field <id> <field> <value>    change one field (temperature, top_p, ...)\n"
+            "  /set-main-model <id>                     use it in this project\n"
+            "  /remove-model <id>                       remove it\n\n"
+            "In one line instead: /models add name=... connection=...",
+)
+async def cmd_add_model(state: REPLState, args: list[str]) -> str:
+    from .models_store import (
+        add_or_update_model, get_model, load_connections, normalize_model_entry,
+        suggest_model_id,
+    )
+
+    connections = load_connections()
+    if not connections:
+        T.error(_("cli_add_model_needs_provider"))
+        return "continue"
+
+    # The values a new entry starts from in the desktop form.
+    defaults = normalize_model_entry({})
+    try:
+        if len(connections) == 1:
+            connection = connections[0]
+            T.info(_("cli_wizard_model_only_provider", provider=_connection_choice_label(connection)))
+        else:
+            by_label = {_connection_choice_label(c): c for c in connections}
+            picked = T.choose(_("cli_wizard_model_provider"), list(by_label))
+            connection = by_label[picked]
+        name = _prompt_required(_("cli_wizard_model_name"))
+        num_ctx = _prompt_optional_int(_("cli_wizard_model_num_ctx"), defaults["num_ctx"])
+        supports_thinking = _prompt_bool(
+            _("cli_wizard_model_thinking"), defaults["supports_thinking"]
+        )
+    except (T.UserCancelled, T.AppExit):
+        T.warning(_("cli_action_cancelled"))
+        return "continue"
+    except EOFError:
+        T.warning(_("cli_wizard_needs_terminal"))
+        return "continue"
+    except _WizardCancelled as exc:
+        T.warning(str(exc))
+        return "continue"
+
+    model_id = suggest_model_id(connection.get("provider", ""), name, connection["id"])
+    payload = {
+        "id": model_id,
+        "name": name,
+        "connection_id": connection["id"],
+        "num_ctx": num_ctx,
+        "supports_thinking": supports_thinking,
+    }
+    try:
+        add_or_update_model(payload)
+    except Exception as exc:
+        T.error(str(exc))
+        return "continue"
+    T.success(_("cli_model_added", id=model_id))
+    saved = get_model(model_id)
+    if saved is not None:
+        _print_model(saved)
+    T.console.print(f"[dim]{_escape(_('cli_wizard_model_next', id=model_id))}[/dim]")
+    return "continue"
+
+
+def _split_field_args(args: list[str]) -> list[str] | None:
+    """`<id> <field> <value...>` read the shell way; None when unreadable."""
+    try:
+        return shlex.split(" ".join(args))
+    except ValueError as exc:
+        T.error(f"Could not read the arguments: {exc}")
+        return None
+
+
+@_registry.register(
+    "/set-provider-field", "/set_provider_field", usage="<id> <field> <value>",
+    description="Change one field of a provider connection, keeping the others",
+    details="Examples:\n"
+            "  /set-provider-field openai api_key sk-new\n"
+            "  /set-provider-field ollama-gil api_base http://192.168.0.10:11434/v1\n"
+            "  /set-provider-field ollama-gil label \"Ollama at home\"\n"
+            "  /set-provider-field openai api_key \"\"          clear the key\n\n"
+            "Fields: label, provider, api_key (=key), api_base (=base, =url).\n"
+            "The id is fixed: the models under the connection refer to it.",
+)
+async def cmd_set_provider_field(state: REPLState, args: list[str]) -> str:
+    tokens = _split_field_args(args)
+    if tokens is None:
+        return "continue"
+    if len(tokens) < 3:
+        T.error(_("cli_usage_set_provider_field"))
+        return "continue"
+    connection_id, field, value = tokens[0], tokens[1], " ".join(tokens[2:])
+    try:
+        values, _unused = parse_pairs(
+            [shlex.quote(f"{field}={value}")], _CONNECTION_FIELDS, _CONNECTION_ALIASES
+        )
+    except ArgumentError as exc:
+        T.error(str(exc))
+        return "continue"
+    update_connection_fields(connection_id, values)
+    return "continue"
+
+
+@_registry.register(
+    "/remove-provider", "/remove_provider", usage="<id>",
+    description="Remove a provider connection that no model uses",
+)
+async def cmd_remove_provider(state: REPLState, args: list[str]) -> str | None:
+    tokens = _split_field_args(args)
+    if not tokens:
+        T.error(_("cli_usage_providers_remove"))
+        return "continue"
+    return await cmd_providers(state, ["remove", tokens[0]])
+
+
+@_registry.register(
+    "/set-model-field", "/set_model_field", usage="<id> <field> <value>",
+    description="Change one field of a catalog model, keeping the others",
+    details="Examples:\n"
+            "  /set-model-field ollama/gemma4:26b temperature 0.3\n"
+            "  /set-model-field ollama/gemma4:26b num_ctx 65536\n"
+            "  /set-model-field ollama/gemma4:26b prompt_profile light\n"
+            "  /set-model-field ollama/gemma4:26b extra.keep_alive 30m\n\n"
+            "Fields: those listed by /help /models. The change applies to every\n"
+            "project using the model. A project-only override (num_ctx, stop, ...)\n"
+            "is /set-model-param instead.",
+)
+async def cmd_set_model_field(state: REPLState, args: list[str]) -> str:
+    tokens = _split_field_args(args)
+    if tokens is None:
+        return "continue"
+    if len(tokens) < 3:
+        T.error(_("cli_usage_set_model_field"))
+        return "continue"
+    model_id, field, value = tokens[0], tokens[1], " ".join(tokens[2:])
+    return await catalog_models(state, "set", [model_id, shlex.quote(f"{field}={value}")])
+
+
+@_registry.register(
+    "/remove-model", "/remove_model", usage="<id>",
+    description="Remove a model from the catalog",
+)
+async def cmd_remove_model(state: REPLState, args: list[str]) -> str:
+    tokens = _split_field_args(args)
+    if not tokens:
+        T.error(_("cli_usage_models_remove"))
+        return "continue"
+    return await catalog_models(state, "remove", [tokens[0]])

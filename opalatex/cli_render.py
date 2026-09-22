@@ -31,11 +31,23 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import sys
 
 from . import terminal as T
 from .i18n import _
+
+#: Reasoning delimiters a model inlines in its answer. The engine routes the text
+#: between them to the reasoning channel, but a tag split across chunks can
+#: still reach the visible stream; the desktop app drops them the same way
+#: (`sanitizeVisibleStreamChunk` in App.jsx).
+_THINK_TAG = re.compile(r"</?think>", re.IGNORECASE)
+
+
+def _visible_text(value: object) -> str:
+    return _THINK_TAG.sub("", str(value or ""))
+
 
 #: How much of a tool result is shown before it is cut short.
 TOOL_RESULT_PREVIEW = 220
@@ -154,7 +166,7 @@ class TerminalEventRenderer:
     # ── individual events ────────────────────────────────────────────────────
 
     def _on_stream_chunk(self, data: dict) -> None:
-        text = str(data.get("content") or "")
+        text = _visible_text(data.get("content"))
         if not text:
             return
         if self._thought_open:
@@ -165,7 +177,7 @@ class TerminalEventRenderer:
         self._raw(text)
 
     def _on_stream_retract(self, data: dict) -> None:
-        text = str(data.get("content") or "")
+        text = _visible_text(data.get("content"))
         if not text:
             return
         if self.streamed_text.endswith(text):
@@ -211,21 +223,46 @@ class TerminalEventRenderer:
         return True
 
     def _on_thought(self, data: dict) -> None:
+        """Model reasoning, streamed as deltas, written as one running block.
+
+        The turn publishes reasoning token by token (``agent_stdin._on_thinking``),
+        the way the desktop app concatenates it. Printing each delta as a line of
+        its own, stripped, put every word of the reasoning on a separate line.
+        Narration the engine writes itself (``auxiliary``) is a whole sentence.
+        """
         if not self.show_thoughts:
             return
-        # Narration of an event this renderer already printed itself.
-        if data.get("auxiliary") and self.show_tools:
+        if data.get("auxiliary"):
+            # Narration of an event this renderer already printed itself.
+            if not self.show_tools:
+                self._print_thought_block(str(data.get("content") or ""))
             return
-        content = str(data.get("content") or "").strip()
-        if not content:
-            return
+        text = str(data.get("content") or "")
         if self._visible_run:
             self._newline()
             self._visible_run = ""
         if not self._thought_open:
+            text = text.lstrip()
+            if not text:
+                return
             self._newline()
             self._thought_open = True
+        if not text:
+            return
+        T.console.print(text, end="", markup=False, highlight=False, soft_wrap=True, style="dim italic")
+        self._at_line_start = text.endswith("\n")
+
+    def _print_thought_block(self, content: str) -> None:
+        """A complete thought -- narration or a released reflection -- on its own lines."""
+        content = content.strip()
+        if not content:
+            return
+        if self._visible_run:
+            self._visible_run = ""
+        self._newline()
+        self._thought_open = True
         T.console.print(content, markup=False, highlight=False, style="dim italic")
+        self._at_line_start = True
 
     def _on_reflection(self, data: dict) -> None:
         """An iteration's last message: the model's prose between tool calls.
@@ -245,8 +282,8 @@ class TerminalEventRenderer:
 
     def _flush_reflection(self) -> None:
         pending, self._pending_reflection = self._pending_reflection, ""
-        if pending:
-            self._on_thought({"content": pending})
+        if pending and self.show_thoughts:
+            self._print_thought_block(pending)
 
     def _on_tool_call(self, data: dict) -> None:
         if not self.show_tools:
@@ -337,43 +374,199 @@ async def terminal_input_transport(request: dict) -> str:
 
     Installed with ``agent_stdin.set_input_transport``. Runs the blocking prompt
     in the default executor so the agent turn's event loop keeps streaming while
-    the user reads the question.
+    the user reads the question. Each request type is answered with the value
+    the desktop app's dialog for it would send back, so the tool that asked
+    cannot tell the front-ends apart.
     """
+    kind = str(request.get("type") or "confirm")
+    if kind == "ask":
+        ask = _ask_question
+    elif kind == "interactive_terminal":
+        ask = _run_interactive_command
+    else:
+        ask = _confirm
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, ask, request)
+
+
+def _read_answer() -> str:
+    return input("  → ").strip()
+
+
+def _confirm(request: dict) -> str:
+    """A choice among fixed options -- tool permission, plan approval."""
+    from rich.markup import escape
+
     prompt = str(request.get("prompt") or "").strip()
     options = [str(o) for o in (request.get("options") or ["yes", "no"])]
     default = str(request.get("default") or "")
     markdown = request.get("markdown_content")
 
-    def _ask() -> str:
-        T.console.print()
-        if markdown:
-            from rich.markdown import Markdown
-            from rich.panel import Panel
+    T.console.print()
+    if markdown:
+        from rich.markdown import Markdown
+        from rich.panel import Panel
 
-            T.console.print(
-                Panel(
-                    Markdown(str(markdown)),
-                    title=f"[bold]{_('cli_proposed_plan')}[/bold]",
-                    border_style="cyan",
-                )
+        T.console.print(
+            Panel(
+                Markdown(str(markdown)),
+                title=f"[bold]{_('cli_proposed_plan')}[/bold]",
+                border_style="cyan",
             )
-        hint = "/".join(
-            option.upper() if option == default else option for option in options
         )
-        from rich.markup import escape
+    hint = "/".join(
+        option.upper() if option == default else option for option in options
+    )
+    T.console.print(f"[bold yellow]?[/bold yellow] {escape(prompt)} [{hint}]")
+    while True:
+        raw = _read_answer().lower()
+        if not raw:
+            return default
+        for option in options:
+            if option.lower().startswith(raw):
+                return option
+        T.console.print(f"  [red]{_('invalid_option')}[/red]")
 
-        T.console.print(f"[bold yellow]?[/bold yellow] {escape(prompt)} [{hint}]")
-        while True:
-            raw = input("  → ").strip().lower()
-            if not raw:
-                return default
-            for option in options:
-                if option.lower().startswith(raw):
-                    return option
-            T.console.print(f"  [red]{_('invalid_option')}[/red]")
 
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _ask)
+def _ask_question(request: dict) -> str:
+    """The agent's `ask_question`: free text, one choice, or several.
+
+    Answers take the desktop app's wire format (``formatAskResponse`` in
+    askQuestion.js): the chosen label or the typed text for a single answer, and
+    a JSON array of the chosen labels plus any write-in for a multi-select. As in
+    that dialog, the model's own "Other" choices give way to one write-in.
+    """
+    import json
+
+    from rich.markup import escape
+
+    prompt = str(request.get("prompt") or "").strip()
+    options = [
+        str(o) for o in (request.get("options") or [])
+        if not T._OTHER_OPTION_PATTERN.match(str(o).strip())
+    ]
+    multi = bool(request.get("is_multi_select"))
+
+    T.console.print()
+    T.console.print(f"[bold yellow]?[/bold yellow] {escape(prompt)}")
+    if not options:
+        return _read_answer()
+
+    for index, option in enumerate(options, 1):
+        T.console.print(f"  [cyan]{index}[/cyan]) {escape(option)}")
+    other = len(options) + 1
+    T.console.print(f"  [cyan]{other}[/cyan]) {escape(_('cli_ask_other'))}")
+    T.console.print(f"[dim]{_('cli_ask_multi_hint' if multi else 'cli_ask_single_hint')}[/dim]")
+
+    while True:
+        raw = _read_answer()
+        if not multi:
+            if raw.isdigit() and 1 <= int(raw) <= len(options):
+                return options[int(raw) - 1]
+            if raw == str(other):
+                T.console.print(f"[dim]{_('cli_ask_write_in')}[/dim]")
+                return _read_answer()
+            if raw and not raw.isdigit():
+                return raw
+        else:
+            picks = [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
+            if picks and all(p.isdigit() and 1 <= int(p) <= other for p in picks):
+                chosen = sorted({int(p) for p in picks})
+                selected = [options[i - 1] for i in chosen if i != other]
+                if other in chosen:
+                    T.console.print(f"[dim]{_('cli_ask_write_in')}[/dim]")
+                    custom = _read_answer()
+                    if custom:
+                        selected.append(custom)
+                return json.dumps(selected, ensure_ascii=False)
+        T.console.print(f"  [red]{_('invalid_option')}[/red]")
+
+
+def _run_interactive_command(request: dict) -> str:
+    """`run_interactive_command`: the command runs in this terminal, with it.
+
+    The desktop app opens a PTY in a dialog and sends back ``yes`` when the user
+    says the command finished, ``cancel`` otherwise. A terminal front-end already
+    is a terminal: the command inherits it, so its prompts reach the user
+    directly, and the user then says how it went.
+    """
+    import subprocess
+
+    from rich.markup import escape
+
+    from .tools import get_project_path
+
+    command = str(request.get("command") or "").strip()
+    if not command:
+        return "cancel"
+    T.console.print()
+    T.console.print(f"[bold cyan]⏺[/bold cyan] {escape(_('cli_interactive_running'))} [bold]{escape(command)}[/bold]")
+    try:
+        code = subprocess.call(command, shell=True, cwd=get_project_path() or None)
+    except OSError as exc:
+        T.console.print(f"  [red]{escape(str(exc))}[/red]")
+        return "cancel"
+    T.console.print(f"[dim]{_('cli_interactive_exit_code', code=code)}[/dim]")
+    answer = _confirm({
+        "prompt": _("cli_interactive_finished"),
+        "options": ["yes", "no"],
+        "default": "yes" if code == 0 else "no",
+    })
+    return "yes" if answer == "yes" else "cancel"
+
+
+# ── Background commands ──────────────────────────────────────────────────────
+
+#: Processes `run_background_command` started in this session, stopped on exit
+#: the way closing the desktop app ends what ran in its terminal.
+_background_processes: list = []
+
+
+async def terminal_background_command(command: str, cwd: str) -> str:
+    """`run_background_command` without the IDE's main terminal.
+
+    The command starts as a background process of this session. Its output goes
+    to a log file under the project's ``.opalatex/background/``, since printing it
+    would interleave with the conversation, and the result names that file so
+    the agent can read it when it needs to.
+    """
+    import subprocess
+    import time
+
+    log_dir = os.path.join(cwd or os.getcwd(), ".opalatex", "background")
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, f"command-{time.strftime('%Y%m%d-%H%M%S')}.log")
+        log = open(log_path, "ab")
+        try:
+            process = subprocess.Popen(
+                command, shell=True, cwd=cwd or None,
+                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+            )
+        finally:
+            log.close()
+    except OSError as exc:
+        return f"FAILED to start background command: {exc}"
+    _background_processes.append(process)
+    T.console.print(f"[dim]  {_('cli_background_started', pid=process.pid, log=log_path)}[/dim]")
+    return (
+        f"SUCCESS: The command '{command}' is running in the background (pid {process.pid}). "
+        f"Its output is written to {log_path}."
+    )
+
+
+def stop_background_commands() -> None:
+    while _background_processes:
+        process = _background_processes.pop()
+        if process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=5)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
 
 
 # ── Installation ─────────────────────────────────────────────────────────────
@@ -393,6 +586,8 @@ def install(renderer: TerminalEventRenderer | None = None) -> TerminalEventRende
     agent_stdin.event_hook = renderer
     litellm.event_hook = renderer
     agent_stdin.set_input_transport(terminal_input_transport)
+    agent_stdin.set_background_command_runner(terminal_background_command)
+    agent_stdin.set_reply_surface(agent_stdin.REPLY_SURFACE_TERMINAL)
     return renderer
 
 
@@ -405,3 +600,6 @@ def uninstall() -> None:
     agent_stdin.event_hook = None
     litellm.event_hook = None
     agent_stdin.set_input_transport(None)
+    agent_stdin.set_background_command_runner(None)
+    agent_stdin.set_reply_surface(None)
+    stop_background_commands()

@@ -206,6 +206,7 @@ Recognized commands:
 * `/clear`: clear the project memory and the history of **every** chat in the project — never suggest it when the user means only this conversation; that is `/clear_chat`
 * `/history [n]`: show the conversation history (last `n` messages)
 * `/rename <name>`: rename project
+* `/project [new]`: show the current project, or create a new one and switch to it (CLI only)
 * `/list`: list projects
 * `/load <name>`: load project
 * `/delete <name>`: delete project
@@ -215,7 +216,12 @@ Recognized commands:
 * `/list_assets [type]`: list Asset Store assets (`skill` or `template`)
 * `/load_asset <type> <id|*>`: install an Asset Store asset into this project
 * `/models`: show the models this project uses; with a subcommand (`list`, `show <id>`, `add key=value...`, `set <id> key=value...`, `remove <id>`) it manages the model catalog
-* `/providers` or `/provider` (`list`, `add key=value...`, `remove <id>`): manage provider connections — a connection holds the credentials, a catalog model names a model under one
+* `/providers` or `/provider` (`list`, `add key=value...`, `set <id> key=value...`, `remove <id>`): manage provider connections — a connection holds the credentials, a catalog model names a model under one
+* `/add-provider` or `/add_provider` (CLI only): register a provider connection step by step — it asks for the label, provider, API key and base URL
+* `/add-model` or `/add_model` (CLI only): register a model step by step — provider, name, `num_ctx`, thinking support; needs a provider first
+* `/set-provider-field` or `/set_provider_field` `<id> <field> <value>`: change one field of a provider connection
+* `/set-model-field` or `/set_model_field` `<id> <field> <value>`: change one field of a catalog model (for every project using it)
+* `/remove-provider` or `/remove_provider` `<id>`, `/remove-model` or `/remove_model` `<id>`: remove a connection (only when no model uses it) or a catalog model
 * `/set-main-model <id>`: set primary model
 * `/set-worker-model <id>`: set worker model
 * `/set-model-param <name> <value>`: set a per-project model parameter

@@ -241,6 +241,43 @@ def test_the_registered_model_resolves_to_real_run_kwargs(catalog, state, monkey
     assert catalog.get_model("ollama/gemma4")["api_base"] == "http://h/v1"
 
 
+def _printed(capsys) -> str:
+    return " ".join(capsys.readouterr().out.split())
+
+
+def test_a_mistyped_id_names_the_model_it_was_probably_meant_to_be(catalog, state, capsys):
+    run(state, '/providers add id=c label="L" provider=ollama')
+    run(state, "/models add name=gemma4:31b-cloud connection=c")
+    capsys.readouterr()
+
+    run(state, "/models set ollama/gemma4:31-cloud profile=light")
+
+    assert "Did you mean 'ollama/gemma4:31b-cloud'?" in _printed(capsys)
+
+
+def test_pointing_the_project_at_an_unregistered_id_is_called_out(catalog, state, capsys):
+    """It used to be accepted in silence and fail on the next message as a connection error."""
+    run(state, '/providers add id=c label="L" provider=ollama')
+    run(state, "/models add name=gemma4:31b-cloud connection=c")
+    capsys.readouterr()
+
+    run(state, "/set-main-model ollama/gemma4:31-cloud")
+    out = _printed(capsys)
+    assert "is not in the model catalog" in out
+    assert "Did you mean 'ollama/gemma4:31b-cloud'?" in out
+
+    run(state, "/set-main-model ollama/gemma4:31b-cloud")
+    assert "is not in the model catalog" not in _printed(capsys)
+    assert state.project.model == "ollama/gemma4:31b-cloud"
+
+
+def test_bare_models_does_not_present_a_built_in_default_as_configured(catalog, state, capsys):
+    run(state, "/models")
+    out = _printed(capsys)
+    assert "(not set)" in out
+    assert "gemma4:12b" not in out
+
+
 # ── Reach ────────────────────────────────────────────────────────────────────
 
 
@@ -300,3 +337,166 @@ def test_an_unknown_one_shot_command_fails_loudly(tmp_path):
 
 async def _never():
     raise AssertionError("the model must not be reached")
+
+
+# ── Step by step: /add-provider and /add-model ───────────────────────────────
+
+
+def _answer(monkeypatch, *answers, secret=""):
+    replies = iter(answers)
+    monkeypatch.setattr("builtins.input", lambda *_a: next(replies))
+    monkeypatch.setattr("getpass.getpass", lambda *_a: secret)
+
+
+def test_add_model_without_a_provider_points_at_add_provider(catalog, state, capsys):
+    run(state, "/add-model")
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Use /add-provider to add a provider first" in out
+    assert models_store.load_models() == []
+
+
+def test_add_provider_asks_for_each_field(catalog, state, monkeypatch, capsys):
+    # label, provider, (key via getpass), base, save?
+    _answer(monkeypatch, "Work OpenAI", "openai", "", "", secret="sk-secret-1234")
+
+    run(state, "/add-provider")
+
+    connection = models_store.get_connection("work-openai")
+    assert connection["label"] == "Work OpenAI"
+    assert connection["provider"] == "openai"
+    assert connection["api_key"] == "sk-secret-1234"
+    assert connection["api_base"] == ""
+    out = capsys.readouterr().out
+    assert "sk-secret-1234" not in out
+    assert "/add-model" in out
+
+
+def test_add_provider_offers_the_local_ollama_url(catalog, state, monkeypatch):
+    _answer(monkeypatch, "Local", "ollama", "", "")
+    run(state, "/add-provider")
+    assert models_store.get_connection("local")["api_base"] == "http://localhost:11434/v1"
+
+
+def test_add_provider_can_be_declined_at_the_end(catalog, state, monkeypatch):
+    _answer(monkeypatch, "Local", "ollama", "", "n")
+    run(state, "/add-provider")
+    assert models_store.load_connections() == []
+
+
+def test_add_provider_can_be_cancelled_midway(catalog, state, monkeypatch):
+    _answer(monkeypatch, "Local", "cancel")
+    run(state, "/add-provider")
+    assert models_store.load_connections() == []
+
+
+def test_add_model_asks_the_main_fields_and_keeps_the_form_defaults(catalog, state, monkeypatch, capsys):
+    models_store.add_or_update_connection({"id": "local", "label": "Local", "provider": "ollama"})
+    # (only provider, taken) name, num_ctx, thinking
+    _answer(monkeypatch, "gemma4:26b", "65536", "y")
+
+    run(state, "/add-model")
+
+    model = models_store.get_model("ollama/gemma4:26b")
+    assert model["connection_id"] == "local"
+    assert model["num_ctx"] == 65536
+    assert model["supports_thinking"] is True
+    assert model["prompt_profile"] == "full"
+    assert model["orchestrator_policy"] == "direct"
+    assert model["temperature"] is None
+    out = " ".join(capsys.readouterr().out.split())
+    assert "/set-model-field ollama/gemma4:26b" in out
+
+
+def test_add_model_enter_keeps_the_defaults(catalog, state, monkeypatch):
+    models_store.add_or_update_connection({"id": "local", "label": "Local", "provider": "ollama"})
+    _answer(monkeypatch, "qwen3", "", "")
+    run(state, "/add-model")
+    model = models_store.get_model("ollama/qwen3")
+    assert model["num_ctx"] is None
+    assert model["supports_thinking"] is False
+
+
+def test_add_model_asks_which_provider_when_there_are_several(catalog, state, monkeypatch):
+    models_store.add_or_update_connection({"id": "local", "label": "Local", "provider": "ollama"})
+    models_store.add_or_update_connection({"id": "openai", "label": "OpenAI", "provider": "openai"})
+    _answer(monkeypatch, "2", "gpt-4o-mini", "", "")
+    run(state, "/add-model")
+    assert models_store.get_model("openai/gpt-4o-mini")["connection_id"] == "openai"
+
+
+def test_the_wizards_need_the_keyboard_of_a_terminal():
+    assert _registry.is_cli_only("/add-provider")
+    assert _registry.is_cli_only("/add-model")
+    assert not _registry.is_cli_only("/set-model-field")
+    assert not _registry.is_cli_only("/remove-provider")
+
+
+def test_a_wizard_with_no_keyboard_behind_it_says_so(catalog, state, monkeypatch, capsys):
+    def closed(*_a):
+        raise EOFError
+    monkeypatch.setattr("builtins.input", closed)
+    run(state, "/add-provider")
+    assert "interactive terminal" in " ".join(capsys.readouterr().out.split())
+    assert models_store.load_connections() == []
+
+
+# ── One field at a time ──────────────────────────────────────────────────────
+
+
+def test_one_provider_field_changes_and_the_rest_is_kept(catalog, state):
+    models_store.add_or_update_connection(
+        {"id": "local", "label": "Local", "provider": "ollama", "api_key": "k-1", "api_base": "http://a"}
+    )
+    run(state, '/set-provider-field local label "Ollama at home"')
+    connection = models_store.get_connection("local")
+    assert connection["label"] == "Ollama at home"
+    assert connection["api_key"] == "k-1"
+    assert connection["api_base"] == "http://a"
+
+    run(state, "/providers set local url=http://b")
+    assert models_store.get_connection("local")["api_base"] == "http://b"
+
+    run(state, '/set-provider-field local api_key ""')
+    assert models_store.get_connection("local")["api_key"] == ""
+
+
+def test_a_provider_field_that_does_not_exist_is_refused(catalog, state, capsys):
+    models_store.add_or_update_connection({"id": "local", "label": "Local", "provider": "ollama"})
+    run(state, "/set-provider-field local lable Other")
+    assert "Unknown field 'lable'" in " ".join(capsys.readouterr().out.split())
+    assert models_store.get_connection("local")["label"] == "Local"
+
+
+def test_a_provider_label_cannot_be_emptied(catalog, state):
+    models_store.add_or_update_connection({"id": "local", "label": "Local", "provider": "ollama"})
+    run(state, '/set-provider-field local label ""')
+    assert models_store.get_connection("local")["label"] == "Local"
+
+
+def test_one_model_field_changes_and_the_rest_is_kept(catalog, state):
+    models_store.add_or_update_connection({"id": "local", "label": "Local", "provider": "ollama"})
+    models_store.add_or_update_model(
+        {"id": "ollama/g", "name": "g", "connection_id": "local", "num_ctx": 4096, "supports_thinking": True}
+    )
+    run(state, "/set-model-field ollama/g temperature 0.3")
+    model = models_store.get_model("ollama/g")
+    assert model["temperature"] == 0.3
+    assert model["num_ctx"] == 4096
+    assert model["supports_thinking"] is True
+    assert len(models_store.load_models()) == 1
+
+    run(state, "/set-model-field ollama/g extra.keep_alive 30m")
+    assert models_store.get_model("ollama/g")["extra_model_params"] == {"keep_alive": "30m"}
+
+
+def test_removing_by_the_short_commands(catalog, state):
+    models_store.add_or_update_connection({"id": "local", "label": "Local", "provider": "ollama"})
+    models_store.add_or_update_model({"id": "ollama/g", "name": "g", "connection_id": "local"})
+
+    run(state, "/remove-provider local")
+    assert models_store.get_connection("local") is not None  # still used by a model
+
+    run(state, "/remove-model ollama/g")
+    run(state, "/remove-provider local")
+    assert models_store.load_models() == []
+    assert models_store.load_connections() == []

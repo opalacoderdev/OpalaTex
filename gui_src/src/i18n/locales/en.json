@@ -257,6 +257,7 @@
     "installPandocTooltip": "Download and install Pandoc for DOCX export",
     "exportDocx": "Export DOCX",
     "exportingDocx": "Exporting...",
+    "exportDocxError": "DOCX export failed: ",
     "exportDocxTooltip": "Export this TeX file to Word DOCX using Pandoc",
     "documentActions": "Document actions",
     "cleanLatexArtifacts": "Clean LaTeX artifacts",

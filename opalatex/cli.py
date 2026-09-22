@@ -19,7 +19,7 @@ import signal
 import sys
 
 from . import __version__
-from .config import DEFAULT_MODEL, DEFAULT_MAX_RETRIES, DEFAULT_MODE, DEFAULT_DB_PATH, DEFAULT_LANG
+from .config import DEFAULT_MAX_RETRIES, DEFAULT_MODE, DEFAULT_DB_PATH, DEFAULT_LANG
 from .project import ProjectStore, ProjectData
 from . import terminal as T
 from .i18n import _, set_lang
@@ -32,28 +32,140 @@ HISTORY_FILENAME = "cli_history"
 
 # ─── Project startup ──────────────────────────────────────────────────────────
 
-async def startup_menu(store: ProjectStore, args) -> ProjectData:
-    """Show the project selection/creation menu and return a ready ProjectData."""
-    projects = store.list_projects()
+class ProjectDirRejected(Exception):
+    """A directory the user named cannot hold a new project; already reported."""
 
-    if projects:
-        options = ["Create new project"] + [
-            f"{p['project_name'] or p['name']}  [{p['project_path']}]"
-            for p in projects
-        ]
-        choice = T.choose("What would you like to do?", options[:4] if len(options) > 4 else options)
-        if choice == "Create new project":
+
+def _is_project_dir(path: str) -> bool:
+    """Whether `path` already holds an OpalaTex project: it has its `.opalatex/`."""
+    return os.path.isdir(os.path.join(path, ".opalatex"))
+
+
+async def startup_menu(store: ProjectStore, args, cwd: str) -> ProjectData:
+    """Offer what to do in a directory that is not a project.
+
+    Creating a project there, creating one somewhere else, or leaving. A choice
+    that fails (a folder the project could not be kept in, one already
+    registered) comes back to this question instead of ending the run.
+    """
+    create_here = _("cli_start_create_here")
+    create_elsewhere = _("cli_start_create_elsewhere")
+    leave = _("cli_start_exit")
+    while True:
+        choice = T.choose(_("cli_start_not_a_project", path=cwd), [create_here, create_elsewhere, leave])
+        if choice == leave:
+            raise T.AppExit()
+        try:
+            if choice == create_here:
+                return await _create_project(store, args, project_path=cwd)
             return await _create_project(store, args)
-        else:
-            idx = options.index(choice) - 1
-            name = projects[idx]["name"]
-            project = store.load(name)
-            _apply_mode_override(project, store, args)
-            T.success(f"Project '{project.project_name or project.name}' loaded.")
-            return project
-    else:
-        T.info("No projects found. Let's create your first one.")
-        return await _create_project(store, args)
+        except ProjectDirRejected:
+            continue
+
+
+def _registered_path(entry: dict) -> str:
+    raw = entry.get("project_path") or ""
+    return os.path.abspath(os.path.expanduser(raw)) if raw else ""
+
+
+def _import_folder(store: ProjectStore, folder: str) -> ProjectData:
+    """Register a folder holding a project, as the desktop Import Project does."""
+    from .project import import_project
+
+    project = import_project(store, folder)
+    T.success(_("cli_project_imported", name=project.project_name or project.name, path=project.project_path))
+    return project
+
+
+async def project_picker(store: ProjectStore, args, cwd: str) -> ProjectData:
+    """The desktop app's project list, as a terminal menu.
+
+    The window opens on the projects registered in the global store
+    (``~/.opalatex/sessions.db``) -- the same list, in the same order (most
+    recently updated first) -- and offers New and Import beside them. The REPL
+    used to skip all of that and decide from the working directory alone, so it
+    read as a different tool that knew nothing of the user's projects.
+
+    The working directory still matters, as the preselected answer: the project
+    it holds when there is one, otherwise the first project whose folder exists,
+    which is what the window selects when it has no remembered project. A
+    project whose folder is gone is listed but cannot be opened, as in the
+    window. Any choice that fails comes back to this menu.
+    """
+    from .config import expand_user_path
+    from .project import ProjectImportError
+
+    while True:
+        projects = store.list_projects()
+        cwd_key = store.find_by_path(cwd)
+        cwd_holds_project = _is_project_dir(cwd)
+
+        choices: dict[str, tuple[str, object]] = {}
+        default = None
+        for entry in projects:
+            path = _registered_path(entry)
+            exists = bool(path) and os.path.isdir(path)
+            label = f"{entry.get('project_name') or entry['name']}  —  {path}"
+            if not exists:
+                label += f"  {_('cli_picker_folder_missing')}"
+            choices[label] = ("open", entry)
+            if entry["name"] == cwd_key and exists:
+                default = label
+            elif default is None and exists and not cwd_key:
+                default = label
+
+        if cwd_holds_project and not cwd_key:
+            label = _("cli_picker_open_cwd", path=cwd)
+            choices[label] = ("import_cwd", None)
+            default = label
+        if not cwd_holds_project and not cwd_key:
+            choices[_("cli_start_create_here")] = ("create_here", None)
+        choices[_("cli_picker_new")] = ("create", None)
+        choices[_("cli_picker_import")] = ("import", None)
+        choices[_("cli_start_exit")] = ("exit", None)
+
+        prompt = _("cli_picker_title") if projects else _("cli_picker_title_empty")
+        picked = T.choose(prompt, list(choices), default=default)
+        action, entry = choices[picked]
+
+        if action == "exit":
+            raise T.AppExit()
+        try:
+            if action == "open":
+                path = _registered_path(entry)
+                if not path or not os.path.isdir(path):
+                    T.error(_("cli_project_dir_missing", path=path or "—"))
+                    T.console.print(f"[dim]{_escape(_('cli_project_dir_missing_hint', project_key=entry['name']))}[/dim]")
+                    continue
+                project = store.load(entry["name"])
+                T.success(_("cli_project_opened", name=project.project_name or project.name))
+            elif action == "import_cwd":
+                project = _import_folder(store, cwd)
+            elif action == "import":
+                answer = T.ask(_("cli_picker_import_path", path=cwd)).strip()
+                project = _import_folder(store, expand_user_path(answer) if answer else cwd)
+            elif action == "create_here":
+                project = await _create_project(store, args, project_path=cwd)
+            else:
+                project = await _create_project(store, args)
+        except (ProjectDirRejected, T.UserCancelled):
+            continue
+        except ProjectImportError as exc:
+            T.error(str(exc))
+            continue
+        _apply_mode_override(project, store, args)
+        return project
+
+
+def _project_dir_problem(store: ProjectStore, path: str) -> str:
+    """Why `path` cannot take a new project, or ""."""
+    from .config import project_dir_error
+    registered = store.find_by_path(path)
+    if registered:
+        existing = store.load(registered)
+        return _("project_exists_in_folder",
+                 name=(existing.project_name or existing.name) if existing else registered)
+    return project_dir_error(path)
 
 
 async def _create_project(store: ProjectStore, args, project_path: str = "") -> ProjectData:
@@ -64,24 +176,41 @@ async def _create_project(store: ProjectStore, args, project_path: str = "") -> 
     writes <project>/skills.yaml). No development skill is auto-loaded.
 
     ``project_path``, when given, is used without asking: it is the directory the
-    user already chose by running the CLI there.
+    user already chose by running the CLI there. When it cannot take a project
+    the problem is printed and ``ProjectDirRejected`` raised. Without it the
+    folder is asked for, and asked again until one can.
     """
     from .skills import discover_skills, MANDATORY_SKILLS
-
-    default_name = os.path.basename(os.path.abspath(project_path)) if project_path else ""
-    prompt = f"Project name [{default_name}]" if default_name else "Project name"
-    project_name = T.ask(prompt).strip() or default_name or "default"
+    from .config import expand_user_path
 
     if project_path:
         project_path = os.path.abspath(project_path)
-    else:
-        cwd = os.getcwd()
-        entered_path = T.ask(f"Project path [{cwd}]").strip()
-        project_path = os.path.abspath(entered_path if entered_path else cwd)
+        problem = _project_dir_problem(store, project_path)
+        if problem:
+            T.error(problem)
+            raise ProjectDirRejected()
 
-    if not os.path.exists(project_path):
-        os.makedirs(project_path, exist_ok=True)
-        T.success(f"Directory created: {project_path}")
+    default_name = os.path.basename(project_path) if project_path else ""
+    prompt = f"Project name [{default_name}]" if default_name else "Project name"
+    project_name = T.ask(prompt).strip() or default_name or "default"
+
+    if not project_path:
+        default_path = os.path.join(os.getcwd(), project_name)
+        while True:
+            entered_path = T.ask(f"Project path [{default_path}]").strip()
+            project_path = os.path.abspath(expand_user_path(entered_path) if entered_path else default_path)
+            existed = os.path.isdir(project_path)
+            problem = _project_dir_problem(store, project_path)
+            if not problem:
+                break
+            # Re-ask instead of creating a project whose state cannot be saved.
+            # Under snap the home directory itself is such a folder, and a
+            # subfolder named after the project is the usual answer.
+            T.error(problem)
+            if existed:
+                default_path = os.path.join(project_path, project_name)
+        if not existed:
+            T.success(f"Directory created: {project_path}")
 
     description = T.ask("Brief project description").strip()
 
@@ -90,14 +219,18 @@ async def _create_project(store: ProjectStore, args, project_path: str = "") -> 
     if optional:
         T.info(f"Available skills (add with /addskill): {', '.join(optional)}")
 
-    db_key = project_name.replace(" ", "_").lower()
-    if store.exists(db_key):
-        db_key = db_key + "_1"
+    base_key = db_key = project_name.replace(" ", "_").lower()
+    counter = 1
+    while store.exists(db_key):
+        db_key = f"{base_key}_{counter}"
+        counter += 1
+
+    model = _choose_project_model(args)
 
     project = store.create(
         name=db_key,
         mode=args.mode or DEFAULT_MODE,
-        model=args.model,
+        model=model,
         project_name=project_name,
         project_path=project_path,
         skills=list(MANDATORY_SKILLS),
@@ -105,6 +238,29 @@ async def _create_project(store: ProjectStore, args, project_path: str = "") -> 
     )
     T.success(f"Project '{project_name}' created.")
     return project
+
+
+def _choose_project_model(args) -> str:
+    """The main model for a project created in this run.
+
+    ``--model`` wins when it was passed. Otherwise the choice comes from the
+    model catalog, the same list the desktop app offers. With nothing registered
+    the project starts without a model: the REPL says so and the first turn
+    refuses to run, rather than a built-in default the user never configured
+    failing to connect.
+    """
+    if getattr(args, "model", None):
+        return args.model
+    from .models_store import load_models
+
+    ids = [m["id"] for m in load_models() if m.get("id")]
+    if not ids:
+        T.warning(_("cli_no_catalog_models"))
+        return ""
+    if len(ids) == 1:
+        T.info(_("cli_project_model_selected", id=ids[0]))
+        return ids[0]
+    return T.choose(_("cli_choose_project_model"), ids)
 
 
 def _apply_mode_override(project: ProjectData, store: ProjectStore, args) -> None:
@@ -120,14 +276,20 @@ def _apply_mode_override(project: ProjectData, store: ProjectStore, args) -> Non
         store.save(project)
 
 
-async def resolve_project(store: ProjectStore, args) -> ProjectData:
+async def resolve_project(store: ProjectStore, args, *, pick: bool = False) -> ProjectData:
     """Pick the project this run works on.
 
-    Order: an explicit ``--project``, then the project registered for the working
-    directory, then the interactive menu. The directory step is what makes
-    ``cd thesis && opalatex --cli`` open that project the way a shell tool is
-    expected to, instead of asking which of the user's projects they meant while
-    standing inside one of them.
+    An explicit ``--project`` wins. The interactive REPL (``pick``) then opens
+    on the project list, like the desktop window (``project_picker``), unless
+    ``--here`` asks for the working directory's project directly.
+
+    Otherwise -- a one-shot ``-p`` run, or ``--here`` -- the working directory
+    decides: a directory holding a project (its ``.opalatex/``) is opened --
+    registered for it already, or imported the way the desktop app's Import
+    Project does -- so ``cd thesis && opalatex -p ...`` behaves like a shell
+    tool. Any other directory gets the question of what to do there
+    (``startup_menu``), or, with ``--here``, a project created in it without
+    asking.
     """
     if args.project:
         if not store.exists(args.project):
@@ -138,17 +300,36 @@ async def resolve_project(store: ProjectStore, args) -> ProjectData:
         return project
 
     cwd = os.getcwd()
+    if pick and not getattr(args, "here", False):
+        return await project_picker(store, args, cwd)
+
     registered = store.find_by_path(cwd)
-    if registered:
-        project = store.load(registered)
+    if _is_project_dir(cwd):
+        if registered:
+            project = store.load(registered)
+            T.success(f"Project '{project.project_name or project.name}' loaded from {cwd}.")
+        else:
+            from .project import import_project
+            project = import_project(store, cwd)
+            T.success(_("cli_project_imported", name=project.project_name or project.name, path=cwd))
         _apply_mode_override(project, store, args)
-        T.success(f"Project '{project.project_name or project.name}' loaded from {cwd}.")
         return project
 
-    if args.here:
-        return await _create_project(store, args, project_path=cwd)
+    if registered:
+        # Registered, but its state directory is gone or could never be
+        # created (under snap: a project at the home directory itself).
+        existing = store.load(registered)
+        T.warning(_("cli_registered_without_state",
+                    name=(existing.project_name or existing.name) if existing else registered,
+                    project_key=registered, path=cwd))
 
-    return await startup_menu(store, args)
+    if args.here:
+        try:
+            return await _create_project(store, args, project_path=cwd)
+        except ProjectDirRejected:
+            raise T.AppExit()
+
+    return await startup_menu(store, args, cwd)
 
 
 # ─── Agent turns ──────────────────────────────────────────────────────────────
@@ -353,6 +534,9 @@ async def repl_loop(project: ProjectData, store: ProjectStore, args) -> None:
     T.console.print(f"  [dim]Skills: {_active}[/dim]")
     T.console.print(f"  [dim]{_('type_help')} {_('cli_interrupt_hint')}[/dim]")
 
+    from .cli_commands import warn_if_project_dir_unusable
+    warn_if_project_dir_unusable(state.project)
+
     if not _has_model(state.project):
         T.warning(_("cli_no_model_configured"))
 
@@ -488,7 +672,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--mode", choices=["auto", "plan", "edit"], default=None,
         help="Override the project's stored mode for this run onwards (default: keep it)",
     )
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LLM model for a project created in this run (default: {DEFAULT_MODEL})")
+    parser.add_argument("--model", default=None, help="LLM model for a project created in this run (default: choose from the model catalog)")
     parser.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES)
     parser.add_argument("--db", default=DEFAULT_DB_PATH)
     parser.add_argument("--lang", choices=["en", "pt"], default=DEFAULT_LANG)
@@ -499,7 +683,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gui", action="store_true", help="Start agent server with React Web GUI (Default)")
     parser.add_argument("--cli", action="store_true", help="Start in interactive CLI REPL mode")
     parser.add_argument("--project", metavar="NAME", help="Work on this project instead of the one in the current directory")
-    parser.add_argument("--here", action="store_true", help="Create a project for the current directory when none is registered for it")
+    parser.add_argument("--here", action="store_true", help="Skip the project list: open the current directory's project, or create one there")
     parser.add_argument(
         "-p", "--prompt", metavar="TEXT",
         help="Run a single prompt and exit, instead of starting the REPL. Reads stdin when TEXT is '-'.",
@@ -608,7 +792,7 @@ def main() -> None:
         sys.exit(0)
 
     try:
-        project = asyncio.run(resolve_project(store, args))
+        project = asyncio.run(resolve_project(store, args, pick=True))
         # After resolution, so the banner reports the mode this session will
         # actually run in rather than the configured default.
         T.print_banner(version=__version__, mode=project.mode)

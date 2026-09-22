@@ -135,6 +135,232 @@ def test_an_unknown_project_name_stops_the_run(tmp_path):
         asyncio.run(cli.resolve_project(store, _args(project="nope", db=store.db_path)))
 
 
+# ── Creating a project ───────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def catalog(tmp_path, monkeypatch):
+    """An isolated model store, so a test never touches the real catalog."""
+    from opalatex import models_store
+    monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", tmp_path / "models.json")
+    models_store._invalidate_models_cache()
+    yield models_store
+    models_store._invalidate_models_cache()
+
+
+def _register(catalog, *names):
+    catalog.add_or_update_connection({"id": "local", "label": "Local", "provider": "ollama"})
+    for name in names:
+        catalog.add_or_update_model({"id": f"ollama/{name}", "name": name, "connection_id": "local"})
+
+
+def _create(tmp_path, monkeypatch, answers, **arg_overrides):
+    """Run the interactive creation, feeding `answers` to the prompts in order."""
+    replies = iter(answers)
+    monkeypatch.setattr("builtins.input", lambda *_a: next(replies))
+    monkeypatch.chdir(tmp_path)
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    args = _args(db=store.db_path, **{"model": None, **arg_overrides})
+    return asyncio.run(cli._create_project(store, args))
+
+
+def test_a_new_project_does_not_start_on_a_model_nobody_registered(tmp_path, monkeypatch, catalog, capsys):
+    """The built-in default was stored on every CLI project and failed to connect."""
+    project = _create(tmp_path, monkeypatch, ["T", "", "desc"])
+
+    assert project.model == ""
+    assert "catalog is empty" in " ".join(capsys.readouterr().out.split())
+
+
+def test_the_only_registered_model_becomes_the_main_model(tmp_path, monkeypatch, catalog):
+    _register(catalog, "gemma4:31b-cloud")
+
+    project = _create(tmp_path, monkeypatch, ["T", "", "desc"])
+
+    assert project.model == "ollama/gemma4:31b-cloud"
+
+
+def test_with_several_registered_models_the_user_picks_one(tmp_path, monkeypatch, catalog):
+    _register(catalog, "a", "b")
+
+    project = _create(tmp_path, monkeypatch, ["T", "", "desc", "2"])
+
+    assert project.model == "ollama/b"
+
+
+def test_an_explicit_model_flag_still_wins(tmp_path, monkeypatch, catalog):
+    _register(catalog, "a")
+
+    project = _create(tmp_path, monkeypatch, ["T", "", "desc"], model="ollama/flag")
+
+    assert project.model == "ollama/flag"
+
+
+def test_the_model_flag_has_no_built_in_default():
+    assert cli.build_parser().parse_args([]).model is None
+
+
+def test_a_folder_that_cannot_hold_project_state_is_asked_for_again(tmp_path, monkeypatch, catalog, capsys):
+    """Under snap, `~` itself accepts files but not `~/.opalatex`.
+
+    Stands in for that with a `.opalatex` that is a file: the folder is writable,
+    its state directory is not. Creating the project there anyway printed
+    "Failed to save editor state: Permission denied" on every message.
+    """
+    blocked = tmp_path / "home"
+    blocked.mkdir()
+    (blocked / ".opalatex").write_text("")
+
+    project = _create(tmp_path, monkeypatch, ["T", str(blocked), "", "desc"])
+
+    assert "as a project folder" in " ".join(capsys.readouterr().out.split())
+    assert project.project_path == str(blocked / "T")
+    assert (blocked / "T" / ".opalatex").is_dir()
+
+
+def test_project_new_creates_a_project_and_switches_to_it(tmp_path, monkeypatch, catalog):
+    _register(catalog, "a")
+    store, first = _project(tmp_path)
+    state = REPLState(first, store, renderer=object())
+    replies = iter(["Second", str(tmp_path / "second"), "desc"])
+    monkeypatch.setattr("builtins.input", lambda *_a: next(replies))
+
+    asyncio.run(_registry.dispatch(state, "/project", ["new"]))
+
+    assert state.project.project_name == "Second"
+    assert state.project.project_path == str(tmp_path / "second")
+    assert state.project.model == "ollama/a"
+    assert store.find_by_path(str(tmp_path / "second")) == state.project.name
+
+
+def test_project_new_can_be_cancelled(tmp_path, monkeypatch, catalog):
+    store, first = _project(tmp_path)
+    state = REPLState(first, store, renderer=object())
+    monkeypatch.setattr("builtins.input", lambda *_a: "cancel")
+
+    assert asyncio.run(_registry.dispatch(state, "/project", ["new"])) == "continue"
+    assert state.project.name == first.name
+
+
+def test_opening_a_project_whose_folder_cannot_hold_its_state_says_so(tmp_path, capsys):
+    """A project registered at `~` under snap before the folder was checked."""
+    (tmp_path / ".opalatex").write_text("")
+    store, project = _project(tmp_path)
+    capsys.readouterr()
+
+    from opalatex.cli_commands import warn_if_project_dir_unusable
+    assert warn_if_project_dir_unusable(project) is True
+    out = " ".join(capsys.readouterr().out.split())
+    assert "as a project folder" in out
+    assert "/project new" in out
+
+
+def test_a_usable_project_folder_prints_nothing(tmp_path, capsys):
+    store, project = _project(tmp_path)
+    capsys.readouterr()
+
+    from opalatex.cli_commands import warn_if_project_dir_unusable
+    assert warn_if_project_dir_unusable(project) is False
+    assert capsys.readouterr().out == ""
+
+
+def _start(tmp_path, monkeypatch, cwd, answers, store=None, **arg_overrides):
+    """Resolve the startup project from `cwd`, feeding `answers` to the prompts."""
+    replies = iter(answers)
+    monkeypatch.setattr("builtins.input", lambda *_a: next(replies))
+    monkeypatch.chdir(cwd)
+    store = store or ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    args = _args(db=store.db_path, **{"model": None, **arg_overrides})
+    return store, asyncio.run(cli.resolve_project(store, args))
+
+
+def test_a_directory_with_an_unregistered_project_is_opened(tmp_path, monkeypatch, catalog):
+    """A project copied or cloned from elsewhere: `.opalatex/` present, no registration."""
+    folder = tmp_path / "thesis"
+    (folder / ".opalatex").mkdir(parents=True)
+
+    store, project = _start(tmp_path, monkeypatch, folder, [])
+
+    assert project.project_path == str(folder)
+    assert store.find_by_path(str(folder)) == project.name
+
+
+def test_a_directory_that_is_not_a_project_offers_to_leave(tmp_path, monkeypatch, catalog):
+    folder = tmp_path / "plain"
+    folder.mkdir()
+
+    with pytest.raises(cli.T.AppExit):
+        _start(tmp_path, monkeypatch, folder, ["3"])
+    assert not (folder / ".opalatex").exists()
+
+
+def test_a_project_can_be_created_in_the_current_directory(tmp_path, monkeypatch, catalog):
+    folder = tmp_path / "plain"
+    folder.mkdir()
+
+    _store, project = _start(tmp_path, monkeypatch, folder, ["1", "", "desc"])
+
+    assert project.project_path == str(folder)
+    assert project.project_name == "plain"
+
+
+def test_a_project_can_be_created_in_another_directory(tmp_path, monkeypatch, catalog):
+    folder = tmp_path / "plain"
+    folder.mkdir()
+    other = tmp_path / "elsewhere"
+
+    _store, project = _start(tmp_path, monkeypatch, folder, ["2", "Other", str(other), "desc"])
+
+    assert project.project_path == str(other)
+    assert not (folder / ".opalatex").exists()
+
+
+def test_a_directory_that_cannot_take_a_project_returns_to_the_question(tmp_path, monkeypatch, catalog, capsys):
+    """Under snap, `~` itself: creating there fails, and the run must not just end."""
+    folder = tmp_path / "home"
+    folder.mkdir()
+    (folder / ".opalatex").write_text("")  # stands in for the AppArmor denial
+
+    with pytest.raises(cli.T.AppExit):
+        _start(tmp_path, monkeypatch, folder, ["1", "3"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "as a project folder" in out
+    assert out.count("not an OpalaTex project") == 2
+
+
+def test_a_registration_without_its_state_directory_is_explained(tmp_path, monkeypatch, catalog, capsys):
+    store, project = _project(tmp_path)
+    import shutil
+    shutil.rmtree(tmp_path / ".opalatex")
+
+    with pytest.raises(cli.T.AppExit):
+        _start(tmp_path, monkeypatch, tmp_path, ["1", "3"], store=store)
+    out = " ".join(capsys.readouterr().out.split())
+    assert f"opalatex --delete {project.name}" in out
+    assert "already being used by the project" in out
+
+
+def test_a_repeated_project_name_gets_the_next_free_key(tmp_path, monkeypatch, catalog):
+    """Only `<name>_1` was tried; a third project of the same name crashed on the UNIQUE key."""
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    keys = []
+    for i in range(3):
+        folder = tmp_path / f"d{i}"
+        folder.mkdir()
+        _store, project = _start(tmp_path, monkeypatch, folder, ["diag", ""], store=store, here=True)
+        keys.append(project.name)
+    assert keys == ["diag", "diag_1", "diag_2"]
+
+
+def test_here_still_creates_without_asking(tmp_path, monkeypatch, catalog):
+    folder = tmp_path / "plain"
+    folder.mkdir()
+
+    _store, project = _start(tmp_path, monkeypatch, folder, ["", "desc"], here=True)
+
+    assert project.project_path == str(folder)
+
+
 def test_startup_offers_to_continue_an_unfinished_turn(tmp_path, monkeypatch):
     """The old code read a checkpoint constant that exists nowhere: it raised NameError.
 
@@ -368,6 +594,27 @@ def test_reasoning_can_be_hidden():
         [{"event": "thought", "content": "let me think"}], show_thoughts=False
     )
     assert "let me think" not in out
+
+
+def test_streamed_reasoning_reads_as_running_text():
+    """Reasoning arrives token by token; each delta used to get a line of its own."""
+    deltas = ["The", " user", " just", " said", " hello", "."]
+    out, _ = _render(
+        [{"event": "thought", "content": d} for d in deltas]
+        + [{"event": "stream_chunk", "content": "Olá!"}]
+    )
+    assert "The user just said hello." in out
+    assert "Olá!" in out.split("hello.", 1)[1]
+
+
+def test_think_tags_never_reach_the_visible_answer():
+    """The desktop app drops them from the live response; the terminal does too."""
+    out, _ = _render([
+        {"event": "stream_chunk", "content": "<think>"},
+        {"event": "stream_chunk", "content": "Olá!</think>"},
+    ])
+    assert "<think>" not in out and "</think>" not in out
+    assert "Olá!" in out
 
 
 def test_retracted_reasoning_is_not_left_looking_like_the_answer():
@@ -666,3 +913,161 @@ def test_asking_for_the_window_without_the_bundle_says_so(monkeypatch, tmp_path,
 
     assert exit_info.value.code == 2
     assert started == []
+
+
+# ── Project list at startup (like the desktop window) ────────────────────────
+
+
+def _pick(tmp_path, monkeypatch, cwd, answers, store, **arg_overrides):
+    """Open the REPL's project list from `cwd`, feeding `answers` to the prompts."""
+    replies = iter(answers)
+    monkeypatch.setattr("builtins.input", lambda *_a: next(replies))
+    monkeypatch.chdir(cwd)
+    args = _args(db=store.db_path, **{"model": None, **arg_overrides})
+    return asyncio.run(cli.resolve_project(store, args, pick=True))
+
+
+def _registered(store, tmp_path, key, *, with_state=True):
+    folder = tmp_path / key
+    folder.mkdir()
+    if with_state:
+        (folder / ".opalatex").mkdir()
+    return store.create(name=key, mode="auto", model="", project_name=key.title(),
+                        project_path=str(folder))
+
+
+def test_the_repl_opens_on_the_registered_projects(tmp_path, monkeypatch, catalog, capsys):
+    """The window lists every project in the global store; the REPL did not."""
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    _registered(store, tmp_path, "thesis")
+    _registered(store, tmp_path, "paper")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    project = _pick(tmp_path, monkeypatch, elsewhere, ["2"], store)
+
+    out = capsys.readouterr().out
+    assert "Thesis" in out and "Paper" in out
+    assert project.name in ("thesis", "paper")
+
+
+def test_enter_opens_the_working_directory_project(tmp_path, monkeypatch, catalog):
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    _registered(store, tmp_path, "thesis")
+    paper = _registered(store, tmp_path, "paper")
+
+    project = _pick(tmp_path, monkeypatch, paper.project_path, [""], store)
+
+    assert project.name == "paper"
+
+
+def test_enter_elsewhere_opens_the_first_project_whose_folder_exists(tmp_path, monkeypatch, catalog):
+    """The window's own fallback when it remembers no project."""
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    _registered(store, tmp_path, "thesis")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    project = _pick(tmp_path, monkeypatch, elsewhere, [""], store)
+
+    assert project.name == "thesis"
+
+
+def test_a_project_whose_folder_is_gone_is_listed_but_not_opened(tmp_path, monkeypatch, catalog, capsys):
+    import shutil
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    gone = _registered(store, tmp_path, "gone")
+    shutil.rmtree(gone.project_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    with pytest.raises(cli.T.AppExit):
+        # 1 = the missing project, then Exit (last of: gone, create here, new, import, exit).
+        _pick(tmp_path, monkeypatch, elsewhere, ["1", "5"], store)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "(folder not found)" in out
+    assert "does not exist on disk" in out
+    assert "opalatex --delete gone" in out
+
+
+def test_an_existing_project_folder_can_be_imported_from_the_list(tmp_path, monkeypatch, catalog):
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    cloned = tmp_path / "cloned"
+    (cloned / ".opalatex").mkdir(parents=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    # Empty store: create here, new, import, exit.
+    project = _pick(tmp_path, monkeypatch, elsewhere, ["3", str(cloned)], store)
+
+    assert project.project_path == str(cloned)
+    assert store.find_by_path(str(cloned)) == project.name
+
+
+def test_an_unregistered_project_in_the_working_directory_is_the_default(tmp_path, monkeypatch, catalog):
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    _registered(store, tmp_path, "thesis")
+    cloned = tmp_path / "cloned"
+    (cloned / ".opalatex").mkdir(parents=True)
+
+    project = _pick(tmp_path, monkeypatch, cloned, [""], store)
+
+    assert project.project_path == str(cloned)
+
+
+def test_a_failed_import_returns_to_the_list(tmp_path, monkeypatch, catalog, capsys):
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    plain = tmp_path / "plain"
+    plain.mkdir()
+
+    with pytest.raises(cli.T.AppExit):
+        _pick(tmp_path, monkeypatch, plain, ["3", str(plain), "4"], store)
+    assert "not a valid OpalaTex project" in " ".join(capsys.readouterr().out.split())
+
+
+def test_here_skips_the_list(tmp_path, monkeypatch, catalog):
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    _registered(store, tmp_path, "thesis")
+    paper = _registered(store, tmp_path, "paper")
+
+    project = _pick(tmp_path, monkeypatch, paper.project_path, [], store, here=True)
+
+    assert project.name == "paper"
+
+
+# ── Replies written for a terminal ───────────────────────────────────────────
+
+
+def test_the_orchestrator_is_told_its_replies_are_read_in_a_terminal(tmp_path):
+    """The desktop chat renders Markdown and math; a terminal prints them literally."""
+    from opalatex import agent_stdin, cli_render
+    from opalatex.memgpt_runtime import chat_orchestrator_system_prompt
+
+    _store, project = _project(tmp_path)
+
+    gui_prompt = chat_orchestrator_system_prompt(project)
+    assert "plain-text terminal" not in gui_prompt
+
+    cli_render.install()
+    try:
+        assert agent_stdin.reply_surface() == agent_stdin.REPLY_SURFACE_TERMINAL
+        cli_prompt = chat_orchestrator_system_prompt(project)
+    finally:
+        cli_render.uninstall()
+
+    assert "plain-text terminal" in cli_prompt
+    assert "Do not typeset mathematics" in cli_prompt
+    assert agent_stdin.reply_surface() is None
+
+
+def test_bare_load_in_the_terminal_offers_the_project_list(tmp_path, monkeypatch, catalog):
+    from opalatex.cli_commands import REPLState, _registry
+    store = ProjectStore(db_path=os.path.join(str(tmp_path), "s.db"))
+    thesis = _registered(store, tmp_path, "thesis")
+    _registered(store, tmp_path, "paper")
+    state = REPLState(thesis, store, renderer=object())
+    monkeypatch.setattr("builtins.input", lambda *_a: "1")
+
+    asyncio.run(_registry.dispatch(state, "/load", []))
+
+    assert state.project.name == "paper"

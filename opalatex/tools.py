@@ -1565,6 +1565,12 @@ async def run_background_command(command: str) -> str:
     AGENT_PROGRESS.update("background_cmd", f"$ {_preview(command)}")
     cwd = get_project_path()
 
+    # A front-end without the IDE's terminal runs the command itself.
+    from opalatex.agent_stdin import background_command_runner
+    runner = background_command_runner()
+    if runner is not None:
+        return await runner(command, cwd)
+
     def send():
         from .local_auth import local_api_connection
         base_url, cookie = local_api_connection()

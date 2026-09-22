@@ -1754,6 +1754,70 @@ class ProjectStore:
 # Backward-compat alias
 SessionStore = ProjectStore
 
+class ProjectImportError(ValueError):
+    """A directory that cannot be registered as an existing OpalaTex project."""
+
+
+def import_project(store: "ProjectStore", project_path: str) -> ProjectData:
+    """Register a directory that already holds an OpalaTex project.
+
+    The directory must contain ``.opalatex/`` and must not be registered yet.
+    The project is named after the directory, starts with no model (the user
+    picks one from the model catalog), reads its skills from ``skills.yaml``
+    and any credentials from its own ``.env``. Shared by the desktop app's
+    Import Project and the command-line interface opening such a directory.
+    """
+    abs_path = os.path.abspath(os.path.expanduser(project_path))
+    if not os.path.isdir(abs_path):
+        raise ProjectImportError(f"Directory does not exist: {project_path}")
+    if not os.path.isdir(os.path.join(abs_path, ".opalatex")):
+        raise ProjectImportError(
+            "This directory is not a valid OpalaTex project. A valid project must contain a .opalatex/ directory."
+        )
+    for ep in store.list_projects():
+        ep_path = os.path.abspath(os.path.expanduser(ep.get("project_path", "")))
+        if os.path.normcase(ep_path) == os.path.normcase(abs_path):
+            raise ProjectImportError(
+                f"This project is already registered as '{ep.get('project_name', ep.get('name', ''))}'."
+            )
+
+    project_name = os.path.basename(abs_path) or "Imported Project"
+
+    env_values = _read_env_values(os.path.join(abs_path, ".env"))
+
+    skills = ["opalatex"]
+    try:
+        from .skills import read_skills_yaml
+        found_skills = read_skills_yaml(abs_path)
+        if found_skills:
+            skills = found_skills
+            if "opalatex" not in skills:
+                skills = ["opalatex"] + skills
+    except Exception:
+        pass
+
+    db_key = project_name.replace(" ", "_").lower()
+    original_db_key = db_key
+    counter = 1
+    while store.exists(db_key):
+        db_key = f"{original_db_key}_{counter}"
+        counter += 1
+
+    return store.create(
+        name=db_key,
+        mode="auto",
+        model="",
+        project_name=project_name,
+        project_path=abs_path,
+        skills=skills,
+        description="",
+        api_key=env_values.get("OPENAI_API_KEY") or None,
+        api_base=env_values.get("OPENAI_API_BASE") or None,
+        worker_api_key=env_values.get("WORKER_API_KEY") or None,
+        worker_api_base=env_values.get("WORKER_API_BASE") or None,
+    )
+
+
 def create_contextual_skills_defaults(project_path: str) -> None:
     if not project_path:
         return
