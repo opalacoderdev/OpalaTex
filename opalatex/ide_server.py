@@ -5963,12 +5963,13 @@ def spawn_detached(command, cwd=None, env=None):
     if env is not None:
         kwargs["env"] = env
     if sys.platform == "win32":
-        # DETACHED_PROCESS keeps the child alive after we exit; CREATE_NEW_PROCESS_GROUP
-        # stops it from inheriting Ctrl+C delivered to the old console.
-        kwargs["creationflags"] = (
-            getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-        )
+        # DETACHED_PROCESS keeps the child alive after we exit, and a process with
+        # no console cannot receive Ctrl+C delivered to the old one.
+        # CREATE_NEW_PROCESS_GROUP must not be added: it makes Windows disable
+        # Ctrl+C in the new process (an implicit SetConsoleCtrlHandler(NULL, TRUE)),
+        # and every process it starts inherits that. After an in-app restart the
+        # integrated terminal's PowerShell then ignored Ctrl+C entirely.
+        kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
     else:
         kwargs["start_new_session"] = True
     return subprocess.Popen(command, **kwargs)

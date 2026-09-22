@@ -10,6 +10,30 @@ import selectors
 # the visible scrollback instead of showing an empty terminal.
 SCROLLBACK_LIMIT = 256 * 1024
 
+
+def enable_ctrl_c_for_children():
+    """Make sure the Windows shell we spawn will honour Ctrl+C.
+
+    ConPTY turns the ``\\x03`` typed into the terminal into a CTRL_C_EVENT, but a
+    process ignores that event when its "ignore Ctrl+C" console flag is set, and
+    the flag is inherited from the process that created it. OpalaTex gets the
+    flag whenever it was started in a new process group (as the in-app restart
+    used to do, or as any launcher may), and PowerShell then kept running
+    whatever command was in progress. Clearing it here restores the default
+    every console program expects. Returns True when the flag was cleared.
+    """
+    if sys.platform != "win32":
+        return False
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    if kernel32.SetConsoleCtrlHandler(None, False):
+        return True
+    print(f"[Terminal] could not enable Ctrl+C for the shell "
+          f"(SetConsoleCtrlHandler failed, error {ctypes.get_last_error()})")
+    return False
+
+
 class TerminalSession:
     def __init__(self, project_path):
         self.project_path = project_path
@@ -29,6 +53,7 @@ class TerminalSession:
         if sys.platform == "win32":
             try:
                 from winpty import PtyProcess
+                enable_ctrl_c_for_children()
                 # Force PowerShell on Windows
                 shell = "powershell.exe"
                 self.process = PtyProcess.spawn(shell, cwd=project_path)
