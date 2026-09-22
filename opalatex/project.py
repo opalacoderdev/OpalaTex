@@ -554,6 +554,17 @@ PROJECT_SETTINGS_FIELDS = (
 """Fields `/api/opalatex/update-project` edits: the project's, not a chat's."""
 
 
+_BRANCH_CORE_MEMORY = ""
+"""Per-chat core memory a branched chat starts with.
+
+A branch copies the conversation only up to its anchor, but a chat's core
+memory is not versioned: copying it hands the branch whatever the source chat
+learned *after* that point, and the prompt presents it as facts from prior
+conversations. With memory isolation on, that made a branch answer from a
+conversation it never had. The copied history is the branch's only context.
+"""
+
+
 # Backward-compat alias so existing imports of SessionData still work during migration
 SessionData = ProjectData
 
@@ -1582,15 +1593,12 @@ class ProjectStore:
                 client_message_id=client_message_id,
             )
             
-            # 1. Get core memory from the original chat.
-            row = conn.execute("SELECT core_memory FROM project_chats WHERE project = ? AND id = ?", (name, source_chat_id)).fetchone()
-            core_memory = row["core_memory"] if row else ""
+            # 1. Create the new chat with an empty per-chat core memory; see
+            # _BRANCH_CORE_MEMORY for why the source chat's is not inherited.
+            conn.execute("INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
+                         (new_chat_id, name, new_chat_name, now, _BRANCH_CORE_MEMORY))
             
-            # 2. Create the new chat.
-            conn.execute("INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)", 
-                         (new_chat_id, name, new_chat_name, now, core_memory))
-            
-            # 3. Copy history through the selected persisted message.
+            # 2. Copy history through the selected persisted message.
             # Prefer stable message ids because UI indexes may omit stored system
             # audit entries such as [MODE] messages.
             target_message_id = self._resolve_chat_message_id(
@@ -1690,11 +1698,9 @@ class ProjectStore:
                 raise ValueError(
                     "message_id or client_message_id is required to branch a chat"
                 )
-            row = conn.execute("SELECT core_memory FROM project_chats WHERE project = ? AND id = ?", (name, source_chat_id)).fetchone()
-            core_memory = row["core_memory"] if row else ""
             conn.execute(
                 "INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
-                (new_chat_id, name, new_chat_name, now, core_memory),
+                (new_chat_id, name, new_chat_name, now, _BRANCH_CORE_MEMORY),
             )
             history = conn.execute(
                 "SELECT role, content, timestamp, attachments FROM project_history"

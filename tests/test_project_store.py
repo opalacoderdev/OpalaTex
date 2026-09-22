@@ -441,7 +441,7 @@ def test_branch_chat_with_message_index_negative_one_copies_no_history(store):
     # message_index=-1 is what the UI sends when branching from a chat's
     # client-only greeting message (never persisted, so there is nothing
     # before it to copy) — the branch should still succeed, yielding an
-    # empty new chat that shares the source's core memory.
+    # empty new chat.
     store.create(**_base_args())
     p = store.load("myproj")
     source_chat = p.current_chat_id
@@ -451,6 +451,38 @@ def test_branch_chat_with_message_index_negative_one_copies_no_history(store):
 
     loaded = store.load("myproj", chat_id="branch-1")
     assert loaded.history == []
+
+
+def test_branch_chat_does_not_inherit_source_core_memory(store):
+    # The source's core memory holds what it learned after the branch point
+    # too; inheriting it made an isolated branch answer from a conversation it
+    # never had.
+    store.create(**_base_args())
+    p = store.load("myproj")
+    source_chat = p.current_chat_id
+    anchor_id = store.append_message(p, "user", "hello")
+    store.update_chat_core_memory("myproj", source_chat, "- learned later")
+
+    store.branch_chat("myproj", source_chat, "branch-1", "Branch", 0, message_id=anchor_id)
+
+    assert store.get_chat_core_memory("myproj", "branch-1") == ""
+    assert store.get_chat_core_memory("myproj", source_chat) == "- learned later"
+
+
+def test_branch_chat_before_message_does_not_inherit_source_core_memory(store):
+    store.create(**_base_args())
+    p = store.load("myproj")
+    source_chat = p.current_chat_id
+    store.append_message(p, "user", "first")
+    anchor_id = store.append_message(p, "user", "second")
+    store.update_chat_core_memory("myproj", source_chat, "- learned later")
+
+    store.branch_chat_before_message(
+        "myproj", source_chat, "branch-edit", "Edited", message_id=anchor_id
+    )
+
+    assert store.get_chat_core_memory("myproj", "branch-edit") == ""
+    assert store.get_chat_core_memory("myproj", source_chat) == "- learned later"
 
 
 def test_branch_chat_by_message_id_is_not_shifted_by_mode_entries(store):
