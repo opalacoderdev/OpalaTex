@@ -1511,7 +1511,9 @@ class AsyncHTTPServer:
 
         # 0.3 SyncTeX
         elif path == '/api/latex/synctex' and method == 'GET':
-            from opalatex.synctex_parser import companion_synctex_path, find_source_line, find_pdf_position
+            from opalatex.synctex_parser import (
+                GeneratedSourceError, companion_synctex_path, find_source_line, find_pdf_position,
+            )
 
             action = query.get('action', [''])[0]
             file_path = query.get('filePath', [''])[0]
@@ -1602,6 +1604,12 @@ class AsyncHTTPServer:
                         abs_file = result['file']
                         if not os.path.isabs(abs_file):
                             abs_file = os.path.abspath(os.path.join(project_path, abs_file))
+                        # Same contract as the standalone path above: a record
+                        # naming no existing file is reported, not opened as an
+                        # empty editor tab.
+                        if not os.path.isfile(abs_file):
+                            self.send_response(writer, 404, json.dumps({"error": f"synctex source file not found: {abs_file}"}).encode('utf-8'), "application/json")
+                            return
                         result['file'] = abs_file
                         # Also return a project-relative path so the frontend can compare
                         # against selectedFile (which is always relative to project_path)
@@ -1617,6 +1625,8 @@ class AsyncHTTPServer:
                     self.send_response(writer, 200, json.dumps({"result": result}).encode('utf-8'), "application/json")
                 else:
                     self.send_response(writer, 400, b'{"error":"invalid action"}', "application/json")
+            except GeneratedSourceError as e:
+                self.send_response(writer, 404, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
             return

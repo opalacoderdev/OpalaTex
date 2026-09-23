@@ -638,6 +638,18 @@ export default function App() {
   // has already moved to another chat.
   const activeChatIdRef = useRef('');
   useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
+  // The chat the agent turn in flight belongs to ('' when none is running).
+  // The user may move to another chat while it runs: its live bubble,
+  // reasoning, answer and context measurement belong to that chat, never to
+  // the one on screen. The backend persists all of them in the turn's own
+  // chat, so going back to it reloads what was missed.
+  const runChatIdRef = useRef('');
+  const [runChatId, setRunChatId] = useState('');
+  const bindRunChat = (chatId) => {
+    runChatIdRef.current = chatId || '';
+    setRunChatId(chatId || '');
+  };
+  const isLiveTurnOnScreen = !runChatId || runChatId === activeChatId;
   const [mainChatId, setMainChatId] = useState('');
   const [chats, setChats] = useState([]);
   // The built-in tutorial lives in a reserved chat (`tutorial_<project>`). Its id and
@@ -1102,6 +1114,9 @@ export default function App() {
           if (data.chat_id && data.chat_id !== id) {
             throw new Error(`history returned chat ${data.chat_id}, expected ${id}`);
           }
+          // The user already moved on: this history belongs to a chat that is
+          // no longer on screen.
+          if (activeChatIdRef.current !== id) return;
           const greeting = activeProject.project_name || activeProject.name;
           startTransition(() => {
             setChatContextUsage(contextUsageFromPayload(data.context_usage));
@@ -1545,6 +1560,25 @@ export default function App() {
       }, ...prev]);
     } catch (err) { /* the panel simply starts empty for this chat */ }
   };
+
+  // Every way of changing the active chat -- the selector, a new chat from the
+  // sidebar or the chat header, a task chat, an edited-message branch, the
+  // tutorial -- ends in `setActiveChatId`, and not all of them reload a
+  // history. Emptying the panel here is what keeps a new chat from inheriting
+  // the previous chat's reasoning. It runs on commit, before any history
+  // request can resolve, so the reasoning a switch loads afterwards stays; only
+  // the reasoning types are removed, so the Output log is left alone.
+  useEffect(() => {
+    setThinkingFocus(null);
+    setTerminalLogs(prev => {
+      const kept = prev.filter(log => !thinkingLogTypes.has(log.type));
+      return kept.length === prev.length ? prev : kept;
+    });
+  }, [activeChatId]);
+
+  const isRunOnScreen = () => (
+    !runChatIdRef.current || runChatIdRef.current === activeChatIdRef.current
+  );
 
   // Opening the reasoning of a message: the chat only ever previews it, and the
   // panel is where the whole thing is read (the user's design). A live turn
@@ -3008,7 +3042,7 @@ export default function App() {
         });
         break;
       case 'thought': {
-        addLog('thought', data.content, data.agent);
+        if (isRunOnScreen()) addLog('thought', data.content, data.agent);
         chatThoughtTailRef.current = appendThoughtChunk(
           chatThoughtTailRef.current,
           data.content,
@@ -3021,7 +3055,7 @@ export default function App() {
         break;
       }
       case 'reflection':
-        addLog('reflection', data.content, data.agent);
+        if (isRunOnScreen()) addLog('reflection', data.content, data.agent);
         break;
       case 'achievements_update':
         setAchievementsMemory(data.content);
@@ -3030,7 +3064,7 @@ export default function App() {
         // prompt_tokens is the size of the request the provider just billed, so
         // it already accounts for the system prompt, the tool schemas, the tool
         // calls and the tool results — none of which reach chatMessages.
-        setChatContextUsage(prev => contextUsageFromPayload(data) || prev);
+        if (isRunOnScreen()) setChatContextUsage(prev => contextUsageFromPayload(data) || prev);
         break;
       case 'stream_retract': {
         // An orphan </think> proved this text was reasoning, not the answer, after
@@ -3048,7 +3082,7 @@ export default function App() {
       }
       case 'stream_chunk':
         const visibleStreamChunk = sanitizeVisibleStreamChunk(data.content);
-        addLog('stream_chunk', visibleStreamChunk, data.agent);
+        if (isRunOnScreen()) addLog('stream_chunk', visibleStreamChunk, data.agent);
         if (!visibleStreamChunk) break;
         setChatResponseStream(prev => {
           const next = prev + visibleStreamChunk;
@@ -3068,7 +3102,7 @@ export default function App() {
         setChatThoughtStream('');
         chatResponseStreamRef.current = '';
         setChatResponseStream('');
-        setChatMessages(prev => [...prev, {
+        if (isRunOnScreen()) setChatMessages(prev => [...prev, {
           role: 'assistant',
           content: interruptedTurnContent(partialAnswer),
           timestamp: new Date().toISOString(),
@@ -3152,7 +3186,7 @@ export default function App() {
         chatResponseStreamRef.current = '';
         setChatResponseStream('');
 
-        setChatMessages(prev => {
+        if (isRunOnScreen()) setChatMessages(prev => {
           const last = prev[prev.length - 1];
           const baseContent = responseText;
           const finalContent = baseContent;
@@ -3163,7 +3197,7 @@ export default function App() {
             content: finalContent,
             _thoughtStream: finalThoughtStream || undefined,
             timestamp: new Date().toISOString(),
-            chat_id: activeChatId,
+            chat_id: runChatIdRef.current || activeChatId,
           }];
         });
 
@@ -3251,7 +3285,7 @@ export default function App() {
       case 'error':
         addLog('error', data.message);
         addProblem({ tool: data.agent || t('app.agentTool', 'Agent'), message: data.message, severity: 'error' });
-        setChatMessages(prev => [...prev, { role: 'assistant', content: t('app.agentError', '🔴 Erro do Agente: {{message}}', { message: data.message }), is_error: true, timestamp: new Date().toISOString() }]);
+        if (isRunOnScreen()) setChatMessages(prev => [...prev, { role: 'assistant', content: t('app.agentError', '🔴 Erro do Agente: {{message}}', { message: data.message }), is_error: true, timestamp: new Date().toISOString() }]);
         break;
       case 'problem':
         addLog('error', t('app.toolProblem', { tool: data.tool, message: data.message }));
@@ -3519,6 +3553,7 @@ export default function App() {
       try { const model = editorRef.current.getModel(); const sel = editorRef.current.getSelection(); if (model && sel) selectedText = model.getValueInRange(sel); } catch (e) { }
     }
 
+    bindRunChat(targetChatId);
     try {
       const res = await fetch('/api/opalatex/run', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3578,7 +3613,7 @@ export default function App() {
     } catch (err) {
       addLog('error', t('app.executionFailed', { error: err.message }));
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
-    } finally { setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
+    } finally { bindRunChat(''); setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
   };
 
   // A message the turn ended without delivering becomes an ordinary next turn.
@@ -4376,6 +4411,7 @@ export default function App() {
       } catch (e) { }
     }
 
+    bindRunChat(activeChatId);
     try {
       const res = await fetch('/api/opalatex/run', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -4410,7 +4446,7 @@ export default function App() {
     } catch (err) {
       addLog('error', t('app.executionFailed', { error: err.message }));
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
-    } finally { setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
+    } finally { bindRunChat(''); setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -4716,6 +4752,7 @@ export default function App() {
               chatInputFocusSignal={chatInputFocusSignal}
               speechSettingsSignal={speechSettingsSignal}
               isAgentRunning={isAgentRunning}
+              isLiveTurnOnScreen={isLiveTurnOnScreen}
               agentStepInfo={agentStepInfo}
               heartbeatMode={heartbeatMode}
               setHeartbeatMode={setHeartbeatMode}
@@ -4723,9 +4760,9 @@ export default function App() {
               onCancelQueuedMessage={handleCancelQueuedMessage}
               onCancelAllQueuedMessages={handleCancelAllQueuedMessages}
               isInterruptPending={isInterruptPending}
-              chatThoughtStream={chatThoughtStream}
+              chatThoughtStream={isLiveTurnOnScreen ? chatThoughtStream : ''}
               onShowThinking={showThinkingPanel}
-              chatResponseStream={chatResponseStream}
+              chatResponseStream={isLiveTurnOnScreen ? chatResponseStream : ''}
               chatContextUsage={chatContextUsage}
               setChatContextUsage={setChatContextUsage}
               activeProject={activeProject}
@@ -4812,6 +4849,7 @@ export default function App() {
               chatInputFocusSignal={chatInputFocusSignal}
               speechSettingsSignal={speechSettingsSignal}
               isAgentRunning={isAgentRunning}
+              isLiveTurnOnScreen={isLiveTurnOnScreen}
               agentStepInfo={agentStepInfo}
               heartbeatMode={heartbeatMode}
               setHeartbeatMode={setHeartbeatMode}
@@ -4819,9 +4857,9 @@ export default function App() {
               onCancelQueuedMessage={handleCancelQueuedMessage}
               onCancelAllQueuedMessages={handleCancelAllQueuedMessages}
               isInterruptPending={isInterruptPending}
-              chatThoughtStream={chatThoughtStream}
+              chatThoughtStream={isLiveTurnOnScreen ? chatThoughtStream : ''}
               onShowThinking={showThinkingPanel}
-              chatResponseStream={chatResponseStream}
+              chatResponseStream={isLiveTurnOnScreen ? chatResponseStream : ''}
               chatContextUsage={chatContextUsage}
               setChatContextUsage={setChatContextUsage}
               activeProject={activeProject}

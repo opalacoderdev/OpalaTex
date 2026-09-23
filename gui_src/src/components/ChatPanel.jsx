@@ -82,6 +82,8 @@ export default function ChatPanel({
   speechSettingsSignal = 0,
   setChatInput,
   isAgentRunning,
+  // False while the running turn belongs to another chat than this one.
+  isLiveTurnOnScreen = true,
   agentStepInfo = { step: 0, maxSteps: null },
   heartbeatMode = 'medium',
   setHeartbeatMode,
@@ -2454,7 +2456,7 @@ export default function ChatPanel({
           );
         })}
 
-        {isAgentRunning && (
+        {isAgentRunning && isLiveTurnOnScreen && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="vscode-chat-msg-header chat-header-agent" style={{ margin: 0 }}>

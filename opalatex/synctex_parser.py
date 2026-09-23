@@ -195,26 +195,231 @@ def find_pdf_position(synctex_path, target_file, target_line):
         'h': h
     }
 
+class GeneratedSourceError(Exception):
+    """The clicked material was read from a file TeX generated during the run.
+
+    Such a file has no source of its own to open. Reporting that is the
+    contract; opening the (empty or overwritten) generated file is not.
+    """
+
+
+def _is_generated_input(filename):
+    """A beamer fragile-frame file, or a file the engine did not name.
+
+    Beamer writes the body of every ``fragile`` frame to ``\\jobname.vrb`` and
+    reads it back with ``\\input``, so the frame's material is recorded against
+    that file. Tectonic keeps the file in memory and records it with an *empty*
+    name; pdfTeX names it, but the file on disk only holds the last fragile
+    frame of the run. Neither is the frame's source.
+    """
+    return not filename or filename.lower().endswith('.vrb')
+
+
+_FRAME_BEGIN = '\\begin{frame}'
+_FRAME_END = '\\end{frame}'
+
+
+def _skip_space(text, pos):
+    """Skips what TeX's ``\\@ifnextchar`` skips: spaces, one end of line, comments.
+
+    Stops at a blank line, which TeX turns into ``\\par`` rather than a space.
+    """
+    newlines = 0
+    while pos < len(text):
+        char = text[pos]
+        if char in ' \t':
+            pos += 1
+        elif char == '%':
+            end = text.find('\n', pos)
+            pos = len(text) if end < 0 else end + 1
+        elif char == '\n':
+            if newlines:
+                return pos - 1
+            newlines += 1
+            pos += 1
+        else:
+            break
+    return pos
+
+
+def _balanced_end(text, pos, opener, closer):
+    """Index just past the group opened at `pos`, or -1 if it never closes."""
+    depth = 0
+    index = pos
+    while index < len(text):
+        char = text[index]
+        if char == '\\':
+            index += 2
+            continue
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    return -1
+
+
+def _is_fragile(options):
+    """``fragile`` (or ``fragile=true``) sends the frame through a .vrb file.
+
+    ``fragile=singleslide`` keeps the body in memory instead, so it does not.
+    """
+    for option in options.split(','):
+        key, _, value = option.partition('=')
+        if key.strip() == 'fragile' and value.strip() in ('', 'true'):
+            return True
+    return False
+
+
+def _fragile_frames(text):
+    """Yields each fragile frame as ``(header_line, first_body, end_line)``.
+
+    `header_line` is the line on which the frame header (overlay spec, options
+    and title arguments) ends, `first_body` a pair ``(vrb_line, source_line)``
+    locating the first body line in both files, and `end_line` the line of the
+    frame's ``\\end{frame}``. Lines are 1-based.
+
+    What beamer writes (beamerbaseframe.sty / beamerbaseverbatim.sty): a frame
+    with one title argument starts the .vrb with a ``\\frametitle{...}`` line of
+    its own; with a title and a subtitle, the two are written on the first line
+    together with the rest of the header line; with no title, nothing is added.
+    Each following source line up to ``\\end{frame}`` is copied one for one.
+
+    Except for the lines TeX's own look-ahead consumed: when the header ends its
+    line with no title, or with a title alone, ``\\@ifnextchar`` tokenizes past
+    the end of that line before the verbatim reader takes over, so comment-only
+    lines there are dropped and never reach the file.
+    """
+    lines = text.split('\n')
+    search = 0
+    while True:
+        begin = text.find(_FRAME_BEGIN, search)
+        if begin < 0:
+            return
+        search = begin + len(_FRAME_BEGIN)
+        line_start = text.rfind('\n', 0, begin) + 1
+        if '%' in text[line_start:begin]:
+            continue
+        pos = search
+        options = ''
+        while True:
+            peek = _skip_space(text, pos)
+            if peek < len(text) and text[peek] in '<[':
+                closer = '>' if text[peek] == '<' else ']'
+                end = _balanced_end(text, peek, text[peek], closer)
+                if end < 0:
+                    break
+                if closer == ']':
+                    options += ',' + text[peek + 1:end - 1]
+                pos = end
+                continue
+            break
+        titles = 0
+        while titles < 2:
+            peek = _skip_space(text, pos)
+            if peek >= len(text) or text[peek] != '{':
+                break
+            end = _balanced_end(text, peek, '{', '}')
+            if end < 0:
+                break
+            pos = end
+            titles += 1
+        end_frame = text.find(_FRAME_END, pos)
+        if end_frame < 0:
+            return
+        if not _is_fragile(options):
+            continue
+        header_line = text.count('\n', 0, pos) + 1
+        line_end = text.find('\n', pos)
+        rest = text[pos:line_end if line_end >= 0 else len(text)].strip()
+        trailing = bool(rest) and not rest.startswith('%')
+        if titles == 1:
+            first_vrb = 3 if trailing else 2
+        elif titles == 2:
+            first_vrb = 2
+        else:
+            first_vrb = 2 if trailing else 1
+        first_source = header_line + 1
+        if titles < 2 and not trailing:
+            while first_source <= len(lines) and lines[first_source - 1].lstrip().startswith('%'):
+                first_source += 1
+        yield header_line, (first_vrb, first_source), text.count('\n', 0, end_frame) + 1
+
+
+def _vrb_line_to_source(vrb_line, header_line, first_body):
+    """Maps a line of beamer's .vrb file back to the frame's source line."""
+    first_vrb, first_source = first_body
+    if vrb_line < first_vrb:
+        return header_line
+    return first_source + (vrb_line - first_vrb)
+
+
+def _resolve_generated_node(parser, node):
+    """Resolves a node read from a beamer .vrb file to its frame's source line.
+
+    The frame is found through the record beamer leaves in the real source: the
+    whole frame is shipped out at ``\\end{frame}``, so the page carries a node
+    on that line of the file that holds the frame.
+    """
+    anchors = {}
+    for other in parser.nodes:
+        if other['page'] != node['page']:
+            continue
+        filename = parser.inputs.get(other['tag'], '')
+        if _is_generated_input(filename):
+            continue
+        anchors.setdefault(filename, set()).add(other['line'])
+
+    for filename, lines in anchors.items():
+        source_path = filename
+        if not os.path.isabs(source_path):
+            source_path = os.path.join(os.path.dirname(parser.synctex_path), source_path)
+        try:
+            with open(source_path, 'r', encoding='utf-8', errors='replace') as handle:
+                text = handle.read()
+        except OSError:
+            continue
+        for header_line, first_body, end_line in _fragile_frames(text):
+            if end_line not in lines:
+                continue
+            line = _vrb_line_to_source(node['line'], header_line, first_body)
+            return {'file': filename, 'line': min(line, end_line)}
+
+    raise GeneratedSourceError(
+        'The clicked text was read from a file generated during compilation '
+        '(not a beamer fragile frame of this document), so it has no source line.'
+    )
+
+
 def find_source_line(synctex_path, page, x, y):
-    """Finds the source file and line closest to the PDF coordinates."""
+    """Finds the source file and line closest to the PDF coordinates.
+
+    Raises GeneratedSourceError when the closest material came from a file the
+    compilation generated and it cannot be traced back to the source.
+    """
     parser = SynctexParser(synctex_path)
-    
+
     best_node = None
     min_dist = float('inf')
-    
+
     for node in parser.nodes:
         if node['page'] == page:
             dx = node['x'] - x
             dy = node['y'] - y
             dist = dx*dx + (dy*dy * 4) # weight Y
-            
+
             if dist < min_dist:
                 min_dist = dist
                 best_node = node
-                
+
     if best_node and best_node['tag'] in parser.inputs:
+        filename = parser.inputs[best_node['tag']]
+        if _is_generated_input(filename):
+            return _resolve_generated_node(parser, best_node)
         return {
-            'file': parser.inputs[best_node['tag']],
+            'file': filename,
             'line': best_node['line']
         }
     return None

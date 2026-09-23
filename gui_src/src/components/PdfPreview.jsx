@@ -1207,6 +1207,8 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         // Use relFile (relative to project) for navigation; fall back to absolute file
         const navFile = data.result.relFile || data.result.file;
         onSyncTexNavigate(data.result.line, navFile);
+      } else if (!res.ok) {
+        console.warn("SyncTeX inverse search found no source:", data.error);
       }
     } catch (err) {
       console.error("SyncTeX inverse search failed:", err);
