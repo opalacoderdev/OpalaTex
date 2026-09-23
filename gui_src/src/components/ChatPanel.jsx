@@ -1,11 +1,12 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
-import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock, Activity, Zap, ChevronDown, Mic, Square, Brain } from 'lucide-react';
+import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock, Activity, Zap, ChevronDown, Mic, Square, Brain, SlidersHorizontal, Minimize2, Maximize2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { FormattedMessage } from '../utils/formatMessage';
 import { readClipboard, readClipboardImage } from '../utils/clipboard.js';
 import { base64ImageToFile, clipboardHasText, extractClipboardFiles, pastedImageName } from '../utils/clipboardAttachments.js';
 import { isLocalModelId } from '../utils/models.js';
+import { readChatCompact, writeChatCompact } from '../utils/chatCompact.js';
 import { stripInlineReasoning } from '../utils/thinkTags.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 
@@ -118,6 +119,9 @@ export default function ChatPanel({
   // The studio layout sizes the chat through its own grid track, so the panel
   // must fill whatever cell it is given instead of carrying a pixel width.
   fillContainer,
+  // The layout key (see utils/chatCompact.js) when the host layout offers the
+  // compact chat, null otherwise.
+  compactLayout = null,
   globalModels = [],
   onRefreshModels,
   onEditModels,
@@ -137,6 +141,13 @@ export default function ChatPanel({
   const [showChatActionsMenu, setShowChatActionsMenu] = useState(false);
   const [showHeartbeatMenu, setShowHeartbeatMenu] = useState(false);
   const heartbeatMenuRef = useRef(null);
+  // Compact chat: only the conversation and the prompt stay on screen, and the
+  // toolbars open as an overlay from the header. The preference is per layout.
+  const [compactPreferred, setCompactPreferred] = useState(() => readChatCompact(compactLayout));
+  const [showCompactControls, setShowCompactControls] = useState(false);
+  const compactControlsRef = useRef(null);
+  const compactControlsToggleRef = useRef(null);
+  const isCompact = Boolean(compactLayout) && compactPreferred;
   const [isEvolvingPrompt, setIsEvolvingPrompt] = useState(false);
   const [evolutionProgress, setEvolutionProgress] = useState(null);
   const evolveAbortControllerRef = useRef(null);
@@ -299,6 +310,38 @@ export default function ChatPanel({
     scrollHistoryToBottom();
   }, [activeChatId, scrollHistoryToBottom]);
 
+
+  useEffect(() => {
+    setCompactPreferred(readChatCompact(compactLayout));
+    setShowCompactControls(false);
+  }, [compactLayout]);
+
+  const setCompactView = useCallback((value) => {
+    setCompactPreferred(value);
+    setShowCompactControls(false);
+    writeChatCompact(compactLayout, value);
+  }, [compactLayout]);
+
+  useEffect(() => {
+    if (!isCompact || !showCompactControls) return;
+    const handlePointerDown = (event) => {
+      // The toggle closes the overlay itself; letting this handler close it
+      // first would make the toggle's click reopen it.
+      if (compactControlsToggleRef.current?.contains(event.target)) return;
+      if (!compactControlsRef.current?.contains(event.target)) {
+        setShowCompactControls(false);
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setShowCompactControls(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isCompact, showCompactControls]);
 
   useEffect(() => {
     if (!showChatActionsMenu) return;
@@ -1169,11 +1212,101 @@ export default function ChatPanel({
   const batteryColor = isTokenExploded ? 'var(--battery-exploded)' : remainingPercentage <= 20 ? 'var(--battery-low)' : 'var(--battery-good)';
   const formatTokens = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : `${n}`);
 
+  // Effort / heartbeat budget selector. It sits in its own toolbar above the
+  // input in the full panel and inside the input row in the compact one.
+  const heartbeatSelector = (() => {
+    const projectHeartbeats = activeProject?.model_params?.max_heartbeats ?? 50;
+    const heartbeatOptions = [
+      {
+        key: 'low',
+        heartbeats: 20,
+        label: t('chatPanel.heartbeatModeLow', 'Low'),
+        desc: t('chatPanel.heartbeatModeLowDesc', 'Fast (max 20 heartbeats)'),
+        color: 'var(--vscode-fg-teal, #4ec9b0)',
+      },
+      {
+        key: 'medium',
+        heartbeats: 50,
+        label: t('chatPanel.heartbeatModeMedium', 'Medium'),
+        desc: t('chatPanel.heartbeatModeMediumDesc', 'Standard (max 50 heartbeats)'),
+        color: '#e5a84b',
+      },
+      {
+        key: 'high',
+        heartbeats: 100,
+        label: t('chatPanel.heartbeatModeHigh', 'High'),
+        desc: t('chatPanel.heartbeatModeHighDesc', 'Thorough (max 100 heartbeats)'),
+        color: '#c586c0',
+      },
+      {
+        key: 'custom',
+        heartbeats: projectHeartbeats,
+        label: t('chatPanel.heartbeatModeCustom', 'Custom'),
+        desc: t('chatPanel.heartbeatModeCustomDesc', 'Project settings ({{count}} heartbeats)', { count: projectHeartbeats }),
+        color: 'var(--vscode-descriptionForeground, #999999)',
+      },
+    ];
+    const currentOption = heartbeatOptions.find(opt => opt.key === heartbeatMode) || heartbeatOptions[1];
+    const currentButtonLabel = heartbeatMode === 'custom'
+      ? `${currentOption.label} (${projectHeartbeats})`
+      : `${currentOption.label} (${currentOption.heartbeats})`;
+
+    return (
+      <div className="vscode-chat-mode-selector-wrap" ref={heartbeatMenuRef}>
+        <button
+          type="button"
+          className="vscode-chat-mode-btn"
+          onClick={() => setShowHeartbeatMenu(prev => !prev)}
+          aria-expanded={showHeartbeatMenu}
+          aria-haspopup="menu"
+          title={t('chatPanel.heartbeatModeTooltip', 'Execution heartbeat budget per turn')}
+        >
+          <Zap size={12} style={{ color: currentOption.color, flexShrink: 0 }} />
+          <span className="vscode-chat-mode-btn-label">{currentButtonLabel}</span>
+          <ChevronDown size={11} style={{ opacity: 0.7, flexShrink: 0 }} />
+        </button>
+        {showHeartbeatMenu && (
+          <div className="vscode-chat-mode-menu" role="menu">
+            <div className="vscode-chat-mode-menu-header">
+              {t('chatPanel.heartbeatMode', 'Effort / Budget')}
+            </div>
+            {heartbeatOptions.map((opt) => {
+              const isSelected = opt.key === heartbeatMode;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={`vscode-chat-mode-menu-item ${isSelected ? 'selected' : ''}`}
+                  onClick={() => {
+                    setHeartbeatMode?.(opt.key);
+                    setShowHeartbeatMenu(false);
+                  }}
+                  role="menuitem"
+                >
+                  <div className="vscode-chat-mode-item-left">
+                    <Zap size={13} style={{ color: opt.color, flexShrink: 0, marginTop: '2px' }} />
+                    <div className="vscode-chat-mode-item-text">
+                      <div className="vscode-chat-mode-item-title">
+                        {opt.label} ({opt.heartbeats})
+                      </div>
+                      <div className="vscode-chat-mode-item-desc">{opt.desc}</div>
+                    </div>
+                  </div>
+                  {isSelected && <Check size={14} className="vscode-chat-mode-item-check" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  })();
+
   if (!isChatVisible) return null;
 
   return (
     <aside 
-      className="vscode-chat" 
+      className={`vscode-chat${isCompact ? ' is-compact' : ''}`}
       style={isChatMode || fillContainer
         ? { flex: 1, minWidth: 0, borderLeft: 'none', width: '100%' }
         : { width: `${chatWidth}px` }}
@@ -1206,10 +1339,26 @@ export default function ChatPanel({
         onRetry={retrySpeech}
       />
       {/* Header */}
-      <div className="vscode-chat-header">
+      <div className={`vscode-chat-header${isCompact ? ' is-compact' : ''}`}>
         <span className="vscode-sidebar-title vscode-chat-header-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <MessageSquare size={12} style={{ color: '#007acc', flexShrink: 0 }} />
-          <span className="vscode-chat-header-title-text">{t('chatPanel.header')}</span>
+          {isCompact ? (
+            // The chat's name is the title here, and picking another one is the
+            // most frequent thing the full chat-selector row is used for.
+            <select
+              className="vscode-chat-compact-select"
+              value={activeChatId}
+              onChange={(e) => handleSwitchChat(e.target.value)}
+              title={t('chatPanel.switchChat', 'Switch chat')}
+              aria-label={t('chatPanel.switchChat', 'Switch chat')}
+            >
+              {chats.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="vscode-chat-header-title-text">{t('chatPanel.header')}</span>
+          )}
         </span>
         <div className="vscode-chat-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {isAgentRunning && (
@@ -1283,6 +1432,7 @@ export default function ChatPanel({
               </span>
             </span>
           </div>
+          {!isCompact && (<>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginRight: '4px', flexShrink: 0 }}>
             <input 
               type="checkbox" 
@@ -1330,6 +1480,25 @@ export default function ChatPanel({
           >
             <ZoomIn size={14} />
           </button>
+          </>)}
+          {isCompact && (
+            <button
+              ref={compactControlsToggleRef}
+              type="button"
+              onClick={() => setShowCompactControls(prev => !prev)}
+              className={`vscode-chat-header-btn vscode-chat-compact-toggle${showCompactControls ? ' active' : ''}`}
+              title={showCompactControls
+                ? t('chatPanel.hideControls', 'Hide chat controls')
+                : t('chatPanel.showControls', 'Chats, models and web search')}
+              aria-label={showCompactControls
+                ? t('chatPanel.hideControls', 'Hide chat controls')
+                : t('chatPanel.showControls', 'Chats, models and web search')}
+              aria-expanded={showCompactControls}
+              aria-controls="chat-compact-controls"
+            >
+              <SlidersHorizontal size={14} />
+            </button>
+          )}
           <div ref={chatActionsMenuRef} className="vscode-overflow-menu-wrap" style={{ flexShrink: 0 }}>
             <button
               onClick={() => setShowChatActionsMenu(prev => !prev)}
@@ -1343,6 +1512,76 @@ export default function ChatPanel({
             </button>
             {showChatActionsMenu && (
               <div className="vscode-overflow-menu" role="menu">
+                {isCompact && (
+                  <>
+                    {/* The header's own copies of these are dropped in the
+                        compact chat; they stay reachable from here. */}
+                    <button
+                      type="button"
+                      className="vscode-overflow-menu-item"
+                      onClick={() => {
+                        const val = !hideThink;
+                        setHideThink(val);
+                        localStorage.setItem('chatHideThink', val);
+                      }}
+                      role="menuitemcheckbox"
+                      aria-checked={hideThink}
+                      title={t('chatPanel.hideThinkTooltip', 'Ocultar blocos <think> do chat')}
+                    >
+                      <Brain size={14} />
+                      <span style={{ flex: 1 }}>{t('chatPanel.hideThink', 'Hide Think')}</span>
+                      {hideThink && <Check size={14} />}
+                    </button>
+                    <div className="vscode-overflow-menu-item vscode-overflow-menu-zoom-row" role="group" aria-label={t('chatPanel.zoom', 'Zoom')}>
+                      <ZoomIn size={14} style={{ visibility: 'hidden' }} aria-hidden="true" />
+                      <span style={{ flex: 1 }}>{t('chatPanel.zoom', 'Zoom')}</span>
+                      <button
+                        type="button"
+                        onClick={zoomOut}
+                        disabled={chatZoom <= MIN_ZOOM + 1e-9}
+                        className="vscode-chat-header-btn"
+                        title={t('chatPanel.zoomOut', 'Diminuir Zoom')}
+                        aria-label={t('chatPanel.zoomOut', 'Diminuir Zoom')}
+                      >
+                        <ZoomOut size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={zoomReset}
+                        className="vscode-chat-header-btn vscode-chat-zoom-reset"
+                        title={t('chatPanel.zoomReset', 'Restaurar Zoom')}
+                      >
+                        {Math.round(chatZoom * 100)}%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={zoomIn}
+                        disabled={chatZoom >= MAX_ZOOM - 1e-9}
+                        className="vscode-chat-header-btn"
+                        title={t('chatPanel.zoomIn', 'Aumentar Zoom')}
+                        aria-label={t('chatPanel.zoomIn', 'Aumentar Zoom')}
+                      >
+                        <ZoomIn size={14} />
+                      </button>
+                    </div>
+                  </>
+                )}
+                {compactLayout && (
+                  <button
+                    type="button"
+                    className="vscode-overflow-menu-item"
+                    onClick={() => {
+                      setCompactView(!isCompact);
+                      setShowChatActionsMenu(false);
+                    }}
+                    role="menuitemcheckbox"
+                    aria-checked={isCompact}
+                  >
+                    {isCompact ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+                    <span style={{ flex: 1 }}>{t('chatPanel.compactView', 'Compact chat')}</span>
+                    {isCompact && <Check size={14} />}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="vscode-overflow-menu-item"
@@ -1404,6 +1643,24 @@ export default function ChatPanel({
         </div>
       </div>
       
+      {showSearchModal && (
+        <SearchChatsModal
+          onClose={() => setShowSearchModal(false)}
+          activeProject={activeProject?.name}
+          onSwitchChat={handleSwitchChat}
+        />
+      )}
+
+      {/* Chat controls: inline rows in the full panel (the wrapper is
+          `display: contents`), an overlay under the header in the compact one.
+          One tree for both, so switching never remounts the model selectors or
+          loses a half-typed MCP draft. */}
+      <div
+        ref={compactControlsRef}
+        id="chat-compact-controls"
+        className={isCompact ? 'vscode-chat-compact-controls' : 'vscode-chat-controls-inline'}
+        style={isCompact && !showCompactControls ? { display: 'none' } : undefined}
+      >
       {/* Chat Selector Toolbar - Only shown in IDE mode */}
       {!isChatMode && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 10px', borderBottom: '1px solid var(--vscode-border)', background: 'var(--vscode-sidebar-bg)', minHeight: '28px', gap: '6px' }}>
@@ -1445,14 +1702,6 @@ export default function ChatPanel({
             </button>
           </div>
         </div>
-      )}
-
-      {showSearchModal && (
-        <SearchChatsModal
-          onClose={() => setShowSearchModal(false)}
-          activeProject={activeProject?.name}
-          onSwitchChat={handleSwitchChat}
-        />
       )}
 
       {showNewChatPrompt && (
@@ -1714,6 +1963,7 @@ export default function ChatPanel({
           )}
         </div>
       )}
+      </div>
 
       {/* Message history */}
       <div className="vscode-chat-history" ref={historyRef} onScroll={handleHistoryScroll} onContextMenu={handleChatContextMenu} style={{ zoom: chatZoom }}>
@@ -2291,7 +2541,7 @@ export default function ChatPanel({
       {/* Input form */}
       <form
         onSubmit={handleFormSubmit}
-        className="vscode-chat-form"
+        className={`vscode-chat-form${isCompact ? ' is-compact' : ''}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -2441,95 +2691,11 @@ export default function ChatPanel({
           </div>
         )}
         {/* Composer toolbar with expandable heartbeat / effort mode selector */}
-        {(() => {
-          const projectHeartbeats = activeProject?.model_params?.max_heartbeats ?? 50;
-          const heartbeatOptions = [
-            {
-              key: 'low',
-              heartbeats: 20,
-              label: t('chatPanel.heartbeatModeLow', 'Low'),
-              desc: t('chatPanel.heartbeatModeLowDesc', 'Fast (max 20 heartbeats)'),
-              color: 'var(--vscode-fg-teal, #4ec9b0)',
-            },
-            {
-              key: 'medium',
-              heartbeats: 50,
-              label: t('chatPanel.heartbeatModeMedium', 'Medium'),
-              desc: t('chatPanel.heartbeatModeMediumDesc', 'Standard (max 50 heartbeats)'),
-              color: '#e5a84b',
-            },
-            {
-              key: 'high',
-              heartbeats: 100,
-              label: t('chatPanel.heartbeatModeHigh', 'High'),
-              desc: t('chatPanel.heartbeatModeHighDesc', 'Thorough (max 100 heartbeats)'),
-              color: '#c586c0',
-            },
-            {
-              key: 'custom',
-              heartbeats: projectHeartbeats,
-              label: t('chatPanel.heartbeatModeCustom', 'Custom'),
-              desc: t('chatPanel.heartbeatModeCustomDesc', 'Project settings ({{count}} heartbeats)', { count: projectHeartbeats }),
-              color: 'var(--vscode-descriptionForeground, #999999)',
-            },
-          ];
-          const currentOption = heartbeatOptions.find(opt => opt.key === heartbeatMode) || heartbeatOptions[1];
-          const currentButtonLabel = heartbeatMode === 'custom'
-            ? `${currentOption.label} (${projectHeartbeats})`
-            : `${currentOption.label} (${currentOption.heartbeats})`;
-
-          return (
-            <div className="vscode-chat-composer-toolbar">
-              <div className="vscode-chat-mode-selector-wrap" ref={heartbeatMenuRef}>
-                <button
-                  type="button"
-                  className="vscode-chat-mode-btn"
-                  onClick={() => setShowHeartbeatMenu(prev => !prev)}
-                  aria-expanded={showHeartbeatMenu}
-                  aria-haspopup="menu"
-                  title={t('chatPanel.heartbeatModeTooltip', 'Execution heartbeat budget per turn')}
-                >
-                  <Zap size={12} style={{ color: currentOption.color, flexShrink: 0 }} />
-                  <span className="vscode-chat-mode-btn-label">{currentButtonLabel}</span>
-                  <ChevronDown size={11} style={{ opacity: 0.7, flexShrink: 0 }} />
-                </button>
-                {showHeartbeatMenu && (
-                  <div className="vscode-chat-mode-menu" role="menu">
-                    <div className="vscode-chat-mode-menu-header">
-                      {t('chatPanel.heartbeatMode', 'Effort / Budget')}
-                    </div>
-                    {heartbeatOptions.map((opt) => {
-                      const isSelected = opt.key === heartbeatMode;
-                      return (
-                        <button
-                          key={opt.key}
-                          type="button"
-                          className={`vscode-chat-mode-menu-item ${isSelected ? 'selected' : ''}`}
-                          onClick={() => {
-                            setHeartbeatMode?.(opt.key);
-                            setShowHeartbeatMenu(false);
-                          }}
-                          role="menuitem"
-                        >
-                          <div className="vscode-chat-mode-item-left">
-                            <Zap size={13} style={{ color: opt.color, flexShrink: 0, marginTop: '2px' }} />
-                            <div className="vscode-chat-mode-item-text">
-                              <div className="vscode-chat-mode-item-title">
-                                {opt.label} ({opt.heartbeats})
-                              </div>
-                              <div className="vscode-chat-mode-item-desc">{opt.desc}</div>
-                            </div>
-                          </div>
-                          {isSelected && <Check size={14} className="vscode-chat-mode-item-check" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
+        {!isCompact && (
+          <div className="vscode-chat-composer-toolbar">
+            {heartbeatSelector}
+          </div>
+        )}
         {dictation.state === 'error' && (
           <div className="vscode-chat-dictation-error" role="status">
             <AlertTriangle size={12} style={{ flexShrink: 0 }} />
@@ -2558,6 +2724,7 @@ export default function ChatPanel({
             onChange={handleFileInputChange}
             id="chat-file-input"
           />
+          {isCompact && heartbeatSelector}
           {/* Paperclip button */}
           <button
             type="button"

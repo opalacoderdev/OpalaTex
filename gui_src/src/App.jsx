@@ -8,6 +8,7 @@ import i18n from './i18n/index.js';
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
 import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale, viewportPointToApp, viewportPxToApp } from './utils/uiScale';
 import { layoutAfterOpeningFile, layoutShowsEditor } from './utils/layoutModes';
+import { compactChatLayoutFor } from './utils/chatCompact';
 import { clearAnsweredRequest, confirmRequestDialog, dialogRequestKey, normalizeInputRequest } from './utils/askQuestion';
 import { readRunConflict, RUN_CONFLICT_TURN_STOPPING } from './utils/agentRunConflict';
 import { interruptedTurnContent } from './utils/turnMarkers.js';
@@ -16,9 +17,13 @@ import {
   clampThoughtContextTokens,
   createThoughtTail,
   DEFAULT_THOUGHT_CONTEXT_TOKENS,
-  tailTextByTokens,
   thoughtTailText,
 } from './utils/thoughtTail';
+import {
+  clampLogMessage,
+  fitLogMessage as fitMergedLogMessage,
+  joinMergedLogMessage,
+} from './utils/logMerge';
 import { childNamesAt, resolveInlineCreatePath, suggestUniqueName } from './utils/inlineCreate';
 
 // Hooks
@@ -629,6 +634,10 @@ export default function App() {
   // would render a selector value that matches no option while the body showed
   // whatever chat the server fell back to.
   const [activeChatId, setActiveChatId] = useState('');
+  // Read by asynchronous loads to discard a result that arrives after the user
+  // has already moved to another chat.
+  const activeChatIdRef = useRef('');
+  useEffect(() => { activeChatIdRef.current = activeChatId; }, [activeChatId]);
   const [mainChatId, setMainChatId] = useState('');
   const [chats, setChats] = useState([]);
   // The built-in tutorial lives in a reserved chat (`tutorial_<project>`). Its id and
@@ -1022,6 +1031,7 @@ export default function App() {
                     setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);
                   }
                   setTerminalLogs(activityToTerminalLogs(histData.activity || []));
+                  seedThinkingPanelFromChat(activeProject.name, currentChatId, histData.thought_windows || []);
                 });
               })
               .catch(err => {
@@ -1101,6 +1111,7 @@ export default function App() {
               setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);
             }
             setTerminalLogs(activityToTerminalLogs(data.activity || []));
+            seedThinkingPanelFromChat(activeProject.name, id, data.thought_windows || []);
           });
         }
       } catch (err) {
@@ -1361,13 +1372,6 @@ export default function App() {
     return collected.reverse();
   };
 
-  const MAX_MERGED_LOG_CHARS = 16000;
-  const clampLogMessage = (value) => {
-    const text = String(value ?? '');
-    if (text.length <= MAX_MERGED_LOG_CHARS) return text;
-    return `${text.slice(0, MAX_MERGED_LOG_CHARS)}\n[log truncated]`;
-  };
-
   const normalizeLogAgent = (agent) => String(agent || '').trim().replace(/^@+/, '');
   const sanitizeVisibleStreamChunk = (value) => String(value ?? '').replace(/<\/?think>/gi, '');
   const mergeableLogTypes = new Set(['thought', 'reflection', 'stream_chunk', 'stdout', 'stderr']);
@@ -1379,24 +1383,10 @@ export default function App() {
     && mergeableLogTypes.has(left.type)
     && normalizeLogAgent(left.agent) === normalizeLogAgent(right.agent)
   );
-  const joinMergedLogMessage = (leftMessage, rightMessage, type) => {
-    const left = String(leftMessage ?? '');
-    const right = String(rightMessage ?? '');
-    if (!left || !right) return left + right;
-    if (type === 'thought') {
-      return left + right;
-    }
-    if (type === 'reflection') {
-      return `${left.replace(/\s+$/g, '')}\n${right.replace(/^\s+/g, '')}`;
-    }
-    return left + right;
-  };
   // Reasoning keeps its most recent part, within the configured size; other
-  // entries keep their beginning, as before.
+  // entries keep their beginning (opalatex gui_src/src/utils/logMerge.js).
   const fitLogMessage = (message, type) => (
-    type === 'thought'
-      ? tailTextByTokens(message, thoughtContextTokensRef.current).text
-      : clampLogMessage(message)
+    fitMergedLogMessage(message, type, thoughtContextTokensRef.current)
   );
   const mergeLogEntries = (logs) => (
     (logs || []).reduce((merged, log) => {
@@ -1504,7 +1494,12 @@ export default function App() {
             next[index] = {
               ...existing,
               agent: normalizeLogAgent(existing.agent),
-              message: clampLogMessage(joinMergedLogMessage(existing.message, cleanMessage, type)),
+              // Reasoning keeps its *recent* part, as the reloaded history does
+              // (`fitLogMessage`). Clamping to the first characters instead
+              // froze the Agent Thinking panel mid-turn: past the cap every new
+              // chunk was appended and cut away again, so the panel sat on the
+              // opening lines while the chat preview moved with the stream.
+              message: fitLogMessage(joinMergedLogMessage(existing.message, cleanMessage, type), type),
             };
             break;
           }
@@ -1520,6 +1515,36 @@ export default function App() {
       if (!next) next = [...prev, { type, message: clampLogMessage(cleanMessage), agent: cleanAgent, timestamp: new Date().toLocaleTimeString() }];
       return trimToLimit(next, panelMaxLines);
     });
+
+  // The Agent Thinking panel belongs to the chat on screen: switching chats has
+  // to bring that chat's reasoning with it, or the panel keeps showing another
+  // conversation's. The transcript no longer carries reasoning, so it is read
+  // here -- the recent part, within the configured reasoning size, since this
+  // is the chat's history rather than one message's full window.
+  const seedThinkingPanelFromChat = async (projectName, chatId, windows) => {
+    setThinkingFocus(null);
+    const ranges = (windows || []).filter(w => Number(w?.count) > 0);
+    if (!ranges.length || !projectName || !chatId) return;
+    try {
+      const params = new URLSearchParams({
+        project_name: projectName,
+        chat_id: chatId,
+        from_id: String(Math.min(...ranges.map(w => w.from_id))),
+        to_id: String(Math.max(...ranges.map(w => w.to_id))),
+        max_tokens: String(thoughtContextTokensRef.current),
+      });
+      const res = await fetch(`/api/chat/thoughts?${params}`);
+      const data = res.ok ? await res.json() : {};
+      const content = String(data.content || '');
+      if (!content || activeChatIdRef.current !== chatId) return;
+      setTerminalLogs(prev => [{
+        type: 'thought',
+        message: content,
+        agent: 'chat_orchestrator',
+        timestamp: new Date().toLocaleTimeString(),
+      }, ...prev]);
+    } catch (err) { /* the panel simply starts empty for this chat */ }
+  };
 
   // Opening the reasoning of a message: the chat only ever previews it, and the
   // panel is where the whole thing is read (the user's design). A live turn
@@ -2970,6 +2995,10 @@ export default function App() {
       case 'server_ready': addLog('info', t('app.agentReady'), data.agent); break;
       case 'agent_started':
         setAgentStepInfo({ step: 0, maxSteps: null });
+        // A new turn is what the panel should be showing: if the user had
+        // opened a past message's reasoning, hand the panel back to the live
+        // stream instead of leaving it on text that no longer moves.
+        setThinkingFocus(null);
         addLog('info', t('app.agentStarted', { agent: data.agent }), data.agent);
         break;
       case 'agent_step':
@@ -4677,6 +4706,7 @@ export default function App() {
             <ChatPanel
               isChatMode={!isStudioLayout}
               fillContainer={isStudioLayout}
+              compactLayout={compactChatLayoutFor(layoutMode)}
               isTutorialChat={Boolean(tutorialChatId) && activeChatId === tutorialChatId}
               tutorialTopics={tutorialTopics}
               onTutorialTopic={handleTutorialTopic}

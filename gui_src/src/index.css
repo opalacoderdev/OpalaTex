@@ -1378,6 +1378,149 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+/* Compact chat (utils/chatCompact.js): one header line, the conversation and
+   the prompt. The header has a fixed height so the controls overlay can be
+   placed right under it and sized to what is left of the panel. */
+.vscode-chat.is-compact {
+  --chat-compact-header-height: 30px;
+  position: relative;
+}
+
+.vscode-chat-header.is-compact {
+  height: var(--chat-compact-header-height);
+  padding: 0 8px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.vscode-chat-header.is-compact .vscode-chat-header-title {
+  flex: 1 1 auto;
+}
+
+.vscode-chat-header.is-compact .vscode-chat-header-actions {
+  gap: 6px !important;
+}
+
+.vscode-chat-header.is-compact .vscode-chat-context-badge {
+  margin-right: 2px !important;
+}
+
+.vscode-chat-header.is-compact .vscode-chat-context-detail {
+  display: none;
+}
+
+.vscode-chat-compact-select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--vscode-text-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.vscode-chat-compact-select:hover,
+.vscode-chat-compact-select:focus {
+  border-color: var(--vscode-border);
+  background: var(--vscode-input-bg);
+  outline: none;
+}
+
+.vscode-chat-compact-select option {
+  background: var(--vscode-input-bg);
+  color: var(--vscode-text-fg);
+  font-weight: normal;
+}
+
+.vscode-chat-compact-toggle {
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--vscode-text-fg);
+}
+
+.vscode-chat-compact-toggle:hover,
+.vscode-chat-compact-toggle.active {
+  color: var(--vscode-fg-teal);
+  background: var(--vscode-hover-item);
+}
+
+/* In the full panel the control rows are ordinary children of the chat. */
+.vscode-chat-controls-inline {
+  display: contents;
+}
+
+.vscode-chat-compact-controls {
+  position: absolute;
+  top: var(--chat-compact-header-height);
+  left: 0;
+  right: 0;
+  max-height: calc(100% - var(--chat-compact-header-height));
+  overflow-y: auto;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--vscode-sidebar-bg);
+  border-bottom: 1px solid var(--vscode-border);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+
+.vscode-overflow-menu-zoom-row {
+  cursor: default;
+}
+
+.vscode-overflow-menu-zoom-row .vscode-chat-header-btn {
+  background: transparent;
+  border: none;
+  color: var(--vscode-text-fg);
+  cursor: pointer;
+}
+
+.vscode-overflow-menu-zoom-row .vscode-chat-header-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.vscode-overflow-menu-zoom-row .vscode-chat-zoom-reset {
+  border: 1px solid var(--vscode-border);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 5px;
+  min-width: 34px;
+}
+
+.vscode-chat-form.is-compact {
+  padding: 6px 8px;
+  container-type: inline-size;
+}
+
+/* The effort selector sits in the input row here, bottom-aligned with the
+   single-line textarea like the attachment button beside it. */
+.vscode-chat-form.is-compact .vscode-chat-input-row > .vscode-chat-mode-selector-wrap {
+  flex-shrink: 0;
+  margin-bottom: 5px;
+}
+
+/* On a narrow cell the effort label goes first (it stays in the tooltip and
+   the menu); the Zap icon keeps its color-coded level. */
+@container (max-width: 380px) {
+  .vscode-chat-form.is-compact .vscode-chat-mode-btn-label {
+    display: none;
+  }
+}
+
 .vscode-chat-toolbar {
   display: flex;
   border-bottom: 1px solid var(--vscode-border);
