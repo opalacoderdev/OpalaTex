@@ -327,3 +327,70 @@ def test_the_effort_does_not_reach_ollama_as_its_own_field():
     )
     assert cleaned["think"] == "low"
     assert "reasoning_effort" not in cleaned
+
+
+# ── What is retracted comes back as a thought ────────────────────────────────
+#
+# `stream_retract` is a promise to the front-end: drop this text from the tail
+# of the live response, it was reasoning and it arrives again as a `thought`.
+# The desktop chat acts on it literally (App.jsx), so a retraction with no
+# thought behind it lost the reasoning and wiped the answer on screen. The
+# republication used to be gated on `publish_reasoning` — the flag that says
+# the *provider* was asked to isolate a reasoning channel — which is exactly
+# the case this text is not.
+
+
+def _events_for(chunks, monkeypatch):
+    import opalatex.agent_stdin as agent_stdin
+
+    published = []
+    monkeypatch.setattr(agent_stdin, "event_hook", published.append)
+    monkeypatch.setattr(agent_stdin, "_ACTIVE_THOUGHT_CHUNKS", [])
+    monkeypatch.setattr(agent_stdin, "_ACTIVE_VISIBLE_CHUNKS", [])
+    monkeypatch.setattr(agent_stdin, "_ACTIVE_THOUGHT_METER", None)
+
+    splitter = agent_stdin.inline_reasoning_splitter("chat_orchestrator")
+    for chunk in chunks:
+        splitter.feed(chunk)
+    return [(p["event"], p.get("content", "")) for p in published]
+
+
+def test_retracted_text_is_published_again_as_a_thought(monkeypatch):
+    events = _events_for(
+        ["Let me ", "structure the answer.", "</think>", "Analisei ", "os slides."],
+        monkeypatch,
+    )
+
+    retracted = [content for event, content in events if event == "stream_retract"]
+    thoughts = "".join(content for event, content in events if event == "thought")
+    assert retracted == ["Let me structure the answer."]
+    assert all(text in thoughts for text in retracted)
+    visible = "".join(c for e, c in events if e == "stream_chunk")
+    assert visible.endswith("Analisei os slides.")
+
+
+def test_a_balanced_think_block_is_published_as_reasoning(monkeypatch):
+    events = _events_for(
+        ["<think>", "Checking ", "the file.", "</think>", "Pronto."], monkeypatch
+    )
+
+    assert "".join(c for e, c in events if e == "thought") == "Checking the file."
+    assert "".join(c for e, c in events if e == "stream_chunk") == "Pronto."
+    assert not [e for e, _ in events if e == "stream_retract"]
+
+
+def test_the_reasoning_is_recorded_for_the_turn_it_belongs_to(monkeypatch):
+    """It is persisted like any thought, so reopening the chat still shows it."""
+    import opalatex.agent_stdin as agent_stdin
+
+    recorded = []
+    monkeypatch.setattr(agent_stdin, "event_hook", lambda payload: None)
+    monkeypatch.setattr(agent_stdin, "_ACTIVE_THOUGHT_CHUNKS", recorded)
+    monkeypatch.setattr(agent_stdin, "_ACTIVE_VISIBLE_CHUNKS", [])
+    monkeypatch.setattr(agent_stdin, "_ACTIVE_THOUGHT_METER", None)
+
+    splitter = agent_stdin.inline_reasoning_splitter("chat_orchestrator")
+    for chunk in ["Thinking it over.", "</think>", "Feito."]:
+        splitter.feed(chunk)
+
+    assert "".join(recorded) == "Thinking it over."

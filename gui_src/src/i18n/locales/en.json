@@ -486,7 +486,10 @@
     "deliveredMessageHint": "The agent read this message and is taking it into account.",
     "queueStatusOne": "Message sent. The agent reads it at its next step.",
     "queueStatusMany": "{{count}} messages sent. The agent reads them at its next steps.",
-    "cancelAllQueuedMessages": "Cancel all"
+    "cancelAllQueuedMessages": "Cancel all",
+    "aiThoughtsPieces": "({{count}} pieces)",
+    "aiThoughtsOpenHint": "Open the full reasoning in the Agent Thinking panel",
+    "aiThoughtsOpenPanel": "Full reasoning"
   },
   "chatSidebar": {
     "newChat": "New Chat",
@@ -525,7 +528,12 @@
     "terminalScrollToPrompt": "Back to the prompt",
     "terminalZoomIn": "Increase terminal font size (Ctrl++)",
     "terminalZoomOut": "Decrease terminal font size (Ctrl+-)",
-    "terminalZoomReset": "Reset terminal font size (Ctrl+0)"
+    "terminalZoomReset": "Reset terminal font size (Ctrl+0)",
+    "thinkingOfMessage": "Reasoning of the selected message",
+    "thinkingBackToLive": "Back to the current turn",
+    "thinkingLoading": "Loading…",
+    "thinkingLoadError": "This message's reasoning could not be loaded.",
+    "thinkingEmpty": "No reasoning was recorded for this message."
   },
   "contextMenu": {
     "newFile": "New File...",
@@ -819,7 +827,9 @@
     "dictationDownload": "Download",
     "dictationRemove": "Remove",
     "dictationDownloading": "Downloading…",
-    "dictationHint": "Records from the microphone and types what you said into the chat composer, for you to review before sending. The model runs on this machine, so nothing is uploaded. Larger models are markedly more accurate outside English: on a Portuguese test sentence, tiny and base both misheard a word while small reproduced it exactly."
+    "dictationHint": "Records from the microphone and types what you said into the chat composer, for you to review before sending. The model runs on this machine, so nothing is uploaded. Larger models are markedly more accurate outside English: on a Portuguese test sentence, tiny and base both misheard a word while small reproduced it exactly.",
+    "chatThoughtPreviewTokens": "Reasoning shown in the chat (tokens)",
+    "chatThoughtPreviewTokensHint": "While a turn runs, the chat keeps only the last lines of reasoning in view. The whole of it is read in the Agent Thinking panel, which the chat links to (default: 1000)."
   },
   "hardwareModal": {
     "title": "Hardware Configuration",

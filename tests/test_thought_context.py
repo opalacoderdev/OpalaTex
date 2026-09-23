@@ -129,7 +129,20 @@ async def test_thought_settings_endpoint_round_trips(monkeypatch, tmp_path):
     )
     await server.route_api("POST", "/api/settings/thoughts", {}, {}, json.dumps({"thought_context_tokens": 64000}).encode(), AsyncMock())
     await server.route_api("GET", "/api/settings/thoughts", {}, {}, b"", AsyncMock())
-    assert responses[-1] == (200, {"thought_context_tokens": 64000})
+    assert responses[-1] == (200, {
+        "thought_context_tokens": 64000,
+        "chat_thought_preview_tokens": 1000,
+    })
+
+    # The chat preview is a second, independent size: the chat shows the last
+    # lines of the running reasoning and the Agent Thinking panel holds all of
+    # it. Sending one must not reset the other.
+    await server.route_api("POST", "/api/settings/thoughts", {}, {}, json.dumps({"chat_thought_preview_tokens": 2500}).encode(), AsyncMock())
+    await server.route_api("GET", "/api/settings/thoughts", {}, {}, b"", AsyncMock())
+    assert responses[-1] == (200, {
+        "thought_context_tokens": 64000,
+        "chat_thought_preview_tokens": 2500,
+    })
 
 
 def test_recorded_reasoning_is_never_discarded_and_carries_its_token_count(monkeypatch):

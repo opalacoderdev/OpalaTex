@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useLayoutEffect, useEffect } from 'react';
-import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock, Activity, Zap, ChevronDown, Mic, Square } from 'lucide-react';
+import { MessageSquare, Cpu, HelpCircle, Check, X, ArrowRight, Eraser, Globe, Settings, Settings2, Plus, Trash2, Search, Paperclip, FileText, ZoomIn, ZoomOut, Download, Printer, GitBranch, RefreshCw, Pencil, Sparkles, MoreHorizontal, AlertTriangle, Clock, Activity, Zap, ChevronDown, Mic, Square, Brain } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { FormattedMessage } from '../utils/formatMessage';
@@ -89,6 +89,7 @@ export default function ChatPanel({
   onCancelAllQueuedMessages,
   isInterruptPending = false,
   chatThoughtStream,
+  onShowThinking,
   chatResponseStream,
   chatContextUsage,
   setChatContextUsage,
@@ -297,6 +298,7 @@ export default function ChatPanel({
     isPinnedToBottomRef.current = true;
     scrollHistoryToBottom();
   }, [activeChatId, scrollHistoryToBottom]);
+
 
   useEffect(() => {
     if (!showChatActionsMenu) return;
@@ -1785,6 +1787,11 @@ export default function ChatPanel({
           const canContinueUserMessage = isUser && isLastUserOrAssistantMessage && !isAgentRunning && editingMessageIndex !== i;
           const atts = msg._attachments || [];
           const persistedThoughtStream = !isUser ? String(msg._thoughtStream || '').trim() : '';
+          // Reasoning kept in the store for this message: counted when the chat
+          // was opened and read only if the user opens the Agent Thinking
+          // panel for it. The chat never renders it inline -- a bubble holding
+          // tens of thousands of tokens is what froze the window.
+          const thoughtWindow = !isUser ? msg._thoughtWindow : null;
           
           const interruptionProbe = contentWithoutThink(msg.content);
           // Interrupted, stopped by the runaway guardrail, or killed by an
@@ -1987,15 +1994,27 @@ export default function ChatPanel({
                 </div>
               )}
               <div className="vscode-chat-msg-content">
-                {persistedThoughtStream && !hideThink && (
-                  <details style={{ margin: '0 0 8px 0', border: '1px solid var(--vscode-widget-border, #3c3c3c)', borderRadius: '4px', background: 'var(--titlebar-bg, #252526)' }}>
-                    <summary style={{ padding: '6px 10px', fontSize: '11px', cursor: 'pointer', userSelect: 'none', color: 'var(--vscode-descriptionForeground, #717171)' }}>
-                      {t('chatPanel.aiThoughts', 'Pensamentos da IA')}
-                    </summary>
-                    <pre style={{ margin: 0, padding: '10px', background: 'var(--editor-bg, #1e1e1e)', overflowX: 'auto', fontSize: '11px', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', borderTop: '1px solid var(--vscode-widget-border, #3c3c3c)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                      {persistedThoughtStream}
-                    </pre>
-                  </details>
+                {(persistedThoughtStream || thoughtWindow) && !hideThink && (
+                  <button
+                    type="button"
+                    onClick={() => onShowThinking?.(i, thoughtWindow)}
+                    title={t('chatPanel.aiThoughtsOpenHint', 'Open the full reasoning in the Agent Thinking panel')}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px', margin: '0 0 8px 0',
+                      padding: '6px 10px', width: '100%', textAlign: 'left', cursor: 'pointer',
+                      fontSize: '11px', color: 'var(--vscode-descriptionForeground, #717171)',
+                      background: 'var(--titlebar-bg, #252526)',
+                      border: '1px solid var(--vscode-widget-border, #3c3c3c)', borderRadius: '4px',
+                    }}
+                  >
+                    <Brain size={12} />
+                    {t('chatPanel.aiThoughts', 'Pensamentos da IA')}
+                    {thoughtWindow?.count > 0 && (
+                      <span style={{ opacity: 0.7 }}>
+                        {t('chatPanel.aiThoughtsPieces', '({{count}} pieces)', { count: thoughtWindow.count })}
+                      </span>
+                    )}
+                  </button>
                 )}
                 {editingMessageIndex === i && isUser ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -2199,8 +2218,21 @@ export default function ChatPanel({
             <div className="vscode-chat-msg-content">
               {(chatThoughtStream && !hideThink) ? (
                 <details open style={{ margin: '8px 0', border: '1px solid var(--vscode-widget-border, #3c3c3c)', borderRadius: '4px', background: 'var(--titlebar-bg, #252526)' }}>
-                  <summary style={{ padding: '6px 10px', fontSize: '11px', cursor: 'pointer', userSelect: 'none', color: 'var(--vscode-descriptionForeground, #717171)' }}>
-                    {t('chatPanel.aiThoughts', 'Pensamentos da IA')}
+                  <summary style={{ padding: '6px 10px', fontSize: '11px', cursor: 'pointer', userSelect: 'none', color: 'var(--vscode-descriptionForeground, #717171)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <span>{t('chatPanel.aiThoughts', 'Pensamentos da IA')}</span>
+                    {/* The chat keeps the last lines in view; the whole of this
+                        turn's reasoning is read in the Agent Thinking panel. */}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={e => { e.preventDefault(); e.stopPropagation(); onShowThinking?.(null, null); }}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onShowThinking?.(null, null); } }}
+                      title={t('chatPanel.aiThoughtsOpenHint', 'Open the full reasoning in the Agent Thinking panel')}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer', opacity: 0.8 }}
+                    >
+                      <Brain size={12} />
+                      {t('chatPanel.aiThoughtsOpenPanel', 'Full reasoning')}
+                    </span>
                   </summary>
                   <pre style={{ margin: 0, padding: '10px', background: 'var(--editor-bg, #1e1e1e)', overflowX: 'auto', fontSize: '11px', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', borderTop: '1px solid var(--vscode-widget-border, #3c3c3c)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     {chatThoughtStream}

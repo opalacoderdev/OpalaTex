@@ -558,8 +558,10 @@ def build_run_skill_tool(
         )
 
         # Workers receive action tools only and return their final report as normal text.
-        # Resolved before the prompt, which lists exactly these tools.
-        tools = list(get_available_tools())
+        # Resolved before the prompt, which lists exactly these tools -- including
+        # the front-end filter, so the worker's prompt and its toolset agree.
+        from .prompt_surface import tools_for_surface
+        tools = tools_for_surface(list(get_available_tools()))
 
         system = (
             worker_profile_spec["worker_intro"]()
@@ -1103,7 +1105,13 @@ def chat_orchestrator_system_prompt(project, store=None) -> str:
     profile_spec = get_profile(orchestrator_profile)
 
     skills = active_skills(project_path)
-    body = _chat_orchestrator_body(project_path, orchestrator_profile, orchestrator_policy)
+    # Each front-end is told about its own affordances only: the desktop chat
+    # refuses the terminal commands, and the terminal has no editor for
+    # `get_editor_state` (opalatex/prompt_surface.py).
+    from .prompt_surface import body_for_surface
+    body = body_for_surface(
+        _chat_orchestrator_body(project_path, orchestrator_profile, orchestrator_policy)
+    )
 
     # A delegate orchestrator has no writing tools of its own, so without a skill
     # to send the work to it cannot change anything. The orchestrator's own entry
@@ -1299,6 +1307,13 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         wrap_tool(analyze_image),
         *(wrap_tool(tool) for tool in get_diagnostic_tools()),
     ]
+
+    # The terminal has no editor to report, and the snapshot a desktop session
+    # staged earlier is not what a terminal user is looking at. Filtered here,
+    # at the one place both role lists are composed from
+    # (opalatex/prompt_surface.py).
+    from .prompt_surface import tools_for_surface
+    orchestrator_tools = tools_for_surface(orchestrator_tools)
 
     # `create_plan` halts the turn on an approval dialog, which only means
     # something where the mode is "propose, then execute". In `auto` the mode's

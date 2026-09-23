@@ -2872,7 +2872,15 @@ class AsyncHTTPServer:
                 project_name, chat_id,
                 limit=CHAT_HISTORY_STREAM_CHUNK_LIMIT,
                 truncate_events=("stream_chunk",),
+                exclude_events=("thought",),
             )
+            # Reasoning is counted here and fetched per message from
+            # /api/chat/thoughts when the user expands "AI Thoughts". It is
+            # written once per streamed token, so shipping it with every open
+            # cost 24 MB and seconds of parsing on a measured chat -- for text
+            # that starts collapsed. Nothing is dropped: the rows stay in
+            # project_activity and the expansion reads them.
+            thought_windows = store.thought_windows(project_name, chat_id, project.history)
             # The measured context occupancy is rehydrated here so reopening a
             # chat reports the real number instead of dropping back to the
             # character estimate.
@@ -2881,8 +2889,30 @@ class AsyncHTTPServer:
                 "chat_id": chat_id,
                 "history": project.history,
                 "activity": activity,
+                "thought_windows": thought_windows,
                 "context_usage": context_usage,
             }).encode(), "application/json")
+
+        elif path == '/api/chat/thoughts' and method == 'GET':
+            # The reasoning of one assistant message, read only when its panel
+            # is opened (see /api/chat/history above).
+            from opalatex.config import DEFAULT_DB_PATH
+            from opalatex.project import ProjectStore
+            store = ProjectStore(db_path=DEFAULT_DB_PATH)
+            project_name = query.get("project_name", [""])[0]
+            chat_id = query.get("chat_id", [""])[0]
+            if not project_name or not chat_id:
+                self.send_response(writer, 400, b'{"error":"project_name and chat_id required"}', "application/json")
+                return
+            try:
+                from_id = int(query.get("from_id", ["0"])[0])
+                to_id = int(query.get("to_id", ["0"])[0])
+                max_tokens = int(query.get("max_tokens", ["32000"])[0])
+            except (TypeError, ValueError):
+                self.send_response(writer, 400, b'{"error":"from_id, to_id and max_tokens must be whole numbers"}', "application/json")
+                return
+            tail = store.thought_tail(project_name, chat_id, from_id, to_id, max_tokens)
+            self.send_response(writer, 200, json.dumps(tail).encode(), "application/json")
 
         elif path == '/api/chat/list' and method == 'GET':
             from opalatex.config import DEFAULT_DB_PATH
@@ -5674,19 +5704,46 @@ class AsyncHTTPServer:
             )
 
         elif path == '/api/settings/thoughts' and method == 'GET':
-            from opalatex.ui_settings import clamp_thought_context_tokens, load_ui_settings
-            tokens = clamp_thought_context_tokens(load_ui_settings().get("thought_context_tokens"))
+            from opalatex.ui_settings import (
+                clamp_chat_thought_preview_tokens, clamp_thought_context_tokens, load_ui_settings,
+            )
+            settings = load_ui_settings()
             self.send_response(
-                writer, 200, json.dumps({"thought_context_tokens": tokens}).encode('utf-8'), "application/json"
+                writer, 200, json.dumps({
+                    "thought_context_tokens": clamp_thought_context_tokens(
+                        settings.get("thought_context_tokens")),
+                    "chat_thought_preview_tokens": clamp_chat_thought_preview_tokens(
+                        settings.get("chat_thought_preview_tokens")),
+                }).encode('utf-8'), "application/json"
             )
 
         elif path == '/api/settings/thoughts' and method == 'POST':
-            from opalatex.ui_settings import clamp_thought_context_tokens, save_ui_settings
-            tokens = clamp_thought_context_tokens(data.get("thought_context_tokens"))
-            save_ui_settings({"thought_context_tokens": tokens})
+            from opalatex.ui_settings import (
+                clamp_chat_thought_preview_tokens, clamp_thought_context_tokens,
+                load_ui_settings, save_ui_settings,
+            )
+            # Either size may be sent on its own; the other keeps its value.
+            current = load_ui_settings()
+            saved = {}
+            if "thought_context_tokens" in data:
+                saved["thought_context_tokens"] = clamp_thought_context_tokens(
+                    data.get("thought_context_tokens"))
+            if "chat_thought_preview_tokens" in data:
+                saved["chat_thought_preview_tokens"] = clamp_chat_thought_preview_tokens(
+                    data.get("chat_thought_preview_tokens"))
+            if saved:
+                save_ui_settings(saved)
             self.send_response(
                 writer, 200,
-                json.dumps({"success": True, "thought_context_tokens": tokens}).encode('utf-8'),
+                json.dumps({
+                    "success": True,
+                    "thought_context_tokens": saved.get(
+                        "thought_context_tokens",
+                        clamp_thought_context_tokens(current.get("thought_context_tokens"))),
+                    "chat_thought_preview_tokens": saved.get(
+                        "chat_thought_preview_tokens",
+                        clamp_chat_thought_preview_tokens(current.get("chat_thought_preview_tokens"))),
+                }).encode('utf-8'),
                 "application/json",
             )
 

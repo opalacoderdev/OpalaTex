@@ -17,7 +17,6 @@ import {
   createThoughtTail,
   DEFAULT_THOUGHT_CONTEXT_TOKENS,
   tailTextByTokens,
-  tailThoughtChunks,
   thoughtTailText,
 } from './utils/thoughtTail';
 import { childNamesAt, resolveInlineCreatePath, suggestUniqueName } from './utils/inlineCreate';
@@ -360,10 +359,27 @@ export default function App() {
     thoughtContextTokensRef.current = tokens;
     setThoughtContextTokens(tokens);
   };
+  // What the *chat* shows of the running reasoning: a preview of the last
+  // lines, so the user sees the model thinking without a bubble holding tens
+  // of thousands of tokens, which is what froze the window on a long turn.
+  // Expanding it opens the Agent Thinking panel, which holds the whole thing.
+  const [chatThoughtPreviewTokens, setChatThoughtPreviewTokens] = useState(1000);
+  // What the Agent Thinking panel is showing: the live turn (null) or the
+  // stored reasoning of one past message, fetched in full when it is opened.
+  const [thinkingFocus, setThinkingFocus] = useState(null);
+  const chatThoughtPreviewTokensRef = useRef(1000);
+  const applyChatThoughtPreviewTokens = (value) => {
+    const tokens = Math.max(100, Math.min(100000, Math.floor(Number(value)) || 1000));
+    chatThoughtPreviewTokensRef.current = tokens;
+    setChatThoughtPreviewTokens(tokens);
+  };
   useEffect(() => {
     fetch('/api/settings/thoughts')
       .then(r => (r.ok ? r.json() : null))
-      .then(cfg => { if (cfg?.thought_context_tokens !== undefined) applyThoughtContextTokens(cfg.thought_context_tokens); })
+      .then(cfg => {
+        if (cfg?.thought_context_tokens !== undefined) applyThoughtContextTokens(cfg.thought_context_tokens);
+        if (cfg?.chat_thought_preview_tokens !== undefined) applyChatThoughtPreviewTokens(cfg.chat_thought_preview_tokens);
+      })
       .catch(() => { });
   }, []);
   const [chatResponseStream, setChatResponseStream] = useState('');
@@ -999,7 +1015,7 @@ export default function App() {
                   setChatContextUsage(contextUsageFromPayload(histData.context_usage));
                   if (histData.history && histData.history.length > 0) {
                     // Restore previous conversation
-                    setChatMessages(attachThoughtActivityToMessages(histData.history, histData.activity || []));
+                    setChatMessages(attachThoughtActivityToMessages(histData.history, histData.activity || [], histData.thought_windows || []));
                   } else {
                     // First time opening this project/chat → show greeting
                     const greeting = activeProject.project_name || activeProject.name;
@@ -1080,7 +1096,7 @@ export default function App() {
           startTransition(() => {
             setChatContextUsage(contextUsageFromPayload(data.context_usage));
             if (data.history && data.history.length > 0) {
-              setChatMessages(attachThoughtActivityToMessages(data.history, data.activity || []));
+              setChatMessages(attachThoughtActivityToMessages(data.history, data.activity || [], data.thought_windows || []));
             } else {
               setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);
             }
@@ -1452,49 +1468,22 @@ export default function App() {
     return merged;
   };
 
-  const attachThoughtActivityToMessages = (history = [], activity = []) => {
+  // Stored reasoning is not part of the transcript payload any more: it is
+  // written once per streamed token, so a long chat carried hundreds of
+  // thousands of rows (24 MB on one measured chat) for text that opens
+  // collapsed. The server counts it per message (`thought_windows`) and the
+  // panel fetches a window from /api/chat/thoughts when the user expands it.
+  const attachThoughtActivityToMessages = (history = [], activity = [], thoughtWindows = []) => {
     const messages = (history || []).map(message => ({ ...message }));
-    const thoughts = (activity || [])
-      .filter(item => item?.event === 'thought' && String(item.content || item.payload?.content || '').trim())
-      .map(item => ({
-        timestampMs: activityTimestampMs(item.timestamp),
-        content: String(item.content || item.payload?.content || ''),
-        tokens: Number(item.payload?.thought_tokens),
-      }));
-
-    if (!messages.length || !thoughts.length) return mergeErrorActivityIntoMessages(messages, activity);
-
-    // Each message shows the most recent reasoning of its turn within the
-    // configured size; the whole of it stays in the store.
-    const visibleThoughts = (items) => thoughtTailText(tailThoughtChunks(items, thoughtContextTokensRef.current));
-    let thoughtIndex = 0;
-    let pendingThoughts = [];
-    for (const message of messages) {
-      const messageTime = activityTimestampMs(message.timestamp);
-      while (
-        thoughtIndex < thoughts.length
-        && (messageTime === null || thoughts[thoughtIndex].timestampMs === null || thoughts[thoughtIndex].timestampMs <= messageTime)
-      ) {
-        pendingThoughts.push(thoughts[thoughtIndex]);
-        thoughtIndex += 1;
-      }
-      if (message.role === 'assistant' && pendingThoughts.length) {
-        message._thoughtStream = visibleThoughts(pendingThoughts);
-        pendingThoughts = [];
-      }
+    for (const window of thoughtWindows || []) {
+      const message = messages[window?.index];
+      if (!message || !(window.count > 0)) continue;
+      message._thoughtWindow = {
+        count: window.count,
+        fromId: window.from_id,
+        toId: window.to_id,
+      };
     }
-
-    while (thoughtIndex < thoughts.length) {
-      pendingThoughts.push(thoughts[thoughtIndex]);
-      thoughtIndex += 1;
-    }
-    if (pendingThoughts.length) {
-      const lastAssistant = [...messages].reverse().find(message => message.role === 'assistant');
-      if (lastAssistant) {
-        lastAssistant._thoughtStream = `${lastAssistant._thoughtStream || ''}${visibleThoughts(pendingThoughts)}`;
-      }
-    }
-
     return mergeErrorActivityIntoMessages(messages, activity);
   };
 
@@ -1531,6 +1520,33 @@ export default function App() {
       if (!next) next = [...prev, { type, message: clampLogMessage(cleanMessage), agent: cleanAgent, timestamp: new Date().toLocaleTimeString() }];
       return trimToLimit(next, panelMaxLines);
     });
+
+  // Opening the reasoning of a message: the chat only ever previews it, and the
+  // panel is where the whole thing is read (the user's design). A live turn
+  // needs no fetch -- the panel is already receiving its events.
+  const showThinkingPanel = async (messageIndex, window) => {
+    setActiveBottomTab('thinking');
+    setIsTerminalCollapsed(false);
+    if (!window || !activeProject || !activeChatId) {
+      setThinkingFocus(null);
+      return;
+    }
+    setThinkingFocus({ index: messageIndex, loading: true, content: '' });
+    try {
+      const params = new URLSearchParams({
+        project_name: activeProject.name,
+        chat_id: activeChatId,
+        from_id: String(window.fromId),
+        to_id: String(window.toId),
+        max_tokens: '0',
+      });
+      const res = await fetch(`/api/chat/thoughts?${params}`);
+      const data = res.ok ? await res.json() : {};
+      setThinkingFocus({ index: messageIndex, loading: false, content: String(data.content || '') });
+    } catch (err) {
+      setThinkingFocus({ index: messageIndex, loading: false, error: true, content: '' });
+    }
+  };
 
   const addProblem = ({ tool = t('app.agentTool', 'Agent'), message, severity = 'error', ...metadata }) => {
     if (!message) return;
@@ -2968,7 +2984,7 @@ export default function App() {
           chatThoughtTailRef.current,
           data.content,
           Number(data.thought_tokens),
-          thoughtContextTokensRef.current,
+          chatThoughtPreviewTokensRef.current,
         );
         const next = thoughtTailText(chatThoughtTailRef.current);
         chatThoughtStreamRef.current = next;
@@ -4678,6 +4694,7 @@ export default function App() {
               onCancelAllQueuedMessages={handleCancelAllQueuedMessages}
               isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}
+              onShowThinking={showThinkingPanel}
               chatResponseStream={chatResponseStream}
               chatContextUsage={chatContextUsage}
               setChatContextUsage={setChatContextUsage}
@@ -4725,6 +4742,8 @@ export default function App() {
               isTerminalCollapsed={isTerminalCollapsed}
               setIsTerminalCollapsed={setIsTerminalCollapsed}
               terminalLogs={terminalLogs}
+              thinkingFocus={thinkingFocus}
+              onClearThinkingFocus={() => setThinkingFocus(null)}
               setTerminalLogs={setTerminalLogs}
               problems={problems}
               setProblems={setProblems}
@@ -4771,6 +4790,7 @@ export default function App() {
               onCancelAllQueuedMessages={handleCancelAllQueuedMessages}
               isInterruptPending={isInterruptPending}
               chatThoughtStream={chatThoughtStream}
+              onShowThinking={showThinkingPanel}
               chatResponseStream={chatResponseStream}
               chatContextUsage={chatContextUsage}
               setChatContextUsage={setChatContextUsage}
@@ -4920,6 +4940,8 @@ export default function App() {
           setPanelMaxLines={(val) => { setPanelMaxLines(val); safeSetLocalStorage('panelMaxLines', val); }}
           thoughtContextTokens={thoughtContextTokens}
           onThoughtContextTokensChange={applyThoughtContextTokens}
+          chatThoughtPreviewTokens={chatThoughtPreviewTokens}
+          onChatThoughtPreviewTokensChange={applyChatThoughtPreviewTokens}
           onLanguageChange={(lang) => {
             fetch('/api/settings/language', {
               method: 'POST',

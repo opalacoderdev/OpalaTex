@@ -1178,6 +1178,122 @@ class ProjectStore:
             )
             return int(cursor.lastrowid)
 
+    def thought_windows(self, name: str, chat_id: str, history: list[dict]) -> list[dict]:
+        """Which stored reasoning belongs to each assistant message, counted only.
+
+        Reasoning is written once per streamed token, so a long chat holds
+        hundreds of thousands of rows -- one measured chat carries 115,605, and
+        sending them with the transcript cost 24 MB on every open for text that
+        stays collapsed behind "AI Thoughts". This returns one row per assistant
+        message: how many chunks it has and the id range they span, which is
+        what `thought_tail` reads when the user actually expands it.
+
+        The pairing rule is the one the panel used while it did this itself:
+        every chunk up to a message's timestamp belongs to that message, and
+        whatever is left over belongs to the last assistant message. Only two
+        indexed columns are read, and nothing leaves the server but the counts.
+        """
+        with _conn(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, timestamp FROM project_activity
+                WHERE project = ? AND chat_id = ? AND deleted_at = '' AND event = 'thought'
+                ORDER BY id
+                """,
+                (name, chat_id),
+            ).fetchall()
+        if not rows:
+            return []
+
+        windows: list[dict] = []
+        position = 0
+        pending: list = []
+
+        def _close(index: int) -> None:
+            if pending:
+                windows.append({
+                    "index": index,
+                    "count": len(pending),
+                    "from_id": pending[0]["id"],
+                    "to_id": pending[-1]["id"],
+                })
+                pending.clear()
+
+        for index, message in enumerate(history or []):
+            stamp = str(message.get("timestamp") or "")
+            while position < len(rows) and (not stamp or str(rows[position]["timestamp"]) <= stamp):
+                pending.append(rows[position])
+                position += 1
+            if str(message.get("role") or "") == "assistant":
+                _close(index)
+
+        if position < len(rows):
+            pending.extend(rows[position:])
+        if pending:
+            last_assistant = next(
+                (i for i in range(len(history or []) - 1, -1, -1)
+                 if str((history or [])[i].get("role") or "") == "assistant"),
+                None,
+            )
+            if last_assistant is None:
+                pending.clear()
+            else:
+                existing = next((w for w in windows if w["index"] == last_assistant), None)
+                if existing is None:
+                    _close(last_assistant)
+                else:
+                    existing["count"] += len(pending)
+                    existing["to_id"] = pending[-1]["id"]
+                    pending.clear()
+        return windows
+
+    def thought_tail(
+        self,
+        name: str,
+        chat_id: str,
+        from_id: int,
+        to_id: int,
+        max_tokens: int = 0,
+    ) -> dict:
+        """The reasoning of one window; *max_tokens* 0 (the default) is all of it.
+
+        The Agent Thinking panel asks for the whole window -- that is what it is
+        for. A caller that only wants a preview passes a size, and the *most
+        recent* reasoning within it is what comes back, read backwards so the
+        cost does not grow with how much the turn thought.
+        """
+        budget = max(0, int(max_tokens or 0))
+        chunks: list[str] = []
+        used = 0
+        omitted = 0
+        with _conn(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT content FROM project_activity
+                WHERE project = ? AND chat_id = ? AND deleted_at = '' AND event = 'thought'
+                  AND id BETWEEN ? AND ?
+                ORDER BY id DESC
+                """,
+                (name, chat_id, int(from_id), int(to_id)),
+            ).fetchall()
+        for row in rows:
+            text = str(row["content"] or "")
+            if not text:
+                continue
+            # The same four-characters-a-token estimate the panel uses for text
+            # that carries no counter of its own.
+            cost = max(1, -(-len(text) // 4))
+            if budget and used + cost > budget and chunks:
+                omitted += cost
+                continue
+            used += cost
+            chunks.append(text)
+        return {
+            "content": "".join(reversed(chunks)),
+            "omitted_tokens": omitted,
+            "tokens": used,
+        }
+
     def list_activity(
         self,
         name: str,
@@ -1185,6 +1301,7 @@ class ProjectStore:
         limit: int | None = 1000,
         *,
         truncate_events: tuple[str, ...] | None = None,
+        exclude_events: tuple[str, ...] | None = None,
     ) -> list[dict]:
         """Read activity chronologically; None as *limit* requests the full history.
 
@@ -1198,6 +1315,16 @@ class ProjectStore:
         persisted for the chat.
         """
         safe_limit = -1 if limit is None else max(1, int(limit or 1000))
+        # Events the transcript does not carry at all. `thought` is excluded by
+        # the chat endpoint: it is fetched per message when the user expands it
+        # (`thought_windows` / `thought_tail`), because a long chat holds
+        # hundreds of thousands of reasoning rows.
+        excluded = tuple(exclude_events or ())
+        exclude_sql = ""
+        exclude_args: tuple = ()
+        if excluded:
+            exclude_sql = f" AND event NOT IN ({','.join('?' * len(excluded))})"
+            exclude_args = excluded
         with _conn(self.db_path) as conn:
             if truncate_events and safe_limit != -1:
                 placeholders = ",".join("?" * len(truncate_events))
@@ -1206,33 +1333,33 @@ class ProjectStore:
                     SELECT id, timestamp, event, agent, content, payload
                     FROM project_activity
                     WHERE project = ? AND chat_id = ? AND deleted_at = ''
-                      AND event NOT IN ({placeholders})
+                      AND event NOT IN ({placeholders}){exclude_sql}
                     UNION ALL
                     SELECT * FROM (
                         SELECT id, timestamp, event, agent, content, payload
                         FROM project_activity
                         WHERE project = ? AND chat_id = ? AND deleted_at = ''
-                          AND event IN ({placeholders})
+                          AND event IN ({placeholders}){exclude_sql}
                         ORDER BY id DESC
                         LIMIT ?
                     )
                     ORDER BY id DESC
                     """,
                     (
-                        name, chat_id, *truncate_events,
-                        name, chat_id, *truncate_events, safe_limit,
+                        name, chat_id, *truncate_events, *exclude_args,
+                        name, chat_id, *truncate_events, *exclude_args, safe_limit,
                     ),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    """
+                    f"""
                     SELECT id, timestamp, event, agent, content, payload
                     FROM project_activity
-                    WHERE project = ? AND chat_id = ? AND deleted_at = ''
+                    WHERE project = ? AND chat_id = ? AND deleted_at = ''{exclude_sql}
                     ORDER BY id DESC
                     LIMIT ?
                     """,
-                    (name, chat_id, safe_limit),
+                    (name, chat_id, *exclude_args, safe_limit),
                 ).fetchall()
 
         activity = []

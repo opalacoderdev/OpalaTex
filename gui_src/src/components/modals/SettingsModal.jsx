@@ -61,6 +61,8 @@ export default function SettingsModal({
   panelMaxLines,
   setPanelMaxLines,
   thoughtContextTokens,
+  chatThoughtPreviewTokens,
+  onChatThoughtPreviewTokensChange,
   onThoughtContextTokensChange, onSpeechSettingsChange,}) {
   const { t } = useTranslation();
   const { showAlert, showConfirm } = useCustomDialog();
@@ -76,6 +78,8 @@ export default function SettingsModal({
   // partially typed number into the minimum.
   const [thoughtTokensInput, setThoughtTokensInput] = React.useState(String(thoughtContextTokens ?? 32000));
   React.useEffect(() => { setThoughtTokensInput(String(thoughtContextTokens ?? 32000)); }, [thoughtContextTokens]);
+  const [chatPreviewTokensInput, setChatPreviewTokensInput] = React.useState(String(chatThoughtPreviewTokens ?? 1000));
+  React.useEffect(() => { setChatPreviewTokensInput(String(chatThoughtPreviewTokens ?? 1000)); }, [chatThoughtPreviewTokens]);
   const [promptEvolutionIterations, setPromptEvolutionIterations] = React.useState(1);
   const [promptEvolutionMaxTokens, setPromptEvolutionMaxTokens] = React.useState(4096);
   const [translateTargetLang, setTranslateTargetLang] = React.useState('');
@@ -322,6 +326,17 @@ export default function SettingsModal({
     })
       .then(r => (r.ok ? r.json() : null))
       .then(cfg => { if (cfg?.thought_context_tokens !== undefined) onThoughtContextTokensChange?.(cfg.thought_context_tokens); })
+      .catch(() => { });
+  };
+
+  const saveChatThoughtPreviewTokens = (value) => {
+    fetch('/api/settings/thoughts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_thought_preview_tokens: value }),
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(cfg => { if (cfg?.chat_thought_preview_tokens !== undefined) onChatThoughtPreviewTokensChange?.(cfg.chat_thought_preview_tokens); })
       .catch(() => { });
   };
 
@@ -861,6 +876,25 @@ export default function SettingsModal({
                   {t('settingsModal.thoughtContextTokensHint', 'The chat shows the most recent agent reasoning up to this size. Resuming an interrupted turn replays its reasoning in full up to this size, or a summary written by the worker model beyond it. All reasoning is always stored (default: 32000).')}
                 </span>
               </div>
+              {/* How much of the running reasoning the chat itself shows */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.chatThoughtPreviewTokens', 'Reasoning shown in the chat (tokens)')}</label>
+                <input
+                  type="number"
+                  min="100"
+                  max="100000"
+                  step="100"
+                  value={chatPreviewTokensInput}
+                  onChange={(e) => setChatPreviewTokensInput(e.target.value)}
+                  onBlur={(e) => saveChatThoughtPreviewTokens(e.target.value)}
+                  className="vscode-settings-input"
+                  style={{ width: '100%' }}
+                />
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.chatThoughtPreviewTokensHint', 'While a turn runs, the chat keeps only the last lines of reasoning in view. The whole of it is read in the Agent Thinking panel, which the chat links to (default: 1000).')}
+                </span>
+              </div>
+
               <div className="flex flex-col" style={{ gap: '6px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.latexCompilation')}</label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--vscode-text-fg)' }}>

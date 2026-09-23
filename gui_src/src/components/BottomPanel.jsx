@@ -20,6 +20,8 @@ export default function BottomPanel({
   isTerminalCollapsed,
   setIsTerminalCollapsed,
   terminalLogs,
+  thinkingFocus,
+  onClearThinkingFocus,
   setTerminalLogs,
   problems,
   setProblems,
@@ -334,8 +336,37 @@ export default function BottomPanel({
               </div>
             )}
 
-            {/* Thinking tab */}
-            {activeBottomTab === 'thinking' && (
+            {/* Thinking tab: the whole reasoning, live or of one past message.
+                The chat only previews it (the user's design), and a bubble
+                holding tens of thousands of tokens is what froze the window. */}
+            {activeBottomTab === 'thinking' && thinkingFocus && (
+              <div className="vscode-logs" style={{ height: '100%', overflowY: 'auto', padding: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--vscode-text-muted)' }}>
+                    {t('bottomPanel.thinkingOfMessage', 'Reasoning of the selected message')}
+                  </span>
+                  <button type="button" className="vscode-button-secondary" style={{ fontSize: '11px' }}
+                          onClick={onClearThinkingFocus}>
+                    {t('bottomPanel.thinkingBackToLive', 'Back to the current turn')}
+                  </button>
+                </div>
+                {thinkingFocus.loading ? (
+                  <div style={{ color: 'var(--vscode-text-muted)', fontStyle: 'italic' }}>
+                    {t('bottomPanel.thinkingLoading', 'Loading…')}
+                  </div>
+                ) : thinkingFocus.error ? (
+                  <div style={{ color: 'var(--vscode-errorForeground, #f48771)' }}>
+                    {t('bottomPanel.thinkingLoadError', 'This message\'s reasoning could not be loaded.')}
+                  </div>
+                ) : (
+                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'Consolas, monospace', fontSize: '12px', color: 'var(--vscode-text-fg)', opacity: 0.9 }}>
+                    {thinkingFocus.content || t('bottomPanel.thinkingEmpty', 'No reasoning was recorded for this message.')}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {activeBottomTab === 'thinking' && !thinkingFocus && (
               <div 
                 className="vscode-logs" 
                 style={{ height: '100%', overflowY: 'auto', padding: '8px' }}

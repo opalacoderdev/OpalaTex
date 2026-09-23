@@ -470,8 +470,15 @@ async def test_chat_delete_refuses_the_main_chat(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("chat_id", ["main_myproj", "second"])
-async def test_chat_history_keeps_thoughts_before_long_stream(tmp_path, monkeypatch, chat_id):
-    """Answer tokens must never displace persisted thoughts on chat reload."""
+async def test_chat_history_reports_the_reasoning_of_each_answer(tmp_path, monkeypatch, chat_id):
+    """Answer tokens must never displace persisted reasoning on chat reload.
+
+    The transcript no longer carries the reasoning itself -- it is one row per
+    streamed token, and a long chat shipped tens of megabytes of it on every
+    open for text that starts collapsed. What it carries is where each answer's
+    reasoning is, and /api/chat/thoughts reads it when the panel is expanded.
+    Nothing is dropped and nothing is capped: that is what this guards.
+    """
     store, server, responses = _api_harness(tmp_path, monkeypatch)
     project = store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
     store.create_chat("myproj", "second", "Second Chat")
@@ -497,21 +504,37 @@ async def test_chat_history_keeps_thoughts_before_long_stream(tmp_path, monkeypa
         status, data, _ = responses[-1]
         assert status == 200
         assert data["chat_id"] == chat_id
-        assert len(data["activity"]) == 1002
-        assert [a["content"] for a in data["activity"] if a["event"] == "thought"] == [
-            "Inspecting the document."
-        ]
+        # The reasoning is announced, not shipped.
+        assert not [a for a in data["activity"] if a["event"] == "thought"]
+        assert len(data["activity"]) == 1001
+        windows = data["thought_windows"]
+        assert [w["count"] for w in windows] == [1]
+        assert data["history"][windows[0]["index"]]["role"] == "assistant"
         assert data["history"][-1]["content"] == "Document inspected."
-        assert data["activity"][0]["timestamp"] <= data["history"][-1]["timestamp"]
+
+        await server.route_api(
+            "GET", "/api/chat/thoughts",
+            {
+                "project_name": ["myproj"], "chat_id": [chat_id],
+                "from_id": [str(windows[0]["from_id"])], "to_id": [str(windows[0]["to_id"])],
+            },
+            {}, b"", AsyncMock(),
+        )
+        status, tail, _ = responses[-1]
+        assert status == 200
+        # This chat's reasoning, and only this chat's.
+        assert tail["content"] == "Inspecting the document."
 
 
 @pytest.mark.asyncio
-async def test_chat_history_truncates_only_the_per_token_stream(tmp_path, monkeypatch):
+async def test_the_token_stream_cap_can_never_reach_the_reasoning(tmp_path, monkeypatch):
     """The cap that protects memory must never be able to reach a thought.
 
     `stream_chunk` is written once per token, so a long-lived chat accumulates
     tens of thousands of rows that an unbounded read would load and serialize on
-    every open. Capping them is safe; capping thoughts is the bug this guards.
+    every open. Capping them is safe; losing reasoning is the bug this guards --
+    now against a different mechanism, since the reasoning is fetched per
+    message instead of being capped alongside the stream.
     """
     from opalatex.ide_server import CHAT_HISTORY_STREAM_CHUNK_LIMIT
 
@@ -519,11 +542,13 @@ async def test_chat_history_truncates_only_the_per_token_stream(tmp_path, monkey
     project = store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
     chat_id = project.current_chat_id
 
+    store.append_message(project, "user", "Do it.")
     store.append_activity(project, "thought", "First thought.")
     for _ in range(CHAT_HISTORY_STREAM_CHUNK_LIMIT + 250):
         store.append_activity(project, "stream_chunk", "token ")
     store.append_activity(project, "thought", "Last thought.")
     store.append_activity(project, "error", "Something failed.")
+    store.append_message(project, "assistant", "Done.")
     store.close_activity_connection()
 
     await server.route_api(
@@ -535,13 +560,22 @@ async def test_chat_history_truncates_only_the_per_token_stream(tmp_path, monkey
     assert status == 200
 
     activity = data["activity"]
-    # Both thoughts and the error survive in full, despite being on opposite
-    # sides of 5250 stream chunks.
-    assert [a["content"] for a in activity if a["event"] == "thought"] == [
-        "First thought.", "Last thought.",
-    ]
+    # The error still reaches the transcript; the token stream is capped.
     assert [a["content"] for a in activity if a["event"] == "error"] == ["Something failed."]
-    # The token stream is capped rather than fully loaded.
     assert len([a for a in activity if a["event"] == "stream_chunk"]) == CHAT_HISTORY_STREAM_CHUNK_LIMIT
-    # Chronological order is preserved across the two reads that build the list.
     assert [a["id"] for a in activity] == sorted(a["id"] for a in activity)
+
+    # Both thoughts survive in full, despite being on opposite sides of the
+    # 5250 stream chunks that the cap cut through.
+    window = data["thought_windows"][0]
+    assert window["count"] == 2
+    await server.route_api(
+        "GET", "/api/chat/thoughts",
+        {
+            "project_name": ["myproj"], "chat_id": [chat_id],
+            "from_id": [str(window["from_id"])], "to_id": [str(window["to_id"])],
+        },
+        {}, b"", AsyncMock(),
+    )
+    _status, tail, _ = responses[-1]
+    assert tail["content"] == "First thought.Last thought."

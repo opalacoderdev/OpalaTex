@@ -32,6 +32,13 @@ _DEFAULTS: dict[str, Any] = {
     # to this size, and resuming an interrupted turn replays the reasoning in
     # full up to this size or as a summary beyond it. Everything is stored.
     "thought_context_tokens": 32000,
+    # How much of the running reasoning the *chat* shows while a turn
+    # works. The chat is a preview: it keeps the last few lines in view
+    # so the user can see the model is thinking, and expanding it opens
+    # the Agent Thinking panel, which holds the whole thing. Rendering
+    # tens of thousands of tokens inside a chat bubble is what made a
+    # long turn freeze the window.
+    "chat_thought_preview_tokens": 1000,
     # Graphics mode for the embedded browser window: "auto" uses the GPU,
     # "off" runs Chromium without it. QtWebEngine loads the graphics driver
     # into the OpalaTex process itself, so a driver fault kills the whole
@@ -57,6 +64,21 @@ def clamp_thought_context_tokens(value: Any) -> int:
     except (TypeError, ValueError):
         return THOUGHT_CONTEXT_TOKENS_DEFAULT
     return max(THOUGHT_CONTEXT_TOKENS_MIN, min(THOUGHT_CONTEXT_TOKENS_MAX, tokens))
+
+
+CHAT_THOUGHT_PREVIEW_TOKENS_DEFAULT = 1000
+CHAT_THOUGHT_PREVIEW_TOKENS_MIN = 100
+CHAT_THOUGHT_PREVIEW_TOKENS_MAX = 100_000
+
+
+def clamp_chat_thought_preview_tokens(value: Any) -> int:
+    """Coerce a stored value into a valid chat preview size, in tokens."""
+    try:
+        tokens = int(value)
+    except (TypeError, ValueError):
+        return CHAT_THOUGHT_PREVIEW_TOKENS_DEFAULT
+    return max(CHAT_THOUGHT_PREVIEW_TOKENS_MIN,
+               min(CHAT_THOUGHT_PREVIEW_TOKENS_MAX, tokens))
 
 
 def clamp_ui_scale(value: Any) -> float:

@@ -961,6 +961,42 @@ def _record_turn_thought(content: str) -> bool:
     return True
 
 
+def publish_thought(chunk: str, agent_type: str) -> None:
+    """Record a reasoning chunk for the turn and publish it to the front-end."""
+    if _record_turn_thought(chunk):
+        print_event("thought", {"content": chunk, "agent": agent_type, "_thought_recorded": True})
+
+
+def inline_reasoning_splitter(agent_type: str) -> "InlineReasoningStreamSplitter":
+    """Route a streamed content channel into answer text and reasoning.
+
+    The three callbacks are one contract, which is why they are wired in one
+    place:
+
+    * visible text is published as it streams;
+    * an orphan ``</think>`` proves the text already published was reasoning, so
+      ``stream_retract`` tells the front-end to drop it from the tail of the
+      live response (the desktop chat and the terminal renderer both do);
+    * whatever the splitter took out of the answer -- removed before it was
+      published (``<think>…</think>``) or retracted after -- is republished as a
+      ``thought``.
+
+    That last step is never gated on ``publish_reasoning``. That flag says
+    whether the provider was asked to isolate a reasoning channel, and this text
+    came through the *content* channel precisely because it was not. Gating it
+    dropped the reasoning entirely for a model whose catalog entry declares no
+    thinking support, and in the retracted shape the desktop chat wiped text it
+    was promised would come back.
+    """
+    from .think_stream import InlineReasoningStreamSplitter
+
+    return InlineReasoningStreamSplitter(
+        on_visible=lambda text: print_event("stream_chunk", {"content": text, "agent": agent_type}),
+        on_thinking=lambda text: publish_thought(text, agent_type),
+        on_retract=lambda text: print_event("stream_retract", {"content": text, "agent": agent_type}),
+    )
+
+
 EMPTY_RESPONSE_NUDGE = (
     "Your last run ended without a user-facing response. Reply now with a non-empty "
     "final response: report what was actually done and verified, and state plainly "
@@ -2525,26 +2561,12 @@ async def handle_run(data: dict):
         _log_chunk_timing("thinking", chunk)
         # A model whose catalog entry does not declare thinking support has no
         # isolated reasoning channel to publish. The callback stays wired either
-        # way, so an agent (or the inline splitter) can always call it.
+        # way, so an agent can always call it.
         if not publish_reasoning:
             return
-        if _record_turn_thought(chunk):
-            print_event("thought", {"content": chunk, "agent": agent_type, "_thought_recorded": True})
+        publish_thought(chunk, agent_type)
 
-    def _emit_visible_stream(text: str) -> None:
-        print_event("stream_chunk", {"content": text, "agent": agent_type})
-
-    def _retract_visible_stream(text: str) -> None:
-        # An orphan </think> proved this text was reasoning after it had already
-        # been published. Tell the UI to drop it from the tail of the live
-        # response; the splitter re-publishes it through _on_thinking next.
-        print_event("stream_retract", {"content": text, "agent": agent_type})
-
-    _think_splitter = InlineReasoningStreamSplitter(
-        on_visible=_emit_visible_stream,
-        on_thinking=_on_thinking,
-        on_retract=_retract_visible_stream,
-    )
+    _think_splitter = inline_reasoning_splitter(agent_type)
 
     def _process_visible_chunk(chunk: str) -> None:
         _think_splitter.feed(chunk)
