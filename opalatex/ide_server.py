@@ -4372,8 +4372,16 @@ class AsyncHTTPServer:
         # 7h2. Models Store Endpoints
         elif path == '/api/settings/models' and method == 'GET':
             from opalatex.models_store import load_models
+            from opalatex.config import auto_num_ctx
             try:
                 models = load_models()
+                # What "Auto" means for each entry, so the list can say it: a
+                # fixed local default, the provider's window, or unknown. Read
+                # from the catalog only -- a listing never waits on a provider.
+                for model in models:
+                    window, source = auto_num_ctx(model.get("id"), allow_network=False)
+                    model["auto_num_ctx"] = window
+                    model["auto_num_ctx_source"] = source
                 self.send_response(writer, 200, json.dumps({"models": models}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
@@ -4398,8 +4406,13 @@ class AsyncHTTPServer:
                 self.send_response(writer, 500, b'{"error":"local_ollama_load_failed"}', "application/json")
         elif path == '/api/settings/models' and method == 'POST':
             from opalatex.models_store import add_or_update_model
+            from opalatex.context_discovery import ensure_provider_context_window
             try:
                 add_or_update_model(data)
+                # An "Auto" entry learns its window from the provider now, so the
+                # list shows it before the model's first turn. Off the event loop:
+                # the provider may take a few seconds to answer.
+                await asyncio.to_thread(ensure_provider_context_window, str(data.get("id") or ""))
                 self.send_response(writer, 200, b'{"success":true}', "application/json")
             except ValueError as e:
                 self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")

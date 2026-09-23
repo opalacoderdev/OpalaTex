@@ -156,7 +156,13 @@ class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     and an alert asking for the final answer; whatever it returns ends the run,
     and tool calls it returns anyway are refused, not executed. ``AgentOutput``
     reports ``budget_exhausted`` either way."""
-    max_context_tokens: int = 4000
+    max_context_tokens: Optional[int] = 4000
+    """Context window the history is managed against.
+
+    ``None`` means the window is unknown: nothing is evicted and no memory
+    pressure alert is added, so the provider is the only authority on whether a
+    request fits. Use it when the caller cannot learn the model's real window,
+    rather than inventing a number that would evict or warn at the wrong size."""
     eviction_threshold: float = 1.0
     memory_pressure_threshold: float = 0.7
     heartbeat_pressure_threshold: float = 0.75
@@ -688,7 +694,8 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
             current_tokens = self.count_context_tokens()
 
             # Evictação FIFO
-            if current_tokens > self.max_context_tokens * self.eviction_threshold:
+            window_known = self.max_context_tokens is not None
+            if window_known and current_tokens > self.max_context_tokens * self.eviction_threshold:
                 if self.debug: print(f"[DEBUG] Contexto excedeu limite de evictação ({current_tokens} tokens). Iniciando evictação FIFO...")
                 target_evict = max(1, len(self.internal_history) // 4)
                 safe_evict_idx = self._get_safe_eviction_index(self.internal_history, target_evict)
@@ -708,7 +715,7 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
                     if self.debug: print("[DEBUG] Falha ao evictar: impossível quebrar o histórico de forma segura.")
 
             # Alerta de Pressão de Memória após possível evictação
-            if current_tokens > self.max_context_tokens * self.memory_pressure_threshold:
+            if window_known and current_tokens > self.max_context_tokens * self.memory_pressure_threshold:
                 pct = int(self.memory_pressure_threshold * 100)
                 messages.append({
                     "role": "system", 

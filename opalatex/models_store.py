@@ -49,6 +49,7 @@ RESERVED_EXTRA_MODEL_PARAM_NAMES = frozenset({
     "output_cost_per_second",
     "supports_thinking", "requires_single_system_message", "prompt_profile",
     "orchestrator_policy", "supports_image_generation", "image_route", "num_ctx",
+    "discovered_num_ctx",
     "supports_speech_synthesis", "speech_route",
     "think", "extra_model_params",
     "temperature", "max_tokens", "seed", "top_p", "top_k", "min_p",
@@ -143,6 +144,17 @@ def normalize_model_entry(model: Dict[str, Any]) -> Dict[str, Any]:
         entry["num_ctx"] = int(_num_ctx) if _num_ctx not in (None, "") else None
     except (TypeError, ValueError):
         entry["num_ctx"] = None
+    # The window the provider reported for this model (see
+    # opalatex/context_discovery.py). It fills in for an empty `num_ctx` and is
+    # never user input: `add_or_update_model` carries it over only while the
+    # entry still names the same model on the same connection.
+    _discovered = entry.get("discovered_num_ctx")
+    try:
+        entry["discovered_num_ctx"] = int(_discovered) if _discovered not in (None, "") else None
+    except (TypeError, ValueError):
+        entry["discovered_num_ctx"] = None
+    if entry["discovered_num_ctx"] is not None and entry["discovered_num_ctx"] <= 0:
+        entry["discovered_num_ctx"] = None
     entry["connection_id"] = str(entry.get("connection_id", "") or "")
     entry["connection_label"] = str(entry.get("connection_label", "") or "")
     entry["extra_model_params"] = normalize_extra_model_params(
@@ -1001,9 +1013,15 @@ def add_or_update_model(model_data: Dict[str, Any]) -> None:
             if m.get("id") == model_id:
                 raise ValueError(f"Model '{model_id}' already exists")
 
+    # The provider-reported window describes one model on one connection. It is
+    # never taken from the caller (a form echoes back whatever the listing held)
+    # and survives an edit only while the entry still names the same model.
+    model_data["discovered_num_ctx"] = None
     updated = False
     for i, m in enumerate(models):
         if m.get("id") == (previous_id or model_id):
+            if _same_model_identity(m, model_data):
+                model_data["discovered_num_ctx"] = m.get("discovered_num_ctx")
             models[i] = model_data
             updated = True
             break
@@ -1012,6 +1030,44 @@ def add_or_update_model(model_data: Dict[str, Any]) -> None:
         models.append(model_data)
 
     save_models(models)
+
+
+def _same_model_identity(old: Dict[str, Any], new: Dict[str, Any]) -> bool:
+    return all(
+        str(old.get(field) or "") == str(new.get(field) or "")
+        for field in ("connection_id", "name")
+    )
+
+
+def set_discovered_num_ctx(model_id: str, value: int | None) -> bool:
+    """Record the context window the provider reported for *model_id*.
+
+    Only that entry's stored ``extra_json`` changes, so a concurrent edit of any
+    other entry is not overwritten. Returns False when the entry does not exist.
+    """
+    _invalidate_models_cache()
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT extra_json FROM {_MODELS_TABLE} WHERE id = ?", (model_id,)
+        ).fetchone()
+        if row is None:
+            return False
+        try:
+            extra = json.loads(row["extra_json"] or "{}")
+        except ValueError:
+            extra = {}
+        if not isinstance(extra, dict):
+            extra = {}
+        if value:
+            extra["discovered_num_ctx"] = int(value)
+        else:
+            extra.pop("discovered_num_ctx", None)
+        conn.execute(
+            f"UPDATE {_MODELS_TABLE} SET extra_json = ? WHERE id = ?",
+            (json.dumps(extra, ensure_ascii=False), model_id),
+        )
+    _invalidate_models_cache()
+    return True
 
 def delete_model(model_id: str) -> bool:
     """Delete a model by ID. Returns True if deleted, False if not found."""

@@ -263,13 +263,15 @@ def test_resolve_context_window_falls_back_to_model_params():
     assert _resolve_context_window(FakeAgent(), {}, {"num_ctx": 24000}) == 24000
 
 
-def test_resolve_context_window_defaults_when_nothing_declares_one():
-    from opalatex.agent_stdin import DEFAULT_CONTEXT_WINDOW, _resolve_context_window
+def test_resolve_context_window_reports_unknown_when_nothing_declares_one():
+    # A window nobody declared is unknown (0), never a guessed size: the panel
+    # would otherwise draw a battery for a window that does not exist.
+    from opalatex.agent_stdin import _resolve_context_window
 
     class FakeAgent:
         pass
 
-    assert _resolve_context_window(FakeAgent(), {}, {}) == DEFAULT_CONTEXT_WINDOW
+    assert _resolve_context_window(FakeAgent(), {}, {}) == 0
 
 
 def test_resolve_context_window_ignores_unusable_values():

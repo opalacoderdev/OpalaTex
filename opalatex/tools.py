@@ -670,7 +670,7 @@ def read_file(path: str) -> str:
                 raise ValueError(binary_error)
     else:
         budget_chars = free_context_chars()
-        if budget_chars > 0 and len(extracted) > budget_chars:
+        if budget_chars is not None and budget_chars > 0 and len(extracted) > budget_chars:
             how = "Use read_document(path, offset=0, limit=10000) and follow next_offset to read the extracted text without creating files."
             raise ValueError(
                 f"Error: the text extracted from '{_preview(resolved)}' is {len(extracted):,} "
@@ -698,7 +698,7 @@ def read_file(path: str) -> str:
                 else os.path.getsize(resolved))
     except OSError:
         size = 0
-    if size > budget_chars:
+    if budget_chars is not None and size > budget_chars:
         window = context_window_tokens()
         used = used_context_tokens()
         if budget_chars <= 0:
@@ -2086,7 +2086,7 @@ def read_content_pos(path: str, start_pos: int, end_pos: int) -> str:
         # 2.6, no silent substitution): a capped page must never look like the full
         # requested range.
         budget_chars = free_context_chars()
-        if budget_chars <= 0:
+        if budget_chars is not None and budget_chars <= 0:
             window = context_window_tokens()
             used = used_context_tokens()
             raise ValueError(
@@ -2100,16 +2100,16 @@ def read_content_pos(path: str, start_pos: int, end_pos: int) -> str:
         consumed = 0
         for idx in range(start_idx, requested_end_idx):
             consumed += len(lines[idx])
-            if consumed > budget_chars and end_idx > start_idx:
+            if budget_chars is not None and consumed > budget_chars and end_idx > start_idx:
                 break
             end_idx = idx + 1
-            if consumed > budget_chars:
+            if budget_chars is not None and consumed > budget_chars:
                 break
 
         selected_lines = lines[start_idx:end_idx]
         content = "".join(selected_lines)
         line_truncated = False
-        if len(content) > budget_chars:
+        if budget_chars is not None and len(content) > budget_chars:
             # A single line alone exceeds the whole page budget (e.g. a minified JSON
             # line); still make forward progress instead of returning nothing.
             content = content[:budget_chars]
@@ -2159,7 +2159,8 @@ def inspect_project(operation: str, path: str = "") -> str:
     else:
         raise ValueError("operation must be environment or python.")
     text = json.dumps(result, ensure_ascii=False)
-    if len(text) > free_context_chars():
+    budget = free_context_chars()
+    if budget is not None and len(text) > budget:
         raise ValueError("Inspection output exceeds the remaining context budget. Read targeted source ranges with read_content_pos instead.")
     return text
 
@@ -2171,9 +2172,10 @@ def inspect_project(operation: str, path: str = "") -> str:
 def inspect_git(operation: str = "status", path: str = "", offset: int = 0, limit: int = 10000) -> str:
     from .diagnostics import inspect_git as inspect
     budget = free_context_chars()
-    if budget <= 0:
+    if budget is not None and budget <= 0:
         raise ValueError("The context window is exhausted. Summarize before reading further.")
-    return json.dumps(inspect(get_project_path(), operation, path, offset, min(limit, budget)))
+    page = limit if budget is None else min(limit, budget)
+    return json.dumps(inspect(get_project_path(), operation, path, offset, page))
 
 
 @opalatex_tool(name="read_document", is_safe=True, description=(
@@ -2186,12 +2188,12 @@ def read_document(path: str, offset: int = 0, limit: int = 10000) -> str:
     if offset < 0 or not 1 <= limit <= 50000:
         raise ValueError("offset must be non-negative and limit must be between 1 and 50000.")
     budget = free_context_chars()
-    if budget <= 0:
+    if budget is not None and budget <= 0:
         raise ValueError("The context window is exhausted. Summarize before reading further.")
     content = extract_document_text_from_path(_resolve_path(path))
     if not content.strip():
         raise ValueError("The document contains no extractable text.")
-    end = min(len(content), offset + min(limit, budget))
+    end = min(len(content), offset + (limit if budget is None else min(limit, budget)))
     return json.dumps({"content": content[offset:end], "total_chars": len(content),
                        "next_offset": end if end < len(content) else None}, ensure_ascii=False)
 
@@ -2604,18 +2606,15 @@ async def create_plan(plan_content: str) -> str:
         raise ValueError("The user REJECTED the plan. Wait for the user to provide feedback in the chat.")
 
 
-def context_window_tokens() -> int:
+def context_window_tokens() -> int | None:
     """Return the active context window, which is what num_ctx actually caps.
 
     Resolved via config.resolve_effective_num_ctx: an explicit project
-    override wins, otherwise the model's catalog entry, otherwise the
-    local/cloud heuristic default.
+    override wins, otherwise the model's catalog entry, otherwise "Auto" (the
+    provider-reported window). None means the window is unknown.
     """
     from .config import resolve_effective_num_ctx
-    try:
-        return resolve_effective_num_ctx("memgpt")
-    except Exception:
-        return 8192
+    return resolve_effective_num_ctx("memgpt")
 
 
 def used_context_tokens() -> int:
@@ -2636,20 +2635,25 @@ def used_context_tokens() -> int:
     return len(json.dumps(history)) // 4
 
 
-def free_context_chars(reserve_pct: int = 50) -> int:
+def free_context_chars(reserve_pct: int = 50) -> int | None:
     """Return how many characters a tool result may still add.
 
     Only *reserve_pct* of the remaining window is granted to any single tool
     result, leaving room for the rest of the turn and the model's own reply.
+    None when the window is unknown: then no tool result is refused or cut on
+    OpalaTex's side, and the provider alone decides whether the request fits.
     """
-    free_tokens = max(0, context_window_tokens() - used_context_tokens())
+    window = context_window_tokens()
+    if not window:
+        return None
+    free_tokens = max(0, window - used_context_tokens())
     return int(free_tokens * 4 * reserve_pct / 100)
 
 
 def _truncate_to_context_budget(text: str, reserve_pct: int = 50) -> str:
     """Truncate *text* so it fits within the active model's free context budget."""
     allowed_chars = free_context_chars(reserve_pct)
-    if allowed_chars <= 0 or len(text) <= allowed_chars:
+    if allowed_chars is None or allowed_chars <= 0 or len(text) <= allowed_chars:
         return text
     return (
         text[:allowed_chars]

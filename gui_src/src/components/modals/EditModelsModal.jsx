@@ -132,7 +132,9 @@ export default function EditModelsModal({
                         {t(`modelForm.orchestratorPolicy.${model.orchestrator_policy === 'delegate' ? 'delegate' : 'direct'}`)}
                       </td>
                       <td style={{ padding: '8px', whiteSpace: 'nowrap', color: 'var(--vscode-descriptionForeground)' }}>
-                        {model.num_ctx || t('modelForm.numCtxAuto')}
+                        {model.num_ctx || (model.auto_num_ctx
+                          ? t(model.auto_num_ctx_source === 'provider' ? 'modelForm.numCtxAutoProvider' : 'modelForm.numCtxAutoLocal', { value: model.auto_num_ctx.toLocaleString() })
+                          : t('modelForm.numCtxAutoUnknown'))}
                       </td>
                       <td style={{ padding: '8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         <button 

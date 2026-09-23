@@ -450,8 +450,12 @@ _AGENT_PARAM_KEYS = _NON_LITELLM_FIELDS - {"model", "strategy"}
 
 from typing import Union
 
+# "Auto" windows for self-hosted Ollama only. There `num_ctx` is sent to the
+# server and sizes the KV cache it allocates, so asking for the model's maximum
+# could exhaust the host's memory; a parsimonious default is the point. Every
+# other provider reports its window instead (opalatex/context_discovery.py).
 LOCAL_MODEL_CONTEXT_TOKENS = 8192
-CLOUD_MODEL_CONTEXT_TOKENS = 65536
+SELF_HOSTED_OLLAMA_CONTEXT_TOKENS = 65536
 OLLAMA_CLOUD_API_BASE = "https://ollama.com"
 
 
@@ -502,17 +506,26 @@ def normalize_ollama_api_base_for_litellm(model: str | None, api_base: str | Non
     return value
 
 
-def default_num_ctx_for_model(model: str | None, api_base: str | None = "") -> int:
-    """Return the predictable default context window for a model selection."""
-    return LOCAL_MODEL_CONTEXT_TOKENS if is_local_model(model, api_base) else CLOUD_MODEL_CONTEXT_TOKENS
+def is_self_hosted_ollama_model(model: str | None, api_base: str | None = "") -> bool:
+    """True for an Ollama model served by the user's own host, local or remote."""
+    model_id = str(model or "")
+    provider = model_id.split("/", 1)[0].lower() if "/" in model_id else ""
+    if provider not in {"ollama", "ollama_chat"} or is_ollama_cloud_model(model_id):
+        return False
+    return OLLAMA_CLOUD_API_BASE not in str(api_base or "").strip().lower()
 
 
-def apply_default_num_ctx(params: dict | None, model: str | None, api_base: str | None = "") -> dict:
-    """Return params with a default num_ctx when the user did not set one."""
-    result = dict(params or {})
-    if result.get("num_ctx") in (None, ""):
-        result["num_ctx"] = default_num_ctx_for_model(model, api_base)
-    return result
+def default_num_ctx_for_model(model: str | None, api_base: str | None = "") -> int | None:
+    """Return the fixed "Auto" window for a self-hosted Ollama model, else None.
+
+    None means the window is not OpalaTex's to choose: it comes from the
+    provider (`auto_num_ctx`), or stays unknown.
+    """
+    if is_local_model(model, api_base):
+        return LOCAL_MODEL_CONTEXT_TOKENS
+    if is_self_hosted_ollama_model(model, api_base):
+        return SELF_HOSTED_OLLAMA_CONTEXT_TOKENS
+    return None
 
 
 def get_git_strategy() -> str:
@@ -824,14 +837,19 @@ def get_agent_llm_kwargs(
         merged["think"] = think
 
     # num_ctx resolution: an explicit project override always wins; otherwise
-    # fall back to the model's catalog entry, then the local/cloud heuristic.
+    # fall back to the model's catalog entry, then "Auto" (auto_num_ctx).
     # Centralized in resolve_effective_num_ctx so tool-budget and attachment
     # code (opalatex/tools.py, opalatex/agent_stdin.py) agree with this value.
     # Uses resolved_model (the catalog id, which may carry a `#<connection_id>`
     # disambiguation suffix) rather than runtime_model, since the catalog is
-    # keyed by that id — resolve_effective_num_ctx only needs the provider
-    # prefix for the local/cloud heuristic, so the suffix is harmless there.
-    merged["num_ctx"] = resolve_effective_num_ctx(agent_name, resolved_model, merged.get("api_base"))
+    # keyed by that id — "Auto" resolves the entry's own provider/name, so the
+    # suffix is harmless there.
+    # An unknown window is sent as no num_ctx at all, never as a guessed one.
+    effective_num_ctx = resolve_effective_num_ctx(agent_name, resolved_model, merged.get("api_base"))
+    if effective_num_ctx:
+        merged["num_ctx"] = effective_num_ctx
+    else:
+        merged.pop("num_ctx", None)
 
     # Only the user's own `extra_model_params` names bypass the provider
     # compatibility filter -- that is what the feature is for: naming a
@@ -952,23 +970,58 @@ def model_num_ctx(model: str | None) -> int | None:
 
     Same shape as `model_supports_thinking`/`model_requires_single_system_message`:
     a per-model catalog capability (`opalatex/models_store.py`), not a project
-    setting. Unset (None) means the catalog does not pin a window for this
-    model and callers should fall back to `default_num_ctx_for_model`.
+    setting. Unset (None) means the entry is on "Auto" (see `auto_num_ctx`).
+
+    A failure to read the catalog propagates. It used to be swallowed here and
+    read as "unset", which silently replaced the configured window with a guess.
     """
-    try:
-        from opalatex.models_store import get_model_by_runtime_id
-        store_model = get_model_by_runtime_id(str(model or ""))
-        value = store_model.get("num_ctx") if store_model else None
-        return int(value) if value not in (None, "") else None
-    except Exception:
-        return None
+    from opalatex.models_store import get_model_by_runtime_id
+    store_model = get_model_by_runtime_id(str(model or ""))
+    value = store_model.get("num_ctx") if store_model else None
+    return int(value) if value not in (None, "") else None
+
+
+def auto_num_ctx(
+    model: str | None,
+    api_base: str | None = None,
+    *,
+    allow_network: bool = True,
+) -> tuple[int | None, str]:
+    """Resolve the "Auto" window of *model*: ``(window, source)``.
+
+    ``source`` is ``"local_default"`` for a self-hosted Ollama model (a fixed,
+    parsimonious value, since there `num_ctx` sizes the server's allocation),
+    ``"provider"`` when the provider reported the window, and ``"unknown"`` with
+    a None window otherwise. An unknown window is not replaced by a guess:
+    callers then impose no OpalaTex-side limit and the provider alone decides
+    whether a request fits.
+    """
+    from opalatex.models_store import get_model_by_runtime_id
+
+    entry = get_model_by_runtime_id(str(model or "")) if model else None
+    if entry:
+        provider = str(entry.get("provider") or "")
+        name = str(entry.get("name") or "")
+        runtime = f"{provider}/{name}" if provider and name else str(model or "")
+        base = entry.get("api_base") or api_base
+    else:
+        runtime, base = str(model or ""), api_base
+    fixed = default_num_ctx_for_model(runtime, base)
+    if fixed:
+        return fixed, "local_default"
+    from opalatex.context_discovery import provider_context_window
+
+    window = provider_context_window(entry, allow_network=allow_network)
+    if window:
+        return window, "provider"
+    return None, "unknown"
 
 
 def resolve_effective_num_ctx(
     agent_name: str = "memgpt",
     model: str | None = None,
     api_base: str | None = None,
-) -> int:
+) -> int | None:
     """Resolve the context window that should be requested for *agent_name*.
 
     Priority (highest first):
@@ -985,7 +1038,11 @@ def resolve_effective_num_ctx(
          catalog it would permanently shadow every model's own catalog entry
          for real projects — exactly the outcome this migration exists to
          avoid. It exists as a floor for the no-project bootstrap case only.
-      4. The local/cloud heuristic default (`default_num_ctx_for_model`).
+      4. "Auto" (`auto_num_ctx`): a fixed parsimonious window for self-hosted
+         Ollama, otherwise the window the provider reports for the model.
+
+    None means the window is unknown -- the provider did not report one. It is
+    not replaced by a guess: every consumer then imposes no limit of its own.
 
     This is the single place that implements that precedence so tool-budget
     code (`opalatex/tools.py`), attachment truncation (`opalatex/agent_stdin.py`)
@@ -1033,14 +1090,14 @@ def resolve_effective_num_ctx(
             except (TypeError, ValueError):
                 pass
 
-    return default_num_ctx_for_model(resolved_model, resolved_api_base)
+    return auto_num_ctx(resolved_model, resolved_api_base)[0]
 
 
 def resolve_display_num_ctx(
     model: str | None,
     model_params: dict | None,
     api_base: str | None = None,
-) -> int:
+) -> int | None:
     """Resolve num_ctx for UI display given a project's own stored fields.
 
     Unlike `resolve_effective_num_ctx`, this does not depend on the global
@@ -1062,7 +1119,8 @@ def resolve_display_num_ctx(
     if catalog_num_ctx:
         return catalog_num_ctx
 
-    return default_num_ctx_for_model(model, api_base)
+    # Listings never wait on a provider: only a window already reported counts.
+    return auto_num_ctx(model, api_base, allow_network=False)[0]
 
 
 def model_prompt_profile(model: str | None) -> str:

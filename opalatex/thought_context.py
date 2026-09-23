@@ -178,13 +178,13 @@ def summary_piece_tokens(limit_tokens: int) -> int:
     """Largest piece the worker model can summarize in one request."""
     from opalatex.config import resolve_agent_model, resolve_effective_num_ctx
 
-    try:
-        window = int(resolve_effective_num_ctx("worker", model=resolve_agent_model("worker")))
-    except Exception:
-        window = 8192
+    window = resolve_effective_num_ctx("worker", model=resolve_agent_model("worker"))
+    if not window:
+        # Unknown window: no OpalaTex-side cap, the provider decides.
+        return max(1000, limit_tokens)
     # Half the window for the piece, leaving room for the instructions and the
     # summary itself.
-    return max(1000, min(limit_tokens, window // 2))
+    return max(1000, min(limit_tokens, int(window) // 2))
 
 
 def build_resume_prompt(reasoning_section: str, visible_text: str) -> str:

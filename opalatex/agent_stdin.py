@@ -98,9 +98,6 @@ _ACTIVE_VISIBLE_CHUNKS: list[str] | None = None
 # decides what the chat shows and what a resumed turn replays.
 _ACTIVE_THOUGHT_METER = None
 
-# Context window assumed when neither the project nor the agent declares one.
-DEFAULT_CONTEXT_WINDOW = 8192
-
 # Pending GUI input requests: maps request-id -> asyncio.Future so that the
 # /api/opalatex/input_response endpoint can resolve them.
 _gui_input_pending: dict = {}
@@ -1658,6 +1655,8 @@ def _prepare_turn_attachments(
     model_supports_vision = _litellm_vision or bool(_mp.get("force_vision", False))
 
     pdf_truncate_enabled = _mp.get("pdf_truncate", True)
+    # The documents are fitted into the window only when it is known; an
+    # unknown window leaves them whole for the provider to accept or refuse.
     pdf_truncate_pct = int(_mp.get("pdf_truncate_pct", 50))
     from opalatex.config import resolve_effective_num_ctx
     num_ctx = resolve_effective_num_ctx("memgpt", _model_name)
@@ -1672,15 +1671,15 @@ def _prepare_turn_attachments(
     if history_tokens is None:
         _hist = getattr(current_project, "history", []) or []
         history_tokens = len(json.dumps(_hist)) // 4
-    free_tokens = max(0, num_ctx - history_tokens)
-    free_chars = free_tokens * 4  # back to chars
+    free_tokens = max(0, num_ctx - history_tokens) if num_ctx else None
+    free_chars = free_tokens * 4 if free_tokens is not None else None  # back to chars
 
     history_attachments = []
     if history_fallback and not raw_attachments and current_project:
         history_attachments = _recent_history_attachments(getattr(current_project, "history", []) or [])
 
     attachments_for_turn = list(raw_attachments or history_attachments)
-    if pdf_truncate_enabled:
+    if pdf_truncate_enabled and free_chars is not None:
         attachments_for_turn = _apply_document_budget(
             attachments_for_turn, free_chars, pdf_truncate_pct
         )
@@ -2223,7 +2222,8 @@ def _resolve_context_window(agent: object, *model_param_sources: dict) -> int:
 
     The agent's own ``max_context_tokens`` wins because MemGPT already resolved
     it from ``num_ctx`` and evicts against that exact number; the raw project
-    parameters are only consulted for agents that do not carry one.
+    parameters are only consulted for agents that do not carry one. 0 means the
+    window is unknown and is reported as such, never as a guessed size.
     """
     candidates = [
         getattr(agent, "max_context_tokens", None),
@@ -2239,7 +2239,7 @@ def _resolve_context_window(agent: object, *model_param_sources: dict) -> int:
             continue
         if window > 0:
             return window
-    return DEFAULT_CONTEXT_WINDOW
+    return 0
 
 
 async def handle_run(data: dict):

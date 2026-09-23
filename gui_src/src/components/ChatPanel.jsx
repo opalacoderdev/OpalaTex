@@ -1193,8 +1193,15 @@ export default function ChatPanel({
   // agent will replay, but it omits the tool schemas the provider also charges
   // for, so it is labelled as its own thing rather than as the provider number.
   const isDerivedContext = isMeasuredContext && chatContextUsage?.source === 'state';
-  const numCtx = chatContextUsage?.contextWindow
-    || parseInt(activeProject?.model_params?.num_ctx || activeProject?.agent_params?.max_context_tokens || activeProject?.effective_num_ctx || 8192, 10);
+  // 0 means the window is unknown: the model is on "Auto" and its provider did
+  // not report one, so OpalaTex applies no limit of its own. A measurement
+  // carries the window it was taken against; without one the project's
+  // resolved window is used. Never a guessed size -- a battery drawn against an
+  // invented window reads as a real limit.
+  const numCtx = chatContextUsage
+    ? (chatContextUsage.contextWindow || 0)
+    : (parseInt(activeProject?.model_params?.num_ctx || activeProject?.agent_params?.max_context_tokens || activeProject?.effective_num_ctx || 0, 10) || 0);
+  const isWindowKnown = numCtx > 0;
   const historyTokens = chatMessages.reduce((acc, msg) => {
     const contentLen = msg.content?.length || 0;
     const thoughtLen = msg._thoughtStream?.length || 0;
@@ -1203,13 +1210,15 @@ export default function ChatPanel({
   const liveStreamTokens = Math.ceil(((chatThoughtStream?.length || 0) + (chatResponseStream?.length || 0)) / 4);
   const estimatedTokens = historyTokens + liveStreamTokens;
   const usedTokens = isMeasuredContext ? measuredTokens : estimatedTokens;
-  const availableTokens = Math.max(0, numCtx - usedTokens);
+  const availableTokens = isWindowKnown ? Math.max(0, numCtx - usedTokens) : 0;
   // The bar drains like a battery, and the number states the remaining charge
   // (available tokens) too — a battery reads its own level, not how much was used.
-  const remainingPercentage = Math.min(100, Math.max(0, (availableTokens / numCtx) * 100));
-  const isTokenExploded = availableTokens === 0;
+  const remainingPercentage = isWindowKnown ? Math.min(100, Math.max(0, (availableTokens / numCtx) * 100)) : 100;
+  const isTokenExploded = isWindowKnown && availableTokens === 0;
   // Cheia (verde), perto do limite (amarela), explodiu (vermelha)
-  const batteryColor = isTokenExploded ? 'var(--battery-exploded)' : remainingPercentage <= 20 ? 'var(--battery-low)' : 'var(--battery-good)';
+  const batteryColor = !isWindowKnown
+    ? 'var(--vscode-descriptionForeground, #999999)'
+    : isTokenExploded ? 'var(--battery-exploded)' : remainingPercentage <= 20 ? 'var(--battery-low)' : 'var(--battery-good)';
   const formatTokens = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : `${n}`);
 
   // Effort / heartbeat budget selector. It sits in its own toolbar above the
@@ -1390,9 +1399,11 @@ export default function ChatPanel({
           <div
             className="vscode-chat-context-badge"
             title={t(
-              isDerivedContext
-                ? 'chatPanel.contextDerived'
-                : isMeasuredContext ? 'chatPanel.contextMeasured' : 'chatPanel.contextEstimated',
+              !isWindowKnown
+                ? 'chatPanel.contextUnknownWindow'
+                : isDerivedContext
+                  ? 'chatPanel.contextDerived'
+                  : isMeasuredContext ? 'chatPanel.contextMeasured' : 'chatPanel.contextEstimated',
               { used: usedTokens, available: availableTokens, total: numCtx },
             )}
             style={{
@@ -1426,9 +1437,9 @@ export default function ChatPanel({
               }} />
             </div>
             <span style={{ whiteSpace: 'nowrap' }}>
-              {Math.round(remainingPercentage)}%
+              {isWindowKnown ? `${Math.round(remainingPercentage)}%` : formatTokens(usedTokens)}
               <span className="vscode-chat-context-detail" style={{ opacity: 0.75, marginLeft: '4px' }}>
-                {formatTokens(availableTokens)}/{formatTokens(numCtx)}
+                {isWindowKnown ? `${formatTokens(availableTokens)}/${formatTokens(numCtx)}` : '/ ?'}
               </span>
             </span>
           </div>

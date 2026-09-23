@@ -317,6 +317,28 @@ def update_connection_fields(connection_id: str, values: dict[str, Any]) -> bool
 # ─── /models (catalog half) ───────────────────────────────────────────────────
 
 
+def _describe_num_ctx(model: dict) -> str:
+    """num_ctx as the list and `show` print it, saying what "auto" resolved to."""
+    if model.get("num_ctx"):
+        return str(model["num_ctx"])
+    from .config import auto_num_ctx
+
+    window, source = auto_num_ctx(model.get("id"), allow_network=False)
+    if source == "local_default":
+        return f"auto ({window}, local default)"
+    if source == "provider":
+        return f"auto ({window}, reported by the provider)"
+    return "auto (unknown: no limit applied)"
+
+
+async def _discover_saved_model_window(model_id: str) -> None:
+    """Let an "Auto" entry learn its window from the provider right after a save."""
+    import asyncio
+    from .context_discovery import ensure_provider_context_window
+
+    await asyncio.to_thread(ensure_provider_context_window, model_id)
+
+
 def _print_model(model: dict) -> None:
     T.console.print(f"\n[bold]{_escape(model.get('id') or '')}[/bold]")
     rows = [
@@ -325,7 +347,7 @@ def _print_model(model: dict) -> None:
         ("connection", f"{model.get('connection_id') or '—'} ({model.get('connection_label') or '—'})"),
         ("api_base", model.get("api_base") or "—"),
         ("api_key", _mask(model.get("api_key") or "")),
-        ("num_ctx", model.get("num_ctx")),
+        ("num_ctx", _describe_num_ctx(model)),
         ("supports_thinking", model.get("supports_thinking")),
         ("requires_single_system_message", model.get("requires_single_system_message")),
         ("prompt_profile", model.get("prompt_profile")),
@@ -386,7 +408,7 @@ async def catalog_models(state: REPLState, action: str, rest: list[str]) -> str:
             T.console.print(
                 f"  [cyan]{_escape(model.get('id') or '')}[/cyan]  "
                 f"[dim]connection={_escape(model.get('connection_id') or '—')}  "
-                f"ctx={model.get('num_ctx') or '—'}  "
+                f"ctx={_escape(_describe_num_ctx(model))}  "
                 f"thinking={'yes' if model.get('supports_thinking') else 'no'}  "
                 f"profile={model.get('prompt_profile')}/{model.get('orchestrator_policy')}[/dim]"
             )
@@ -443,6 +465,7 @@ async def catalog_models(state: REPLState, action: str, rest: list[str]) -> str:
         except Exception as exc:
             T.error(str(exc))
             return "continue"
+        await _discover_saved_model_window(payload["id"])
         T.success(_("cli_model_added", id=payload["id"]))
         T.console.print(f"[dim]{_('cli_model_added_hint', id=payload['id'])}[/dim]")
         return "continue"
@@ -481,6 +504,7 @@ async def catalog_models(state: REPLState, action: str, rest: list[str]) -> str:
         except Exception as exc:
             T.error(str(exc))
             return "continue"
+        await _discover_saved_model_window(payload.get("id") or model_id)
         T.success(_("cli_model_updated", id=payload.get("id") or model_id))
         return "continue"
 
@@ -688,6 +712,7 @@ async def cmd_add_model(state: REPLState, args: list[str]) -> str:
     except Exception as exc:
         T.error(str(exc))
         return "continue"
+    await _discover_saved_model_window(model_id)
     T.success(_("cli_model_added", id=model_id))
     saved = get_model(model_id)
     if saved is not None:
