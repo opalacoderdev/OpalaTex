@@ -372,13 +372,21 @@ export default function EditorPanel({
     setShowSnippetsPanel(false);
     
     // Check if there is an existing PDF for this file
+    let cancelled = false;
     if (selectedFile && selectedFile.toLowerCase().endsWith('.tex') && activeProject?.project_path) {
       fetch(`/api/latex/check-pdf?filePath=${encodeURIComponent(selectedFile)}&projectPath=${encodeURIComponent(activeProject.project_path)}`)
         .then(r => r.json())
         .then(data => {
+          // A late answer for a file the user has already left must not
+          // replace the current file's PDF or reopen a pane they collapsed.
+          if (cancelled) return;
           if (data.found && (data.pdf_url || data.pdf_base64)) {
             setPdfUrl(data.pdf_url || `/api/latex/pdf?ts=${Date.now()}`);
             setPdfErrorLog('');
+            // Opening a .tex that already has a compiled PDF shows it beside
+            // the source. The pane still starts collapsed for a file with no
+            // PDF yet, where it would only hold an empty viewer.
+            setIsPdfPreviewCollapsed(false);
           }
           // If not found, do NOT clear pdfUrl, so the main document's PDF remains visible
           // when clicking into an included file (e.g., apendice.tex).
@@ -387,6 +395,7 @@ export default function EditorPanel({
     }
     // We also do NOT clear pdfUrl if not a .tex file,
     // so users can see the PDF while editing .bib or .cls files.
+    return () => { cancelled = true; };
   }, [selectedFile, activeProject?.project_path]);
 
   // Jump to line effect when switching files
