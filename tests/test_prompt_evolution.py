@@ -2,42 +2,52 @@ import json
 from unittest.mock import AsyncMock
 import pytest
 
-from opalatex.ide_server import AsyncHTTPServer, PromptEvolutionResult, clean_evolved_prompt
+from opalatex.ide_server import AsyncHTTPServer, clean_evolved_prompt
 
 
 def test_clean_evolved_prompt():
-    result = PromptEvolutionResult(
-        evolved_prompt="  Explain self-attention in Transformers.  "
+    assert clean_evolved_prompt("  Explain self-attention in Transformers.  ") == (
+        "Explain self-attention in Transformers."
     )
-    assert clean_evolved_prompt(result) == "Explain self-attention in Transformers."
-
-    with pytest.raises(TypeError, match="validated structured result"):
-        clean_evolved_prompt({"evolved_prompt": "plain dictionary"})
 
     with pytest.raises(ValueError, match="empty refined prompt"):
-        clean_evolved_prompt(PromptEvolutionResult(evolved_prompt="   "))
+        clean_evolved_prompt("   ")
 
     source_prompt = "Ensine-me sobre auto-atenção no transformer."
     with pytest.raises(ValueError, match="original prompt unchanged"):
-        clean_evolved_prompt(
-            PromptEvolutionResult(evolved_prompt=source_prompt),
-            source_prompt=source_prompt,
-        )
+        clean_evolved_prompt(source_prompt, source_prompt=source_prompt)
     with pytest.raises(ValueError, match="internal task wrapper"):
         clean_evolved_prompt(
-            PromptEvolutionResult(evolved_prompt=f"Refine this user prompt: {source_prompt}"),
+            f"Refine this user prompt: {source_prompt}",
             source_prompt=source_prompt,
         )
     with pytest.raises(ValueError, match="internal instructions"):
         clean_evolved_prompt(
-            PromptEvolutionResult(
-                evolved_prompt=(
-                    "Refine this user prompt while preserving its language and intent. "
-                    "Return only a JSON object that conforms to the provided response schema."
-                )
-            ),
+            "Refine this user prompt while preserving its language and intent. "
+            "Return only a JSON object that conforms to the provided response schema.",
             source_prompt=source_prompt,
         )
+
+
+def test_clean_evolved_prompt_removes_whole_answer_fence_only():
+    # Some models fence a plain-text answer out of habit (glm-5.3 on Ollama cloud
+    # did it on every call). A fence around the whole answer is presentation.
+    fenced = "```\nRevise a \\section{Introdução} mantendo \\cite{silva2020}.\n```"
+    assert clean_evolved_prompt(fenced) == (
+        "Revise a \\section{Introdução} mantendo \\cite{silva2020}."
+    )
+    # A fence inside the refined prompt is content and survives.
+    inner = "Format the output like this:\n```latex\n\\begin{table}\n```\nKeep labels."
+    assert clean_evolved_prompt(inner) == inner
+
+
+def test_clean_evolved_prompt_separates_reasoning_markup():
+    answer = "<think>The user wants a clearer prompt.</think>Rewrite the abstract in 150 words."
+    assert clean_evolved_prompt(answer) == "Rewrite the abstract in 150 words."
+
+    with pytest.raises(ValueError, match="reasoning only"):
+        clean_evolved_prompt("<think>Thinking about the prompt...</think>")
+
 
 @pytest.mark.asyncio
 async def test_prompt_evolution_settings_endpoints(tmp_path, monkeypatch):
@@ -142,7 +152,7 @@ async def test_execute_prompt_evolution_invokes_agent(monkeypatch):
     from unittest.mock import MagicMock
 
     mock_agent_instance = MagicMock()
-    mock_agent_instance.run = AsyncMock(return_value=MagicMock(structured_output=PromptEvolutionResult(evolved_prompt="Detailed Evolved Prompt")))
+    mock_agent_instance.run = AsyncMock(return_value=MagicMock(response="Detailed Evolved Prompt"))
 
     agent_kwargs = {}
 
@@ -156,9 +166,10 @@ async def test_execute_prompt_evolution_invokes_agent(monkeypatch):
     selected_model = "test-provider/prompt-model"
     captured = {}
 
-    def mock_get_llm_kwargs(agent_name, model_override=None):
+    def mock_get_llm_kwargs(agent_name, model_override=None, reasoning_effort_override=None):
         captured["agent_name"] = agent_name
         captured["model_override"] = model_override
+        captured["reasoning_effort_override"] = reasoning_effort_override
         return {"think": True}
 
     monkeypatch.setattr("opalatex.config.get_agent_llm_kwargs", mock_get_llm_kwargs)
@@ -176,13 +187,18 @@ async def test_execute_prompt_evolution_invokes_agent(monkeypatch):
     assert agent_kwargs["model"] == selected_model
     assert agent_kwargs["model_kwargs"]["think"] is True
     assert agent_kwargs["model_kwargs"]["max_tokens"] == 4096
-    assert agent_kwargs["response_schema"] is PromptEvolutionResult
+    # Plain text, like the translator: Ollama cloud ignores `format`, and a
+    # response_schema miss cost a second completion before failing.
+    assert "response_schema" not in agent_kwargs
+    assert "Do not answer the prompt" in agent_kwargs["system_prompt"]
     run_input = mock_agent_instance.run.call_args.args[0]
     assert run_input.prompt == "Short prompt"
     assert "Refine this user prompt" not in run_input.prompt
+    # A one-shot rewrite does not inherit the chat's full reasoning effort.
     assert captured == {
         "agent_name": "orchestrator",
         "model_override": selected_model,
+        "reasoning_effort_override": "low",
     }
 
 
@@ -246,3 +262,67 @@ async def test_cancel_evolve_prompt_endpoint(tmp_path, monkeypatch):
 
     assert cancelled_observed is True
     assert server.active_prompt_evolution_task is None
+
+
+def _catalog(monkeypatch, entry):
+    import opalatex.models_store as store
+    monkeypatch.setattr(store, "get_model", lambda _id: dict(entry))
+    monkeypatch.setattr(store, "get_model_by_runtime_id", lambda _id: dict(entry))
+    monkeypatch.setattr("opalatex.tools._PROJECT_SESSION", None, raising=False)
+
+
+@pytest.mark.parametrize(
+    "model, entry, expected",
+    [
+        # Ollama: the effort travels as the `think` level, never as its own field.
+        (
+            "ollama/glm-5.3-flash:cloud",
+            {"supports_thinking": True, "api_base": "https://ollama.com"},
+            {"think": "low"},
+        ),
+        # A catalog effort is replaced, not merged with.
+        (
+            "ollama/glm-5.3:cloud",
+            {"supports_thinking": True, "reasoning_effort": "high", "api_base": "https://ollama.com"},
+            {"think": "low"},
+        ),
+        # OpenAI-compatible providers take the parameter itself.
+        (
+            "openai/google/gemini-3.7-flash",
+            {"supports_thinking": True, "api_base": "https://openrouter.ai/api/v1"},
+            {"reasoning_effort": "low"},
+        ),
+    ],
+)
+def test_reasoning_effort_override_reaches_the_provider(monkeypatch, model, entry, expected):
+    from opalatex.config import get_agent_llm_kwargs
+
+    _catalog(monkeypatch, entry)
+    kwargs = get_agent_llm_kwargs(
+        "orchestrator", model_override=model, reasoning_effort_override="low"
+    )
+    for key, value in expected.items():
+        assert kwargs.get(key) == value
+    if "think" in expected:
+        assert "reasoning_effort" not in kwargs
+
+
+def test_reasoning_effort_override_skips_models_that_do_not_reason(monkeypatch):
+    from opalatex.config import get_agent_llm_kwargs
+
+    _catalog(monkeypatch, {"supports_thinking": False, "api_base": "https://openrouter.ai/api/v1"})
+    kwargs = get_agent_llm_kwargs(
+        "orchestrator",
+        model_override="openai/some/plain-model",
+        reasoning_effort_override="low",
+    )
+    assert "reasoning_effort" not in kwargs
+    assert "think" not in kwargs
+
+
+def test_without_override_the_catalog_effort_still_applies(monkeypatch):
+    from opalatex.config import get_agent_llm_kwargs
+
+    _catalog(monkeypatch, {"supports_thinking": True, "api_base": "https://ollama.com"})
+    kwargs = get_agent_llm_kwargs("orchestrator", model_override="ollama/glm-5.3:cloud")
+    assert kwargs["think"] is True

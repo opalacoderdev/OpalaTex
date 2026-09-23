@@ -652,7 +652,11 @@ def resolve_agent_model(agent_name: str) -> str:
     return get_agent_model(agent_name, default=session_model)
 
 
-def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> dict:
+def get_agent_llm_kwargs(
+    agent_name: str,
+    model_override: str | None = None,
+    reasoning_effort_override: str | None = None,
+) -> dict:
     """Return merged litellm kwargs for *agent_name*.
 
     Priority (highest first):
@@ -667,6 +671,15 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     credentials and capabilities instead of resolving a model for the agent
     role. This is used by UI features that must follow the model currently
     selected for the chat.
+
+    ``reasoning_effort_override`` replaces the effort from every source above,
+    for callers whose task needs a different depth than the model's chat
+    setting (a one-shot rewrite does not need the orchestrator's full effort).
+    It applies only to a model the catalog marks ``supports_thinking``: a model
+    that does not reason has no effort to lower, and forwarding the parameter
+    to it would be an unknown argument. It goes through the same
+    ``resolve_think_request``/sanitizer path as the catalog value, so on Ollama
+    it travels as ``think`` and ``"none"`` keeps its documented meaning there.
     """
     merged = dict(_get_llm_defaults())
     merged.update(_get_agent_overrides().get(agent_name, {}))
@@ -759,6 +772,8 @@ def get_agent_llm_kwargs(agent_name: str, model_override: str | None = None) -> 
     merged.update(store_inference_params)
     merged.update(store_extra_model_params)
     merged.update(project_llm_params)
+    if reasoning_effort_override is not None and store_supports_thinking:
+        merged["reasoning_effort"] = reasoning_effort_override
 
     try:
         from .tools import _PROJECT_SESSION

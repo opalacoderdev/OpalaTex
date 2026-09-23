@@ -435,8 +435,8 @@ export default function ChatPanel({
     const raw = error instanceof Error ? error.message : String(error || '');
     const normalized = raw.toLowerCase();
 
-    if (normalized.includes('valid structured result')) {
-      return t('chatPanel.evolveInvalidStructuredResult');
+    if (normalized.includes('reasoning only')) {
+      return t('chatPanel.evolveReasoningOnly');
     }
     if (normalized.includes('internal task wrapper')) {
       return t('chatPanel.evolveInternalWrapperResult');

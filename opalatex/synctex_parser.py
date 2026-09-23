@@ -72,6 +72,16 @@ class SynctexParser:
                                 except:
                                     pass
 
+def companion_synctex_path(pdf_path):
+    """Return the SyncTeX file written alongside `pdf_path`, or "" if none.
+
+    TeX engines name it after the PDF (`paper.pdf` -> `paper.synctex.gz`), so a
+    PDF without that sibling was not produced with SyncTeX and has no source.
+    """
+    candidate = os.path.splitext(pdf_path)[0] + ".synctex.gz"
+    return candidate if os.path.isfile(candidate) else ""
+
+
 def select_record_line(recorded_lines, target_line):
     """Picks which recorded source line covers `target_line`.
 

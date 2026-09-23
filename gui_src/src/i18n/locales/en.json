@@ -439,7 +439,7 @@
     "evolvedSuccess": "Prompt successfully evolved!",
     "evolveCancelled": "Prompt evolution cancelled. The original prompt was preserved.",
     "evolveError": "Failed to evolve prompt: {{message}}",
-    "evolveInvalidStructuredResult": "The model did not return the expected structured refinement. The original prompt was preserved.",
+    "evolveReasoningOnly": "The model answered with reasoning only and no refined prompt. The original prompt was preserved.",
     "evolveInternalWrapperResult": "The model echoed the internal refinement instruction instead of a refined prompt. The original prompt was preserved.",
     "evolveOriginalUnchanged": "The model returned the original prompt unchanged. The original prompt was preserved.",
     "evolveInternalInstructionLeak": "The model returned internal instructions instead of a refined prompt. The original prompt was preserved.",

@@ -49,7 +49,6 @@ import json
 import urllib.parse
 import mimetypes
 import subprocess
-from pydantic import BaseModel, Field
 from email.parser import BytesParser
 from email.policy import default as email_default_policy
 from opalatex.subprocess_utils import utf8_text_kwargs
@@ -261,17 +260,30 @@ _PROMPT_EVOLUTION_INTERNAL_OUTPUT_MARKERS = (
     "refined version of the user prompt",
 )
 
+# A one-shot rewrite does not need the chat's reasoning depth: with every
+# catalog model at full effort, glm-5.3 spent 20-40 s and up to 12k characters
+# of reasoning to rephrase one paragraph. "low" rather than "none": on Ollama
+# `think: false` does not stop the reasoning, it only stops separating it, so it
+# leaks undelimited into the answer (see `config.resolve_think_request`).
+PROMPT_EVOLUTION_REASONING_EFFORT = "low"
 
-class PromptEvolutionResult(BaseModel):
-    """The only model output accepted by prompt evolution."""
-
-    evolved_prompt: str = Field(
-        min_length=1,
-        description=(
-            "The refined prompt text only, preserving the source language and intent. "
-            "Do not include task instructions, schema instructions, reasoning, or explanations."
-        ),
-    )
+PROMPT_EVOLUTION_SYSTEM_PROMPT = (
+    "You rewrite prompts. The user message is a prompt that someone intends to "
+    "send to an AI assistant working on a LaTeX/academic writing project. Rewrite "
+    "it into a clearer, more specific and more useful prompt.\n"
+    "Do not answer the prompt, carry out its task, or ask questions about it: "
+    "your output is the improved prompt itself, which will replace the original "
+    "in the chat box.\n"
+    "Preserve the user's language, intent and every concrete reference it "
+    "contains (file names, LaTeX commands, citation keys, labels, equations, "
+    "numbers) exactly as written. Do not invent facts, data or requirements "
+    "the user did not state.\n"
+    "Answer with the rewritten prompt as plain text and nothing else: no "
+    "preamble, no title, no commentary, no quotes around it, no JSON, and no "
+    "code fence around the whole answer.\n"
+    "Do not think out loud in your answer: reasoning that reaches the answer "
+    "channel replaces the user's prompt."
+)
 
 
 def _normalize_prompt_evolution_text(text: str) -> str:
@@ -279,13 +291,23 @@ def _normalize_prompt_evolution_text(text: str) -> str:
 
 
 def clean_evolved_prompt(
-    result: PromptEvolutionResult,
+    answer: str,
     source_prompt: str | None = None,
 ) -> str:
-    """Return the validated field from the structured prompt-evolution output."""
-    if not isinstance(result, PromptEvolutionResult):
-        raise TypeError("Prompt evolution requires a validated structured result.")
-    evolved_prompt = result.evolved_prompt.strip()
+    """Return the refined prompt from the model's plain-text answer.
+
+    Reasoning markup is separated and a code fence enclosing the whole answer is
+    removed (the same presentation cleanup the snippet translator applies); the
+    remaining text is rejected, never rewritten, when it is empty, identical to
+    the source, or leaks the task's own instructions.
+    """
+    from opalatex.translation import strip_model_reasoning, strip_plain_text_wrapper
+
+    raw = str(answer or "")
+    visible = strip_model_reasoning(raw)
+    if not visible and raw.strip():
+        raise ValueError("Prompt evolution answered with reasoning only and no refined prompt.")
+    evolved_prompt = strip_plain_text_wrapper(visible)
     if not evolved_prompt:
         raise ValueError("Prompt evolution returned an empty refined prompt.")
 
@@ -314,6 +336,15 @@ async def _execute_prompt_evolution(
 ) -> str:
     """Refine and evolve a prompt iteratively using LLMAgentBlock.
 
+    The agent answers in **plain text**, like the snippet translator and for the
+    same reason: the whole result is one string, so a JSON envelope only adds a
+    way to fail. Ollama's cloud endpoint ignores ``format`` (measured: glm-5.3
+    fenced or reformatted its answer on every call, and no model returned JSON
+    with ``think`` off), so the envelope rested on instruction-following alone.
+    When the model missed it, ``LLMAgentBlock`` silently spent a second full
+    completion on its schema fallback and the user got "did not return a valid
+    structured result" after twice the wait, with the refinement discarded.
+
     The project's user prompt prefix is deliberately not applied here, for the
     same reason as in ``opalatex.translation``: this is a transform whose input
     is the user's prompt, not a conversation, and ``prepend_user_prompt`` would
@@ -330,6 +361,7 @@ async def _execute_prompt_evolution(
     model_kwargs = get_agent_llm_kwargs(
         "orchestrator",
         model_override=selected_model if model else None,
+        reasoning_effort_override=PROMPT_EVOLUTION_REASONING_EFFORT,
     )
     try:
         model_kwargs["max_tokens"] = max(1, min(65536, int(max_tokens)))
@@ -339,19 +371,12 @@ async def _execute_prompt_evolution(
     current = prompt
     iters = max(1, min(10, int(iterations or 1)))
 
-    system_prompt = (
-        "Rewrite the user's prompt into a clearer and more useful prompt. "
-        "Preserve the user's language and intent. "
-        "Return the structured result with the rewritten prompt text in evolved_prompt."
-    )
-
     for _ in range(iters):
         agent = _agent_mod.LLMAgentBlock(
             name="prompt_evolution",
-            system_prompt=system_prompt,
+            system_prompt=PROMPT_EVOLUTION_SYSTEM_PROMPT,
             model=selected_model,
             model_kwargs=model_kwargs,
-            response_schema=PromptEvolutionResult,
         )
         wrap_agent_litellm_compat(agent)
         res = await agent.run(
@@ -359,10 +384,7 @@ async def _execute_prompt_evolution(
                 prompt=current
             )
         )
-        structured_result = res.structured_output
-        if not isinstance(structured_result, PromptEvolutionResult):
-            raise ValueError("Prompt evolution did not return a valid structured result.")
-        current = clean_evolved_prompt(structured_result, source_prompt=current)
+        current = clean_evolved_prompt(res.response, source_prompt=current)
 
     return current
 
@@ -1489,8 +1511,8 @@ class AsyncHTTPServer:
 
         # 0.3 SyncTeX
         elif path == '/api/latex/synctex' and method == 'GET':
-            from opalatex.synctex_parser import find_source_line, find_pdf_position
-            
+            from opalatex.synctex_parser import companion_synctex_path, find_source_line, find_pdf_position
+
             action = query.get('action', [''])[0]
             file_path = query.get('filePath', [''])[0]
             project_path = query.get('projectPath', [''])[0]
@@ -1502,6 +1524,38 @@ class AsyncHTTPServer:
                 return
                 
             try:
+                if file_path.lower().endswith('.pdf'):
+                    # A PDF opened on its own is only linked to LaTeX source
+                    # through its own companion SyncTeX file. Resolving the
+                    # project's main file here instead would map the click
+                    # through an unrelated document's SyncTeX.
+                    if action != 'pdf2tex':
+                        self.send_response(writer, 400, b'{"error":"only pdf2tex is supported for a PDF file"}', "application/json")
+                        return
+                    pdf_full_path = os.path.abspath(os.path.join(project_path, file_path))
+                    synctex_path = companion_synctex_path(pdf_full_path)
+                    if not synctex_path:
+                        self.send_response(writer, 404, b'{"error":"synctex file not found"}', "application/json")
+                        return
+                    page = int(query.get('page', ['1'])[0])
+                    x = float(query.get('x', ['0'])[0])
+                    y = float(query.get('y', ['0'])[0])
+                    result = find_source_line(synctex_path, page, x, y)
+                    if result and 'file' in result:
+                        abs_file = result['file']
+                        if not os.path.isabs(abs_file):
+                            abs_file = os.path.abspath(os.path.join(os.path.dirname(synctex_path), abs_file))
+                        if not os.path.isfile(abs_file):
+                            self.send_response(writer, 404, json.dumps({"error": f"synctex source file not found: {abs_file}"}).encode('utf-8'), "application/json")
+                            return
+                        result['file'] = abs_file
+                        try:
+                            result['relFile'] = os.path.relpath(abs_file, project_path).replace('\\', '/')
+                        except ValueError:
+                            result['relFile'] = abs_file
+                    self.send_response(writer, 200, json.dumps({"result": result}).encode('utf-8'), "application/json")
+                    return
+
                 # Resolve main_file from project settings if available
                 main_file = ""
                 from opalatex.project import ProjectStore
