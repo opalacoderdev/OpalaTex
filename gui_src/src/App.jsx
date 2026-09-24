@@ -650,6 +650,18 @@ export default function App() {
     setRunChatId(chatId || '');
   };
   const isLiveTurnOnScreen = !runChatId || runChatId === activeChatId;
+  // Set synchronously when this window starts a turn and cleared where that
+  // start ends. `isAgentRunning` cannot guard a start on its own: it is state,
+  // so two calls issued before the next render (a double click on "save edit")
+  // both read `false`. The second one then reached /run, was refused with 409,
+  // and its cleanup reset `isAgentRunning` and the run's chat binding while
+  // the first turn kept streaming -- a live agent behind an idle UI.
+  const localTurnRef = useRef(false);
+  const isTurnBusy = () => isAgentRunning || localTurnRef.current;
+  // Same reason for the edit-branch flow, whose first await (creating the
+  // branch) happens before any turn starts: without it a double submit made
+  // two branches of one message.
+  const editBranchInFlightRef = useRef(false);
   const [mainChatId, setMainChatId] = useState('');
   const [chats, setChats] = useState([]);
   // The built-in tutorial lives in a reserved chat (`tutorial_<project>`). Its id and
@@ -3407,7 +3419,7 @@ export default function App() {
     let clientMessageId = options.clientMessageId || retryMsg?.client_message_id || retryMsg?.clientMessageId || '';
 
     if (options.resumeInterrupted) {
-      if (!activeProject || isAgentRunning) return;
+      if (!activeProject || isTurnBusy()) return;
       const historySnapshot = options.historyOverride || chatMessages;
       // The backend builds the resumed turn from what it stored for the
       // interrupted one (resume_interrupted below); only the label is sent.
@@ -3420,12 +3432,12 @@ export default function App() {
       displayText = options.displayText || t('chatPanel.continue', 'Continue');
       attachmentsSnapshot = options.overrideAttachments || collectRecentChatAttachments(historySnapshot, 3);
     } else if (options.overrideText !== undefined) {
-      if (!activeProject || isAgentRunning) return;
+      if (!activeProject || isTurnBusy()) return;
       userText = options.overrideText;
       displayText = options.displayText || userText;
       attachmentsSnapshot = options.overrideAttachments || [];
     } else if (retryMsg) {
-      if (!activeProject || isAgentRunning) return;
+      if (!activeProject || isTurnBusy()) return;
       userText = retryMsg.content === '📎 Attachment' ? '' : retryMsg.content;
       displayText = userText;
       attachmentsSnapshot = retryMsg._attachments || [];
@@ -3436,7 +3448,7 @@ export default function App() {
       attachmentsSnapshot = [...pendingAttachments];
       setChatInput('');
       setPendingAttachments([]);
-      if (isAgentRunning) {
+      if (isTurnBusy()) {
         // A slash command is a client-side operation on the chat the agent is
         // using (/clear erases the history it is answering from), not something
         // to hand the model as text. Refuse it while a turn runs instead of
@@ -3454,6 +3466,8 @@ export default function App() {
         return;
       }
     }
+    // Taken before any request below is made; every exit from here on releases it.
+    localTurnRef.current = true;
     if (!clientMessageId) {
       clientMessageId = makeClientMessageId();
     }
@@ -3479,6 +3493,7 @@ export default function App() {
         }
       } catch (err) {
         addLog('error', t('app.editPreparationFailed', { error: err.message }));
+        localTurnRef.current = false;
         return;
       }
     }
@@ -3544,7 +3559,7 @@ export default function App() {
       } catch (err) {
         addLog('error', t('app.commandFailed', { error: err.message }));
         setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
-      } finally { setIsAgentRunning(false); fetchFiles(); }
+      } finally { localTurnRef.current = false; setIsAgentRunning(false); fetchFiles(); }
       return;
     }
 
@@ -3613,7 +3628,7 @@ export default function App() {
     } catch (err) {
       addLog('error', t('app.executionFailed', { error: err.message }));
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
-    } finally { bindRunChat(''); setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
+    } finally { localTurnRef.current = false; bindRunChat(''); setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
   };
 
   // A message the turn ended without delivering becomes an ordinary next turn.
@@ -3622,7 +3637,7 @@ export default function App() {
   // message must not end up as a lesser kind of message. One per pass — starting
   // a turn re-runs this effect for whatever is still queued.
   useEffect(() => {
-    if (isAgentRunning || !activeProject || queuedMessages.length === 0) return;
+    if (isTurnBusy() || !activeProject || queuedMessages.length === 0) return;
     const next = queuedMessages[0];
     setQueuedMessages(prev => prev.filter(m => m.clientMessageId !== next.clientMessageId));
     setChatMessages(prev => prev.filter(m => m.client_message_id !== next.clientMessageId));
@@ -3698,7 +3713,7 @@ export default function App() {
   };
 
   const handleEditUserMessage = async (messageIndex, originalMessage, editedContent) => {
-    if (!activeProject || isAgentRunning || !originalMessage || originalMessage.role !== 'user') return;
+    if (!activeProject || isTurnBusy() || editBranchInFlightRef.current || !originalMessage || originalMessage.role !== 'user') return;
     const nextContent = (editedContent || '').trim();
     if (!nextContent || nextContent === originalMessage.content) return;
 
@@ -3731,6 +3746,7 @@ export default function App() {
 
     const sourceChat = chats.find(c => c.id === activeChatId);
     const newChatName = `${sourceChat?.name || 'Chat'} (edited)`;
+    editBranchInFlightRef.current = true;
     try {
       const res = await fetch('/api/chat/branch-edit', {
         method: 'POST',
@@ -3770,11 +3786,13 @@ export default function App() {
         .catch(() => { });
     } catch (err) {
       addLog('error', t('app.editedBranchCreateError', { error: err.message }));
+    } finally {
+      editBranchInFlightRef.current = false;
     }
   };
 
   const handleGenerateResponseForUserMessage = async (messageIndex, message) => {
-    if (!activeProject || isAgentRunning || !message || message.role !== 'user') return;
+    if (!activeProject || isTurnBusy() || !message || message.role !== 'user') return;
     const content = message.content === '📎 Attachment' ? '' : (message.content || '');
     const attachments = message._attachments || [];
     if (!content.trim() && attachments.length === 0) return;
@@ -4388,7 +4406,8 @@ export default function App() {
    *   (avoids re-reading Monaco selection which may be gone by now).
    */
   const handleSendMessageWithPrompt = async (userText, capturedSelectedText) => {
-    if (!userText.trim() || !activeProject || isAgentRunning) return;
+    if (!userText.trim() || !activeProject || isTurnBusy()) return;
+    localTurnRef.current = true;
     setChatInput('');
     const promptMessage = { role: 'user', content: userText, timestamp: new Date().toISOString() };
     setChatMessages(prev => [...prev, promptMessage]);
@@ -4446,7 +4465,7 @@ export default function App() {
     } catch (err) {
       addLog('error', t('app.executionFailed', { error: err.message }));
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
-    } finally { bindRunChat(''); setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
+    } finally { localTurnRef.current = false; bindRunChat(''); setIsAgentRunning(false); setIsInterruptPending(false); fetchFiles(); fetchProblems(); }
   };
 
   // ── Render ────────────────────────────────────────────────────────────────

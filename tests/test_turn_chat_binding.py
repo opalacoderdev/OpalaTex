@@ -210,3 +210,45 @@ def test_continue_does_not_send_the_visible_bubbles():
 
     assert "serializeChatHistoryForAgent" not in app
     assert "messages: messagesForRequest" not in app
+
+
+def _function_body(source, signature):
+    start = source.index(signature)
+    return source[start:source.index("\n  };\n", start)]
+
+
+def test_a_second_start_from_this_window_cannot_idle_the_running_turn():
+    """A double click on "save edit" created two branches of one message.
+
+    Both clicks read `isAgentRunning === false` (React state, stale until the next
+    render), so both branched and both called /run. The second was refused with
+    409, and its cleanup reset `isAgentRunning` and the run's chat binding while
+    the first turn kept streaming into the window: the stop button went idle and
+    the reasoning kept moving. Starts are now guarded by a ref set synchronously.
+    """
+    app = open("gui_src/src/App.jsx", encoding="utf-8").read()
+    send = _function_body(app, "const handleSendMessage = async (")
+    inline = _function_body(app, "const handleSendMessageWithPrompt = async (")
+    edit = _function_body(app, "const handleEditUserMessage = async (")
+
+    for body in (send, inline):
+        assert "|| isAgentRunning)" not in body, "a start must not rely on render-time state alone"
+        assert "localTurnRef.current = true;" in body
+        # The lock is taken before the first await, so a second call sees it.
+        lock = body.index("localTurnRef.current = true;")
+        # (The composer's queue call is the one await there: it returns without
+        # starting a turn.)
+        guarded = body[body.index("isTurnBusy()"):lock].replace(
+            "await queueMessageForRunningAgent(userText, attachmentsSnapshot, targetChatId);\n        return;", ""
+        )
+        assert "await " not in guarded
+        assert body.count("localTurnRef.current = false;") >= 1
+
+    # Every exit after the lock in handleSendMessage releases it: the failed
+    # truncate, the slash-command path and the run itself.
+    assert send.count("localTurnRef.current = false;") == 3
+
+    assert "isTurnBusy()" in edit
+    branch = edit.index("editBranchInFlightRef.current = true;")
+    assert branch < edit.index("fetch('/api/chat/branch-edit'")
+    assert "editBranchInFlightRef.current = false;" in edit[edit.index("finally {", branch):]
