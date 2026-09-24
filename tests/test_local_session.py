@@ -87,7 +87,7 @@ async def test_background_tool_uses_authenticated_nonblocking_local_api(http_ser
     from opalatex import tools
     app, _, root = http_server
     sent = []
-    app.active_terminal = SimpleNamespace(is_running=True, write=sent.append, close=lambda: None)
+    app.active_terminal = SimpleNamespace(project_path=str(root), is_running=True, write=sent.append, close=lambda: None)
     monkeypatch.setattr(tools, '_PROJECT_SESSION', SimpleNamespace(mode='auto'))
     monkeypatch.setattr(tools, '_PROJECT_PATH', str(root))
     result = await tools.run_background_command._func('echo authenticated')

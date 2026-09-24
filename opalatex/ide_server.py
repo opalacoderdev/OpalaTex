@@ -823,6 +823,47 @@ class AsyncHTTPServer:
         self.active_agent_event_queue = None
         self.active_prompt_evolution_task = None
 
+    @staticmethod
+    def _is_project_terminal(term_id) -> bool:
+        """Terminal ids owned by the bottom panel: a shell in the open project."""
+        return term_id == 'main' or term_id.startswith('main-')
+
+    @staticmethod
+    def _same_path(a, b) -> bool:
+        # normcase: Windows paths may differ only in case or separator.
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+    def _project_terminal(self, term_id, project_path):
+        """Return the shell session for a bottom-panel tab, in ``project_path``.
+
+        A tab id (``main``, ``main-1``, ...) survives a project switch, so a
+        session found under it may belong to the project that was open before.
+        That session is closed and a fresh shell is started in the requested
+        project; reusing it left the terminal in the previous project's root.
+        A request without a project path keeps whatever session is running.
+        Returns None when no session is running and none can be started.
+        """
+        current = self.active_terminal if term_id == 'main' else self.temp_terminals.get(term_id)
+        if current is not None and current.is_running and (
+            not project_path or self._same_path(current.project_path, project_path)
+        ):
+            return current
+        if not project_path or not os.path.isdir(project_path):
+            return None
+        if current is not None:
+            try:
+                current.close()
+            except Exception as e:
+                print(f"[Terminal] failed to close session for {current.project_path}: {e}")
+        from opalatex.terminal_manager import TerminalSession
+        session = TerminalSession(project_path)
+        session.start_reading(asyncio.get_running_loop())
+        if term_id == 'main':
+            self.active_terminal = session
+        else:
+            self.temp_terminals[term_id] = session
+        return session
+
     def _agent_turn_active(self) -> bool:
         """True while an agent turn's task is alive, including its cleanup."""
         task = self.active_agent_task
@@ -3640,43 +3681,24 @@ class AsyncHTTPServer:
             except (TypeError, ValueError):
                 last_event_id = None
             
-            if term_id == 'main':
-                if not self.active_terminal or (project_path and self.active_terminal.project_path != project_path) or not self.active_terminal.is_running:
-                    if self.active_terminal:
-                        try:
-                            self.active_terminal.close()
-                        except:
-                            pass
-                    if not project_path or not os.path.exists(project_path):
-                        self.send_response(writer, 400, b'{"error":"Project path required"}', "application/json")
-                        return
-                    from opalatex.terminal_manager import TerminalSession
-                    try:
-                        self.active_terminal = TerminalSession(project_path)
-                        self.active_terminal.start_reading(asyncio.get_running_loop())
-                    except Exception as e:
-                        import traceback
-                        print(f"Failed to start terminal: {e}\n{traceback.format_exc()}")
-                        with open("terminal_error.log", "a", encoding="utf-8") as f:
-                            f.write(f"Failed to start terminal: {e}\n{traceback.format_exc()}\n")
-                        self.send_response(writer, 500, f'{{"error": "{str(e)}"}}'.encode('utf-8'), "application/json")
-                        return
-                active_term = self.active_terminal
+            if self._is_project_terminal(term_id):
+                try:
+                    active_term = self._project_terminal(term_id, project_path)
+                except Exception as e:
+                    import traceback
+                    print(f"Failed to start terminal: {e}\n{traceback.format_exc()}")
+                    with open("terminal_error.log", "a", encoding="utf-8") as f:
+                        f.write(f"Failed to start terminal: {e}\n{traceback.format_exc()}\n")
+                    self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                    return
+                if active_term is None:
+                    self.send_response(writer, 400, b'{"error":"Project path required"}', "application/json")
+                    return
             else:
-                if term_id not in self.temp_terminals:
-                    if term_id.startswith('main-') and project_path and os.path.exists(project_path):
-                        from opalatex.terminal_manager import TerminalSession
-                        try:
-                            term = TerminalSession(project_path)
-                            term.start_reading(asyncio.get_running_loop())
-                            self.temp_terminals[term_id] = term
-                        except Exception as e:
-                            self.send_response(writer, 500, f'{{"error": "{str(e)}"}}'.encode('utf-8'), "application/json")
-                            return
-                    else:
-                        self.send_response(writer, 404, b'{"error":"Temp terminal not found"}', "application/json")
-                        return
-                active_term = self.temp_terminals[term_id]
+                active_term = self.temp_terminals.get(term_id)
+                if active_term is None:
+                    self.send_response(writer, 404, b'{"error":"Temp terminal not found"}', "application/json")
+                    return
 
             headers = (
                 "HTTP/1.1 200 OK\r\n"
@@ -3736,35 +3758,20 @@ class AsyncHTTPServer:
             term_id = data.get("term_id", "main")
             project_path = data.get("projectPath")
             
-            if term_id == "main":
-                if not self.active_terminal or not self.active_terminal.is_running:
-                    if project_path:
-                        from opalatex.terminal_manager import TerminalSession
-                        try:
-                            self.active_terminal = TerminalSession(project_path)
-                            self.active_terminal.start_reading(asyncio.get_running_loop())
-                        except Exception as e:
-                            self.send_response(writer, 500, f'{{"error": "{str(e)}"}}'.encode('utf-8'), "application/json")
-                            return
-                    else:
-                        self.send_response(writer, 400, b'{"error":"No active terminal session"}', "application/json")
-                        return
-                active_term = self.active_terminal
+            if self._is_project_terminal(term_id):
+                try:
+                    active_term = self._project_terminal(term_id, project_path)
+                except Exception as e:
+                    self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                    return
+                if active_term is None:
+                    self.send_response(writer, 400, b'{"error":"No active terminal session"}', "application/json")
+                    return
             else:
-                if term_id not in self.temp_terminals:
-                    if term_id.startswith('main-') and project_path and os.path.exists(project_path):
-                        from opalatex.terminal_manager import TerminalSession
-                        try:
-                            term = TerminalSession(project_path)
-                            term.start_reading(asyncio.get_running_loop())
-                            self.temp_terminals[term_id] = term
-                        except Exception as e:
-                            self.send_response(writer, 500, f'{{"error": "{str(e)}"}}'.encode('utf-8'), "application/json")
-                            return
-                    else:
-                        self.send_response(writer, 404, b'{"error":"Temp terminal not found"}', "application/json")
-                        return
-                active_term = self.temp_terminals[term_id]
+                active_term = self.temp_terminals.get(term_id)
+                if active_term is None:
+                    self.send_response(writer, 404, b'{"error":"Temp terminal not found"}', "application/json")
+                    return
 
             action = data.get("action", "input")
             if action == "input":
@@ -3791,7 +3798,10 @@ class AsyncHTTPServer:
             try:
                 term = TerminalSession(project_path)
                 term.start_reading(asyncio.get_running_loop())
+                previous = self.temp_terminals.get(term_id)
                 self.temp_terminals[term_id] = term
+                if previous is not None:
+                    previous.close()
                 self.send_response(writer, 200, b'{"ok":true}', "application/json")
             except Exception as e:
                 self.send_response(writer, 500, f'{{"error": "{str(e)}"}}'.encode('utf-8'), "application/json")
