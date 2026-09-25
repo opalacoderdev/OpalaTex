@@ -858,6 +858,21 @@ def test_normalize_ollama_tool_call_parse_error_keeps_diagnostic_detail():
     assert "Original LiteLLM error" in str(normalized)
 
 
+def test_normalize_llama_server_tool_call_rejection_as_tool_call_json_error():
+    """Wording of llama-server-backed Ollama builds, recorded from a real session."""
+    from opalatex.litellm_compat import _normalize_ollama_unexpected_response_error
+
+    normalized = _normalize_ollama_unexpected_response_error(Exception((
+    "litellm.BadRequestError: Ollama_chatException - KeyError: 'message', Got unexpected "
+    "response from Ollama: {'error': 'llama-server returned invalid tool call arguments "
+    "for \"run_skill\": invalid character \\'\\\\n\\' in string literal'}"
+)))
+
+    assert "OPALATEX_OLLAMA_TOOL_CALL_JSON_ESCAPE" in str(normalized)
+    assert "run_skill" in str(normalized)
+    assert "unexpected response instead of a chat message" not in str(normalized)
+
+
 def test_wrap_agent_litellm_compat_merges_system_messages_for_thinking_remapped_model(tmp_path, monkeypatch):
     """Regression: the catalog flag must survive the ollama/ -> ollama_chat/ remap.
 

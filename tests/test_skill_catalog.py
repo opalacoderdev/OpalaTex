@@ -128,6 +128,18 @@ def test_an_invented_skill_name_is_told_that_tools_are_not_skills(tmp_path):
     assert CHAT_ORCHESTRATOR_SKILL not in out
 
 
+def test_delegating_to_create_plan_outside_plan_mode_does_not_offer_create_plan(tmp_path):
+    """Recorded failure: in auto mode a small model called run_skill("create_plan")
+    and was answered that create_plan is one of its own tools -- it is not, outside
+    plan mode, so the reply sent it after a tool that did not exist."""
+    tool = _run_skill(str(tmp_path), mode="auto")
+    out = asyncio.run(tool._func("create_plan", "create lista.tex"))
+
+    assert "was not found / is not active" in out
+    # Only the rejected name itself may appear, never as an offered tool.
+    assert out.count("create_plan") == 1
+
+
 @pytest.mark.parametrize("variant", [
     "SKILL.md", "SKILL.delegate.md", "SKILL.light.md", "SKILL.light-delegate.md",
 ])

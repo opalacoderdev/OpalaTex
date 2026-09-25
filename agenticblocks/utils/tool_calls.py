@@ -1,6 +1,6 @@
 """Helpers for reasoning about a tool call against the tools an agent advertises.
 
-Both functions work on OpenAI-format tool schemas (the output of
+The schema helpers work on OpenAI-format tool schemas (the output of
 ``block_to_tool_schema``), so they apply to any tool the agent can see --
 native Python blocks and MCP proxies alike -- and never execute anything.
 """
@@ -85,3 +85,37 @@ def unknown_tool_message(
         "protocol using one of the available tool names; do not write the call as text."
     )
     return message
+
+
+def is_ollama_tool_call_json_error(exc: BaseException) -> bool:
+    """Return whether Ollama refused a model-generated tool call as invalid JSON.
+
+    Ollama parses tool-call arguments server-side, so a model that writes a raw
+    newline or an unescaped backslash inside a JSON string never reaches the
+    client as a tool call: the request fails instead. That failure is the model's
+    malformed output, recoverable by asking it to re-issue the call, not a
+    transport or parameter error. Ollama words it differently across versions.
+    """
+    message = str(exc).lower()
+    return (
+        "opalatex_ollama_tool_call_json_escape" in message
+        or (
+            "ollama" in message
+            and (
+                "error parsing tool call" in message
+                or "tool-call json was invalid" in message
+                # llama-server-backed builds: "llama-server returned invalid
+                # tool call arguments for \"<tool>\": invalid character ..."
+                or "returned invalid tool call arguments" in message
+            )
+        )
+    )
+
+
+OLLAMA_TOOL_CALL_JSON_ALERT = (
+    "SYSTEM ALERT: Ollama rejected the previous native tool call because its arguments "
+    "were not valid JSON. Retry the same action through the native tool-calling API "
+    "with valid, compact JSON arguments: inside a JSON string, write a line break as "
+    "\\n and a backslash as \\\\, never as a raw character."
+)
+"""Corrective feedback after ``is_ollama_tool_call_json_error``; sent as ``system``."""

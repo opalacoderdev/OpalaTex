@@ -16,7 +16,11 @@ from agenticblocks.core.block import Block
 from agenticblocks.tools.a2a_bridge import block_to_tool_schema
 from agenticblocks.runtime.state import TokenUsage, _current_ctx
 from agenticblocks.utils.parsers import split_inline_reasoning
-from agenticblocks.utils.tool_calls import unknown_tool_message
+from agenticblocks.utils.tool_calls import (
+    OLLAMA_TOOL_CALL_JSON_ALERT,
+    is_ollama_tool_call_json_error,
+    unknown_tool_message,
+)
 from agenticblocks.utils.messages import build_user_content, history_accepts_user_message
 from agenticblocks.blocks.llm.inbox import InboxItem, MessageInbox
 
@@ -321,6 +325,11 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     and return the tool's result as the agent's response."""
     max_iterations: Optional[int] = None
     max_tool_calls: int = 2
+    max_tool_call_json_retries: int = 2
+    """Times per run the model is asked to re-issue a tool call that Ollama refused
+    as invalid JSON (see ``is_ollama_tool_call_json_error``). Kept separate from
+    ``max_iterations``, which may be ``None``, so the retry is always bounded;
+    past it the provider error is raised unchanged."""
     on_max_iterations: str = "return_last"
     """Behaviour when max_iterations is reached.
     - "stop"        : return a fixed stop message (default, backward-compatible).
@@ -617,6 +626,7 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
         visible_texts: List[str] = []
         tool_usage: Dict[str, int] = defaultdict(int)
         tool_call_signatures: Dict[str, int] = defaultdict(int)
+        json_retries = 0
         termination_reason: str = "unknown"
 
         try:
@@ -722,7 +732,21 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                 kwargs["response_format"] = self.response_schema
 
             # Main LiteLLM call.
-            response = await self._acompletion(messages, **kwargs)
+            try:
+                response = await self._acompletion(messages, **kwargs)
+            except Exception as exc:
+                # The server refused the model's own tool-call JSON, so nothing
+                # reached this block to execute or append. Tell the model and let
+                # it re-issue the call, as a system message (runtime feedback,
+                # not something the user said).
+                if (
+                    is_ollama_tool_call_json_error(exc)
+                    and json_retries < self.max_tool_call_json_retries
+                ):
+                    json_retries += 1
+                    messages.append({"role": "system", "content": OLLAMA_TOOL_CALL_JSON_ALERT})
+                    continue
+                raise
 
             await self._emit_token_usage(response, step=iteration_count)
 

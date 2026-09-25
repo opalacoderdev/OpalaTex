@@ -21,7 +21,11 @@ from agenticblocks.core.block import Block
 from agenticblocks.core.function_block import as_tool
 from agenticblocks.runtime.state import TokenUsage, _current_ctx
 from agenticblocks.utils.parsers import split_inline_reasoning
-from agenticblocks.utils.tool_calls import unknown_tool_message
+from agenticblocks.utils.tool_calls import (
+    OLLAMA_TOOL_CALL_JSON_ALERT,
+    is_ollama_tool_call_json_error,
+    unknown_tool_message,
+)
 
 
 DEFAULT_RECURSIVE_SUMMARY = "No history has been evicted yet."
@@ -54,20 +58,8 @@ def is_empty_response_placeholder(text: Any) -> bool:
     return text.strip().lower() == EMPTY_RESPONSE_PLACEHOLDER
 
 
-def _is_ollama_tool_call_json_escape_error(exc: Exception) -> bool:
-    """Return whether Ollama rejected a model-generated tool argument string."""
-    message = str(exc).lower()
-    return (
-        "opalatex_ollama_tool_call_json_escape" in message
-        or (
-            "ollama" in message
-            and "error parsing tool call" in message
-        )
-        or (
-            "ollama" in message
-            and "tool-call json was invalid" in message
-        )
-    )
+# Shared with LLMAgentBlock; the private names are kept for existing callers.
+_is_ollama_tool_call_json_escape_error = is_ollama_tool_call_json_error
 
 
 def _heartbeat_pressure_alert(heartbeats_left: int, max_heartbeats: int) -> str:
@@ -124,11 +116,7 @@ it is not is the false completion the idle allowance exists to prevent."""
 
 def _ollama_tool_call_json_escape_alert() -> str:
     """Return bounded system feedback for a malformed native Ollama tool call."""
-    return (
-        "SYSTEM ALERT: Ollama rejected the previous native tool call because its arguments "
-        "were not valid JSON. Retry the same action through the native tool-calling API "
-        "with valid, compact JSON arguments."
-    )
+    return OLLAMA_TOOL_CALL_JSON_ALERT
 
 
 class MemGPTAgentBlock(AgentBlock[AgentInput, AgentOutput]):

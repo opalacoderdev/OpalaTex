@@ -1320,6 +1320,19 @@ def test_ollama_tool_call_parse_error_is_not_reported_as_connection_error():
     assert "tool-call JSON was invalid" in msg
     assert "Could not connect" not in msg
 
+def test_llama_server_tool_call_rejection_is_not_reported_as_a_parameter_value():
+    """Newer Ollama builds word the rejection differently; it is still the model's
+    malformed tool-call JSON, not a model parameter the user set."""
+    project = SimpleNamespace(model="ollama/hf.co/LiquidAI/LFM2.5-2.6B-GGUF:F16", api_base="")
+    msg = _friendly_llm_error(Exception((
+    "litellm.BadRequestError: Ollama_chatException - KeyError: 'message', Got unexpected "
+    "response from Ollama: {'error': 'llama-server returned invalid tool call arguments "
+    "for \"run_skill\": invalid character \\'\\\\n\\' in string literal'}"
+)), project)
+
+    assert "tool-call JSON was invalid" in msg
+    assert "rejected a parameter value" not in msg
+
 def test_ollama_http_500_is_not_misclassified_as_connection_error():
     project = SimpleNamespace(model="ollama/gpt-oss:20b", api_base="http://localhost:11434")
     msg = _friendly_llm_error(

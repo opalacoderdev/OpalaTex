@@ -258,7 +258,10 @@ def _normalize_ollama_unexpected_response_error(exc: Exception) -> Exception:
     """Replace noisy Ollama/LiteLLM response-shape errors with a useful hint."""
     text = str(exc)
     low = text.lower()
-    if "error parsing tool call" in low:
+    # Ollama words the same rejection differently across versions: older builds
+    # say "error parsing tool call", llama-server-backed ones "llama-server
+    # returned invalid tool call arguments for \"<tool>\"".
+    if "error parsing tool call" in low or "returned invalid tool call arguments" in low:
         message = (
             "OPALATEX_OLLAMA_TOOL_CALL_JSON_ESCAPE: Ollama rejected a model "
             "tool-call argument because its tool-call JSON was invalid. "

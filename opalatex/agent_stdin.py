@@ -528,6 +528,7 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
         "opalatex_ollama_tool_call_json_escape" in low
         or "error parsing tool call" in low
         or "tool-call json was invalid" in low
+        or "returned invalid tool call arguments" in low
     ):
         return (
             f"Ollama rejected a tool call from {model}: the model emitted invalid "

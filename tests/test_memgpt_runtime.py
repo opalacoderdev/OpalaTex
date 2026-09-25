@@ -604,6 +604,63 @@ def test_memgpt_retries_ollama_invalid_json_tool_call_with_heartbeat():
     assert len(calls) == 2
     assert "native tool-calling API" in calls[1][-1]["content"]
 
+def test_memgpt_retries_a_llama_server_tool_call_rejection_through_the_compat_layer():
+    """Recorded failure: a llama-server-backed Ollama rejected run_skill arguments
+    carrying a raw newline, and the wording matched no detector, so the turn died
+    with "The model rejected a parameter value" instead of a bounded retry."""
+    from types import SimpleNamespace
+    from agenticblocks.blocks.llm.agent import AgentInput
+    from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    agent = MemGPTAgentBlock(
+        name="chat_orchestrator",
+        model="ollama_chat/hf.co/LiquidAI/LFM2.5-2.6B-GGUF:F16",
+        max_heartbeats=3,
+        system_prompt="test",
+    )
+    calls = []
+
+    async def fake_completion(_messages, **_kwargs):
+        calls.append([dict(message) for message in _messages])
+        if len(calls) == 1:
+            raise Exception(
+                "litellm.BadRequestError: Ollama_chatException - KeyError: 'message', Got "
+                "unexpected response from Ollama: {'error': 'llama-server returned invalid "
+                "tool call arguments for \"run_skill\": invalid character \\'\\\\n\\' "
+                "in string literal'}"
+            )
+        message = SimpleNamespace(content="Recovered", reasoning_content=None, tool_calls=None)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+
+    agent._acompletion = fake_completion
+    wrap_agent_litellm_compat(agent)
+    result = asyncio.run(agent.run(AgentInput(prompt="save the list")))
+
+    assert result.response == "Recovered"
+    assert len(calls) == 2
+    alert = calls[1][-1]
+    assert alert["role"] == "system"
+    assert "native tool-calling API" in alert["content"]
+    assert "\\n" in alert["content"]
+
+
+def test_memgpt_block_recognizes_the_llama_server_wording_on_its_own():
+    """The framework detector must not depend on OpalaTex's compat normalization."""
+    from agenticblocks.blocks.llm.memgpt_agent import _is_ollama_tool_call_json_escape_error
+
+    raw = Exception(
+        "Ollama_chatException - Got unexpected response from Ollama: {'error': "
+        "'llama-server returned invalid tool call arguments for \"write_file\": "
+        "invalid character \\'\\\\n\\' in string literal'}"
+    )
+    assert _is_ollama_tool_call_json_escape_error(raw)
+    # An unrelated Ollama failure is not a tool-call JSON error.
+    assert not _is_ollama_tool_call_json_escape_error(
+        Exception("Ollama_chatException - model 'x' not found, try pulling it first")
+    )
+
+
 def test_memgpt_returns_plain_json_content_without_tool_recovery():
     from types import SimpleNamespace
     from agenticblocks.blocks.llm.agent import AgentInput
@@ -697,3 +754,75 @@ def test_worker_reasoning_display_follows_its_own_model_capability(
 
     assert built, "the worker sub-agent should have been constructed"
     assert (built[-1].on_thinking is not None) is expect_wired
+
+
+def test_worker_history_keeps_the_answer_it_is_asked_to_save(tmp_path, monkeypatch):
+    """Recorded failure: after the user asked to save "the list", the orchestrator
+    made a few tool calls and delegated. Slicing history[-10:] before filtering let
+    those tool calls and results fill the window, so the worker received empty
+    "ASSISTANT:" lines and never the answer holding the list."""
+    import opalatex.memgpt_runtime as runtime
+    from types import SimpleNamespace
+
+    captured = {}
+
+    class FakeLLMAgentBlock:
+        def __init__(self, **kwargs):
+            self.name = kwargs.get("name", "")
+            self.model = kwargs.get("model", "")
+            self.tools = kwargs.get("tools", [])
+            self.model_kwargs = kwargs.get("model_kwargs", {})
+            self.on_iteration = None
+            self.on_thinking = None
+            self.on_chunk = None
+
+        async def _acompletion(self, _messages, **_kwargs):
+            return SimpleNamespace(choices=[])
+
+        async def run(self, agent_input):
+            captured["prompt"] = agent_input.prompt
+            return SimpleNamespace(response="done", tool_calls_made=1)
+
+    monkeypatch.setattr(runtime, "LLMAgentBlock", FakeLLMAgentBlock)
+    project = _project(tmp_path)
+    project.mode = "auto"
+    m = build_chat_orchestrator(project, None)
+    m.internal_history = [
+        {"role": "user", "content": "Create an exercise list on LRTA*."},
+        {"role": "assistant", "content": "\\section{Level 1} THE LIST BODY"},
+        {"role": "user", "content": "Save it to lista.tex."},
+    ]
+    for i in range(6):
+        m.internal_history.append({
+            "role": "assistant", "content": "",
+            "tool_calls": [{"id": f"c{i}", "type": "function",
+                            "function": {"name": "read_file", "arguments": "{}"}}],
+        })
+        m.internal_history.append({"role": "tool", "tool_call_id": f"c{i}", "content": "Error"})
+    m.internal_history.append({"role": "system", "content": "SYSTEM ALERT: something"})
+
+    run_skill = build_run_skill_tool(
+        m, str(tmp_path), project_model=project.model, _project_ref=project,
+    )
+    raw = getattr(run_skill, "_func", None) or run_skill
+    asyncio.run(raw("command-line", "write lista.tex"))
+
+    history = captured["prompt"].split("MEMGPT CONTEXT/INSTRUCTIONS:")[0]
+    assert "ASSISTANT: \\section{Level 1} THE LIST BODY" in history
+    assert "USER: Save it to lista.tex." in history
+    assert "ASSISTANT: \n" not in history
+    assert "SYSTEM ALERT" not in history
+    # Oldest first, as a conversation reads.
+    assert history.index("Create an exercise list") < history.index("THE LIST BODY")
+
+
+def test_worker_history_is_bounded_to_recent_conversation():
+    from opalatex.memgpt_runtime import _recent_conversation_for_worker
+
+    history = [{"role": "user", "content": f"message {i}"} for i in range(15)]
+    history.append({"role": "user", "content": [{"type": "text", "text": "with attachment"},
+                                                {"type": "image_url", "image_url": {"url": "x"}}]})
+
+    out = _recent_conversation_for_worker(history, limit=3)
+
+    assert out.splitlines() == ["USER: message 13", "USER: message 14", "USER: with attachment"]

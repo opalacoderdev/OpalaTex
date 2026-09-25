@@ -355,6 +355,40 @@ def resolve_skill_model(skill_meta: dict, project_model: str | None,
 # run_skill tool
 # ---------------------------------------------------------------------------
 
+WORKER_HISTORY_MESSAGES = 10
+
+
+def _recent_conversation_for_worker(history, limit: int = WORKER_HISTORY_MESSAGES) -> str:
+    """The last *limit* user/assistant messages that carry text, oldest first.
+
+    Counted over conversational messages, not over raw history entries: slicing
+    ``history[-10:]`` first let the current turn's tool calls and tool results
+    fill the window, so a worker asked to save "the list above" received five
+    empty ``ASSISTANT:`` lines (the tool-call entries have no text) and never the
+    answer that held the list. Tool-call-only entries are skipped because they
+    say nothing to the worker; tool results and system alerts are not
+    conversation.
+    """
+    picked = []
+    for message in reversed(history or []):
+        role = message.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        content = message.get("content")
+        if isinstance(content, list):
+            content = "\n".join(
+                str(part.get("text", "")) for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+        text = str(content or "").strip()
+        if not text:
+            continue
+        picked.append(f"{role.upper()}: {text}")
+        if len(picked) >= limit:
+            break
+    return "\n".join(reversed(picked))
+
+
 def build_run_skill_tool(
     memgpt: MemGPTAgentBlock,
     project_path: str,
@@ -439,8 +473,10 @@ def build_run_skill_tool(
             )
             return (
                 f"[ERROR] Skill '{skill_name}' was not found / is not active. "
+                # No create_plan here: plan mode returned [BLOCKED] above, so this
+                # message is only ever read in modes where create_plan is absent.
                 f"You MUST NOT invent skill names. Your own tools (read_file, search_code, "
-                f"get_project_overview, create_plan, web_search, ...) are tools you call "
+                f"get_project_overview, web_search, ...) are tools you call "
                 f"directly — they are never skill names. The only active skills you can "
                 f"delegate to are: {active}. "
                 f"{fallback}"
@@ -651,7 +687,7 @@ def build_run_skill_tool(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         )
         # Automatically inject recent chat history so MemGPT doesn't have to waste tokens copying it
-        recent_history = "\n".join([f"{m.get('role', 'unknown').upper()}: {m.get('content', '')}" for m in memgpt.internal_history[-10:] if m.get("role") in ("user", "assistant")])
+        recent_history = _recent_conversation_for_worker(memgpt.internal_history)
         
         from .tools import TURN_ACHIEVEMENTS
         achievements_block = f"\n\n[TURN ACHIEVEMENTS MEMORY]\nThe orchestrator has noted the following accomplishments in this turn:\n{TURN_ACHIEVEMENTS}\n" if TURN_ACHIEVEMENTS else ""

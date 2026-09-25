@@ -657,14 +657,22 @@ def read_file(path: str) -> str:
             # holds (PROJECT_DESIGN 2.6). A "delegate" orchestrator has no
             # write_file, and pointing it there sent a small model into a
             # web_search loop on "how to use write_file" instead of delegating.
+            # Name only the route of the current mode: a small model given a
+            # conditional "if you are in plan mode, use create_plan" while in auto
+            # called run_skill("create_plan") -- a tool that does not exist there.
+            mode = str(getattr(_PROJECT_SESSION, "mode", "") or "auto").strip().lower()
             if caller_has_terminal():
                 create = "If you are trying to create it, use 'write_file' instead."
+            elif mode == "plan":
+                create = (
+                    "If you are trying to create it: nothing is written in plan mode; include the "
+                    "file in the plan you propose with create_plan."
+                )
             else:
                 create = (
-                    "If you are trying to create it: you have no file-writing tools, so delegate the "
-                    "creation with run_skill to an active skill that writes files (e.g. 'command-line'), "
-                    "passing the target path and the full content in its context. If you are in plan "
-                    "mode, run_skill is blocked: propose the file with create_plan instead."
+                    "If you are trying to create it: you cannot write files yourself. Call run_skill "
+                    "with skill_name 'command-line' and put the target path and the content to write "
+                    "in context."
                 )
             # search_code matches file *contents*, so it cannot find a file by
             # name; get_project_overview is the listing route.

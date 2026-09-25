@@ -272,9 +272,24 @@ def test_a_missing_file_sends_a_delegate_orchestrator_to_run_skill(tmp_path, mon
     message = str(excinfo.value)
     assert "file not found" in message
     assert "use 'write_file'" not in message
-    assert "run_skill" in message
-    assert "command-line" in message
-    assert "plan mode" in message
+    assert "run_skill with skill_name 'command-line'" in message
+    # Recorded failure: naming create_plan outside plan mode made a small model
+    # call run_skill("create_plan"), a tool that does not exist in auto mode.
+    assert "create_plan" not in message
+    assert "plan mode" not in message
+
+
+def test_a_missing_file_in_plan_mode_names_only_create_plan(tmp_path, monkeypatch):
+    target = _prepare_missing(monkeypatch, tmp_path)
+    tools._PROJECT_SESSION.mode = "plan"
+    monkeypatch.setattr(tools, "_ORCHESTRATOR_HAS_TERMINAL", False)
+
+    with pytest.raises(ValueError) as excinfo:
+        _read_file(str(target))
+    message = str(excinfo.value)
+    assert "create_plan" in message
+    assert "run_skill" not in message
+    assert "write_file" not in message
 
 
 def test_a_missing_file_tells_a_worker_to_write_it_itself(tmp_path, monkeypatch):
