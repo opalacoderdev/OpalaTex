@@ -1,10 +1,12 @@
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import katex from 'katex';
+import { Check, Copy, X } from 'lucide-react';
 import i18n from '../i18n';
+import { writeClipboard } from './clipboard';
 import Mermaid from '../components/Mermaid';
 import GraphicPreview from '../components/GraphicPreview';
 import { orphanReasoningPrefix, stripOrphanReasoningPrefix, thoughtBlock } from './thinkTags';
@@ -95,6 +97,119 @@ function ChatTable({ children }) {
   );
 }
 
+// Fenced code block with a copy button. Listings in agent answers are often
+// much taller than the chat viewport, so the header carrying the button is
+// sticky: it stays pinned to the top of the viewport while any part of the
+// block is on screen, instead of scrolling away with the first line.
+//
+// The copied text is read from the rendered <code> element, so it is exactly
+// what the reader sees, minus the one trailing newline Markdown appends to
+// every fenced block.
+const COPY_FEEDBACK_MS = 1500;
+
+function ChatCodeBlock({ lang, children }) {
+  const codeRef = useRef(null);
+  const timerRef = useRef(null);
+  const [copyState, setCopyState] = useState('idle');
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  const handleCopy = useCallback(async () => {
+    const text = (codeRef.current?.textContent ?? '').replace(/\n$/, '');
+    const ok = await writeClipboard(text);
+    setCopyState(ok ? 'copied' : 'failed');
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopyState('idle'), COPY_FEEDBACK_MS);
+  }, []);
+
+  let copyLabel = i18n.t('chatPanel.copyCode', 'Copy code');
+  let CopyIcon = Copy;
+  if (copyState === 'copied') {
+    copyLabel = i18n.t('chatPanel.codeCopied', 'Copied');
+    CopyIcon = Check;
+  } else if (copyState === 'failed') {
+    copyLabel = i18n.t('chatPanel.codeCopyFailed', 'Copy failed');
+    CopyIcon = X;
+  }
+
+  return (
+    <div className="chat-code-block">
+      <div className="chat-code-header">
+        <span className="chat-code-lang">{lang}</span>
+        <button
+          type="button"
+          className={`chat-code-copy chat-code-copy-${copyState}`}
+          onClick={handleCopy}
+          title={copyLabel}
+          aria-label={copyLabel}
+        >
+          <CopyIcon size={13} />
+          {copyState !== 'idle' && <span>{copyLabel}</span>}
+        </button>
+      </div>
+      <pre className="chat-code-pre">
+        <code ref={codeRef}>{children}</code>
+      </pre>
+    </div>
+  );
+}
+
+function renderFencedCode(className, children) {
+  const lang = (className || '').replace('language-', '');
+  if (lang === 'mermaid') {
+    return <Mermaid chart={String(children)} />;
+  }
+  if (lang === 'tikzgraphic') {
+    // LaTeX graphic preview: compile the snippet via the backend and
+    // render the resulting SVG inline. The body is the raw tikzpicture
+    // source (no Markdown escaping needed).
+    const raw = String(children);
+    return (
+      <GraphicPreview
+        source={raw}
+        projectPath={activeProjectPath || ''}
+        label="TikZ / PGFPlots"
+      />
+    );
+  }
+  if (lang === 'opalatex-progress') {
+    // What the model said while it was still working. It is delivered like any
+    // other text -- the single text channel is what stopped answers from being
+    // dropped -- but it is not the deliverable, so it is folded away instead of
+    // sitting between the reader and the answer. The summary carries the first
+    // line and the size, because a model can put something substantial here and
+    // a bare label would make that look like chatter worth skipping.
+    const progressBody = String(children ?? '');
+    const firstLine = progressBody.trim().split('\n')[0] || '';
+    const preview = firstLine.length > 72 ? `${firstLine.slice(0, 72)}…` : firstLine;
+    return (
+      <details style={{ margin: '8px 0', border: '1px solid var(--vscode-widget-border)', borderRadius: '4px', background: 'var(--titlebar-bg)' }}>
+        <summary style={{ padding: '6px 10px', fontSize: '11px', cursor: 'pointer', userSelect: 'none', color: 'var(--vscode-descriptionForeground)' }}>
+          {i18n.t('chatPanel.turnProgress', 'Turn progress')}
+          {` · ${progressBody.length}`}
+          {preview ? ` · ${preview}` : ''}
+        </summary>
+        <div style={{ margin: 0, padding: '10px', fontSize: '12px', lineHeight: '1.5', color: 'var(--vscode-descriptionForeground)', borderTop: '1px solid var(--vscode-widget-border)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {children}
+        </div>
+      </details>
+    );
+  }
+  if (lang === 'thought') {
+    return (
+      <details style={{ margin: '8px 0', border: '1px solid var(--vscode-widget-border, #3c3c3c)', borderRadius: '4px', background: 'var(--titlebar-bg, #252526)' }}>
+        <summary style={{ padding: '6px 10px', fontSize: '11px', cursor: 'pointer', userSelect: 'none', color: 'var(--vscode-descriptionForeground, #717171)' }}>
+          {i18n.t('chatPanel.aiThoughts', 'Pensamentos da IA')}
+        </summary>
+        <pre style={{ margin: 0, padding: '10px', background: 'var(--editor-bg, #1e1e1e)', overflowX: 'auto', fontSize: '11px', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', borderTop: '1px solid var(--vscode-widget-border, #3c3c3c)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {children}
+        </pre>
+      </details>
+    );
+  }
+  return <ChatCodeBlock lang={lang}>{children}</ChatCodeBlock>;
+}
+
 const BASE_COMPONENTS = {
   // Headings
   h1: ({ children }) => (
@@ -120,87 +235,25 @@ const BASE_COMPONENTS = {
     </p>
   ),
 
-  // Inline code
-  code: ({ inline, className, children }) => {
-    if (inline) {
-      return (
-        <code
-          className="chat-inline-code"
-          style={{ padding: '2px 4px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '11px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)' }}
-        >
-          {children}
-        </code>
-      );
-    }
-    // Block code
-    const lang = (className || '').replace('language-', '');
-    if (lang === 'mermaid') {
-      return <Mermaid chart={String(children)} />;
-    }
-    if (lang === 'tikzgraphic') {
-      // LaTeX graphic preview: compile the snippet via the backend and
-      // render the resulting SVG inline. The body is the raw tikzpicture
-      // source (no Markdown escaping needed).
-      const raw = String(children);
-      return (
-        <GraphicPreview
-          source={raw}
-          projectPath={activeProjectPath || ''}
-          label="TikZ / PGFPlots"
-        />
-      );
-    }
-    if (lang === 'opalatex-progress') {
-      // What the model said while it was still working. It is delivered like any
-      // other text -- the single text channel is what stopped answers from being
-      // dropped -- but it is not the deliverable, so it is folded away instead of
-      // sitting between the reader and the answer. The summary carries the first
-      // line and the size, because a model can put something substantial here and
-      // a bare label would make that look like chatter worth skipping.
-      const progressBody = String(children ?? '');
-      const firstLine = progressBody.trim().split('\n')[0] || '';
-      const preview = firstLine.length > 72 ? `${firstLine.slice(0, 72)}…` : firstLine;
-      return (
-        <details style={{ margin: '8px 0', border: '1px solid var(--vscode-widget-border)', borderRadius: '4px', background: 'var(--titlebar-bg)' }}>
-          <summary style={{ padding: '6px 10px', fontSize: '11px', cursor: 'pointer', userSelect: 'none', color: 'var(--vscode-descriptionForeground)' }}>
-            {i18n.t('chatPanel.turnProgress', 'Turn progress')}
-            {` · ${progressBody.length}`}
-            {preview ? ` · ${preview}` : ''}
-          </summary>
-          <div style={{ margin: 0, padding: '10px', fontSize: '12px', lineHeight: '1.5', color: 'var(--vscode-descriptionForeground)', borderTop: '1px solid var(--vscode-widget-border)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-            {children}
-          </div>
-        </details>
-      );
-    }
-    if (lang === 'thought') {
-      return (
-        <details style={{ margin: '8px 0', border: '1px solid var(--vscode-widget-border, #3c3c3c)', borderRadius: '4px', background: 'var(--titlebar-bg, #252526)' }}>
-          <summary style={{ padding: '6px 10px', fontSize: '11px', cursor: 'pointer', userSelect: 'none', color: 'var(--vscode-descriptionForeground, #717171)' }}>
-            {i18n.t('chatPanel.aiThoughts', 'Pensamentos da IA')}
-          </summary>
-          <pre style={{ margin: 0, padding: '10px', background: 'var(--editor-bg, #1e1e1e)', overflowX: 'auto', fontSize: '11px', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', borderTop: '1px solid var(--vscode-widget-border, #3c3c3c)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-            {children}
-          </pre>
-        </details>
-      );
-    }
-    return (
-      <div style={{ margin: '8px 0', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border-color, #3c3c3c)' }}>
-        {lang && (
-          <div style={{ background: 'var(--titlebar-bg, #1a1a1a)', padding: '2px 10px', fontSize: '11px', color: 'var(--vscode-descriptionForeground, #888)', borderBottom: '1px solid var(--border-color, #3c3c3c)' }}>
-            {lang}
-          </div>
-        )}
-        <pre style={{ margin: 0, padding: '10px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)', overflowX: 'auto', fontSize: '12px', lineHeight: '1.5', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          <code>{children}</code>
-        </pre>
-      </div>
-    );
-  },
+  // Inline code. react-markdown 9+ no longer passes an `inline` flag, so a
+  // fenced block is recognised by its <pre> wrapper instead (see `pre` below)
+  // and every `code` that reaches this component is inline.
+  code: ({ children }) => (
+    <code
+      className="chat-inline-code"
+      style={{ padding: '2px 4px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '11px', background: 'var(--editor-bg, #1e1e1e)', color: 'var(--vscode-textPreformat-foreground, #d7ba7d)' }}
+    >
+      {children}
+    </code>
+  ),
 
-  // Pre (wrap for block code)
-  pre: ({ children }) => <>{children}</>,
+  // Fenced code block: a <pre> wrapping a single <code> element that carries
+  // the `language-*` class and the source text.
+  pre: ({ children }) => {
+    const codeElement = React.Children.toArray(children).find(React.isValidElement);
+    if (!codeElement) return <pre>{children}</pre>;
+    return renderFencedCode(codeElement.props.className, codeElement.props.children);
+  },
 
   // Lists
   ul: ({ children }) => (

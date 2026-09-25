@@ -46,6 +46,8 @@ WRITE_TOOLS = {
 # allowed to rewrite main.tex but not to run pdflatex on it holds half an
 # authority and has to delegate mid-task anyway.
 EXEC_TOOLS = {
+    # Runs Tectonic and writes the PDF: execution authority, like a shell command.
+    "compile_latex",
     "run_command",
     "run_python_script",
     "run_background_command",

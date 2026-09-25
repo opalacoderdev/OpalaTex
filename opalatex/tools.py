@@ -624,7 +624,23 @@ def read_file(path: str) -> str:
         if os.path.isdir(resolved):
             raise ValueError(f"Error: '{_preview(resolved)}' is a directory, not a file. Use get_project_overview() to view contents.")
         if not os.path.exists(resolved):
-            raise ValueError(f"Error: file not found: {_preview(resolved)}. If you are trying to write code, use 'write_file' instead.")
+            # Same rule as the binary-file route below: name only tools the caller
+            # holds (PROJECT_DESIGN 2.6). A "delegate" orchestrator has no
+            # write_file, and pointing it there sent a small model into a
+            # web_search loop on "how to use write_file" instead of delegating.
+            if caller_has_terminal():
+                create = "If you are trying to create it, use 'write_file' instead."
+            else:
+                create = (
+                    "If you are trying to create it: you have no file-writing tools, so delegate the "
+                    "creation with run_skill to an active skill that writes files (e.g. 'command-line'), "
+                    "passing the target path and the full content in its context. If you are in plan "
+                    "mode, run_skill is blocked: propose the file with create_plan instead."
+                )
+            raise ValueError(
+                f"Error: file not found: {_preview(resolved)}. If you expected it to exist, locate it "
+                f"with get_project_overview or search_code instead of guessing the path. {create}"
+            )
     except OSError as e:
         # Catch cases like [Errno 36] File name too long if path contains code
         raise ValueError(f"Error: invalid path argument ({e.strerror}). 'read_file' expects a file path, not file contents.")
@@ -1518,7 +1534,141 @@ def check_presentation(path: str) -> str:
     return f"{header}\n{jptlib.format_report(findings)}"
 
 
+# ─── LaTeX compilation ───────────────────────────────────────────────────────
+# Agents used to verify LaTeX with `run_command("pdflatex ...")`, which the
+# prompts themselves suggested. OpalaTex compiles with Tectonic, which it finds
+# outside PATH (external_tools.find_tool), so the shell reported no engine and
+# the agent closed with "could not compile". This tool is the IDE's own compile:
+# same engine, same main-file choice as the GUI's compile button, so an agent's
+# "it compiles" means what the user sees.
+
+_COMPILE_LOG_HEAD = 2500
+_COMPILE_LOG_TAIL = 1000
+_COMPILE_MAX_WARNINGS = 25
+_UNRESOLVED_RE = re.compile(r"^LaTeX Warning: (?:Reference|Citation) .*undefined.*$", re.M)
+
+
+def _compile_target(path: str) -> tuple[str, str]:
+    """Return (project_dir, main file relative to it) for a compile request."""
+    from .latex_compiler import determine_main_file_for_compilation, guess_main_file
+
+    project_dir = get_project_path()
+    project_main = str(getattr(_PROJECT_SESSION, "main_file", "") or "")
+    if not path:
+        main = project_main or guess_main_file(project_dir)
+        if not main:
+            raise ValueError(
+                "No LaTeX root document found in the project (no .tex file with \\documentclass). "
+                "Pass the path of the .tex file to compile."
+            )
+        if not os.path.isfile(os.path.join(project_dir, main)):
+            raise ValueError(f"The project's main file {main} does not exist. Pass the .tex file to compile.")
+        return project_dir, main
+
+    resolved = os.path.abspath(_resolve_path(path))
+    if not os.path.isfile(resolved):
+        raise ValueError(f"File not found: {_preview(resolved)}")
+    if not resolved.lower().endswith(".tex"):
+        raise ValueError(f"compile_latex compiles .tex files; got {_preview(path)}.")
+    try:
+        inside = os.path.commonpath([resolved, os.path.abspath(project_dir)]) == os.path.abspath(project_dir)
+    except ValueError:
+        inside = False
+    if not inside:
+        raise ValueError(f"{_preview(path)} is outside the project directory.")
+    # A chapter without \documentclass compiles through the document that
+    # includes it, exactly as the GUI's compile button resolves it.
+    main = determine_main_file_for_compilation(resolved, _read_text_file(resolved), project_dir, project_main)
+    return project_dir, main
+
+
+def _trim_compile_log(log: str) -> str:
+    log = log.strip()
+    if len(log) <= _COMPILE_LOG_HEAD + _COMPILE_LOG_TAIL:
+        return log
+    return log[:_COMPILE_LOG_HEAD] + "\n... [TRUNCATED] ...\n" + log[-_COMPILE_LOG_TAIL:]
+
+
+def _compile_warnings(log: str, tex_log_path: str) -> list[str]:
+    """Deduplicated engine warnings plus unresolved references from the .log.
+
+    Tectonic prints overfull boxes and similar on its own output, but undefined
+    references and citations reach only the TeX log it keeps beside the PDF.
+    """
+    warnings: list[str] = []
+    for line in log.splitlines():
+        line = line.strip()
+        if line.lower().startswith("warning:") and "warnings were issued" not in line and line not in warnings:
+            warnings.append(line)
+    try:
+        with open(tex_log_path, "r", encoding="utf-8", errors="replace") as handle:
+            for match in _UNRESOLVED_RE.finditer(handle.read()):
+                line = match.group(0).strip()
+                if line not in warnings:
+                    warnings.append(line)
+    except OSError:
+        pass
+    return warnings
+
+
+@opalatex_tool(
+    name="compile_latex",
+    is_safe=False,
+    description=(
+        "Compile a LaTeX document with Tectonic, the engine this IDE uses, and report errors and "
+        "warnings with file:line locations. This is how you verify LaTeX: never look for pdflatex, "
+        "xelatex or latexmk in the shell. `path` is a .tex file of the project; a chapter without "
+        "\\documentclass is compiled through the document that includes it. Omit `path` to compile "
+        "the project's main file. The PDF is written next to the main file, as the compile button does. "
+        "`draft=true` runs a single fast pass (cross-references are not resolved); use it for a quick "
+        "syntax check and a full compile before reporting that the document builds."
+    ),
+)
+def compile_latex(path: str = "", draft: bool = False) -> str:
+    from . import latex_compiler
+
+    project_dir, main = _compile_target(path)
+    AGENT_PROGRESS.update("compile_latex", main)
+    if not latex_compiler.get_tectonic_path():
+        raise ValueError(
+            "Tectonic is not installed, so this IDE cannot compile LaTeX yet. "
+            "Tell the user to install it from Settings (Install Tectonic); do not look for another engine."
+        )
+
+    result = latex_compiler.compile_latex(
+        "", file_path=None, main_file=main, project_dir=project_dir,
+        include_pdf_base64=False, draft=draft,
+    )
+    log = str(result.get("log") or "")
+    seconds = (result.get("timing") or {}).get("compile_seconds")
+    took = f" in {seconds:.1f}s" if isinstance(seconds, (int, float)) else ""
+    mode = "draft pass" if draft else "full compile"
+
+    if not result.get("success"):
+        return (
+            f"FAILED: {main} did not compile ({mode}{took}, Tectonic).\n"
+            f"Compiler output:\n{_trim_compile_log(log)}"
+        )
+
+    pdf_path = result.get("pdf_path") or ""
+    pdf_rel = os.path.relpath(pdf_path, project_dir).replace("\\", "/") if pdf_path else "(unknown)"
+    tex_log = os.path.splitext(os.path.join(project_dir, main))[0] + ".log"
+    warnings = _compile_warnings(log, tex_log)
+    lines = [f"SUCCESS: {main} compiled ({mode}{took}, Tectonic). PDF: {pdf_rel}"]
+    if warnings:
+        lines.append(f"Warnings ({len(warnings)}):")
+        lines.extend(warnings[:_COMPILE_MAX_WARNINGS])
+        if len(warnings) > _COMPILE_MAX_WARNINGS:
+            lines.append(f"... and {len(warnings) - _COMPILE_MAX_WARNINGS} more")
+        if draft and any("undefined" in w for w in warnings):
+            lines.append("Undefined references are expected after a draft pass; a full compile resolves them.")
+    else:
+        lines.append("No warnings.")
+    return "\n".join(lines)
+
+
 import platform
+from .external_tools import environment_with_managed_tools
 from .subprocess_utils import utf8_text_kwargs
 
 _os_info = f"{platform.system()} ({platform.release()})"
@@ -1537,6 +1687,7 @@ def run_command(command: str) -> str:
             stdin=subprocess.DEVNULL,
             timeout=120,
             cwd=cwd,
+            env=environment_with_managed_tools(),
         )
         out = res.stdout.strip()
         err = res.stderr.strip()
@@ -1617,6 +1768,7 @@ def run_python_script(script_path: str, args: str = "") -> str:
             stdin=subprocess.DEVNULL,
             timeout=120,
             cwd=cwd,
+            env=environment_with_managed_tools(),
         )
         out = res.stdout.strip()
         err = res.stderr.strip()
@@ -2139,6 +2291,149 @@ def read_content_pos(path: str, start_pos: int, end_pos: int) -> str:
     except Exception as e:
         raise ValueError(f"Error reading {_preview(resolved)}: {e}")
 
+
+# Characters of rendered diff per page when the context window leaves room for
+# more: large enough for a typical edit review, small enough that a rewritten
+# chapter still arrives in pages instead of one block.
+_DIFF_PAGE_CHARS = 12000
+
+
+def _diff_side(label: str, path: str, start: int, end: int) -> tuple[str, list[str], int, int]:
+    """Resolve one side of diff_files to (display path, lines, first, last)."""
+    try:
+        resolved = _resolve_path(path)
+    except Exception as e:
+        raise ValueError(f"Error resolving {label}: {e}")
+    if os.path.isdir(resolved):
+        raise ValueError(f"Error: {label} '{_preview(resolved)}' is a directory, not a file.")
+    if not os.path.exists(resolved):
+        raise ValueError(f"Error: {label} not found: {_preview(resolved)}.")
+    if start < 0 or end < 0:
+        raise ValueError(f"start and end for {label} must be 0 (whole file) or 1-indexed line numbers.")
+
+    ext = os.path.splitext(resolved)[1].lower()
+    if ext in _DOC_EXTS:
+        from .attachments import extract_document_text_from_path
+
+        text = extract_document_text_from_path(resolved)
+    elif _binary_read_error(resolved):
+        raise ValueError(
+            f"Error: {label} '{_preview(resolved)}' is a binary file ({ext or 'no extension'}); "
+            "diff_files compares text files and PDF/DOCX/PPTX/XLSX documents."
+        )
+    else:
+        text = _read_logical_text_file(resolved)
+
+    lines = text.splitlines()
+    total = len(lines)
+    first = start or 1
+    last = end or total
+    if total and first > total:
+        raise ValueError(
+            f"Error: {label} starts at line {first}, beyond the end of '{_preview(resolved)}' "
+            f"({total} lines)."
+        )
+    last = min(last, total)
+    if end and end < first:
+        raise ValueError(f"Error: end must be >= start for {label} (got {start}-{end}).")
+    root = get_project_path()
+    return _rel(resolved, root), lines[first - 1:last], first, last
+
+
+@opalatex_tool(
+    name="diff_files",
+    is_safe=True,
+    description=(
+        "Compare two text files, or two line ranges (of the same file or of different files), "
+        "and return the differences with the ORIGINAL 1-indexed line numbers of both sides, "
+        "labelled a (path_a) and b (path_b). start/end 0 means the whole file; otherwise they "
+        "are inclusive line numbers, as in read_content_pos. The first lines say whether the "
+        "two sides are identical and list every changed block, so a long diff can be judged "
+        "from its first page. ignore_whitespace compares lines with spacing collapsed; "
+        "context_lines sets the unchanged lines shown around each change (0-10). A long "
+        "diff is paged: follow the trailing note's offset. PDF/DOCX/PPTX/XLSX are compared "
+        "by their extracted text."
+    ),
+)
+def diff_files(
+    path_a: str,
+    path_b: str,
+    start_a: int = 0,
+    end_a: int = 0,
+    start_b: int = 0,
+    end_b: int = 0,
+    context_lines: int = 3,
+    ignore_whitespace: bool = False,
+    offset: int = 0,
+) -> str:
+    from .text_diff import describe_range, line_diff, summarize_blocks
+
+    AGENT_PROGRESS.update("diff_files", f"a={_preview(path_a)} b={_preview(path_b)}")
+    if not 0 <= context_lines <= 10:
+        raise ValueError("context_lines must be between 0 and 10.")
+    if offset < 0:
+        raise ValueError("offset must be non-negative.")
+
+    name_a, lines_a, first_a, last_a = _diff_side("path_a", path_a, start_a, end_a)
+    name_b, lines_b, first_b, last_b = _diff_side("path_b", path_b, start_b, end_b)
+    result = line_diff(
+        lines_a, lines_b, first_a, first_b,
+        context=context_lines, ignore_whitespace=ignore_whitespace,
+    )
+
+    header = [
+        f"DIFF a={name_a} {describe_range('lines', first_a, last_a)} ({len(lines_a)} lines) | "
+        f"b={name_b} {describe_range('lines', first_b, last_b)} ({len(lines_b)} lines)"
+        + (" | whitespace ignored" if ignore_whitespace else ""),
+    ]
+    if result.identical:
+        header.append("IDENTICAL: yes")
+        return "\n".join(header)
+    header.append(
+        f"IDENTICAL: no | ADDED: {result.added} | REMOVED: {result.removed} | "
+        f"BLOCKS: {len(result.blocks)} | HUNKS: {len(result.hunks)}"
+    )
+    header.append("CHANGED: " + summarize_blocks(result.blocks, limit=20))
+
+    body = [line for hunk in result.hunks for line in hunk]
+    if offset >= len(body):
+        raise ValueError(f"offset {offset} is past the end of the diff ({len(body)} lines).")
+
+    budget = free_context_chars()
+    if budget is not None and budget <= 0:
+        raise ValueError("The context window is exhausted. Summarize before reading further.")
+    page_chars = _DIFF_PAGE_CHARS if budget is None else min(_DIFF_PAGE_CHARS, budget)
+    page_chars = max(0, page_chars - sum(len(line) + 1 for line in header))
+
+    shown: list[str] = []
+    used = 0
+    index = offset
+    while index < len(body):
+        cost = len(body[index]) + 1
+        if shown and used + cost > page_chars:
+            break
+        shown.append(body[index])
+        used += cost
+        index += 1
+
+    text = "\n".join(header + shown)
+    if index < len(body):
+        args = [repr(path_a), repr(path_b)]
+        for key, value, default in (
+            ("start_a", start_a, 0), ("end_a", end_a, 0),
+            ("start_b", start_b, 0), ("end_b", end_b, 0),
+            ("context_lines", context_lines, 3), ("ignore_whitespace", ignore_whitespace, False),
+        ):
+            if value != default:
+                args.append(f"{key}={value!r}")
+        args.append(f"offset={index}")
+        text += (
+            f"\n[Showing diff lines {offset + 1}-{index} of {len(body)}. "
+            f"Call diff_files({', '.join(args)}) to continue.]"
+        )
+    return text
+
+
 def _rel(path: str, root: str) -> str:
     try:
         return os.path.relpath(path, root)
@@ -2228,6 +2523,7 @@ def get_workspace_action_tools():
         set_presentation_theme,
         export_tex_to_docx,
         generate_image,
+        compile_latex,
         run_command,
         run_python_script,
         run_background_command,
@@ -2244,6 +2540,7 @@ def get_available_tools():
         search_code,
         read_file,
         read_content_pos,
+        diff_files,
         analyze_image,
         ask_question,
         *get_diagnostic_tools(),

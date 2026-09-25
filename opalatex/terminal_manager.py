@@ -5,6 +5,8 @@ import asyncio
 import threading
 import selectors
 
+from .external_tools import environment_with_managed_tools
+
 # Maximum amount of raw PTY output kept in memory per session so that a client
 # that reconnects (tab switch, React remount, dropped SSE stream) can restore
 # the visible scrollback instead of showing an empty terminal.
@@ -56,7 +58,7 @@ class TerminalSession:
                 enable_ctrl_c_for_children()
                 # Force PowerShell on Windows
                 shell = "powershell.exe"
-                self.process = PtyProcess.spawn(shell, cwd=project_path)
+                self.process = PtyProcess.spawn(shell, cwd=project_path, env=environment_with_managed_tools())
             except ImportError:
                 self.process = None
         else:
@@ -68,7 +70,7 @@ class TerminalSession:
             fl = fcntl.fcntl(self.master_fd, fcntl.F_GETFL)
             fcntl.fcntl(self.master_fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
             
-            env = os.environ.copy()
+            env = environment_with_managed_tools()
             env["TERM"] = "xterm-256color"
             self.process = subprocess.Popen(
                 ["/bin/bash"],

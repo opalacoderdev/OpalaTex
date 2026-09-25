@@ -108,3 +108,41 @@ def install_executable_from_archive(archive_path: str, exe_name: str, bin_dir: s
                 os.remove(tmp_path)
             raise
     return target
+
+
+def managed_tool_paths() -> list[str]:
+    """The executables OpalaTex itself resolves, by the lookup above.
+
+    Taken from the same getters the compiler and the exporter call, so a shell
+    started with :func:`environment_with_managed_tools` finds exactly the binary
+    the IDE would run.
+    """
+    from .document_exporter import get_pandoc_path
+    from .latex_compiler import get_tectonic_path
+
+    return [path for path in (get_tectonic_path(), get_pandoc_path()) if path]
+
+
+def environment_with_managed_tools(env=None) -> dict:
+    """A copy of ``env`` whose ``PATH`` also reaches the tools OpalaTex manages.
+
+    The in-app installs (``<opalatex home>/bin``) and the bundled ``bin/`` are
+    searched by :func:`find_tool` but are normally not on ``PATH``, so a shell
+    the app starts — an agent's ``run_command``, the integrated terminal —
+    could not run ``tectonic`` although the IDE compiles with it. Their
+    directories are prepended, matching :func:`find_tool`'s order; entries
+    already on ``PATH`` are left where they are.
+    """
+    result = dict(os.environ if env is None else env)
+    entries = [entry for entry in result.get("PATH", "").split(os.pathsep) if entry]
+    present = {os.path.normcase(os.path.abspath(entry)) for entry in entries}
+    extra = []
+    for path in managed_tool_paths():
+        directory = os.path.dirname(os.path.abspath(path))
+        key = os.path.normcase(directory)
+        if key not in present:
+            present.add(key)
+            extra.append(directory)
+    if extra:
+        result["PATH"] = os.pathsep.join(extra + entries)
+    return result

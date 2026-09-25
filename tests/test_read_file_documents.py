@@ -238,6 +238,49 @@ def test_a_worker_is_told_to_convert_an_unreadable_file_itself(tmp_path, monkeyp
     assert "run_skill" not in message
 
 
+def test_a_missing_file_points_a_direct_caller_at_write_file(tmp_path, monkeypatch):
+    target = tmp_path / "lista.tex"
+    _prepare(monkeypatch, target)
+
+    with pytest.raises(ValueError) as excinfo:
+        _read_file(str(target))
+    message = str(excinfo.value)
+    assert "file not found" in message
+    assert "get_project_overview" in message
+    assert "use 'write_file' instead" in message
+    assert "run_skill" not in message
+
+
+def test_a_missing_file_sends_a_delegate_orchestrator_to_run_skill(tmp_path, monkeypatch):
+    """A delegate orchestrator has no write_file; naming it was a dead end that a
+    small model answered with a web_search loop on "how to use write_file"."""
+    target = tmp_path / "lista.tex"
+    _prepare(monkeypatch, target)
+    monkeypatch.setattr(tools, "_ORCHESTRATOR_HAS_TERMINAL", False)
+
+    with pytest.raises(ValueError) as excinfo:
+        _read_file(str(target))
+    message = str(excinfo.value)
+    assert "file not found" in message
+    assert "use 'write_file'" not in message
+    assert "run_skill" in message
+    assert "command-line" in message
+    assert "plan mode" in message
+
+
+def test_a_missing_file_tells_a_worker_to_write_it_itself(tmp_path, monkeypatch):
+    target = tmp_path / "lista.tex"
+    _prepare(monkeypatch, target)
+    monkeypatch.setattr(tools, "_ORCHESTRATOR_HAS_TERMINAL", False)
+    monkeypatch.setattr(tools, "_IN_SKILL_WORKER", True)
+
+    with pytest.raises(ValueError) as excinfo:
+        _read_file(str(target))
+    message = str(excinfo.value)
+    assert "use 'write_file' instead" in message
+    assert "run_skill" not in message
+
+
 def test_an_image_attachment_still_short_circuits_before_the_binary_check(monkeypatch):
     monkeypatch.setitem(tools._RECENT_FILE_ATTACHMENTS, "shot.png", {"type": "image"})
     with pytest.raises(ValueError) as excinfo:

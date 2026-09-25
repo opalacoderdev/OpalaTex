@@ -36,19 +36,22 @@ def test_the_shell_is_spawned_with_ctrl_c_enabled(monkeypatch, tmp_path):
 
     class _FakePty:
         @classmethod
-        def spawn(cls, shell, cwd=None):
-            order.append(("spawn", shell))
+        def spawn(cls, shell, cwd=None, env=None):
+            order.append(("spawn", shell, env))
             return object()
 
+    managed_env = {"PATH": "C:\\OpalaTex\\bin"}
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setitem(sys.modules, "winpty", types.SimpleNamespace(PtyProcess=_FakePty))
     monkeypatch.setattr(
         terminal_manager, "enable_ctrl_c_for_children", lambda: order.append(("enable",))
     )
+    # The shell reaches the tools OpalaTex manages (tectonic, pandoc) by PATH.
+    monkeypatch.setattr(terminal_manager, "environment_with_managed_tools", lambda: managed_env)
 
     TerminalSession(str(tmp_path))
 
-    assert order == [("enable",), ("spawn", "powershell.exe")]
+    assert order == [("enable",), ("spawn", "powershell.exe", managed_env)]
 
 
 def test_enabling_ctrl_c_clears_the_inherited_ignore_flag(monkeypatch):

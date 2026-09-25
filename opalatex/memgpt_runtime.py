@@ -1048,13 +1048,15 @@ def _chat_orchestrator_body(project_path: str, profile: str = "full", policy: st
     if policy == "delegate":
         tools_rule = (
             "3. You have NO file-writing tools: write_file, write_content_pos and replace_content_range exist only inside skill workers. "
-            "Use your read tools (search_code, read_file, read_content_pos, get_editor_state, get_project_overview, web_search, search_conversation_history) to locate the exact path and line range, then delegate every create/edit/rename/delete with run_skill. Never claim you edited a file yourself.\n"
+            "Use your read tools (search_code, read_file, read_content_pos, get_editor_state, get_project_overview, web_search, search_conversation_history) to locate the exact path and line range, then delegate every create/edit/rename/delete with run_skill. Never claim you edited a file yourself. "
+            "Compiling is also a worker's job: tell it to verify LaTeX with compile_latex (Tectonic), not pdflatex.\n"
         )
     else:
         tools_rule = (
             "3. You CAN and SHOULD use your tools (like search_code, read_file, read_content_pos, get_editor_state, write_file, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly. "
             "write_file is the only tool that creates a new file; write_content_pos and replace_content_range require the file to already exist. "
-            "You also run commands yourself with run_command (non-interactive), run_python_script, run_interactive_command (commands that prompt the user) and run_background_command (servers and other long-running processes): compile, build, test, rename and delete directly instead of delegating a single command to a worker.\n"
+            "You also run commands yourself with run_command (non-interactive), run_python_script, run_interactive_command (commands that prompt the user) and run_background_command (servers and other long-running processes): build, test, rename and delete directly instead of delegating a single command to a worker. "
+            "Compile LaTeX with compile_latex (Tectonic, the IDE's engine), never by looking for pdflatex in the shell.\n"
         )
     return (
         "Execute actions only through native tool calls.\n"

@@ -1,0 +1,7 @@
+desc: Answers questions about text files by composing deterministic elementary operations
+  (address a section or passage, extract citations/labels/references/numbers, diff,
+  compare lists) and checking the answer with logical conditions, so a small model
+  never compares text by eye.
+id: elementary-ops
+name: elementary-ops
+type: skill

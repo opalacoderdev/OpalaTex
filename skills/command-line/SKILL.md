@@ -18,6 +18,7 @@ This skill provides the sub-agent with tools to manipulate files and directories
         write_file,
         write_content_pos,
         replace_content_range,
+        compile_latex,
         run_command,
         run_background_command,
         run_interactive_command,
@@ -99,10 +100,16 @@ run_command("<command>")
 Examples (NON-INTERACTIVE commands only):
 ```
 run_command("python -m pytest")
-run_command("pdflatex main.tex")
 run_command("uv pip install django")
 ```
 WARNING: Do NOT use `run_command` for commands that require user input (like `npm create`, `npm init`, etc). For those, you MUST use `run_interactive_command`. Do NOT run servers or infinite processes with this tool.
+
+**Compiling LaTeX:** use `compile_latex`, never `run_command` with `pdflatex`, `xelatex` or `latexmk`. The IDE compiles with Tectonic, and `compile_latex` runs that same compile on the same main file, answering `SUCCESS` or `FAILED` with `file:line` errors and warnings. Pass the `.tex` file you changed (a chapter compiles through the document that includes it), or no path for the project's main file:
+```
+compile_latex("main.tex")
+compile_latex("chapters/intro.tex", draft=True)
+```
+`draft=True` is one fast pass for a syntax check; undefined references are expected after it. Do a full compile before reporting that the document builds. Report that you could not compile only if `compile_latex` itself says Tectonic is missing.
 
 8. run_interactive_command: use this specifically for commands that require human interaction, choices, or input. It will open a popup terminal for the user.
 ```

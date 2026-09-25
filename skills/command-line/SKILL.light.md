@@ -9,7 +9,8 @@ Manipulate files/directories and run commands, restricted to the project workspa
 - `write_content_pos(path, content, line_number)` — insert before a line.
 - `replace_content_range(path, start_line, end_line, content)` — replace/delete an inclusive line range (empty content deletes).
 - `search_code(pattern, path=".", regex=False)` — find text/regex matches with line numbers.
-- `run_command(cmd)` — non-interactive shell command (build/test/compile). Never for commands needing input, and never for servers.
+- `compile_latex(path="", draft=False)` — compile a `.tex` with Tectonic, the IDE's engine; `SUCCESS`/`FAILED` with `file:line` errors. The only way to compile LaTeX: never `pdflatex`/`xelatex`/`latexmk` in the shell.
+- `run_command(cmd)` — non-interactive shell command (build/test). Never for commands needing input, and never for servers.
 - `run_interactive_command(cmd)` — commands needing user input (e.g. `npm init`).
 - `run_background_command(cmd)` — long-running servers/dev processes; returns immediately.
 - `get_project_overview(depth)` — project file tree; only when the target file is unknown.
