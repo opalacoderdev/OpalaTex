@@ -7,7 +7,7 @@ import {
   pickActivityBarDensity,
 } from '../utils/activityBarDensity';
 import { readUiScale } from '../utils/uiScale';
-import { layoutShowsEditor } from '../utils/layoutModes';
+import { layoutAllowsChatToggle, layoutHasChatSidebar, layoutShowsEditor } from '../utils/layoutModes';
 
 // Left-side vertical activity bar (VSCode-style icon strip).
 export default function ActivityBar({
@@ -25,6 +25,8 @@ export default function ActivityBar({
   onOpenTutorial,
   layoutMode,
   setLayoutMode,
+  isChatSidebarVisible,
+  setIsChatSidebarVisible,
   hasOpenDocument,
   isTerminalCollapsed,
   setIsTerminalCollapsed,
@@ -36,11 +38,12 @@ export default function ActivityBar({
   // Layouts that dock the explorer/source-control sidebar to their left, and so
   // can open one without being switched away from.
   const hasDockedSidebar = layoutShowsEditor(layoutMode);
-  // Layouts that do not render the chat at all: the chat-first ones (where the
-  // chat *is* the layout and cannot be hidden) and the document layout, which
-  // is only the file and its preview. The visibility toggle has nothing to
-  // switch in either, so it is disabled rather than silently inert.
-  const isChatToggleDisabled = layoutMode === 'chat' || layoutMode === 'chat-bottom' || layoutMode === 'document';
+  // The chat-first layouts dock their own sidebar (chat list + explorer), which
+  // the Explorer button retracts and restores in place.
+  const hasChatSidebar = layoutHasChatSidebar(layoutMode);
+  // The visibility toggle has nothing to switch in the layouts that do not
+  // render the chat as a panel, so it is disabled rather than silently inert.
+  const isChatToggleDisabled = !layoutAllowsChatToggle(layoutMode);
 
   const barRef = useRef(null);
   const [densityName, setDensityName] = useState(ACTIVITY_BAR_DEFAULT_DENSITY.name);
@@ -141,10 +144,14 @@ export default function ActivityBar({
         </button>
         <button
           onClick={() => {
+            if (hasChatSidebar) {
+              setIsChatSidebarVisible(!isChatSidebarVisible);
+              return;
+            }
             if (!hasDockedSidebar) setLayoutMode('ide');
             setActiveSidebarTab(activeSidebarTab === 'explorer' ? null : 'explorer');
           }}
-          className={`vscode-activitybar-btn ${activeSidebarTab === 'explorer' && hasDockedSidebar ? 'active' : ''}`}
+          className={`vscode-activitybar-btn ${(hasChatSidebar ? isChatSidebarVisible : activeSidebarTab === 'explorer' && hasDockedSidebar) ? 'active' : ''}`}
           title={t('activityBar.explorer')}
         >
           <Files size={density.iconSize} />
@@ -197,7 +204,7 @@ export default function ActivityBar({
         <button
           onClick={() => { if (!isChatToggleDisabled) setIsChatVisible(!isChatVisible); }}
           className={`vscode-activitybar-btn ${isChatVisible || layoutMode === 'chat' || layoutMode === 'chat-bottom' ? 'active' : ''}`}
-          title={t('activityBar.opalatexCodes')}
+          title={t('activityBar.opalatexCodes', 'OpalaTex Chat (Ctrl+T)')}
           disabled={isChatToggleDisabled}
           style={{ opacity: isChatToggleDisabled ? 0.5 : 1, cursor: isChatToggleDisabled ? 'not-allowed' : 'pointer' }}
         >

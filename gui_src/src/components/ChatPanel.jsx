@@ -249,9 +249,9 @@ export default function ChatPanel({
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
   }, [chatInput]);
 
-  // Something outside the chat staged a prompt in the composer (the PDF
-  // viewer's "Ask about"): focus it and park the caret at the end so the user
-  // can finish the question straight away.
+  // Something outside the chat asked for the composer (the PDF viewer's "Ask
+  // about" staging a prompt, or Ctrl+T opening the chat): focus it and park
+  // the caret at the end so the user can type straight away.
   useEffect(() => {
     if (!chatInputFocusSignal) return;
     const el = inputRef.current;

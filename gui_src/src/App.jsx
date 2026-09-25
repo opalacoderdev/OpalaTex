@@ -7,7 +7,7 @@ import i18n from './i18n/index.js';
 // Utils
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
 import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale, viewportPointToApp, viewportPxToApp } from './utils/uiScale';
-import { layoutAfterOpeningFile, layoutShowsEditor } from './utils/layoutModes';
+import { layoutAfterOpeningFile, layoutAllowsChatToggle, layoutHasChatSidebar, layoutShowsEditor } from './utils/layoutModes';
 import { compactChatLayoutFor } from './utils/chatCompact';
 import { clearAnsweredRequest, confirmRequestDialog, dialogRequestKey, normalizeInputRequest } from './utils/askQuestion';
 import { readRunConflict, RUN_CONFLICT_TURN_STOPPING } from './utils/agentRunConflict';
@@ -473,7 +473,7 @@ export default function App() {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [layoutMode, setLayoutMode] = useState('ide');
-  const isChatLayout = layoutMode === 'chat' || layoutMode === 'chat-bottom';
+  const isChatLayout = layoutHasChatSidebar(layoutMode);
   // The studio: editor + preview across the top, chat and terminal side by side
   // beneath, workspace explorer docked left. See utils/studioLayout.js.
   const isStudioLayout = layoutMode === 'studio';
@@ -488,6 +488,10 @@ export default function App() {
   const isEditorLayout = layoutShowsEditor(layoutMode);
   const [isChatVisible, setIsChatVisible] = useState(false);
   const [activeSidebarTab, setActiveSidebarTab] = useState('explorer');
+  // The chat-first layouts' own sidebar (chat list + explorer). It has no tab to
+  // clear, so its visibility is a flag of its own, toggled by the Activity Bar's
+  // Explorer button while one of those layouts is active.
+  const [isChatSidebarVisible, setIsChatSidebarVisible] = useState(true);
   const [contextMenu, setContextMenu] = useState(null);
   const [clipboardNode, setClipboardNode] = useState(null);
   const [jumpToLine, setJumpToLine] = useState(null);
@@ -1277,7 +1281,7 @@ export default function App() {
   // Chat auto-scroll lives in ChatPanel, which owns the scroll container and
   // only follows new content while the user is parked at the bottom.
 
-  // Global keyboard shortcuts (Ctrl+S, Ctrl+J, Ctrl+/- zoom)
+  // Global keyboard shortcuts (Ctrl+S, Ctrl+J, Ctrl+T, Ctrl+/- zoom)
   useEffect(() => {
     // Match the physical key alongside the character. `e.key` is resolved by the
     // platform's keyboard/compose layer, which is not always available in a
@@ -1294,6 +1298,17 @@ export default function App() {
         } else {
           setIsTerminalCollapsed(true);
         }
+      }
+      // Ctrl+T does what the Activity Bar chat button does, and is a no-op in
+      // the layouts where that button is disabled. Opening the chat also puts
+      // the caret in its composer, so the shortcut leads straight to typing.
+      else if (isCtrl && !e.shiftKey && !e.altKey && (e.key === 't' || e.code === 'KeyT')) {
+        e.preventDefault();
+        if (!layoutAllowsChatToggle(layoutMode)) return;
+        const nextVisible = !isChatVisible;
+        setIsChatVisible(nextVisible);
+        if (isEditorMaximized) setIsEditorMaximized(false);
+        if (nextVisible) setChatInputFocusSignal((prev) => prev + 1);
       }
       // Interface scale — Shift distinguishes these from the editor's own
       // Ctrl +/- font size, which stays bound to the focused editor. With Shift
@@ -1314,7 +1329,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isBottomMaximized, isTerminalCollapsed, uiScale, applyUiScale]);
+  }, [isBottomMaximized, isTerminalCollapsed, uiScale, applyUiScale, layoutMode, isChatVisible, isEditorMaximized]);
 
   useEffect(() => {
     safeSetLocalStorage('theme', theme);
@@ -4502,6 +4517,11 @@ export default function App() {
           onOpenTutorial={handleOpenTutorial}
           layoutMode={layoutMode}
           setLayoutMode={setLayoutMode}
+          isChatSidebarVisible={isChatSidebarVisible}
+          setIsChatSidebarVisible={(val) => {
+            setIsChatSidebarVisible(val);
+            if (isEditorMaximized) setIsEditorMaximized(false);
+          }}
           hasOpenDocument={!!selectedFile}
           isTerminalCollapsed={isTerminalCollapsed}
           setIsTerminalCollapsed={setIsTerminalCollapsed}
@@ -4575,7 +4595,7 @@ export default function App() {
         )}
 
         {/* Chat Sidebar (Only in Chat Mode) */}
-        {!isEditorMaximized && isChatLayout && (
+        {!isEditorMaximized && isChatLayout && isChatSidebarVisible && (
           <aside className="vscode-sidebar" style={{ width: `${sidebarWidth}px`, display: 'flex', flexDirection: 'column' }}>
             <div className="vscode-chat-sidebar-history-pane">
               <ChatSidebar
@@ -4632,7 +4652,7 @@ export default function App() {
         )}
 
         {/* Left resize handle */}
-        {!isEditorMaximized && ((activeSidebarTab && isEditorLayout) || isChatLayout) && (
+        {!isEditorMaximized && ((activeSidebarTab && isEditorLayout) || (isChatLayout && isChatSidebarVisible)) && (
           <div className="vscode-resizer-horizontal" onMouseDown={(e) => startResizing(e, 'left')} />
         )}
 

@@ -26,3 +26,22 @@ export const layoutShowsEditor = (mode) => EDITOR_LAYOUT_SET.has(mode);
  * shows the editor, and the IDE layout otherwise.
  */
 export const layoutAfterOpeningFile = (mode) => (layoutShowsEditor(mode) ? mode : 'ide');
+
+// Layouts that do not render the chat as a toggleable panel: the chat-first
+// ones (where the chat *is* the layout and cannot be hidden) and the document
+// layout, which is only the file and its preview. The chat button and its
+// Ctrl+T shortcut have nothing to switch in any of them.
+const CHAT_TOGGLE_DISABLED_LAYOUTS = new Set(['chat', 'chat-bottom', 'document']);
+
+/** Can the chat panel be shown/hidden in `mode`? */
+export const layoutAllowsChatToggle = (mode) => !CHAT_TOGGLE_DISABLED_LAYOUTS.has(mode);
+
+// The chat-first layouts dock their own left sidebar — the chat list above the
+// workspace explorer — instead of the explorer/source-control one. It is
+// retractable like every docked sidebar, and the Explorer button of the
+// Activity Bar is what shows and hides it, so in these layouts that button
+// toggles it in place rather than switching the user to the IDE layout.
+const CHAT_SIDEBAR_LAYOUTS = new Set(['chat', 'chat-bottom']);
+
+/** Does `mode` dock the chat-list + explorer sidebar? */
+export const layoutHasChatSidebar = (mode) => CHAT_SIDEBAR_LAYOUTS.has(mode);
