@@ -238,15 +238,25 @@ def test_a_worker_is_told_to_convert_an_unreadable_file_itself(tmp_path, monkeyp
     assert "run_skill" not in message
 
 
-def test_a_missing_file_points_a_direct_caller_at_write_file(tmp_path, monkeypatch):
-    target = tmp_path / "lista.tex"
+def _prepare_missing(monkeypatch, project, name="lista.tex"):
+    """A missing file inside *project*, with the project root pinned for the lookup."""
+    monkeypatch.setattr(tools, "_PROJECT_PATH", str(project))
+    target = project / name
     _prepare(monkeypatch, target)
+    return target
+
+
+def test_a_missing_file_points_a_direct_caller_at_write_file(tmp_path, monkeypatch):
+    target = _prepare_missing(monkeypatch, tmp_path)
 
     with pytest.raises(ValueError) as excinfo:
         _read_file(str(target))
     message = str(excinfo.value)
     assert "file not found" in message
+    assert "No file with this name exists" in message
     assert "get_project_overview" in message
+    # search_code matches contents, so it cannot locate a file by name.
+    assert "search_code" not in message
     assert "use 'write_file' instead" in message
     assert "run_skill" not in message
 
@@ -254,8 +264,7 @@ def test_a_missing_file_points_a_direct_caller_at_write_file(tmp_path, monkeypat
 def test_a_missing_file_sends_a_delegate_orchestrator_to_run_skill(tmp_path, monkeypatch):
     """A delegate orchestrator has no write_file; naming it was a dead end that a
     small model answered with a web_search loop on "how to use write_file"."""
-    target = tmp_path / "lista.tex"
-    _prepare(monkeypatch, target)
+    target = _prepare_missing(monkeypatch, tmp_path)
     monkeypatch.setattr(tools, "_ORCHESTRATOR_HAS_TERMINAL", False)
 
     with pytest.raises(ValueError) as excinfo:
@@ -269,8 +278,7 @@ def test_a_missing_file_sends_a_delegate_orchestrator_to_run_skill(tmp_path, mon
 
 
 def test_a_missing_file_tells_a_worker_to_write_it_itself(tmp_path, monkeypatch):
-    target = tmp_path / "lista.tex"
-    _prepare(monkeypatch, target)
+    target = _prepare_missing(monkeypatch, tmp_path)
     monkeypatch.setattr(tools, "_ORCHESTRATOR_HAS_TERMINAL", False)
     monkeypatch.setattr(tools, "_IN_SKILL_WORKER", True)
 
@@ -279,6 +287,34 @@ def test_a_missing_file_tells_a_worker_to_write_it_itself(tmp_path, monkeypatch)
     message = str(excinfo.value)
     assert "use 'write_file' instead" in message
     assert "run_skill" not in message
+
+
+def test_a_guessed_path_names_where_a_file_of_that_name_lives(tmp_path, monkeypatch):
+    """The recorded failure: 'aula03_slides.tex' read at the project root, while it
+    lives in AULA_03/. The error names the real location but does not read it."""
+    (tmp_path / "AULA_03").mkdir()
+    (tmp_path / "AULA_03" / "aula03_slides.tex").write_text("\\begin{frame}\n", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "aula03_slides.tex").write_text("hidden", encoding="utf-8")
+    target = _prepare_missing(monkeypatch, tmp_path, "aula03_slides.tex")
+
+    with pytest.raises(ValueError) as excinfo:
+        _read_file(str(target))
+    message = str(excinfo.value)
+    assert "file not found" in message
+    assert "A file with this name exists at: AULA_03/aula03_slides.tex." in message
+    assert ".git" not in message
+    assert "No file with this name exists" not in message
+
+
+def test_the_same_name_lookup_is_bounded(tmp_path, monkeypatch):
+    monkeypatch.setattr(tools, "_PROJECT_PATH", str(tmp_path))
+    for i in range(8):
+        (tmp_path / f"d{i}").mkdir()
+        (tmp_path / f"d{i}" / "main.tex").write_text("x", encoding="utf-8")
+
+    assert len(tools._same_name_candidates(str(tmp_path / "main.tex"), limit=3)) == 3
+    assert tools._same_name_candidates(str(tmp_path / "main.tex"), max_entries=1) == []
 
 
 def test_an_image_attachment_still_short_circuits_before_the_binary_check(monkeypatch):

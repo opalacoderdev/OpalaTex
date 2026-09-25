@@ -298,6 +298,35 @@ def _resolve_path(path: str) -> str:
     return os.path.join(get_project_path(), path)
 
 
+_SAME_NAME_SKIP_DIRS = {"node_modules", "__pycache__", "venv", "dist", "build"}
+
+
+def _same_name_candidates(missing: str, limit: int = 5, max_entries: int = 20000) -> list[str]:
+    """Project-relative paths of files named like *missing*, for a not-found diagnostic.
+
+    Models routinely guess a path from a filename they saw ("aula03_slides.tex" at
+    the project root when it lives in AULA_03/). Naming where the file does exist
+    turns the failure into a route; the caller still picks the path itself.
+    Bounded by *max_entries* so a huge tree cannot stall the error path.
+    """
+    name = os.path.basename(missing.rstrip("/\\"))
+    root = get_project_path()
+    if not name or not os.path.isdir(root):
+        return []
+    found: list[str] = []
+    seen = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in _SAME_NAME_SKIP_DIRS)
+        seen += len(filenames) + len(dirnames)
+        if name in filenames:
+            found.append(os.path.relpath(os.path.join(dirpath, name), root).replace(os.sep, "/"))
+            if len(found) >= limit:
+                break
+        if seen >= max_entries:
+            break
+    return found
+
+
 def _preview(value: object, max_len: int = 60) -> str:
     """Return a short, single-line preview of any argument value."""
     s = str(value).replace("\n", " ")
@@ -637,10 +666,20 @@ def read_file(path: str) -> str:
                     "passing the target path and the full content in its context. If you are in plan "
                     "mode, run_skill is blocked: propose the file with create_plan instead."
                 )
-            raise ValueError(
-                f"Error: file not found: {_preview(resolved)}. If you expected it to exist, locate it "
-                f"with get_project_overview or search_code instead of guessing the path. {create}"
-            )
+            # search_code matches file *contents*, so it cannot find a file by
+            # name; get_project_overview is the listing route.
+            candidates = _same_name_candidates(resolved)
+            if candidates:
+                where = (
+                    "A file with this name exists at: " + ", ".join(candidates)
+                    + ". If that is the file you meant, read it by that path."
+                )
+            else:
+                where = (
+                    "No file with this name exists anywhere in the project. If you expected one, "
+                    "list the project with get_project_overview instead of guessing the path."
+                )
+            raise ValueError(f"Error: file not found: {_preview(resolved)}. {where} {create}")
     except OSError as e:
         # Catch cases like [Errno 36] File name too long if path contains code
         raise ValueError(f"Error: invalid path argument ({e.strerror}). 'read_file' expects a file path, not file contents.")
