@@ -92,9 +92,13 @@ foreach ($shortcutPath in $shortcutPaths) {
             (Join-Path $installDir "OpalaTex.exe"),
             (Join-Path $installDir "OpalaTex\OpalaTex.exe")
         )
+        # PyInstaller 6+ bundles this script under `_internal`; older releases
+        # kept it beside the executable.
         $knownUninstallers = @(
             (Join-Path $installDir "uninstall.ps1"),
-            (Join-Path $installDir "OpalaTex\uninstall.ps1")
+            (Join-Path $installDir "OpalaTex\uninstall.ps1"),
+            (Join-Path $installDir "_internal\uninstall.ps1"),
+            (Join-Path $installDir "OpalaTex\_internal\uninstall.ps1")
         )
         $isAppShortcut = [bool]($knownTargets | Where-Object { $_ -ieq $target })
         $isUninstallShortcut = [bool]($knownUninstallers | Where-Object {

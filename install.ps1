@@ -107,8 +107,13 @@ if (-not (Test-Path "$exeDir\OpalaTex.exe")) {
 # installation whose payload is already extracted: warn and continue. The
 # Start-menu shortcut and the Installed-apps entry are only published when the
 # script is really present, so Windows never offers an uninstall that cannot run.
-$uninstallerPath = "$exeDir\uninstall.ps1"
-if (-not (Test-Path $uninstallerPath)) {
+# PyInstaller 6+ bundles data files in an `_internal` contents directory next to
+# the executable; older releases kept them beside it. Resolve both layouts.
+$uninstallerPath = @("$exeDir\uninstall.ps1", "$exeDir\_internal\uninstall.ps1") |
+    Where-Object { Test-Path $_ } |
+    Select-Object -First 1
+if (-not $uninstallerPath) {
+    $uninstallerPath = "$exeDir\uninstall.ps1"
     Write-Host "This release predates the bundled uninstaller; downloading it separately..." -ForegroundColor Yellow
     try {
         Invoke-DownloadWithRetry `

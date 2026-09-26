@@ -182,6 +182,22 @@ def test_unix_installer_keeps_legacy_flat_layout_resources(tmp_path):
     assert os.readlink(home / ".local" / "bin" / "opalatex-uninstall") == f"{install_dir}/uninstall.sh"
 
 
+def test_windows_installers_resolve_pyinstaller6_internal_uninstaller():
+    """PyInstaller 6+ bundles `uninstall.ps1` under `_internal\\`.
+
+    Looking only beside the executable missed it, so the installer fell back to
+    a network download; the uninstaller must also recognise the Start-menu
+    shortcut that now points into `_internal\\`.
+    """
+    installer = (ROOT / "install.ps1").read_text(encoding="utf-8")
+    uninstaller = (ROOT / "uninstall.ps1").read_text(encoding="utf-8")
+
+    assert '"$exeDir\\_internal\\uninstall.ps1"' in installer
+    assert '"$exeDir\\uninstall.ps1"' in installer
+    assert '(Join-Path $installDir "_internal\\uninstall.ps1")' in uninstaller
+    assert '(Join-Path $installDir "OpalaTex\\_internal\\uninstall.ps1")' in uninstaller
+
+
 def test_unix_uninstaller_rejects_relative_purge_before_removing_app(tmp_path):
     home = tmp_path / "home"
     install_dir = home / ".local" / "share" / "OpalaTex"
