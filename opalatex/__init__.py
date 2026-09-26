@@ -1,5 +1,5 @@
 """OpalaTex – AI coding agent with session management and modular execution."""
-__version__ = "0.2.16"
+__version__ = "0.2.16.1"
 
 import sys
 import os

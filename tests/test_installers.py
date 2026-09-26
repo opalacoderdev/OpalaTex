@@ -2,7 +2,11 @@
 
 import os
 import pathlib
+import platform
 import subprocess
+import tarfile
+
+import pytest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -91,11 +95,91 @@ def test_a_missing_uninstaller_does_not_abort_the_installation():
     assert "exit 1" not in guarded_block
     assert "continuing without it" in guarded_block
     # The symlink and the success hint are both conditional on the real file.
-    assert 'if [[ -f "$INSTALL_DIR/uninstall.sh" ]]; then' in unix_installer
+    assert 'if [[ -n "$UNINSTALLER_PATH" ]]; then' in unix_installer
 
     assert "$hasUninstaller = Test-Path $uninstallerPath" in windows_installer
     assert "if ($hasUninstaller) {" in windows_installer
     assert "continuing without it" in windows_installer
+
+
+def _run_unix_installer_on_package(tmp_path, payload):
+    """Install a fake release tarball whose files are `payload` (path -> text)."""
+    package = tmp_path / "package" / "OpalaTex"
+    for relative, content in payload.items():
+        target = package / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    archive = tmp_path / "OpalaTex-linux-x64.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(package, arcname=".")
+
+    home = tmp_path / "home"
+    home.mkdir()
+    bin_dir = home / ".local" / "bin"
+    result = subprocess.run(
+        ["bash", str(ROOT / "install.sh")],
+        env={
+            **os.environ,
+            "HOME": str(home),
+            "OPALATEX_DOWNLOAD_URL": archive.as_uri(),
+            # Already on PATH, so the installer leaves shell rc files alone.
+            "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return home, result
+
+
+@pytest.mark.skipif(platform.system() != "Linux", reason="install.sh selects the Linux asset only on Linux")
+def test_unix_installer_resolves_pyinstaller6_internal_resources(tmp_path):
+    """PyInstaller 6+ bundles data files under `_internal/`.
+
+    The launcher entry pointed at `<install>/icon.png`, which that layout never
+    creates, so the app showed up with a blank icon; the bundled uninstaller was
+    likewise missed and `opalatex-uninstall` was never published.
+    """
+    home, result = _run_unix_installer_on_package(
+        tmp_path,
+        {
+            "OpalaTex": "binary",
+            "_internal/icon.png": "png",
+            "_internal/uninstall.sh": "#!/usr/bin/env bash\n",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    install_dir = home / ".local" / "share" / "OpalaTex"
+    desktop = (home / ".local" / "share" / "applications" / "opalatex.desktop").read_text(encoding="utf-8")
+    assert f"Icon={install_dir}/_internal/icon.png\n" in desktop
+    uninstall_link = home / ".local" / "bin" / "opalatex-uninstall"
+    assert os.readlink(uninstall_link) == f"{install_dir}/_internal/uninstall.sh"
+
+    removal = subprocess.run(
+        ["bash", str(ROOT / "uninstall.sh")],
+        env={**os.environ, "HOME": str(home), "PATH": os.environ.get("PATH", "")},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert removal.returncode == 0, removal.stderr
+    assert not os.path.lexists(uninstall_link)
+    assert not install_dir.exists()
+
+
+@pytest.mark.skipif(platform.system() != "Linux", reason="install.sh selects the Linux asset only on Linux")
+def test_unix_installer_keeps_legacy_flat_layout_resources(tmp_path):
+    home, result = _run_unix_installer_on_package(
+        tmp_path,
+        {"OpalaTex": "binary", "icon.png": "png", "uninstall.sh": "#!/usr/bin/env bash\n"},
+    )
+
+    assert result.returncode == 0, result.stderr
+    install_dir = home / ".local" / "share" / "OpalaTex"
+    desktop = (home / ".local" / "share" / "applications" / "opalatex.desktop").read_text(encoding="utf-8")
+    assert f"Icon={install_dir}/icon.png\n" in desktop
+    assert os.readlink(home / ".local" / "bin" / "opalatex-uninstall") == f"{install_dir}/uninstall.sh"
 
 
 def test_unix_uninstaller_rejects_relative_purge_before_removing_app(tmp_path):

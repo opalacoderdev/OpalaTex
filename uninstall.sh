@@ -105,8 +105,14 @@ printf '%s\n' "Uninstalling the direct OpalaTex installation..."
 if [[ -L "$BIN_LINK" ]] && [[ "$(readlink "$BIN_LINK")" == "$INSTALL_DIR/OpalaTex" ]]; then
     rm -f "$BIN_LINK"
 fi
-if [[ -L "$UNINSTALL_LINK" ]] && [[ "$(readlink "$UNINSTALL_LINK")" == "$INSTALL_DIR/uninstall.sh" ]]; then
-    rm -f "$UNINSTALL_LINK"
+# PyInstaller 6+ bundles this script under `_internal`; older releases kept it
+# beside the executable.
+if [[ -L "$UNINSTALL_LINK" ]]; then
+    case "$(readlink "$UNINSTALL_LINK")" in
+        "$INSTALL_DIR/uninstall.sh"|"$INSTALL_DIR/_internal/uninstall.sh")
+            rm -f "$UNINSTALL_LINK"
+            ;;
+    esac
 fi
 if [[ -f "$DESKTOP_FILE" ]] && grep -Fqx "Exec=$INSTALL_DIR/OpalaTex" "$DESKTOP_FILE"; then
     rm -f "$DESKTOP_FILE"

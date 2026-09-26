@@ -131,15 +131,33 @@ if [[ ! -f "$INSTALL_DIR/OpalaTex" ]]; then
     exit 1
 fi
 
+# PyInstaller 6+ places bundled data files (icon, uninstaller, ...) in an
+# `_internal` contents directory next to the executable; older releases kept
+# them beside it. Resolve both layouts instead of assuming one.
+find_bundled_file() {
+    local name="$1"
+    local candidate
+    for candidate in "$INSTALL_DIR/$name" "$INSTALL_DIR/_internal/$name"; do
+        if [[ -f "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # The uninstaller is a convenience, not part of the application. A release that
 # predates it, or a branch that does not carry it yet, must not abort an
 # installation whose payload is already unpacked: warn and continue, and only
 # publish the `opalatex-uninstall` entry point when the script is really there.
-if [[ ! -f "$INSTALL_DIR/uninstall.sh" ]]; then
+UNINSTALLER_PATH="$(find_bundled_file uninstall.sh || true)"
+if [[ -z "$UNINSTALLER_PATH" ]]; then
     echo "This release predates the bundled uninstaller; downloading it separately..."
-    if ! download_with_retry \
+    if download_with_retry \
         "https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$UNINSTALLER_REF/uninstall.sh" \
         "$INSTALL_DIR/uninstall.sh"; then
+        UNINSTALLER_PATH="$INSTALL_DIR/uninstall.sh"
+    else
         rm -f "$INSTALL_DIR/uninstall.sh"
         echo "Could not fetch the OpalaTex uninstaller; continuing without it." >&2
         echo "To remove OpalaTex later, delete $INSTALL_DIR and $BIN_DIR/opalatex." >&2
@@ -150,13 +168,22 @@ echo "Creating command symlink in $BIN_DIR..."
 mkdir -p "$BIN_DIR"
 ln -sfn "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex"
 chmod +x "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex" 2>/dev/null || true
-if [[ -f "$INSTALL_DIR/uninstall.sh" ]]; then
-    ln -sfn "$INSTALL_DIR/uninstall.sh" "$BIN_DIR/opalatex-uninstall"
-    chmod +x "$INSTALL_DIR/uninstall.sh" "$BIN_DIR/opalatex-uninstall" 2>/dev/null || true
+if [[ -n "$UNINSTALLER_PATH" ]]; then
+    ln -sfn "$UNINSTALLER_PATH" "$BIN_DIR/opalatex-uninstall"
+    chmod +x "$UNINSTALLER_PATH" "$BIN_DIR/opalatex-uninstall" 2>/dev/null || true
 fi
 
 DESKTOP_DIR="$HOME/.local/share/applications"
 mkdir -p "$DESKTOP_DIR"
+
+# A desktop entry whose Icon points at a missing file renders as a blank tile
+# in the launcher, so only write the key for an icon that really exists.
+ICON_LINE=""
+if ICON_PATH="$(find_bundled_file icon.png)"; then
+    ICON_LINE="Icon=$ICON_PATH"
+else
+    echo "The downloaded package does not contain icon.png; the launcher entry will have no icon." >&2
+fi
 
 cat > "$DESKTOP_DIR/opalatex.desktop" << EOF
 [Desktop Entry]
@@ -165,7 +192,7 @@ Type=Application
 Name=OpalaTex
 Comment=OpalaTex Open-Source AI LaTeX IDE
 Exec=$INSTALL_DIR/OpalaTex
-Icon=$INSTALL_DIR/icon.png
+$ICON_LINE
 Terminal=false
 Categories=Utility;Development;TextEditor;
 EOF
@@ -194,6 +221,6 @@ echo "   OpalaTex installed successfully!       "
 echo "=========================================="
 echo "Terminal command: opalatex"
 echo "Application launcher created."
-if [[ -f "$INSTALL_DIR/uninstall.sh" ]]; then
+if [[ -n "$UNINSTALLER_PATH" ]]; then
     echo "To uninstall: opalatex-uninstall"
 fi
