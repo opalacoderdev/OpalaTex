@@ -1329,6 +1329,24 @@ def _persist_activity_event(event: str, data: dict) -> None:
         pass
 
 
+def _provider_wait_payload(wait, agent: str) -> dict:
+    """The `provider_wait` event for one `ResponseWait` record.
+
+    Reported from a real session: a pooled connection to the provider died while
+    a request was being sent, the turn sat on the 600 s HTTP timeout with only
+    "Analyzing the obtained result..." on screen, and nothing told the user that
+    stopping and continuing would have recovered it in seconds. The event only
+    informs; the request, its timeout and its retries are unchanged.
+    """
+    return {
+        "agent": agent,
+        "model": wait.model,
+        "phase": wait.phase,
+        "elapsed_seconds": round(float(wait.elapsed_seconds), 1),
+        "waiting": bool(wait.waiting),
+    }
+
+
 def print_event(event: str, data: dict):
     global _LAST_INTERMEDIATE_AGENT_RESPONSE
     if event == "agent_response" and data.get("intermediate"):
@@ -2652,6 +2670,9 @@ async def handle_run(data: dict):
     def _on_unknown_tool(name: str, _arguments: str) -> None:
         _report_unknown_tool_call(name)
 
+    def _on_response_wait(wait) -> None:
+        print_event("provider_wait", _provider_wait_payload(wait, agent_type))
+
     # Inline editing has a final-response-only transport contract. Do not bind
     # callbacks that could emit intermediate model content.
     if agent_type != "inline_editor":
@@ -2674,6 +2695,11 @@ async def handle_run(data: dict):
             agent.on_unknown_tool = _on_unknown_tool
         elif hasattr(agent, "agent") and hasattr(agent.agent, "on_unknown_tool"):
             agent.agent.on_unknown_tool = _on_unknown_tool
+
+        if hasattr(agent, "on_response_wait"):
+            agent.on_response_wait = _on_response_wait
+        elif hasattr(agent, "agent") and hasattr(agent.agent, "on_response_wait"):
+            agent.agent.on_response_wait = _on_response_wait
 
     if agent_type != "inline_editor":
         print_event("agent_started", {"agent": agent_type, "model": agent.model})

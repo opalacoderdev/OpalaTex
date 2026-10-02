@@ -640,7 +640,7 @@ def build_run_skill_tool(
         wrap_agent_litellm_compat(sub_agent)
         attach_usage_tracking(sub_agent)
 
-        from opalatex.agent_stdin import _record_turn_thought, print_event
+        from opalatex.agent_stdin import _provider_wait_payload, _record_turn_thought, print_event
 
         object.__setattr__(sub_agent, "model", model)
         object.__setattr__(sub_agent, "model_kargs", worker_kwargs)
@@ -681,6 +681,11 @@ def build_run_skill_tool(
                 print_event("reflection", {"content": str(content), "agent": f"worker:{skill_name}"})
 
         sub_agent.on_iteration = _worker_on_iteration
+
+        def _worker_on_response_wait(wait) -> None:
+            print_event("provider_wait", _provider_wait_payload(wait, f"worker:{skill_name}"))
+
+        sub_agent.on_response_wait = _worker_on_response_wait
 
         os.environ.setdefault(
             "OPALATEX_ROOT",

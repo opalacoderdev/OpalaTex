@@ -23,6 +23,7 @@ from agenticblocks.utils.tool_calls import (
 )
 from agenticblocks.utils.messages import build_user_content, history_accepts_user_message
 from agenticblocks.blocks.llm.inbox import InboxItem, MessageInbox
+from agenticblocks.blocks.llm.response_wait import ResponseWait, ResponseWaitWatch
 
 
 class _DummyFunction(BaseModel):
@@ -403,6 +404,18 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
     """Optional callback invoked after each LLM call with standard content chunks.
     Signature: `def callback(chunk: str) -> Any`.
     Can be a synchronous or asynchronous function."""
+    on_response_wait: Optional[Callable[["ResponseWait"], Any]] = None
+    """Optional callback invoked when the provider has sent nothing for
+    `response_wait_notice_after` seconds during an LLM call (``waiting=True``),
+    and again when the silence ends (``waiting=False``): data resumed, or the
+    call finished or failed. At most one notice is outstanding at a time; a
+    response that stalls again after resuming produces a new pair.
+    It only observes: the request, its timeout and any retry are unchanged.
+    Signature: `def callback(wait: ResponseWait) -> Any`.
+    Can be a synchronous or asynchronous function."""
+    response_wait_notice_after: Optional[float] = 60.0
+    """Seconds of provider silence before `on_response_wait` is notified.
+    ``None`` or a non-positive value disables the watch."""
     inbox: Optional[MessageInbox] = None
     """Optional channel for messages submitted while this run is already in flight.
 
@@ -520,39 +533,49 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
 
         started = time.monotonic()
         agent_name = getattr(self, "name", "") or type(self).__name__
-        if self.use_shared_router:
-            router = _get_shared_router(effective_model)
-            response = await _await_reporting_cancellation(
-                router.acompletion(model=effective_model, messages=messages, **kwargs),
-                agent_name, effective_model, started,
-            )
-        else:
-            response = await _await_reporting_cancellation(
-                litellm.acompletion(model=effective_model, messages=messages, **kwargs),
-                agent_name, effective_model, started,
-            )
+        watch = ResponseWaitWatch(
+            self.on_response_wait,
+            agent=agent_name,
+            model=effective_model,
+            notice_after=self.response_wait_notice_after,
+        ).start()
+        try:
+            if self.use_shared_router:
+                router = _get_shared_router(effective_model)
+                response = await _await_reporting_cancellation(
+                    router.acompletion(model=effective_model, messages=messages, **kwargs),
+                    agent_name, effective_model, started,
+                )
+            else:
+                response = await _await_reporting_cancellation(
+                    litellm.acompletion(model=effective_model, messages=messages, **kwargs),
+                    agent_name, effective_model, started,
+                )
 
-        # LiteLLM 1.90 can return its async stream initializer as the result of
-        # acompletion for some OpenAI-compatible providers. Resolve that nested
-        # awaitable before consuming the stream so it is not garbage-collected
-        # as an unawaited coroutine.
-        if inspect.isawaitable(response):
-            response = await response
+            # LiteLLM 1.90 can return its async stream initializer as the result of
+            # acompletion for some OpenAI-compatible providers. Resolve that nested
+            # awaitable before consuming the stream so it is not garbage-collected
+            # as an unawaited coroutine.
+            if inspect.isawaitable(response):
+                response = await response
 
-        if streaming:
-            chunks = []
-            async for chunk in response:
-                chunks.append(chunk)
-                if self.on_thinking or self.on_chunk:
-                    delta = chunk.choices[0].delta if chunk.choices else None
-                    if delta:
-                        rc = getattr(delta, "reasoning_content", None)
-                        if rc and self.on_thinking:
-                            await self._invoke_on_thinking(rc)
-                        content = getattr(delta, "content", None)
-                        if content and self.on_chunk:
-                            await self._invoke_on_chunk(content)
-            response = litellm.stream_chunk_builder(chunks, messages=messages)
+            if streaming:
+                chunks = []
+                async for chunk in response:
+                    await watch.progress()
+                    chunks.append(chunk)
+                    if self.on_thinking or self.on_chunk:
+                        delta = chunk.choices[0].delta if chunk.choices else None
+                        if delta:
+                            rc = getattr(delta, "reasoning_content", None)
+                            if rc and self.on_thinking:
+                                await self._invoke_on_thinking(rc)
+                            content = getattr(delta, "content", None)
+                            if content and self.on_chunk:
+                                await self._invoke_on_chunk(content)
+                response = litellm.stream_chunk_builder(chunks, messages=messages)
+        finally:
+            await watch.stop()
 
         return response
 

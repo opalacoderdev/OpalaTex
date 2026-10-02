@@ -12,6 +12,7 @@ import { compactChatLayoutFor } from './utils/chatCompact';
 import { clearAnsweredRequest, confirmRequestDialog, dialogRequestKey, normalizeInputRequest } from './utils/askQuestion';
 import { readRunConflict, RUN_CONFLICT_TURN_STOPPING } from './utils/agentRunConflict';
 import { interruptedTurnContent } from './utils/turnMarkers.js';
+import { formatWaitDuration, providerWaitFromEvent } from './utils/providerWait.js';
 import {
   appendThoughtChunk,
   clampThoughtContextTokens,
@@ -429,6 +430,10 @@ export default function App() {
   const [queuedMessages, setQueuedMessages] = useState([]);
   const [isInterruptPending, setIsInterruptPending] = useState(false);
   const [agentStepInfo, setAgentStepInfo] = useState({ step: 0, maxSteps: null });
+  // The provider has sent nothing past the backend's threshold (`provider_wait`).
+  const [providerWait, setProviderWait] = useState(null);
+  // Whatever ended the turn (answer, error, interruption) also ended the wait.
+  useEffect(() => { if (!isAgentRunning) setProviderWait(null); }, [isAgentRunning]);
   const [heartbeatMode, setHeartbeatModeState] = useState(() => {
     try {
       return localStorage.getItem('chatHeartbeatMode') || 'medium';
@@ -3056,6 +3061,7 @@ export default function App() {
       case 'server_ready': addLog('info', t('app.agentReady'), data.agent); break;
       case 'agent_started':
         setAgentStepInfo({ step: 0, maxSteps: null });
+        setProviderWait(null);
         // A new turn is what the panel should be showing: if the user had
         // opened a past message's reasoning, hand the panel back to the live
         // stream instead of leaving it on text that no longer moves.
@@ -3318,6 +3324,17 @@ export default function App() {
         addLog('error', t('app.toolProblem', { tool: data.tool, message: data.message }));
         addProblem({ tool: data.tool, message: data.message, severity: data.severity || 'error' });
         break;
+      case 'provider_wait': {
+        // Information only: the request, its timeout and its retries are unchanged.
+        const wait = providerWaitFromEvent(data);
+        setProviderWait(wait);
+        if (isRunOnScreen()) {
+          addLog('info', wait
+            ? t('app.providerWaitLog', { elapsed: formatWaitDuration(data.elapsed_seconds), model: data.model || '' })
+            : t('app.providerWaitOverLog', { elapsed: formatWaitDuration(data.elapsed_seconds) }), data.agent);
+        }
+        break;
+      }
       default: addLog('info', t('app.eventReceived', { event }));
     }
   };
@@ -4793,6 +4810,7 @@ export default function App() {
               isAgentRunning={isAgentRunning}
               isLiveTurnOnScreen={isLiveTurnOnScreen}
               agentStepInfo={agentStepInfo}
+              providerWait={providerWait}
               heartbeatMode={heartbeatMode}
               setHeartbeatMode={setHeartbeatMode}
               queuedMessages={queuedMessages}
@@ -4890,6 +4908,7 @@ export default function App() {
               isAgentRunning={isAgentRunning}
               isLiveTurnOnScreen={isLiveTurnOnScreen}
               agentStepInfo={agentStepInfo}
+              providerWait={providerWait}
               heartbeatMode={heartbeatMode}
               setHeartbeatMode={setHeartbeatMode}
               queuedMessages={queuedMessages}
