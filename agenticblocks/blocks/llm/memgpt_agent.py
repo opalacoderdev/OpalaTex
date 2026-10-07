@@ -551,6 +551,8 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         # tool call arrives native while streaming), so the reroute buys nothing
         # and costs tool calling. Requests go to the model's own route.
         effective_model = self.model
+        from agenticblocks.utils.messages import match_tool_result_ids_to_route
+        messages = match_tool_result_ids_to_route(effective_model, messages)
 
         started = time.monotonic()
         agent_name = getattr(self, "name", "") or type(self).__name__

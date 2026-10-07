@@ -75,6 +75,37 @@ def _tool_call_id(call: Any) -> Optional[str]:
     return getattr(call, "id", None)
 
 
+# LiteLLM routes whose request transform sends assistant tool calls without
+# their ``id``. On ``ollama_chat/`` (LiteLLM 1.101 through 1.104 at least),
+# ``OllamaChatConfig.transform_request`` rebuilds each call with only its
+# ``function`` but forwards ``tool_call_id`` on tool results, so the provider
+# sees results that name an id no call carries. Most Ollama-served models ignore
+# that; a Mistral-format backend validates it and rejects the request with
+# ``Unexpected tool call id <id> in tool results`` (measured against
+# ollama.com with mistral-large-4).
+_ROUTES_WITHOUT_TOOL_CALL_IDS = ("ollama_chat/",)
+
+
+def match_tool_result_ids_to_route(model: str, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return a request copy whose tool results carry ids only if the calls do.
+
+    On a route that strips the ids from assistant tool calls, ``tool_call_id``
+    is removed from each ``tool`` message too, so neither side names an id and
+    the provider pairs results with calls by position — Ollama's native
+    protocol. The results keep the ``tool`` role and their order; the stored
+    history is never modified. On every other route the messages are returned
+    unchanged.
+    """
+    if not str(model or "").startswith(_ROUTES_WITHOUT_TOOL_CALL_IDS):
+        return messages
+    result = []
+    for message in messages:
+        if isinstance(message, dict) and message.get("role") == "tool" and "tool_call_id" in message:
+            message = {key: value for key, value in message.items() if key != "tool_call_id"}
+        result.append(message)
+    return result
+
+
 def prepend_user_prompt(messages: List[Dict[str, Any]], prefix: str) -> List[Dict[str, Any]]:
     """Apply fixed user instructions to a request copy, never to stored history."""
     if not prefix:
