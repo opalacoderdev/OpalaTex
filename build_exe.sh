@@ -142,6 +142,13 @@ pyinstaller --name "OpalaTex" \
             --clean \
             main.py
 
+if [ "$OS_NAME" = "Linux" ]; then
+    # PyInstaller only warns when a dependency is missing from this machine, and
+    # the bundle then starts only where the user has it installed.
+    echo -e "\n[4.5/4] Checking that the bundle carries the libraries the window needs..."
+    python scripts/check_bundle_libraries.py dist/OpalaTex
+fi
+
 echo -e "\n=========================================="
 echo "Build concluido com sucesso!"
 echo "O executavel pode ser encontrado em: ./dist/OpalaTex/OpalaTex"

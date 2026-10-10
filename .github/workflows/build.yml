@@ -71,6 +71,27 @@ jobs:
           OPALATEX_GDRIVE_CLIENT_SECRET: ${{ secrets.OPALATEX_GDRIVE_CLIENT_SECRET }}
         run: .\build_exe.ps1
 
+      # PyInstaller bundles a library only if the build machine has it; a missing
+      # one is a warning, not an error. Qt's xcb platform plugin links these nine
+      # X11 client libraries and the runner image carries none of them, so the
+      # release shipped without them and aborted on a stock desktop with "no Qt
+      # platform plugin could be initialized" until the user apt-installed them.
+      # build_exe.sh refuses a bundle that still lacks any of them.
+      - name: Install the Qt xcb libraries the Linux bundle must carry
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-util1 \
+            libxcb-xkb1 \
+            libxkbcommon-x11-0
+
       - name: Build Linux/macOS
         if: matrix.os != 'windows-latest'
         env:
