@@ -11,6 +11,7 @@ import { stripInlineReasoning } from '../utils/thinkTags.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 
 import { turnEndFromContent } from '../utils/turnMarkers.js';
+import { formatWaitDuration, providerWaitSeconds } from '../utils/providerWait.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import TranslationPopup from './TranslationPopup.jsx';
 import SpeechPopup from './SpeechPopup.jsx';
@@ -72,6 +73,42 @@ const numericMessageId = (message) => {
 // Distance from the bottom (in px) still treated as "at the bottom".
 const BOTTOM_PIN_THRESHOLD_PX = 48;
 
+// The provider has sent nothing for a while. The counter runs locally from the
+// moment the silence began; the backend reports only its start and its end.
+// It informs, and leaves the decision to the user: a slow model and a dead
+// connection look identical from here.
+function ProviderWaitNotice({ wait, t }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [wait]);
+  const elapsed = formatWaitDuration(providerWaitSeconds(wait, now));
+  return (
+    <div
+      role="status"
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: '6px',
+        fontSize: '12px',
+        color: 'var(--vscode-descriptionForeground)',
+        border: '1px solid var(--vscode-widget-border, #3c3c3c)',
+        borderRadius: '4px',
+        padding: '6px 8px',
+      }}
+    >
+      <Clock size={13} aria-hidden="true" style={{ flexShrink: 0, marginTop: '1px' }} />
+      <span>
+        {wait.phase === 'stream'
+          ? t('chatPanel.providerWaitStream', { elapsed })
+          : t('chatPanel.providerWait', { elapsed })}
+      </span>
+    </div>
+  );
+}
+
 export default function ChatPanel({
   isTutorialChat = false,
   tutorialTopics = [],
@@ -85,6 +122,8 @@ export default function ChatPanel({
   // False while the running turn belongs to another chat than this one.
   isLiveTurnOnScreen = true,
   agentStepInfo = { step: 0, maxSteps: null },
+  // Set while the model's provider has been silent past the backend threshold.
+  providerWait = null,
   heartbeatMode = 'medium',
   setHeartbeatMode,
   queuedMessages = [],
@@ -2478,6 +2517,7 @@ export default function ChatPanel({
                 </span>
               </span>
             </div>
+            {providerWait && <ProviderWaitNotice wait={providerWait} t={t} />}
             <div className="vscode-chat-msg-content">
               {(chatThoughtStream && !hideThink) ? (
                 <details open style={{ margin: '8px 0', border: '1px solid var(--vscode-widget-border, #3c3c3c)', borderRadius: '4px', background: 'var(--titlebar-bg, #252526)' }}>

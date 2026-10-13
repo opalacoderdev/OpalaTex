@@ -142,82 +142,6 @@ export default function ActivityBar({
         >
           <PanelBottom size={density.iconSize} />
         </button>
-        <button
-          onClick={() => {
-            if (hasChatSidebar) {
-              setIsChatSidebarVisible(!isChatSidebarVisible);
-              return;
-            }
-            if (!hasDockedSidebar) setLayoutMode('ide');
-            setActiveSidebarTab(activeSidebarTab === 'explorer' ? null : 'explorer');
-          }}
-          className={`vscode-activitybar-btn ${(hasChatSidebar ? isChatSidebarVisible : activeSidebarTab === 'explorer' && hasDockedSidebar) ? 'active' : ''}`}
-          title={t('activityBar.explorer')}
-        >
-          <Files size={density.iconSize} />
-        </button>
-
-        <button
-          onClick={() => {
-            setLayoutMode('review');
-            setActiveSidebarTab(null);
-          }}
-          className={`vscode-activitybar-btn ${layoutMode === 'review' ? 'active' : ''}`}
-          title={t('activityBar.reviewMode')}
-        >
-          <History size={density.iconSize} />
-        </button>
-
-
-        <button
-          onClick={() => {
-            if (!hasDockedSidebar) setLayoutMode('ide');
-            setActiveSidebarTab(activeSidebarTab === 'git' ? null : 'git');
-          }}
-          className={`vscode-activitybar-btn ${activeSidebarTab === 'git' && hasDockedSidebar ? 'active' : ''}`}
-          title={t('activityBar.sourceControl')}
-          style={{ position: 'relative' }}
-        >
-          <GitBranch size={density.iconSize} />
-          {gitChangesCount > 0 && (
-            <span style={{
-              position: 'absolute',
-              top: '4px',
-              right: '4px',
-              background: '#007acc',
-              color: '#ffffff',
-              borderRadius: '50%',
-              width: '16px',
-              height: '16px',
-              fontSize: '9px',
-              fontWeight: 'bold',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 0 4px rgba(0,0,0,0.5)',
-            }}>
-              {gitChangesCount}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => { if (!isChatToggleDisabled) setIsChatVisible(!isChatVisible); }}
-          className={`vscode-activitybar-btn ${isChatVisible || layoutMode === 'chat' || layoutMode === 'chat-bottom' ? 'active' : ''}`}
-          title={t('activityBar.opalatexCodes', 'OpalaTex Chat (Ctrl+T)')}
-          disabled={isChatToggleDisabled}
-          style={{ opacity: isChatToggleDisabled ? 0.5 : 1, cursor: isChatToggleDisabled ? 'not-allowed' : 'pointer' }}
-        >
-          <MessageSquare size={density.iconSize} />
-        </button>
-
-        <button
-          onClick={() => setIsTerminalCollapsed(!isTerminalCollapsed)}
-          className={`vscode-activitybar-btn ${!isTerminalCollapsed ? 'active' : ''}`}
-          title="Alternar Painel Inferior (Terminal)"
-        >
-          <Terminal size={density.iconSize} />
-        </button>
 
         <button
           onClick={() => {
@@ -262,6 +186,82 @@ export default function ActivityBar({
           title={layoutMode === 'document' ? t('activityBar.editMode') : t('activityBar.documentMode')}
         >
           <Columns2 size={density.iconSize} />
+        </button>
+
+        <button
+          onClick={() => {
+            setLayoutMode('review');
+            setActiveSidebarTab(null);
+          }}
+          className={`vscode-activitybar-btn ${layoutMode === 'review' ? 'active' : ''}`}
+          title={t('activityBar.reviewMode')}
+        >
+          <History size={density.iconSize} />
+        </button>
+
+        <button
+          onClick={() => {
+            if (!hasDockedSidebar) setLayoutMode('ide');
+            setActiveSidebarTab(activeSidebarTab === 'git' ? null : 'git');
+          }}
+          className={`vscode-activitybar-btn ${activeSidebarTab === 'git' && hasDockedSidebar ? 'active' : ''}`}
+          title={t('activityBar.sourceControl')}
+          style={{ position: 'relative' }}
+        >
+          <GitBranch size={density.iconSize} />
+          {gitChangesCount > 0 && (
+            <span style={{
+              position: 'absolute',
+              top: '4px',
+              right: '4px',
+              background: '#007acc',
+              color: '#ffffff',
+              borderRadius: '50%',
+              width: '16px',
+              height: '16px',
+              fontSize: '9px',
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 0 4px rgba(0,0,0,0.5)',
+            }}>
+              {gitChangesCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => {
+            if (hasChatSidebar) {
+              setIsChatSidebarVisible(!isChatSidebarVisible);
+              return;
+            }
+            if (!hasDockedSidebar) setLayoutMode('ide');
+            setActiveSidebarTab(activeSidebarTab === 'explorer' ? null : 'explorer');
+          }}
+          className={`vscode-activitybar-btn ${(hasChatSidebar ? isChatSidebarVisible : activeSidebarTab === 'explorer' && hasDockedSidebar) ? 'active' : ''}`}
+          title={t('activityBar.explorer')}
+        >
+          <Files size={density.iconSize} />
+        </button>
+
+        <button
+          onClick={() => { if (!isChatToggleDisabled) setIsChatVisible(!isChatVisible); }}
+          className={`vscode-activitybar-btn ${isChatVisible || layoutMode === 'chat' || layoutMode === 'chat-bottom' ? 'active' : ''}`}
+          title={t('activityBar.opalatexCodes', 'OpalaTex Chat (Ctrl+T)')}
+          disabled={isChatToggleDisabled}
+          style={{ opacity: isChatToggleDisabled ? 0.5 : 1, cursor: isChatToggleDisabled ? 'not-allowed' : 'pointer' }}
+        >
+          <MessageSquare size={density.iconSize} />
+        </button>
+
+        <button
+          onClick={() => setIsTerminalCollapsed(!isTerminalCollapsed)}
+          className={`vscode-activitybar-btn ${!isTerminalCollapsed ? 'active' : ''}`}
+          title="Alternar Painel Inferior (Terminal)"
+        >
+          <Terminal size={density.iconSize} />
         </button>
       </div>
 

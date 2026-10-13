@@ -316,6 +316,23 @@ class TerminalEventRenderer:
         label = f"[dim]{agent}:[/dim] " if agent else ""
         T.console.print(f"  {label}[dim]{message}[/dim]")
 
+    def _on_provider_wait(self, data: dict) -> None:
+        """The provider has been silent past the threshold, or stopped being.
+
+        Without this the terminal shows nothing while a request waits out its
+        HTTP timeout -- ten minutes, in the session that motivated it -- and
+        the user cannot tell a dead connection from a slow model.
+        """
+        self._close_visible_run()
+        seconds = int(float(data.get("elapsed_seconds") or 0))
+        agent = str(data.get("agent") or "")
+        label = f"[dim]{agent}:[/dim] " if agent.startswith("worker:") else ""
+        if not data.get("waiting"):
+            T.console.print(f"  {label}[dim]{_('cli_provider_wait_over', seconds=seconds)}[/dim]")
+            return
+        key = "cli_provider_wait_stream" if data.get("phase") == "stream" else "cli_provider_wait"
+        T.warning(f"{label}{_(key, seconds=seconds)}")
+
     def _on_problem(self, data: dict) -> None:
         self._close_visible_run()
         tool = str(data.get("tool") or data.get("agent") or "")
