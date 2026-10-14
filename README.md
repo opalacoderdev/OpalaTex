@@ -132,7 +132,8 @@ plan for approval.
 `/help` lists the commands by section with the arguments each one takes, and
 `/help <command>` shows worked examples — `/help /models`, `/help /providers`,
 `/help /chat`. Beyond the commands shared with the desktop chat, the terminal adds
-`/chat` (list, create, switch conversations), `/compile`, `/cost` and `/resume`.
+`/chat` (list, create, switch conversations), `/effort` (this chat's reasoning effort),
+`/compile`, `/cost` and `/resume`.
 
 ### Registering a model
 

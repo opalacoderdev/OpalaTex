@@ -2828,6 +2828,30 @@ class AsyncHTTPServer:
             store.rename_chat(project_name, chat_id, new_name)
             self.send_response(writer, 200, b'{"status":"ok"}', "application/json")
 
+        elif path == '/api/chat/reasoning-effort' and method == 'POST':
+            # The reasoning effort of one chat, in place of its model's catalog
+            # value. It is read from the store when the next turn builds its
+            # orchestrator, so a turn already running keeps the effort it began with.
+            from opalatex.config import DEFAULT_DB_PATH
+            from opalatex.project import ChatNotFoundError, ProjectStore
+            store = ProjectStore(db_path=DEFAULT_DB_PATH)
+            project_name = data.get("project_name")
+            chat_id = data.get("chat_id")
+            if not project_name or not chat_id or "reasoning_effort" not in data:
+                self.send_response(writer, 400, b'{"error":"project_name, chat_id and reasoning_effort required"}', "application/json")
+                return
+            try:
+                stored = store.set_chat_reasoning_effort(project_name, chat_id, data.get("reasoning_effort"))
+            except ChatNotFoundError as e:
+                self.send_response(writer, 404, json.dumps({"error": str(e)}).encode(), "application/json")
+                return
+            except ValueError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode(), "application/json")
+                return
+            self.send_response(writer, 200, json.dumps({
+                "status": "ok", "chat_id": chat_id, "reasoning_effort": stored,
+            }).encode(), "application/json")
+
         elif path == '/api/chat/branch' and method == 'POST':
             from opalatex.config import DEFAULT_DB_PATH
             from opalatex.project import ProjectStore
@@ -3042,8 +3066,15 @@ class AsyncHTTPServer:
             from opalatex.project import tutorial_chat_id
             tutorial_id = tutorial_chat_id(project_name)
             has_tutorial = any(c.get("id") == tutorial_id for c in (project.chats or []))
+            # Each chat carries its own reasoning effort ("" = follow the model
+            # catalog), so the composer can show it without a request per chat.
+            efforts = store.list_chat_reasoning_efforts(project_name)
+            chats = [
+                {**chat, "reasoning_effort": efforts.get(chat.get("id"), "")}
+                for chat in (project.chats or [])
+            ]
             self.send_response(writer, 200, json.dumps({
-                "chats": project.chats,
+                "chats": chats,
                 "main_chat_id": project.current_chat_id,
                 "current_chat_id": project.current_chat_id,
                 "tutorial_chat_id": tutorial_id if has_tutorial else "",

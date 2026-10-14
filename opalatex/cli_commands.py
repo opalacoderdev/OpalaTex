@@ -156,7 +156,7 @@ _registry = CommandRegistry()
 COMMAND_GROUPS: dict[str, tuple[str, ...]] = {
     "help_group_session": ("/help", "/mode", "/cost", "/resume", "/thoughts", "/tools", "/exit"),
     "help_group_projects": ("/project", "/list", "/load", "/rename", "/delete"),
-    "help_group_chats": ("/chat", "/history", "/clear_chat", "/clear"),
+    "help_group_chats": ("/chat", "/effort", "/history", "/clear_chat", "/clear"),
     "help_group_models": (
         "/add-provider", "/add-model", "/models", "/providers",
         "/set-provider-field", "/set-model-field", "/remove-provider", "/remove-model",
@@ -1021,6 +1021,48 @@ async def cmd_chat(state: REPLState, args: list[str]) -> str | None:
         (c["name"] for c in (loaded.chats or []) if c["id"] == target), rest
     )
     T.success(_("cli_chat_created" if action == "new" else "cli_chat_switched", name=name))
+    return "continue"
+
+
+@_registry.register("/effort", usage="[default | low | medium | high | xhigh]",
+                    description="Show or set the reasoning effort of this chat",
+                    cli_only=True, details='Examples:\n  /effort            show what this chat uses\n  /effort low        think less in this chat, whatever the model catalog says\n  /effort default    follow the model catalog again\n\nThe setting belongs to the current chat and applies to its orchestrator\nand its workers from the next turn on. It has an effect only on a model\nwhose catalog entry declares thinking support.')
+async def cmd_effort(state: REPLState, args: list[str]) -> str | None:
+    from .config import get_agent_model
+    from .models_store import get_model, get_model_by_runtime_id, resolve_runtime_model_id
+    from .project import CHAT_REASONING_EFFORTS
+
+    chat_id = state.project.current_chat_id
+    requested = " ".join(args).strip().lower()
+
+    if not requested:
+        current = state.store.get_chat_reasoning_effort(state.project.name, chat_id)
+        T.info(_("cli_effort_current", effort=current) if current else _("cli_effort_default"))
+        return "continue"
+
+    if requested != "default" and requested not in CHAT_REASONING_EFFORTS:
+        T.error(_("cli_usage_effort"))
+        return "continue"
+
+    stored = state.store.set_chat_reasoning_effort(
+        state.project.name, chat_id, "" if requested == "default" else requested
+    )
+    state.project.chat_reasoning_effort = stored
+    state.invalidate_memgpt()
+    T.success(_("cli_effort_set", effort=stored) if stored else _("cli_effort_cleared"))
+    # Saved either way, but said plainly: on a model that does not reason there
+    # is no effort to change, and a setting that silently does nothing reads as
+    # a broken one. The models and their catalog entries are resolved the way
+    # `build_chat_orchestrator`, `run_skill` and `get_agent_llm_kwargs` resolve them.
+    orchestrator = get_agent_model("memgpt", get_agent_model("chat_agent", state.project.model or ""))
+    worker = get_agent_model("worker", state.project.worker_model or state.project.model or "")
+
+    def _reasons(model: str) -> bool:
+        entry = get_model(model) or get_model_by_runtime_id(resolve_runtime_model_id(model))
+        return bool(entry and entry.get("supports_thinking"))
+
+    if stored and (orchestrator or worker) and not any(_reasons(m) for m in (orchestrator, worker) if m):
+        T.warning(_("cli_effort_no_thinking"))
     return "continue"
 
 

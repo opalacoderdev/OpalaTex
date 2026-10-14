@@ -237,6 +237,7 @@ Recognized commands:
 * `/mode [auto|plan|edit]`: show or set how much the agent may do on its own
 * `/cost` or `/context`: show how much of the context window this chat occupies
 * `/chat [list|new <name>|switch <name>]`: list, create, or switch chat *(command-line interface only)*
+* `/effort [default|low|medium|high|xhigh]`: show or set this chat's reasoning effort *(command-line interface only)*
 * `/resume` or `/continue`: continue the turn that was interrupted in this chat *(command-line interface only)*
 * `/thoughts [on|off]` / `/tools [on|off]`: show or hide reasoning and tool calls *(command-line interface only)*
 * `/compile [file.tex]`: compile the project with Tectonic *(command-line interface only)*

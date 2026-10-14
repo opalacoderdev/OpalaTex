@@ -603,7 +603,8 @@ alterna entre `auto`, `plan` e `edit`.
 **Comandos** — `/help` lista tudo por seção, com os argumentos de cada comando, e
 `/help <comando>` mostra os exemplos daquele comando (`/help /models`,
 `/help /providers`, `/help /chat`). Tudo o que existe no chat da janela funciona aqui,
-mais alguns que só fazem sentido num terminal: `/chat` para listar, criar e trocar de conversa, `/compile` para gerar o PDF com
+mais alguns que só fazem sentido num terminal: `/chat` para listar, criar e trocar de conversa,
+`/effort` para definir o esforço de raciocínio do chat atual, `/compile` para gerar o PDF com
 o Tectonic, `/cost` para ver quanto da janela de contexto está ocupada, e `/resume`.
 
 **Instalar só isso** — a interface de linha de comando é a instalação base:

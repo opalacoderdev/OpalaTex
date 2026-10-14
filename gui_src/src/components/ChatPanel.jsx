@@ -7,6 +7,7 @@ import { readClipboard, readClipboardImage } from '../utils/clipboard.js';
 import { base64ImageToFile, clipboardHasText, extractClipboardFiles, pastedImageName } from '../utils/clipboardAttachments.js';
 import { isLocalModelId } from '../utils/models.js';
 import { readChatCompact, writeChatCompact } from '../utils/chatCompact.js';
+import { catalogReasoning, chatReasoningEffort, withChatReasoningEffort } from '../utils/chatReasoningEffort.js';
 import { stripInlineReasoning } from '../utils/thinkTags.js';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 
@@ -182,6 +183,8 @@ export default function ChatPanel({
   const [showChatActionsMenu, setShowChatActionsMenu] = useState(false);
   const [showHeartbeatMenu, setShowHeartbeatMenu] = useState(false);
   const heartbeatMenuRef = useRef(null);
+  const [showReasoningMenu, setShowReasoningMenu] = useState(false);
+  const reasoningMenuRef = useRef(null);
   // Compact chat: only the conversation and the prompt stay on screen, and the
   // toolbars open as an overlay from the header. The preference is per layout.
   const [compactPreferred, setCompactPreferred] = useState(() => readChatCompact(compactLayout));
@@ -280,6 +283,26 @@ export default function ChatPanel({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [showHeartbeatMenu]);
+
+  useEffect(() => {
+    if (!showReasoningMenu) return;
+    const handleClickOutside = (e) => {
+      if (reasoningMenuRef.current && !reasoningMenuRef.current.contains(e.target)) {
+        setShowReasoningMenu(false);
+      }
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setShowReasoningMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showReasoningMenu]);
 
   useLayoutEffect(() => {
     const el = inputRef.current;
@@ -1339,6 +1362,133 @@ export default function ChatPanel({
                       <div className="vscode-chat-mode-item-title">
                         {opt.label} ({opt.heartbeats})
                       </div>
+                      <div className="vscode-chat-mode-item-desc">{opt.desc}</div>
+                    </div>
+                  </div>
+                  {isSelected && <Check size={14} className="vscode-chat-mode-item-check" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  })();
+
+  // Reasoning effort of this one chat. It is stored on the chat itself, so it
+  // follows the chat across reloads and the backend reads it when the next
+  // turn starts; nothing travels with the message.
+  const handleChatReasoningEffortChange = async (effort) => {
+    setShowReasoningMenu(false);
+    if (!activeProject || !activeChatId) return;
+    if (effort === chatReasoningEffort(chats, activeChatId)) return;
+    try {
+      const res = await fetch('/api/chat/reasoning-effort', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_name: activeProject.name, chat_id: activeChatId, reasoning_effort: effort }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setChats(prev => withChatReasoningEffort(prev, data.chat_id, data.reasoning_effort));
+    } catch (err) {
+      showAlert(t('chatPanel.reasoningEffortSaveFailed', 'Could not save the reasoning effort: {{message}}', {
+        message: err?.message || String(err),
+      }));
+    }
+  };
+
+  const reasoningSelector = (() => {
+    const chatEffort = chatReasoningEffort(chats, activeChatId);
+    const catalog = catalogReasoning(globalModels, activeProject?.model || '');
+    // A worker without its own model runs on the orchestrator's (backend:
+    // `project_worker = worker_model or model`).
+    const workerCatalog = catalogReasoning(globalModels, activeProject?.worker_model || activeProject?.model || '');
+    const anyModelReasons = catalog.supportsThinking || workerCatalog.supportsThinking;
+    const levelLabels = {
+      low: t('chatPanel.reasoningEffortLow', 'Low'),
+      medium: t('chatPanel.reasoningEffortMedium', 'Medium'),
+      high: t('chatPanel.reasoningEffortHigh', 'High'),
+      xhigh: t('chatPanel.reasoningEffortXHigh', 'Extra high'),
+    };
+    const reasoningOptions = [
+      {
+        key: '',
+        label: t('chatPanel.reasoningEffortDefault', 'Model default'),
+        desc: levelLabels[catalog.effort]
+          ? t('chatPanel.reasoningEffortDefaultDescValue', 'Follows the model catalog ({{level}})', { level: levelLabels[catalog.effort] })
+          : t('chatPanel.reasoningEffortDefaultDesc', 'Follows the model catalog'),
+        color: 'var(--vscode-descriptionForeground, #999999)',
+      },
+      {
+        key: 'low',
+        label: levelLabels.low,
+        desc: t('chatPanel.reasoningEffortLowDesc', 'Quick answers, little thinking'),
+        color: 'var(--vscode-fg-teal, #4ec9b0)',
+      },
+      {
+        key: 'medium',
+        label: levelLabels.medium,
+        desc: t('chatPanel.reasoningEffortMediumDesc', 'Balanced'),
+        color: '#e5a84b',
+      },
+      {
+        key: 'high',
+        label: levelLabels.high,
+        desc: t('chatPanel.reasoningEffortHighDesc', 'Thinks longer before answering'),
+        color: '#c586c0',
+      },
+      {
+        key: 'xhigh',
+        label: levelLabels.xhigh,
+        desc: t('chatPanel.reasoningEffortXHighDesc', 'Deepest level the provider offers'),
+        color: '#d16969',
+      },
+    ];
+    const currentOption = reasoningOptions.find(opt => opt.key === chatEffort) || reasoningOptions[0];
+    // The override applies to the orchestrator and its workers, but only
+    // reaches a model whose catalog entry declares thinking; with neither model
+    // reasoning, a control that silently does nothing would read as a broken one.
+    const unavailable = !activeProject || !activeChatId || !anyModelReasons;
+    const title = !activeProject || !activeChatId || anyModelReasons
+      ? t('chatPanel.reasoningEffortTooltip', "Reasoning effort of this chat's orchestrator and workers. Applies from the next message.")
+      : t('chatPanel.reasoningEffortUnsupported', 'Neither the orchestrator nor the worker model declares thinking support, so there is no reasoning effort to set. Enable it in Edit Models if a model reasons.');
+
+    return (
+      <div className="vscode-chat-mode-selector-wrap" ref={reasoningMenuRef}>
+        <button
+          type="button"
+          className="vscode-chat-mode-btn"
+          onClick={() => setShowReasoningMenu(prev => !prev)}
+          disabled={unavailable}
+          aria-expanded={showReasoningMenu}
+          aria-haspopup="menu"
+          aria-label={t('chatPanel.reasoningEffort', 'Reasoning effort (this chat)')}
+          title={title}
+        >
+          <Brain size={12} style={{ color: currentOption.color, flexShrink: 0 }} />
+          <span className="vscode-chat-mode-btn-label">{currentOption.label}</span>
+          <ChevronDown size={11} style={{ opacity: 0.7, flexShrink: 0 }} />
+        </button>
+        {showReasoningMenu && !unavailable && (
+          <div className="vscode-chat-mode-menu" role="menu">
+            <div className="vscode-chat-mode-menu-header">
+              {t('chatPanel.reasoningEffort', 'Reasoning effort (this chat)')}
+            </div>
+            {reasoningOptions.map((opt) => {
+              const isSelected = opt.key === chatEffort;
+              return (
+                <button
+                  key={opt.key || 'default'}
+                  type="button"
+                  className={`vscode-chat-mode-menu-item ${isSelected ? 'selected' : ''}`}
+                  onClick={() => handleChatReasoningEffortChange(opt.key)}
+                  role="menuitem"
+                >
+                  <div className="vscode-chat-mode-item-left">
+                    <Brain size={13} style={{ color: opt.color, flexShrink: 0, marginTop: '2px' }} />
+                    <div className="vscode-chat-mode-item-text">
+                      <div className="vscode-chat-mode-item-title">{opt.label}</div>
                       <div className="vscode-chat-mode-item-desc">{opt.desc}</div>
                     </div>
                   </div>
@@ -2747,6 +2897,7 @@ export default function ChatPanel({
         {!isCompact && (
           <div className="vscode-chat-composer-toolbar">
             {heartbeatSelector}
+            {reasoningSelector}
           </div>
         )}
         {dictation.state === 'error' && (
@@ -2778,6 +2929,7 @@ export default function ChatPanel({
             id="chat-file-input"
           />
           {isCompact && heartbeatSelector}
+          {isCompact && reasoningSelector}
           {/* Paperclip button */}
           <button
             type="button"

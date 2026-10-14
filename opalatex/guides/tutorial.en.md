@@ -580,7 +580,8 @@ switches between `auto`, `plan` and `edit`.
 **Commands** — `/help` lists them by section with the arguments each one takes, and
 `/help <command>` shows that command's worked examples (`/help /models`,
 `/help /providers`, `/help /chat`). Everything in the desktop chat works here, plus a
-few that only make sense in a terminal: `/chat` to list, create and switch conversations, `/compile` to build the PDF
+few that only make sense in a terminal: `/chat` to list, create and switch conversations,
+`/effort` to set the current chat's reasoning effort, `/compile` to build the PDF
 with Tectonic, `/cost` to see how full the context window is, and `/resume`.
 
 **Installing just this** — the command-line interface is the base install:

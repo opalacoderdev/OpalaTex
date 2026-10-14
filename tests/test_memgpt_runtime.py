@@ -732,7 +732,7 @@ def test_worker_reasoning_display_follows_its_own_model_capability(
     monkeypatch.setattr(runtime, "LLMAgentBlock", FakeLLMAgentBlock)
     monkeypatch.setattr(
         runtime, "get_agent_llm_kwargs",
-        lambda agent_name: dict(worker_kwargs) if agent_name == "worker" else {},
+        lambda agent_name, **_kwargs: dict(worker_kwargs) if agent_name == "worker" else {},
     )
 
     project = _project(tmp_path)

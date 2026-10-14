@@ -549,7 +549,14 @@ def build_run_skill_tool(
                 f"When a script needs the request, pass it as --request-file {request_file} "
                 f"(do NOT type the request text into the command — use the file).\n"
             )
-        worker_kwargs = get_agent_llm_kwargs("worker")
+        # The chat's reasoning effort covers the whole turn, delegation included:
+        # a worker runs at it too. Its own catalog entry still decides whether it
+        # reasons at all -- a worker model without `supports_thinking` is sent no
+        # effort (`get_agent_llm_kwargs`).
+        worker_kwargs = get_agent_llm_kwargs(
+            "worker",
+            reasoning_effort_override=getattr(_project_ref, "chat_reasoning_effort", "") or None,
+        )
         # One decision, one source: `think` is in worker_kwargs only when the
         # worker model's catalog entry declares `supports_thinking`
         # (config.resolve_think_request), and that is exactly when there is an
@@ -1325,7 +1332,14 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     # thinking route below need the model, not just the prompt.
     model = get_agent_model("memgpt", get_agent_model("chat_agent", project_model))
 
-    _llm_kwargs = get_agent_llm_kwargs("memgpt")
+    # A chat may ask for a different reasoning effort than its model's catalog
+    # entry (the composer's Reasoning selector, `/effort` in the CLI). It applies
+    # to this chat's orchestrator here and to its `run_skill` workers in
+    # `build_run_skill_tool`.
+    _llm_kwargs = get_agent_llm_kwargs(
+        "memgpt",
+        reasoning_effort_override=getattr(project, "chat_reasoning_effort", "") or None,
+    )
     
     model_params = getattr(project, "model_params", {}) or {}
     enable_achievements = model_params.get("enable_achievements", True)

@@ -153,6 +153,27 @@ _without_legacy_model_params = _without_legacy_think
 
 MAIN_CHAT_NAME = "Main Chat"
 
+#: Reasoning efforts a chat may ask for in place of its model's catalog value.
+#: The empty string is the absence of an override: the chat follows the catalog.
+#: The catalog's ``none`` is not offered here because it is not a level -- at
+#: request time it means "send no effort" (`config.sanitize_litellm_kwargs_for_model`),
+#: which is what clearing the override already does.
+CHAT_REASONING_EFFORTS = ("low", "medium", "high", "xhigh")
+
+
+def normalize_chat_reasoning_effort(value) -> str:
+    """Return *value* as a stored chat reasoning effort, or raise ``ValueError``.
+
+    ``None`` and the empty string both mean "no override" and normalize to "".
+    """
+    effort = str(value or "").strip().lower()
+    if effort and effort not in CHAT_REASONING_EFFORTS:
+        raise ValueError(
+            "Reasoning effort must be empty or one of: "
+            + ", ".join(CHAT_REASONING_EFFORTS)
+        )
+    return effort
+
 # The default `project_history.chat_id` and `project_activity.chat_id` were
 # created with, back when a project had exactly one conversation. No chat is
 # ever stored under this id — the default chat is `main_<project>` — so rows
@@ -402,6 +423,14 @@ def _init_schema(db_path: str) -> None:
         except sqlite3.OperationalError:
             pass
 
+        # Reasoning effort the user picked for this one chat. Empty means the
+        # chat follows the model catalog, which stays the default for every chat
+        # that never touched the selector (see `CHAT_REASONING_EFFORTS`).
+        try:
+            conn.execute("ALTER TABLE project_chats ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+
         try:
             conn.execute("ALTER TABLE project_history ADD COLUMN chat_id TEXT NOT NULL DEFAULT 'main'")
         except sqlite3.OperationalError:
@@ -469,12 +498,34 @@ class ChatNotFoundError(ValueError):
     """
 
 
+def _stored_chat_reasoning_effort(value) -> str:
+    """Read a stored chat effort; a value no level names means no override."""
+    effort = str(value or "").strip().lower()
+    return effort if effort in CHAT_REASONING_EFFORTS else ""
+
+
+def _inherit_chat_reasoning_effort(conn, name: str, source_chat_id: str, new_chat_id: str) -> None:
+    """Carry the source chat's reasoning effort over to a chat branched from it.
+
+    A branch continues the same conversation with the same model, so it keeps
+    the depth the user chose for it; the selector still shows and changes it.
+    """
+    conn.execute(
+        "UPDATE project_chats SET reasoning_effort = COALESCE(("
+        "SELECT reasoning_effort FROM project_chats WHERE project = ? AND id = ?), '')"
+        " WHERE project = ? AND id = ?",
+        (name, source_chat_id, name, new_chat_id),
+    )
+
+
 @dataclass
 class ProjectData:
     name: str
     use_shared_memory: bool = False
     chats: list = field(default_factory=list)
     current_chat_id: str = ""
+    # Reasoning effort chosen for `current_chat_id`; "" follows the model catalog.
+    chat_reasoning_effort: str = ""
     mode: str = "plan"
     model: str = ""
     worker_model: str = ""   # "" → falls back to the project.model
@@ -898,9 +949,10 @@ class ProjectStore:
                 return None
 
             chats_rows = conn.execute(
-                "SELECT id, name FROM project_chats WHERE project = ? ORDER BY created_at ASC", (name,)
+                "SELECT id, name, reasoning_effort FROM project_chats WHERE project = ? ORDER BY created_at ASC", (name,)
             ).fetchall()
             chats = [{"id": r["id"], "name": r["name"]} for r in chats_rows]
+            chat_efforts = {r["id"]: _stored_chat_reasoning_effort(r["reasoning_effort"]) for r in chats_rows}
 
             if not chats:
                 # A project always owns at least its main chat; repair the row
@@ -956,6 +1008,7 @@ class ProjectStore:
                 use_shared_memory=bool(row["use_shared_memory"] if "use_shared_memory" in row.keys() else 1),
                 chats=chats,
                 current_chat_id=chat_id,
+                chat_reasoning_effort=chat_efforts.get(chat_id, ""),
                 mode=row["mode"],
                 model=_available_project_model(row["model"]),
                 worker_model=_available_project_model(row["worker_model"] if "worker_model" in row.keys() else (row["alternative_model"] if "alternative_model" in row.keys() else "")),
@@ -1592,6 +1645,44 @@ class ProjectStore:
                 (payload, name, chat_id),
             )
 
+    def list_chat_reasoning_efforts(self, name: str) -> dict:
+        """Return ``{chat_id: effort}`` for the chats that override their model's effort."""
+        with _conn(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, reasoning_effort FROM project_chats WHERE project = ? AND reasoning_effort != ''",
+                (name,),
+            ).fetchall()
+        efforts = {r["id"]: _stored_chat_reasoning_effort(r["reasoning_effort"]) for r in rows}
+        return {chat_id: effort for chat_id, effort in efforts.items() if effort}
+
+    def get_chat_reasoning_effort(self, name: str, chat_id: str) -> str:
+        """Return the reasoning effort chosen for a chat ("" when it follows the catalog)."""
+        with _conn(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT reasoning_effort FROM project_chats WHERE project = ? AND id = ?",
+                (name, chat_id),
+            ).fetchone()
+        return _stored_chat_reasoning_effort(row["reasoning_effort"]) if row else ""
+
+    def set_chat_reasoning_effort(self, name: str, chat_id: str, effort) -> str:
+        """Store the reasoning effort for one chat and return the stored value.
+
+        An empty value clears the override. An unknown level raises
+        ``ValueError`` and an unknown chat raises :class:`ChatNotFoundError`,
+        so a typo or a stale id cannot pass for a saved setting.
+        """
+        stored = normalize_chat_reasoning_effort(effort)
+        with _conn(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE project_chats SET reasoning_effort = ? WHERE project = ? AND id = ?",
+                (stored, name, chat_id),
+            )
+            if not cursor.rowcount:
+                raise ChatNotFoundError(
+                    f"Chat '{chat_id}' does not exist in project '{name}'"
+                )
+        return stored
+
     def update_chat_core_memory(self, name: str, chat_id: str, core_memory: str) -> None:
         with _conn(self.db_path) as conn:
             conn.execute("UPDATE project_chats SET core_memory = ? WHERE project = ? AND id = ?", (core_memory, name, chat_id))
@@ -1724,6 +1815,7 @@ class ProjectStore:
             # _BRANCH_CORE_MEMORY for why the source chat's is not inherited.
             conn.execute("INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
                          (new_chat_id, name, new_chat_name, now, _BRANCH_CORE_MEMORY))
+            _inherit_chat_reasoning_effort(conn, name, source_chat_id, new_chat_id)
             
             # 2. Copy history through the selected persisted message.
             # Prefer stable message ids because UI indexes may omit stored system
@@ -1829,6 +1921,7 @@ class ProjectStore:
                 "INSERT INTO project_chats (id, project, name, created_at, core_memory) VALUES (?,?,?,?,?)",
                 (new_chat_id, name, new_chat_name, now, _BRANCH_CORE_MEMORY),
             )
+            _inherit_chat_reasoning_effort(conn, name, source_chat_id, new_chat_id)
             history = conn.execute(
                 "SELECT role, content, timestamp, attachments FROM project_history"
                 " WHERE project = ? AND chat_id = ? AND id < ? AND deleted_at = '' ORDER BY id",

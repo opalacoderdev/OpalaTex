@@ -1755,7 +1755,9 @@ input:focus, select:focus, textarea:focus {
 .vscode-chat-composer-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-bottom: 6px;
   position: relative;
 }
@@ -1763,6 +1765,18 @@ input:focus, select:focus, textarea:focus {
 .vscode-chat-mode-selector-wrap {
   position: relative;
   display: inline-flex;
+}
+
+/* A second selector in the same row opens its menu from the row's left edge
+   rather than its own: anchored to its button, the menu would run past the
+   right edge of a narrow chat. */
+.vscode-chat-composer-toolbar > .vscode-chat-mode-selector-wrap ~ .vscode-chat-mode-selector-wrap,
+.vscode-chat-form.is-compact .vscode-chat-input-row > .vscode-chat-mode-selector-wrap ~ .vscode-chat-mode-selector-wrap {
+  position: static;
+}
+
+.vscode-chat-form.is-compact .vscode-chat-input-row {
+  position: relative;
 }
 
 .vscode-chat-mode-btn {
@@ -1781,9 +1795,14 @@ input:focus, select:focus, textarea:focus {
   user-select: none;
 }
 
-.vscode-chat-mode-btn:hover {
+.vscode-chat-mode-btn:hover:not(:disabled) {
   background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.12));
   border-color: var(--vscode-focusBorder, #007acc);
+}
+
+.vscode-chat-mode-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .vscode-chat-mode-btn-label {
