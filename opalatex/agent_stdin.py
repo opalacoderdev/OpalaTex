@@ -2263,6 +2263,44 @@ def _resolve_context_window(agent: object, *model_param_sources: dict) -> int:
     return 0
 
 
+async def _run_off_loop(fn, *args, **kwargs):
+    """Run a blocking call in a worker thread, keeping its cancellation timing.
+
+    Saving a chat message also embeds it into archival memory (ChromaDB): the
+    first message of a session builds the client, and on a fresh machine that
+    downloads the embedding model, all of which used to stall the event loop
+    and therefore the whole window. In a worker thread the loop stays free.
+
+    Run inline, the call could not be interrupted: a cancel requested meanwhile
+    was delivered at the turn's *next* await, after the code following the call
+    had run. This keeps that: the call always completes, and a cancel that
+    arrived during it is re-armed, so it still lands at the next await rather
+    than here.
+    """
+    future = asyncio.ensure_future(asyncio.to_thread(fn, *args, **kwargs))
+    cancelled = False
+    try:
+        while True:
+            try:
+                return await asyncio.shield(future)
+            except asyncio.CancelledError:
+                if future.cancelled():
+                    raise
+                cancelled = True
+                if future.done():
+                    return future.result()
+    finally:
+        if cancelled:
+            task = asyncio.current_task()
+            if task is not None:
+                # Catching CancelledError leaves the task's cancel count
+                # raised; undo that once so re-arming does not count twice.
+                uncancel = getattr(task, "uncancel", None)
+                if uncancel is not None:
+                    uncancel()
+                task.cancel()
+
+
 async def handle_run(data: dict):
     global current_project, current_store, current_memgpt
     
@@ -2780,7 +2818,8 @@ async def handle_run(data: dict):
             if agent_type in ("orchestrator", "chat_orchestrator") and current_store and current_project:
                 user_message_id = None
                 try:
-                    user_message_id = current_store.append_message(
+                    user_message_id = await _run_off_loop(
+                        current_store.append_message,
                         current_project,
                         "user",
                         user_history_content,
@@ -2788,7 +2827,8 @@ async def handle_run(data: dict):
                         client_message_id=client_message_id,
                     )
                 except TypeError:
-                    user_message_id = current_store.append_message(
+                    user_message_id = await _run_off_loop(
+                        current_store.append_message,
                         current_project, "user", user_history_content, attachments=raw_attachments
                     )
                 current_store.save(current_project)
@@ -2882,7 +2922,9 @@ async def handle_run(data: dict):
                         agent=agent_type,
                     )
                 if persisted_response:
-                    assistant_message_id = current_store.append_message(current_project, "assistant", persisted_response)
+                    assistant_message_id = await _run_off_loop(
+                        current_store.append_message, current_project, "assistant", persisted_response
+                    )
                 _restore_transient_project_mode(initial_project_mode, agent_type)
                 current_store.save(current_project)
 

@@ -51,7 +51,22 @@ function Get-OpalaTexDownloadUrl {
         throw "The latest Windows download points to a GitHub Actions artifact instead of a GitHub Release asset."
     }
 
+    if ($asset.size) {
+        $script:downloadSizeMB = [math]::Round($asset.size / 1MB)
+    }
     return $asset.browser_download_url
+}
+
+function Test-OpalaTexRunning {
+    param([Parameter(Mandatory = $true)][string]$Directory)
+
+    # Extracting over a running copy fails on its locked executables partway
+    # through, leaving a mix of old and new files behind.
+    $prefix = $Directory.TrimEnd('\') + '\'
+    $running = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.Path -and $_.Path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
+    }
+    return [bool]$running
 }
 
 function Invoke-DownloadWithRetry {
@@ -60,6 +75,13 @@ function Invoke-DownloadWithRetry {
         [Parameter(Mandatory = $true)][string]$OutFile
     )
 
+    # Windows PowerShell 5.1 redraws its progress bar for every chunk received
+    # (and Expand-Archive for every file extracted), which makes both many
+    # times slower on a release this size. The preference is set only in this
+    # function's scope and in the extraction block below: this script runs in
+    # the caller's session (`irm | iex`), and a script-level assignment would
+    # silence progress in the user's own console as well.
+    $ProgressPreference = "SilentlyContinue"
     $maxAttempts = 3
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         try {
@@ -85,8 +107,15 @@ function Invoke-DownloadWithRetry {
     }
 }
 
+if ((Test-Path $installDir) -and (Test-OpalaTexRunning -Directory $installDir)) {
+    throw "OpalaTex is running from $installDir. Close it and run the installer again."
+}
+
 $downloadUrl = Get-OpalaTexDownloadUrl
 Write-Host "Downloading OpalaTex from: $downloadUrl" -ForegroundColor Yellow
+if ($script:downloadSizeMB) {
+    Write-Host "Download size: about $($script:downloadSizeMB) MB. This can take a few minutes." -ForegroundColor Yellow
+}
 
 if (-not (Test-Path $installDir)) {
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
@@ -94,8 +123,11 @@ if (-not (Test-Path $installDir)) {
 
 Invoke-DownloadWithRetry -Uri $downloadUrl -OutFile $tempZip
 
-Write-Host "Extracting files to $installDir..." -ForegroundColor Yellow
-Expand-Archive -Path $tempZip -DestinationPath $installDir -Force
+Write-Host "Extracting files to $installDir (this can take a minute)..." -ForegroundColor Yellow
+& {
+    $ProgressPreference = "SilentlyContinue"
+    Expand-Archive -Path $tempZip -DestinationPath $installDir -Force
+}
 
 $exeDir = "$installDir\OpalaTex"
 if (-not (Test-Path "$exeDir\OpalaTex.exe")) {

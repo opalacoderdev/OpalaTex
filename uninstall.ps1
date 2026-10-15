@@ -12,6 +12,40 @@ $pointerFile = Join-Path $HOME ".opalatexhome"
 $registryPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpalaTex"
 $purgeDataDir = $null
 
+# Run from "Installed apps" or the Start menu, this script owns its console
+# window, which closes the moment the script ends. A failure that only throws
+# therefore vanishes before it can be read, and the user is left with an
+# installation that "will not uninstall" and no reason why. Every failure is
+# written to a log and, unless -Yes asked for an unattended run, kept on screen
+# until the user dismisses it.
+$logPath = Join-Path $env:TEMP "OpalaTex-uninstall.log"
+function Stop-Uninstall {
+    param([Parameter(Mandatory = $true)][string]$Message)
+
+    try {
+        "[$(Get-Date -Format o)] $Message" | Out-File -FilePath $logPath -Append -Encoding utf8
+    } catch {
+    }
+    Write-Host ""
+    Write-Host $Message -ForegroundColor Red
+    Write-Host "Details were saved to $logPath" -ForegroundColor Yellow
+    if (-not $Yes) {
+        # Read-Host throws in a -NonInteractive session; that must not
+        # re-enter the trap below.
+        try {
+            Read-Host "Press Enter to close this window" | Out-Null
+        } catch {
+        }
+    }
+    exit 1
+}
+
+# Anything unexpected (a terminating error under ErrorActionPreference=Stop)
+# is reported the same way instead of closing the window.
+trap {
+    Stop-Uninstall "The uninstaller failed: $($_.Exception.Message)"
+}
+
 # Resolve and confirm the destructive target before changing the installation,
 # so a rejected or unsafe purge cannot leave a half-uninstalled application.
 if ($Purge) {
@@ -24,7 +58,7 @@ if ($Purge) {
     }
 
     if (-not [IO.Path]::IsPathRooted($dataDir)) {
-        throw "Refusing to purge a relative data directory: $dataDir"
+        Stop-Uninstall "Refusing to purge a relative data directory: $dataDir"
     }
 
     $purgeDataDir = [IO.Path]::GetFullPath($dataDir).TrimEnd('\')
@@ -33,7 +67,7 @@ if ($Purge) {
         [IO.Path]::GetFullPath($HOME).TrimEnd('\')
     )
     if ($unsafePaths | Where-Object { $_ -ieq $purgeDataDir }) {
-        throw "Refusing to purge unsafe data directory: $purgeDataDir"
+        Stop-Uninstall "Refusing to purge unsafe data directory: $purgeDataDir"
     }
 
     if (-not $Yes) {
@@ -47,14 +81,52 @@ if ($Purge) {
 }
 
 if (Get-Process -Name "OpalaTex" -ErrorAction SilentlyContinue) {
-    throw "OpalaTex is still running. Close it and run the uninstaller again."
+    Stop-Uninstall "OpalaTex is still running. Close it and run the uninstaller again."
+}
+
+# The executables the application starts from its own directory (the embedded
+# browser's QtWebEngineProcess, tectonic, pandoc, winpty-agent) keep their files
+# locked for as long as they run, and one can outlive the window. Deleting the
+# directory under them fails partway through.
+$installPrefix = $installDir.TrimEnd('\') + '\'
+$lockingProcesses = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.Path -and $_.Path.StartsWith($installPrefix, [StringComparison]::OrdinalIgnoreCase)
+})
+if ($lockingProcesses.Count -gt 0) {
+    $names = ($lockingProcesses | ForEach-Object { "$($_.ProcessName) (PID $($_.Id))" }) -join ", "
+    Stop-Uninstall "Programs started from the OpalaTex folder are still running: $names. Close them (or sign out and back in) and run the uninstaller again."
 }
 
 # A Start-menu shortcut starts PowerShell in the application directory. Windows
 # cannot remove a process's current directory, so leave it before deleting files.
+# Set-Location only moves PowerShell's own location; the process's working
+# directory, which is what holds the folder, is a separate setting.
 Set-Location $env:TEMP
+[Environment]::CurrentDirectory = $env:TEMP
 
 Write-Host "Uninstalling the direct OpalaTex installation..." -ForegroundColor Cyan
+
+# Application files go first. If they cannot all be removed, the uninstaller
+# stops here with PATH, shortcuts and the Installed-apps entry untouched, so the
+# installation stays visible and can be uninstalled again once the cause is
+# fixed, and no global data has been purged for an uninstall that did not
+# happen. A file briefly held by an antivirus scan is retried.
+if (Test-Path $installDir) {
+    $removeError = $null
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            Remove-Item -Recurse -Force $installDir
+            $removeError = $null
+            break
+        } catch {
+            $removeError = $_
+            Start-Sleep -Seconds 2
+        }
+    }
+    if ($removeError -and (Test-Path $installDir)) {
+        Stop-Uninstall "Could not remove $installDir ($($removeError.Exception.Message)). Close any program using files in that folder and run the uninstaller again, or delete the folder manually."
+    }
+}
 
 # Remove only exact PATH entries owned by the current installer. A substring
 # replacement could corrupt an unrelated directory with a similar name.
@@ -122,11 +194,21 @@ if ($Purge) {
     Write-Host "Removed global data at $purgeDataDir. Project directories were preserved."
 }
 
-if (Test-Path $installDir) {
-    Remove-Item -Recurse -Force $installDir
-}
-
 Write-Host "OpalaTex application files were removed." -ForegroundColor Green
 if (-not $Purge) {
     Write-Host "Global settings, chats, caches, credentials, and project directories were preserved."
+    # Say where, so a user who wanted them gone too does not have to hunt for
+    # them. Informational only: a failure to resolve the path must not turn a
+    # completed uninstall into a reported failure.
+    try {
+        $keptDataDir = $env:OPALATEX_HOME
+        if (-not $keptDataDir -and (Test-Path $pointerFile)) {
+            $keptDataDir = (Get-Content -Raw $pointerFile).Trim()
+        }
+        if (-not $keptDataDir) {
+            $keptDataDir = Join-Path $HOME ".opalatex"
+        }
+        Write-Host "Global data is kept in $keptDataDir; delete that folder to remove it as well."
+    } catch {
+    }
 }

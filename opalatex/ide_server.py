@@ -614,24 +614,41 @@ def _is_workspace_hidden_by_extension(path: str, hidden_extensions: list[str] | 
 def get_file_tree(dir_path, root_path=None, show_hidden_files=False, hidden_extensions=None):
     if root_path is None:
         root_path = dir_path
-    
+    # Resolved once per walk instead of once per file: the list comes from
+    # config.yaml, loaded once at import and never changed at runtime, so every
+    # file is checked against the same list it was checked against before.
+    if hidden_extensions is None and not show_hidden_files:
+        from opalatex.config import get_workspace_hidden_file_extensions
+        hidden_extensions = get_workspace_hidden_file_extensions()
+
     files = []
+    # scandir, not listdir + os.path.isdir: on Windows the directory listing
+    # already carries each entry's type, so the per-entry stat (the expensive
+    # part on NTFS, and what antivirus scanners hook) is skipped. Same entries,
+    # same order: both enumerate the directory the same way.
     try:
-        items = os.listdir(dir_path)
+        with os.scandir(dir_path) as it:
+            entries = list(it)
     except Exception:
         return []
-        
-    for item in items:
+
+    for entry in entries:
+        item = entry.name
         # Skip heavy/hidden directories
         if item in ['node_modules', '.git', '.venv', '.env', '__pycache__', '.pytest_cache']:
             continue
         if _is_opalatex_hidden_artifact(item):
             continue
-             
-        full_path = os.path.join(dir_path, item)
+
+        full_path = entry.path
         rel_path = os.path.relpath(full_path, root_path)
-        
-        is_dir = os.path.isdir(full_path)
+
+        # Follows symlinks like os.path.isdir did; a broken link is not a
+        # directory. os.path.isdir swallowed every OSError, so this does too.
+        try:
+            is_dir = entry.is_dir()
+        except OSError:
+            is_dir = False
         if is_dir:
             files.append({
                 "name": item,
@@ -822,6 +839,44 @@ class AsyncHTTPServer:
         self.active_agent_task = None
         self.active_agent_event_queue = None
         self.active_prompt_evolution_task = None
+        self._exclusive_work = None
+
+    # Requests whose slow, blocking part (a Tectonic run, `git status`, a walk of
+    # the project tree) runs in a worker thread instead of on the event loop.
+    # While one runs it holds the exclusive-work lock, and every other request
+    # waits on that lock before it is dispatched. Requests are therefore handled
+    # in the same order, never interleaved with these operations, exactly as when
+    # the operation blocked the loop. What changes is only that work already in
+    # progress (a streaming agent turn, terminal output) keeps flowing meanwhile
+    # instead of freezing for the length of a compile.
+    EXCLUSIVE_WORK_PATHS = frozenset({
+        '/api/latex/compile',
+        '/api/git/status',
+        '/api/files',
+    })
+
+    def _exclusive_work_lock(self) -> asyncio.Lock:
+        # Created on first use so it belongs to the loop that serves requests.
+        if self._exclusive_work is None:
+            self._exclusive_work = asyncio.Lock()
+        return self._exclusive_work
+
+    async def _dispatch(self, path, handler):
+        """Run ``handler`` in arrival order relative to exclusive work.
+
+        ``asyncio.Lock`` wakes waiters first-in first-out and its uncontended
+        acquire does not yield, so a request that arrives while nothing is in
+        flight is dispatched immediately, and one that arrives during a compile
+        runs after it, just as it did when the compile held the loop.
+        """
+        lock = self._exclusive_work_lock()
+        if path in self.EXCLUSIVE_WORK_PATHS:
+            async with lock:
+                await handler()
+            return
+        async with lock:
+            pass
+        await handler()
 
     @staticmethod
     def _is_project_terminal(term_id) -> bool:
@@ -1012,10 +1067,10 @@ class AsyncHTTPServer:
                 
             # Route API paths
             if path.startswith('/api/'):
-                await self.route_api(method, path, query, headers, body, writer)
+                await self._dispatch(path, lambda: self.route_api(method, path, query, headers, body, writer))
             else:
                 # Serve static files
-                await self.serve_static(path, writer)
+                await self._dispatch(path, lambda: self.serve_static(path, writer))
                 
         except Exception as e:
             print(f"Error handling request: {e}")
@@ -1291,26 +1346,34 @@ class AsyncHTTPServer:
                 compile_debug["selected_main_rel"] = _safe_relpath(selected_main_abs, project_path) if selected_main_abs else ""
             
             # run compilation
-            if partial:
-                compile_debug["compile_function"] = "compile_latex_partial"
-                result = compile_latex_partial(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft, synctex=synctex_enabled)
-                compile_debug["partial_result_success"] = result.get("success")
-                compile_debug["partial_mode"] = result.get("partial_mode", "")
-                if not result.get("success"):
-                    partial_log = result.get("log") or "Partial compilation failed."
-                    compile_debug["partial_fallback_reason"] = partial_log[:2000]
-                    compile_debug["compile_function"] = "compile_latex_partial_then_compile_latex"
-                    fallback = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft, synctex=synctex_enabled)
-                    fallback["partial_fallback_reason"] = partial_log
-                    if not fallback.get("success"):
-                        fallback["log"] = (
-                            f"Partial compilation failed:\n{partial_log}\n\n"
-                            f"Full compilation fallback also failed:\n{fallback.get('log') or ''}"
-                        )
-                    result = fallback
-            else:
-                compile_debug["compile_function"] = "compile_latex"
-                result = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft, synctex=synctex_enabled)
+            def _run_compilation():
+                if partial:
+                    compile_debug["compile_function"] = "compile_latex_partial"
+                    result = compile_latex_partial(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft, synctex=synctex_enabled)
+                    compile_debug["partial_result_success"] = result.get("success")
+                    compile_debug["partial_mode"] = result.get("partial_mode", "")
+                    if not result.get("success"):
+                        partial_log = result.get("log") or "Partial compilation failed."
+                        compile_debug["partial_fallback_reason"] = partial_log[:2000]
+                        compile_debug["compile_function"] = "compile_latex_partial_then_compile_latex"
+                        fallback = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft, synctex=synctex_enabled)
+                        fallback["partial_fallback_reason"] = partial_log
+                        if not fallback.get("success"):
+                            fallback["log"] = (
+                                f"Partial compilation failed:\n{partial_log}\n\n"
+                                f"Full compilation fallback also failed:\n{fallback.get('log') or ''}"
+                            )
+                        result = fallback
+                else:
+                    compile_debug["compile_function"] = "compile_latex"
+                    result = compile_latex(content, full_path, main_file, project_path, include_pdf_base64=False, draft=draft, synctex=synctex_enabled)
+                return result
+
+            # Tectonic runs for seconds (minutes on a first compile that fetches
+            # its bundle). In a worker thread it no longer stalls the loop; the
+            # exclusive-work lock held by `_dispatch` keeps every other request
+            # waiting for it, as before (see EXCLUSIVE_WORK_PATHS).
+            result = await asyncio.to_thread(_run_compilation)
 
             result["compiled_main_file"] = main_file
             compile_debug["result_success"] = result.get("success")
@@ -1683,7 +1746,10 @@ class AsyncHTTPServer:
                 self.send_response(writer, 404, b'{"error":"Directory not found"}', "application/json")
                 return
             try:
-                tree = get_file_tree(project_path, show_hidden_files=show_hidden_files)
+                # Re-read every 10 s and on every window focus; a large project
+                # takes long enough to walk that it runs in a worker thread
+                # under the exclusive-work lock (see EXCLUSIVE_WORK_PATHS).
+                tree = await asyncio.to_thread(get_file_tree, project_path, show_hidden_files=show_hidden_files)
                 self.send_response(writer, 200, json.dumps({"files": tree}).encode('utf-8'), "application/json")
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
@@ -3877,7 +3943,11 @@ class AsyncHTTPServer:
                 self.send_response(writer, 400, b'{"error":"Invalid project path"}', "application/json")
                 return
             import subprocess
-            try:
+
+            # Polled every few seconds; on Windows a `git status` can take
+            # seconds, so it runs in a worker thread under the exclusive-work
+            # lock (see EXCLUSIVE_WORK_PATHS).
+            def _collect_git_status():
                 git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
                 _ensure_opalatex_git_excludes(git_ctx)
                 res = subprocess.run(
@@ -3911,6 +3981,10 @@ class AsyncHTTPServer:
                             status = worktree_status
                             staged = False
                         files.append({"path": filepath, "status": status, "staged": staged})
+                return files
+
+            try:
+                files = await asyncio.to_thread(_collect_git_status)
                 self.send_response(writer, 200, json.dumps({"files": files, "git_available": True}).encode('utf-8'), "application/json")
             except GitContextError as e:
                 self.send_response(writer, 200, json.dumps({

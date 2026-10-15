@@ -63,11 +63,22 @@ if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
     # Add the specific pywinpty bin directory to PATH so winpty-agent.exe can be found
     meipass = sys._MEIPASS
     winpty_dir = None
-    for root, dirs, files in os.walk(meipass):
-        if 'winpty-agent.exe' in files:
-            winpty_dir = root
-            break
-            
+    # pywinpty is a Windows-only dependency, so other bundles never carry the
+    # agent and walking them found nothing. On Windows the build places it in
+    # the `winpty` package directory (build_exe.ps1: --add-binary ...;winpty and
+    # --collect-all winpty), the only copy in the bundle; check there directly
+    # before falling back to walking tens of thousands of bundled files.
+    if sys.platform == "win32":
+        for candidate in (meipass, os.path.join(meipass, "winpty")):
+            if os.path.isfile(os.path.join(candidate, "winpty-agent.exe")):
+                winpty_dir = candidate
+                break
+        else:
+            for root, dirs, files in os.walk(meipass):
+                if 'winpty-agent.exe' in files:
+                    winpty_dir = root
+                    break
+
     if winpty_dir:
         try:
             os.environ["PATH"] = winpty_dir + os.pathsep + os.environ.get("PATH", "")

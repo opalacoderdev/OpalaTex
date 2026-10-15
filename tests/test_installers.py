@@ -230,3 +230,67 @@ def test_windows_uninstaller_requires_explicit_purge_and_exact_path_entries():
     assert "OrdinalIgnoreCase" in uninstaller
     assert '"PathAdded"' in uninstaller
     assert "Project directories were preserved" in uninstaller
+
+
+def test_windows_installer_silences_progress_only_in_its_own_scope():
+    """PS 5.1 progress rendering makes the download and extraction many times
+    slower; the installer runs in the caller's session (`irm | iex`), so the
+    preference must stay inside a function or script block, never script-level."""
+    installer = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    assert installer.count('$ProgressPreference = "SilentlyContinue"') == 2
+    for line in installer.splitlines():
+        if line.lstrip().startswith("$ProgressPreference"):
+            assert line.startswith("    "), "a top-level assignment would leak into the user's session"
+    download = installer[installer.index("function Invoke-DownloadWithRetry"):]
+    assert download.index("$ProgressPreference") < download.index("Invoke-WebRequest")
+    extraction = installer[installer.index("& {"):]
+    assert extraction.index("$ProgressPreference") < extraction.index("Expand-Archive")
+
+
+def test_windows_installer_refuses_to_extract_over_a_running_copy():
+    installer = (ROOT / "install.ps1").read_text(encoding="utf-8")
+
+    check = installer.index("Test-OpalaTexRunning -Directory $installDir")
+    assert check < installer.index("Get-OpalaTexDownloadUrl\n")
+    assert check < installer.index("Expand-Archive -Path")
+
+
+def test_windows_uninstaller_removes_files_before_unregistering():
+    """A failed file removal must leave the Installed-apps entry, shortcuts and
+    PATH in place so the uninstall can be retried, and must not purge data."""
+    uninstaller = (ROOT / "uninstall.ps1").read_text(encoding="utf-8")
+
+    remove_files = uninstaller.index("Remove-Item -Recurse -Force $installDir")
+    for later in (
+        "[Environment]::SetEnvironmentVariable(",
+        "New-Object -ComObject WScript.Shell",
+        "Remove-Item -Recurse -Force $registryPath",
+        "Remove-Item -Recurse -Force $purgeDataDir",
+    ):
+        assert remove_files < uninstaller.index(later), later
+    assert uninstaller.count("Remove-Item -Recurse -Force $installDir") == 1
+
+
+def test_windows_uninstaller_reports_failures_instead_of_closing():
+    uninstaller = (ROOT / "uninstall.ps1").read_text(encoding="utf-8")
+
+    assert "function Stop-Uninstall" in uninstaller
+    assert "trap {" in uninstaller
+    assert "OpalaTex-uninstall.log" in uninstaller
+    assert "throw " not in uninstaller, "a bare throw closes the console before it can be read"
+    # Every check that refuses to continue runs before anything is removed.
+    first_removal = uninstaller.index("Remove-Item -Recurse -Force $installDir")
+    assert uninstaller.index("Programs started from the OpalaTex folder") < first_removal
+    assert uninstaller.index("Refusing to purge unsafe data directory") < first_removal
+
+
+def test_windows_uninstaller_leaves_the_process_working_directory():
+    """Set-Location does not move the process's working directory, which is
+    what keeps the application folder from being deleted."""
+    uninstaller = (ROOT / "uninstall.ps1").read_text(encoding="utf-8")
+
+    assert "[Environment]::CurrentDirectory = $env:TEMP" in uninstaller
+    assert uninstaller.index("[Environment]::CurrentDirectory") < uninstaller.index(
+        "Remove-Item -Recurse -Force $installDir"
+    )
