@@ -34,6 +34,18 @@ platforms:
     build-on: [amd64]
     build-for: [amd64]
 
+# Dead keys (^ + e -> ê) go through Qt's xkb compose input context, which needs
+# the X11 Compose table for the user's locale. The gpu extension exposes the
+# tables relocated under $SNAP/gpu-2404 and points XLOCALEDIR there, but the
+# tables for pt_BR, pt_PT, ru_RU, cs_CZ, fi_FI and other locales include
+# "/usr/share/X11/locale/en_US.UTF-8/Compose" by absolute path, and inside
+# confinement that path is empty: libxkbcommon then fails to build the table
+# and every dead key is silently swallowed. Binding the same tables at their
+# real path makes those includes resolve.
+layout:
+  /usr/share/X11/locale:
+    bind: $SNAP/gpu-2404/usr/share/X11/locale
+
 apps:
   opalatex:
     command: bin/opalatex-launch

@@ -33,6 +33,15 @@ def test_the_snap_stages_both_halves_of_espeak_ng():
     assert "espeak-ng-data" in packages
 
 
+def test_the_snap_exposes_the_compose_tables_at_their_absolute_path():
+    # pt_BR's Compose includes en_US's by absolute path; without this bind the
+    # compose table fails to load inside confinement and dead keys type nothing.
+    snapcraft = yaml.safe_load((ROOT / "snapcraft.yaml").read_text(encoding="utf-8"))
+    assert snapcraft["layout"]["/usr/share/X11/locale"] == {
+        "bind": "$SNAP/gpu-2404/usr/share/X11/locale"
+    }
+
+
 def _run_launcher(snap_root):
     """Run the real launcher with a stub interpreter that reports the env."""
     bin_dir = snap_root / "bin"
