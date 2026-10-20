@@ -5389,6 +5389,9 @@ class AsyncHTTPServer:
             merge = None
             try:
                 merge = cloud_chats.apply_export(db_key, destination, adopt_settings=True)
+                # Conversations held only in another device's journal (the
+                # mobile app) that no computer has folded into the export yet.
+                merge.absorb(cloud_chats.apply_device_journals(db_key, destination))
             except Exception as e:
                 print(f"[cloud] Failed to import the project's conversations: {e}")
 

@@ -45,6 +45,7 @@ from .registry import get_cloud_provider, list_providers
 from .scanner import scan_project
 from .state import (
     CHATS_EXPORT_REL_PATH,
+    is_device_journal,
     CloudSettings,
     CloudState,
     load_state,
@@ -312,22 +313,29 @@ def _reconcile_conversations(
     amount of work driven by remote state.
     """
     source = _incoming_conversation_file(project_path, report)
-    if source is None:
+    journals = [path for path in report.downloaded if is_device_journal(path)]
+    if source is None and not journals:
         return None
 
-    payload = chats.read_export_from(source)
-    if payload is None:
-        return None
-    stats = chats.merge_into_database(project_name, payload)
+    stats = chats.MergeStats()
+    payload = chats.read_export_from(source) if source is not None else None
+    if payload is not None:
+        stats.absorb(chats.merge_into_database(project_name, payload))
 
     # The parked copy has served its purpose; leaving it in the project would
     # show up as a stray file the user has to clean up after every sync.
-    if source != chats.export_path(project_path):
+    if source is not None and source != chats.export_path(project_path):
         try:
             os.remove(source)
         except OSError:
             pass
         state.forget(_rel_path_of(project_path, source))
+
+    # Journals from other devices (the mobile app). Each has a single writer,
+    # so this machine only reads them; what they add reaches the export below
+    # and travels on to every other machine from there.
+    if journals:
+        stats.absorb(chats.apply_device_journals(project_name, project_path, rel_paths=journals))
 
     if not stats.changed:
         return stats

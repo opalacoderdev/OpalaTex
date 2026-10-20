@@ -1,0 +1,106 @@
+name: Build OpalaTex Mobile (Android)
+
+# Separate from the desktop build: a change under mobile/ must not rebuild three
+# desktop installers, and a desktop tag (v*) must not publish an APK.
+on:
+  push:
+    # Path filters are not evaluated for tag pushes, so a mobile-v* tag always
+    # builds; branch pushes build only when they touch the app.
+    branches:
+      - '**'
+    tags:
+      - 'mobile-v*'
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build the web layer and sync it into the Android project
+        run: |
+          npm run build
+          npx cap sync android
+
+      - name: Debug APK
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: opalatex-mobile-debug
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+      # A published build must be signed with the release key, whose SHA-1 is
+      # the one registered on the Android OAuth client. An unsigned or
+      # debug-signed release would install and then fail at Google sign-in.
+      - name: Require the signing secrets for a release
+        if: startsWith(github.ref, 'refs/tags/mobile-v')
+        env:
+          KEYSTORE: ${{ secrets.OPALATEX_ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.OPALATEX_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.OPALATEX_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.OPALATEX_ANDROID_KEY_PASSWORD }}
+        run: |
+          for name in KEYSTORE STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Release signing secret $name is not set."
+              exit 1
+            fi
+          done
+
+      - name: Signed release APK and bundle
+        if: startsWith(github.ref, 'refs/tags/mobile-v')
+        working-directory: mobile/android
+        env:
+          OPALATEX_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.OPALATEX_ANDROID_KEYSTORE_PASSWORD }}
+          OPALATEX_ANDROID_KEY_ALIAS: ${{ secrets.OPALATEX_ANDROID_KEY_ALIAS }}
+          OPALATEX_ANDROID_KEY_PASSWORD: ${{ secrets.OPALATEX_ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "${{ secrets.OPALATEX_ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export OPALATEX_ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks"
+          ./gradlew assembleRelease bundleRelease --no-daemon
+          rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/mobile-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            mobile/android/app/build/outputs/apk/release/app-release.apk
+            mobile/android/app/build/outputs/bundle/release/app-release.aab

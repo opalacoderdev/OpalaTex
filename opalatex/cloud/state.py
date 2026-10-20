@@ -32,6 +32,21 @@ STATE_FILENAME = "state.json"
 # portable form, extracted from the global sessions.db. See `chats.py`.
 CHATS_EXPORT_REL_PATH = ".opalatex/session/chats.json"
 
+# Conversation journals written by other clients of the same cloud folder (the
+# mobile app), one file per device, `<device id>.json`. Each has exactly one
+# writer — its device — so two clients never race on one file; this machine only
+# reads them and folds them into its database. See docs/specs/chats_export.md.
+DEVICE_JOURNALS_REL_DIR = ".opalatex/session/devices"
+
+
+def is_device_journal(rel_path: str) -> bool:
+    """True for a project-relative path that names a device journal."""
+    prefix = DEVICE_JOURNALS_REL_DIR + "/"
+    if not rel_path.startswith(prefix):
+        return False
+    name = rel_path[len(prefix):]
+    return bool(name) and "/" not in name and name.endswith(".json") and not name.startswith(".")
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()

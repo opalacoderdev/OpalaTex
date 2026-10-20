@@ -629,6 +629,47 @@ You are running on an OS-like MemGPT architecture. You have a limited Main Conte
         ]
         self.recursive_summary = state.get("recursive_summary", DEFAULT_RECURSIVE_SUMMARY)
 
+    def append_external_messages(self, messages: List[Dict[str, Any]]) -> int:
+        """Append conversation turns that happened outside this agent.
+
+        A conversation can continue somewhere this agent never ran — another
+        process, another machine, a different client — and reach the host's
+        store without ever entering this agent's saved state. Restoring that
+        state alone would leave the agent unaware of those turns. This appends
+        them to `internal_history`, in the order given, so the next request
+        carries them like any other part of the conversation.
+
+        Only plain ``user`` and ``assistant`` messages with string content are
+        accepted: a tool call or a tool result cannot be replayed without the
+        other half of its unit, and a ``system`` message mid-history breaks
+        chat templates that require the system message first. Anything else
+        raises ``ValueError`` and nothing is appended.
+
+        Returns the number of messages appended. Returns 0 without appending
+        while the history ends in a tool call that is still unanswered (see
+        :func:`history_accepts_user_message`): the caller decides whether to
+        repair the history first or to keep the messages for later.
+        """
+        cleaned: List[Dict[str, Any]] = []
+        for index, message in enumerate(messages or []):
+            if not isinstance(message, dict):
+                raise ValueError(f"External message {index} is not a mapping.")
+            role = message.get("role")
+            content = message.get("content")
+            if role not in ("user", "assistant"):
+                raise ValueError(
+                    f"External message {index} has role {role!r}; only 'user' and 'assistant' are accepted."
+                )
+            if not isinstance(content, str):
+                raise ValueError(f"External message {index} must carry string content.")
+            cleaned.append({"role": role, "content": content})
+        if not cleaned:
+            return 0
+        if not history_accepts_user_message(self.internal_history):
+            return 0
+        self.internal_history.extend(cleaned)
+        return len(cleaned)
+
     async def run(self, input: AgentInput) -> AgentOutput:
         start_time = time.monotonic()
 

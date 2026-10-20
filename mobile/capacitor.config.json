@@ -1,0 +1,8 @@
+{
+  "appId": "com.opalacoder.opalatex",
+  "appName": "OpalaTex",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false
+  }
+}

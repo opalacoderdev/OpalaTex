@@ -22,6 +22,7 @@ re-litigated. The architecture itself is described in §2.16 of
 | Conflict resolution | The user chooses per file: keep mine, keep the cloud version, or keep both. |
 | Progress feedback | Per-file badges in the explorer, plus the file in flight and a counter in the status bar. |
 | Default state | Off. A project transfers nothing until the user enables it. |
+| Other devices (the mobile app) | Write their own journal under `.opalatex/session/devices/`, never `chats.json`; a pass merges the journals it downloads. Turns merged into a chat with saved orchestrator state are queued for that orchestrator. See [chats_export.md](chats_export.md) and [mobile_app.md](mobile_app.md). |
 
 ## Why `.env` is the one exception to "sync everything"
 

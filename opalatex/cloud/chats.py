@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .atomic import discard_file, replace_file
-from .state import CHATS_EXPORT_REL_PATH
+from .state import CHATS_EXPORT_REL_PATH, DEVICE_JOURNALS_REL_DIR, is_device_journal
 
 # Columns of `projects` that describe the work rather than the machine. The
 # path columns are excluded on purpose: importing them would point a project at
@@ -55,6 +55,21 @@ PORTABLE_PROJECT_FIELDS = (
 )
 
 EXPORT_VERSION = 1
+
+# Columns of `project_chats` that describe this machine's working state and must
+# never be written from an incoming document.
+_MACHINE_LOCAL_CHAT_FIELDS = frozenset({"project", "external_turns"})
+
+# A device journal names itself, so a stray JSON file dropped into the devices
+# folder is not mistaken for conversation history.
+DEVICE_JOURNAL_KIND = "opalatex.device-journal"
+DEVICE_JOURNAL_VERSION = 1
+
+# What a device journal may say about a chat. Core memory and agent state are
+# the desktop orchestrator's working state; a journal only creates chats.
+_JOURNAL_CHAT_FIELDS = ("id", "name", "created_at")
+
+_EXTERNAL_TURN_ROLES = ("user", "assistant")
 
 
 @dataclass
@@ -79,6 +94,14 @@ class MergeStats:
         return bool(
             self.chats_added or self.messages_added or self.activity_added or self.settings_applied
         )
+
+    def absorb(self, other: "MergeStats") -> None:
+        """Add another merge's counts to this one (several documents, one pass)."""
+        self.chats_added += other.chats_added
+        self.messages_added += other.messages_added
+        self.activity_added += other.activity_added
+        self.settings_applied = self.settings_applied or other.settings_applied
+        self.notes.extend(other.notes)
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
@@ -320,8 +343,14 @@ def merge_into_database(
             stats.notes.append("The project does not exist in this installation yet.")
             return stats
 
+        # Read before the chats are merged: a chat this document creates arrives
+        # with the history it describes, so only chats that already had a saved
+        # working state here can fall behind their own visible history.
+        stateful_chats = _chats_with_saved_state(conn, project_name)
         stats.chats_added = _merge_chats(conn, project_name, payload.get("chats") or [])
-        stats.messages_added = _merge_messages(conn, project_name, payload.get("messages") or [])
+        stats.messages_added = _merge_messages(
+            conn, project_name, payload.get("messages") or [], queue_for=stateful_chats
+        )
         stats.activity_added = _merge_activity(conn, project_name, payload.get("activity") or [])
         stats.settings_applied = _merge_settings(
             conn,
@@ -353,7 +382,11 @@ def _merge_chats(conn: sqlite3.Connection, project_name: str, chats: list) -> in
             # core memory and agent state are working state that a blind
             # overwrite could roll back mid-conversation.
             continue
-        fields = {key: chat.get(key) for key in chat if key in columns}
+        fields = {
+            key: chat.get(key)
+            for key in chat
+            if key in columns and key not in _MACHINE_LOCAL_CHAT_FIELDS
+        }
         fields["id"] = chat_id
         fields["project"] = project_name
         fields.setdefault("name", chat_id)
@@ -369,7 +402,64 @@ def _merge_chats(conn: sqlite3.Connection, project_name: str, chats: list) -> in
     return added
 
 
-def _merge_messages(conn: sqlite3.Connection, project_name: str, messages: list) -> int:
+def _chats_with_saved_state(conn: sqlite3.Connection, project_name: str) -> set[str]:
+    """Chats whose orchestrator will restore `agent_state` instead of seeding.
+
+    Empty when this database has no `external_turns` column to queue into.
+    """
+    columns = _columns(conn, "project_chats")
+    if "external_turns" not in columns or "agent_state" not in columns:
+        return set()
+    stateful: set[str] = set()
+    for row in conn.execute(
+        "SELECT id, agent_state FROM project_chats WHERE project = ?", (project_name,)
+    ):
+        try:
+            state = json.loads(row["agent_state"] or "{}")
+        except (TypeError, ValueError):
+            continue
+        if isinstance(state, dict) and state.get("internal_history"):
+            stateful.add(str(row["id"]))
+    return stateful
+
+
+def _queue_external_turns(conn: sqlite3.Connection, project_name: str, arrivals: dict) -> None:
+    """Append merged turns to the queue the orchestrator drains on restore.
+
+    The visible history is what the user reads; the orchestrator, however,
+    restores its context from `agent_state`. Without the queue a turn made on
+    another device shows up in the chat and is unknown to the agent that
+    answers the next message there.
+    """
+    for chat_id, turns in arrivals.items():
+        if not turns:
+            continue
+        row = conn.execute(
+            "SELECT external_turns FROM project_chats WHERE project = ? AND id = ?",
+            (project_name, chat_id),
+        ).fetchone()
+        if row is None:
+            continue
+        try:
+            queued = json.loads(row["external_turns"] or "[]")
+        except (TypeError, ValueError):
+            queued = []
+        if not isinstance(queued, list):
+            queued = []
+        turns.sort(key=lambda turn: turn["timestamp"])
+        queued.extend(turns)
+        conn.execute(
+            "UPDATE project_chats SET external_turns = ? WHERE project = ? AND id = ?",
+            (json.dumps(queued, ensure_ascii=False), project_name, chat_id),
+        )
+
+
+def _merge_messages(
+    conn: sqlite3.Connection,
+    project_name: str,
+    messages: list,
+    queue_for: frozenset[str] | set[str] = frozenset(),
+) -> int:
     columns = _columns(conn, "project_history")
     if not columns:
         return 0
@@ -386,6 +476,7 @@ def _merge_messages(conn: sqlite3.Connection, project_name: str, messages: list)
     }
 
     added = 0
+    arrivals: dict[str, list[dict[str, str]]] = {}
     for message in messages:
         if not isinstance(message, dict):
             continue
@@ -407,6 +498,21 @@ def _merge_messages(conn: sqlite3.Connection, project_name: str, messages: list)
         )
         existing_keys.add(key)
         added += 1
+        if (
+            chat_id in queue_for
+            and message.get("role") in _EXTERNAL_TURN_ROLES
+            and isinstance(message.get("content"), str)
+            and message.get("content")
+            and not message.get("deleted_at")
+            and not message.get("superseded_by")
+        ):
+            arrivals.setdefault(chat_id, []).append({
+                "role": message["role"],
+                "content": message["content"],
+                "timestamp": str(message.get("timestamp", "") or ""),
+            })
+    if arrivals:
+        _queue_external_turns(conn, project_name, arrivals)
     return added
 
 
@@ -490,3 +596,73 @@ def apply_export(
     if payload is None:
         return MergeStats()
     return merge_into_database(project_name, payload, db_path, adopt_settings=adopt_settings)
+
+
+# ─── Device journals ──────────────────────────────────────────────────────────
+
+def device_journals_dir(project_path: str) -> str:
+    return os.path.join(os.path.abspath(project_path), *DEVICE_JOURNALS_REL_DIR.split("/"))
+
+
+def merge_device_journal(
+    project_name: str, payload: Any, db_path: Optional[str] = None
+) -> MergeStats:
+    """Fold one device's journal into the local database.
+
+    A journal is the export's shape restricted to what a device may add: new
+    chats (identity only), messages and activity. It never carries project
+    settings or a chat's working state, and anything of that kind in it is
+    ignored rather than applied — a phone must not be able to change the model
+    or roll back an orchestrator's memory on this machine.
+    """
+    stats = MergeStats()
+    if not isinstance(payload, dict) or payload.get("kind") != DEVICE_JOURNAL_KIND:
+        stats.notes.append("A file in the devices folder is not a device journal; it was ignored.")
+        return stats
+    version = int(payload.get("version", 0) or 0)
+    if version > DEVICE_JOURNAL_VERSION:
+        stats.notes.append(
+            f"A device journal was written in a newer format ({version}); it was left untouched."
+        )
+        return stats
+    chats_in = [
+        {key: chat.get(key) for key in _JOURNAL_CHAT_FIELDS if key in chat}
+        for chat in payload.get("chats") or []
+        if isinstance(chat, dict)
+    ]
+    restricted = {
+        "version": EXPORT_VERSION,
+        "chats": chats_in,
+        "messages": payload.get("messages") or [],
+        "activity": payload.get("activity") or [],
+    }
+    return merge_into_database(project_name, restricted, db_path)
+
+
+def read_device_journal(path: str) -> Optional[dict[str, Any]]:
+    return read_export_from(path)
+
+
+def apply_device_journals(
+    project_name: str,
+    project_path: str,
+    db_path: Optional[str] = None,
+    rel_paths: Optional[list[str]] = None,
+) -> MergeStats:
+    """Merge device journals from disk: the listed ones, or every one present."""
+    total = MergeStats()
+    if rel_paths is None:
+        directory = device_journals_dir(project_path)
+        try:
+            names = sorted(os.listdir(directory))
+        except OSError:
+            return total
+        rel_paths = [f"{DEVICE_JOURNALS_REL_DIR}/{name}" for name in names]
+    for rel_path in rel_paths:
+        if not is_device_journal(rel_path):
+            continue
+        payload = read_device_journal(os.path.join(os.path.abspath(project_path), *rel_path.split("/")))
+        if payload is None:
+            continue
+        total.absorb(merge_device_journal(project_name, payload, db_path))
+    return total

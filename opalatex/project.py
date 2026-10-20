@@ -423,6 +423,17 @@ def _init_schema(db_path: str) -> None:
         except sqlite3.OperationalError:
             pass
 
+        # Turns of this chat that arrived from elsewhere (another computer, the
+        # mobile app) through the cloud mirror after `agent_state` was saved. The
+        # orchestrator restores its context from `agent_state`, not from the
+        # visible history, so without this queue it would never see them. Kept
+        # apart from `agent_state` because a sync pass merges in a worker thread
+        # while a turn may be saving that column. See `cloud/chats.py`.
+        try:
+            conn.execute("ALTER TABLE project_chats ADD COLUMN external_turns TEXT NOT NULL DEFAULT '[]'")
+        except sqlite3.OperationalError:
+            pass
+
         # Reasoning effort the user picked for this one chat. Empty means the
         # chat follows the model catalog, which stays the default for every chat
         # that never touched the selector (see `CHAT_REASONING_EFFORTS`).
@@ -1441,13 +1452,13 @@ class ProjectStore:
                 # just erased: keeping it would let the agent recall a chat the
                 # user deleted.
                 conn.execute(
-                    "UPDATE project_chats SET agent_state = '{}', context_usage = '{}' WHERE project = ? AND id = ?",
+                    "UPDATE project_chats SET agent_state = '{}', context_usage = '{}', external_turns = '[]' WHERE project = ? AND id = ?",
                     (name, chat_id),
                 )
             else:
                 conn.execute("DELETE FROM project_history WHERE project = ?", (name,))
                 conn.execute("DELETE FROM project_activity WHERE project = ?", (name,))
-                conn.execute("UPDATE project_chats SET agent_state = '{}', context_usage = '{}' WHERE project = ?", (name,))
+                conn.execute("UPDATE project_chats SET agent_state = '{}', context_usage = '{}', external_turns = '[]' WHERE project = ?", (name,))
 
     def clear_all_chats(self, name: str) -> dict:
         """Remove every project chat and recreate an empty main chat."""
@@ -1535,7 +1546,7 @@ class ProjectStore:
             # the next run re-seeds from the visible conversation instead of replying
             # to a message the user just replaced.
             conn.execute(
-                "UPDATE project_chats SET agent_state = '{}', context_usage = '{}' WHERE project = ? AND id = ?",
+                "UPDATE project_chats SET agent_state = '{}', context_usage = '{}', external_turns = '[]' WHERE project = ? AND id = ?",
                 (name, chat_id),
             )
 
@@ -1597,6 +1608,50 @@ class ProjectStore:
             conn.execute(
                 "UPDATE project_chats SET agent_state = ? WHERE project = ? AND id = ?",
                 (payload, name, chat_id),
+            )
+
+    def get_chat_external_turns(self, name: str, chat_id: str) -> list[dict]:
+        """Return the queued turns this chat received from another device ([] when none)."""
+        with _conn(self.db_path) as conn:
+            try:
+                row = conn.execute(
+                    "SELECT external_turns FROM project_chats WHERE project = ? AND id = ?",
+                    (name, chat_id),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                return []
+        if not row:
+            return []
+        try:
+            turns = json.loads(row["external_turns"] or "[]")
+        except Exception:
+            return []
+        return [turn for turn in turns if isinstance(turn, dict)] if isinstance(turns, list) else []
+
+    def consume_chat_external_turns(self, name: str, chat_id: str, count: int) -> None:
+        """Drop the first `count` queued external turns of a chat.
+
+        By count rather than by clearing: a sync pass can append to the queue
+        while the turn that read it is running, and those later arrivals must
+        survive for the next turn.
+        """
+        if count <= 0:
+            return
+        with _conn(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT external_turns FROM project_chats WHERE project = ? AND id = ?",
+                (name, chat_id),
+            ).fetchone()
+            if not row:
+                return
+            try:
+                turns = json.loads(row["external_turns"] or "[]")
+            except Exception:
+                turns = []
+            remaining = turns[count:] if isinstance(turns, list) else []
+            conn.execute(
+                "UPDATE project_chats SET external_turns = ? WHERE project = ? AND id = ?",
+                (json.dumps(remaining, ensure_ascii=False), name, chat_id),
             )
 
     def get_chat_context_usage(self, name: str, chat_id: str) -> dict:

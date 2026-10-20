@@ -1,0 +1,13 @@
+node_modules/
+dist/
+# Release signing material never enters the repository; CI provides it.
+*.jks
+*.keystore
+keystore.properties
+android/app/release/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+android/app/src/main/assets/public/

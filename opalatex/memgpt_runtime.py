@@ -875,9 +875,69 @@ def restore_chat_orchestrator_state(memgpt: MemGPTAgentBlock, project, store) ->
     except Exception:
         return False
     if not state or not state.get("internal_history"):
+        # Seeding replays the visible history, which already holds every turn
+        # that arrived from another device, so the queue has nothing to add.
+        _discard_external_turns(project, store, chat_id)
         return False
     memgpt.load_state(state)
+    _apply_external_turns(memgpt, project, store, chat_id)
     return True
+
+
+# Turns read from the external queue by the restore of a chat, consumed when
+# that chat's state is saved. Keyed by (project, chat): one orchestrator per
+# chat runs at a time.
+_EXTERNAL_TURNS_APPLIED: dict[tuple[str, str], int] = {}
+
+
+def _discard_external_turns(project, store, chat_id: str) -> None:
+    get = getattr(store, "get_chat_external_turns", None)
+    consume = getattr(store, "consume_chat_external_turns", None)
+    if get is None or consume is None:
+        return
+    try:
+        count = len(get(project.name, chat_id))
+        if count:
+            consume(project.name, chat_id, count)
+    except Exception:
+        pass
+
+
+def _apply_external_turns(memgpt: MemGPTAgentBlock, project, store, chat_id: str) -> None:
+    """Bring turns made elsewhere into a restored context.
+
+    `agent_state` is this machine's working memory; turns of the same chat made
+    on another device reach the visible history through the cloud merge, which
+    queues them (`cloud/chats.py`). They are appended after the restored history
+    and removed from the queue only once the state that holds them is saved, so
+    a turn that fails before saving loses nothing.
+    """
+    get = getattr(store, "get_chat_external_turns", None)
+    if get is None:
+        return
+    try:
+        turns = get(project.name, chat_id)
+    except Exception:
+        return
+    if not turns:
+        return
+    # A restored state can end in a tool call left unanswered by an interrupted
+    # turn; the compatibility layer repairs exactly that before every request,
+    # and the turns have to land after the repaired unit, not inside it.
+    from .litellm_compat import sanitize_agent_state
+
+    sanitize_agent_state(memgpt)
+    messages = [
+        {"role": str(turn.get("role", "")), "content": _strip_progress_fence(turn.get("content", ""))}
+        for turn in turns
+        if turn.get("role") in _SEEDED_ROLES and isinstance(turn.get("content"), str)
+    ]
+    try:
+        appended = memgpt.append_external_messages(messages)
+    except ValueError:
+        return
+    if appended or not messages:
+        _EXTERNAL_TURNS_APPLIED[(project.name, chat_id)] = len(turns)
 
 
 def save_chat_orchestrator_state(memgpt: MemGPTAgentBlock, project, store) -> None:
@@ -890,7 +950,13 @@ def save_chat_orchestrator_state(memgpt: MemGPTAgentBlock, project, store) -> No
     try:
         store.save_chat_agent_state(project.name, chat_id, memgpt.dump_state())
     except Exception:
-        pass
+        return
+    applied = _EXTERNAL_TURNS_APPLIED.pop((project.name, chat_id), 0)
+    if applied:
+        try:
+            store.consume_chat_external_turns(project.name, chat_id, applied)
+        except Exception:
+            pass
 
 
 def derive_context_usage_from_state(project, store) -> dict | None:
