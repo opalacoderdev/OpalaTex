@@ -134,7 +134,15 @@ change the model a project runs, or roll back an orchestrator's memory.
    question and before the answer, so the desktop pairs it with that answer;
 3. the assistant's answer.
 
-A failed turn stores no assistant message.
+A failed turn stores no assistant message. Answering its question again
+writes only steps 2 and 3: the question is already in the history, and a
+second copy would be a second question.
+
+A device that branches (retries an answered turn, edits a question) creates a
+new chat and copies the messages up to that point into it, each with its own
+`client_message_id` and its original timestamp, and each copied answer's
+reasoning as one `thought` row at the answer's timestamp. That is §4.2's
+"create a chat" and "add messages", nothing more.
 
 ### 4.4 Compaction
 

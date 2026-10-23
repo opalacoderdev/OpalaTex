@@ -182,6 +182,13 @@ export function createProjectSession({ drive, kv, device, project }) {
     createChat: (chat) => mutate((journal) => addChat(journal, chat)),
     appendMessage: (message) => mutate((journal) => addMessage(journal, message)),
     appendActivity: (row) => mutate((journal) => addActivity(journal, row)),
+    /** A chat with its rows in one write, however many rows it has. */
+    appendChat: ({ chat, messages = [], activity = [] }) => mutate((journal) => {
+      let next = addChat(journal, chat);
+      for (const message of messages) next = addMessage(next, message);
+      for (const row of activity) next = addActivity(next, row);
+      return next;
+    }),
     async pendingUpload() { return (await loadOwn()).dirty; },
     get problems() { return [...problems]; },
     get exportDoc() { return exportDoc; },

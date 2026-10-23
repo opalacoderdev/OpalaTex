@@ -43,7 +43,8 @@
     "offline": "Sem conexão — mostrando a cópia em cache",
     "syncFailed": "A sincronização falhou: {{message}}",
     "noExport": "Este projeto ainda não tem conversas no Drive. Verifique se \"Sincronizar conversas\" está ativo no painel de sincronização do computador.",
-    "exportNewer": "As conversas foram gravadas por um OpalaTex mais novo. Atualize o app para lê-las."
+    "exportNewer": "As conversas foram gravadas por um OpalaTex mais novo. Atualize o app para lê-las.",
+    "pickDetail": "Escolha uma conversa ou um arquivo."
   },
   "chats": {
     "new": "Novo chat",
@@ -71,7 +72,18 @@
     "copied": "Copiado",
     "askAboutFile": "Sobre {{path}}: ",
     "chooseModel": "Escolher modelo",
-    "connectionRemoved": "A conexão usada por este chat foi removida. Escolha outro modelo."
+    "connectionRemoved": "A conexão usada por este chat foi removida. Escolha outro modelo.",
+    "copyFailed": "Não foi possível copiar",
+    "actions": "Opções da mensagem",
+    "noAnswer": "Esta mensagem não tem resposta.",
+    "tryAgain": "Tentar de novo",
+    "retryInNewChat": "Tentar de novo em um novo chat",
+    "newChatHint": "Continua em um novo chat com a conversa até aqui; uma resposta já compartilhada com o computador não é substituída.",
+    "edit": "Editar e enviar",
+    "editing": "Editando — ao enviar, começa um novo chat com a conversa anterior a esta mensagem.",
+    "cancelEdit": "Cancelar edição",
+    "branch": "Criar ramificação a partir daqui",
+    "branchName": "{{name}} (ramificação)"
   },
   "approval": {
     "editTitle": "Editar {{path}}?",

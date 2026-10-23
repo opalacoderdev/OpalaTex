@@ -43,7 +43,8 @@
     "offline": "Offline — showing the cached copy",
     "syncFailed": "Sync failed: {{message}}",
     "noExport": "This project has no conversations in Drive yet. Make sure \"Sync conversations\" is on in the desktop's Cloud sync panel.",
-    "exportNewer": "The conversations were written by a newer OpalaTex. Update the app to read them."
+    "exportNewer": "The conversations were written by a newer OpalaTex. Update the app to read them.",
+    "pickDetail": "Choose a conversation or a file."
   },
   "chats": {
     "new": "New chat",
@@ -71,7 +72,18 @@
     "copied": "Copied",
     "askAboutFile": "About {{path}}: ",
     "chooseModel": "Choose model",
-    "connectionRemoved": "The connection this chat used was removed. Choose another model."
+    "connectionRemoved": "The connection this chat used was removed. Choose another model.",
+    "copyFailed": "Could not copy",
+    "actions": "Message options",
+    "noAnswer": "This message has no answer.",
+    "tryAgain": "Try again",
+    "retryInNewChat": "Try again in a new chat",
+    "newChatHint": "Continues in a new chat with the conversation up to here; an answer already shared with the desktop is not replaced.",
+    "edit": "Edit and send",
+    "editing": "Editing — sending starts a new chat with the conversation before this message.",
+    "cancelEdit": "Cancel editing",
+    "branch": "Branch from here",
+    "branchName": "{{name}} (branch)"
   },
   "approval": {
     "editTitle": "Edit {{path}}?",

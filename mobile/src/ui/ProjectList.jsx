@@ -47,7 +47,7 @@ export default function ProjectList({ services, offlineProjects = {}, onOpen, on
           </button>
         </div>
       </header>
-      <main className="scroll">
+      <main className="scroll readable">
         {error && <p className="error banner" role="alert">{error}</p>}
         {projects === null && !error && <p className="muted pad">{t('app.loading')}</p>}
         {projects && projects.length === 0 && (

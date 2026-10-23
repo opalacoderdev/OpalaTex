@@ -6,12 +6,15 @@ import FileViewer from './FileViewer.jsx';
 /**
  * Folders and files of the project, one level at a time. `version` changes
  * whenever the project was re-read; the listing follows it.
+ *
+ * The open file is the caller's (`openPath`, `onOpenFile`), so it survives a
+ * change of layout. With `viewerElsewhere` the caller shows it beside the list
+ * and the list marks it; otherwise the viewer takes the list's place.
  */
-export default function FileBrowser({ workspace, version, onAsk, header = null }) {
+export default function FileBrowser({ workspace, version, onAsk, openPath, onOpenFile, viewerElsewhere = false, header = null }) {
   const { t } = useTranslation();
   const [paths, setPaths] = useState(null);
   const [dir, setDir] = useState('');
-  const [open, setOpen] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,7 +41,7 @@ export default function FileBrowser({ workspace, version, onAsk, header = null }
     return { folders: [...folders].sort(), files: files.sort() };
   }, [paths, dir]);
 
-  if (open) return <FileViewer workspace={workspace} path={open} onClose={() => setOpen(null)} onAsk={onAsk} />;
+  if (openPath && !viewerElsewhere) return <FileViewer workspace={workspace} path={openPath} onClose={() => onOpenFile(null)} onAsk={onAsk} />;
   if (!paths) return <>{header}<p className="muted pad">{t('app.loading')}</p></>;
 
   return (
@@ -60,7 +63,11 @@ export default function FileBrowser({ workspace, version, onAsk, header = null }
         ))}
         {entries.files.map((name) => (
           <li key={`f:${name}`}>
-            <button type="button" className="row" onClick={() => setOpen(dir ? `${dir}/${name}` : name)}>
+            <button
+              type="button"
+              className={`row${viewerElsewhere && openPath === (dir ? `${dir}/${name}` : name) ? ' selected' : ''}`}
+              onClick={() => onOpenFile(dir ? `${dir}/${name}` : name)}
+            >
               <FileText size={20} className="row-icon" /><span className="row-title">{name}</span>
             </button>
           </li>

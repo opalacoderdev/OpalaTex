@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Network } from '@capacitor/network';
-import { ArrowLeft, CloudOff, Files, MessageSquare, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
+import { ArrowLeft, CloudOff, Files, MessageSquare, PanelRight, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 import ChatList from './ChatList.jsx';
 import ChatView from './ChatView.jsx';
 import FileBrowser from './FileBrowser.jsx';
+import FileViewer from './FileViewer.jsx';
 import OfflineCard from './OfflineCard.jsx';
+import { TWO_PANE_QUERY, useMediaQuery } from './layout.js';
 
 const POLL_MS = 60 * 1000;
 
@@ -16,8 +18,13 @@ export default function ProjectView({ services, settings, project, session, onBa
   const [status, setStatus] = useState({ state: 'syncing' });
   const [tab, setTab] = useState('chats');
   const [openChatId, setOpenChatId] = useState(null);
+  const [openFile, setOpenFile] = useState(null);
+  // Which of the two the detail pane shows when both are open (two-pane only).
+  const [detail, setDetail] = useState('chat');
   const [draft, setDraft] = useState('');
   const busyTurn = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const wide = useMediaQuery(TWO_PANE_QUERY);
 
   // ── Available offline ──
   const offlineEnabled = Boolean(settings.offlineProjects?.[project.root]);
@@ -136,7 +143,11 @@ export default function ProjectView({ services, settings, project, session, onBa
     setOpenChatId(null);
     setTab('chats');
     setOpenChatId('__new__');
+    setDetail('chat');
   }, [t]);
+
+  const openChat = useCallback((id) => { setOpenChatId(id); setDetail('chat'); }, []);
+  const chooseFile = useCallback((path) => { setOpenFile(path); if (path) setDetail('file'); }, []);
 
   const chat = openChatId && openChatId !== '__new__'
     ? conversation?.chats.find((candidate) => candidate.id === openChatId) || null
@@ -144,66 +155,110 @@ export default function ProjectView({ services, settings, project, session, onBa
 
   const problem = status.problems?.find((p) => p.code === 'no-export' || p.code === 'export-newer-format');
 
+  const chatView = openChatId && (
+    <ChatView
+      services={services}
+      settings={settings}
+      project={project}
+      session={session}
+      conversation={conversation}
+      chat={chat}
+      initialDraft={draft}
+      onDraftUsed={() => setDraft('')}
+      onBack={() => { setOpenChatId(null); sync(); }}
+      onChatCreated={(created) => setOpenChatId(created.id)}
+      onChanged={refreshConversation}
+      onBusy={(value) => { busyTurn.current = value; setBusy(value); }}
+      onOpenSettings={onOpenSettings}
+      onSettingsChange={onSettingsChange}
+      status={status}
+      showBack={!wide}
+    />
+  );
+
   // The project screen stays mounted under an open chat, and both tabs stay
   // mounted while hidden, so going back finds the list, the open folder and
-  // the scroll position as they were.
-  return (
-    <>
-      <div className="screen" hidden={Boolean(openChatId)}>
-        <header className="bar">
-          <button type="button" className="icon" onClick={onBack} aria-label={t('app.back')}><ArrowLeft size={20} /></button>
-          <h1 className="ellipsis">{project.name}</h1>
-          <div className="bar-actions">
-            <button type="button" className="icon" onClick={sync} aria-label={t('projects.refresh')}>
-              <RefreshCw size={20} className={status.state === 'syncing' ? 'spin' : ''} />
-            </button>
-            <button type="button" className="icon" onClick={onOpenSettings} aria-label={t('projects.settings')}><SettingsIcon size={20} /></button>
-          </div>
-        </header>
-        <SyncStatus status={status} />
-        {problem && (
-          <p className="notice">{t(problem.code === 'no-export' ? 'project.noExport' : 'project.exportNewer')}</p>
-        )}
-        <main className="scroll" hidden={tab !== 'chats'}>
-          <ChatList conversation={conversation} onOpen={setOpenChatId} onNew={() => setOpenChatId('__new__')} />
-        </main>
-        <main className="scroll" hidden={tab !== 'files'}>
-          <FileBrowser
-            workspace={session.workspace}
-            version={conversation}
-            onAsk={askAboutFile}
-            header={<OfflineCard enabled={offlineEnabled} state={offline} onToggle={toggleOffline} />}
-          />
-        </main>
-        <nav className="tabs">
-          <button type="button" className={tab === 'chats' ? 'active' : ''} onClick={() => setTab('chats')}>
-            <MessageSquare size={20} /><span>{t('project.chats')}</span>
+  // the scroll position as they were. On a wide screen the chat or file opens
+  // beside the list instead; the list is locked while a turn runs, as the
+  // whole screen is on a phone, so the turn's chat cannot be switched away.
+  const listPane = (
+    <div
+      className={`screen${wide ? ' pane-list' : ''}`}
+      hidden={!wide && Boolean(openChatId)}
+      {...(wide && busy ? { inert: '' } : {})}
+    >
+      <header className="bar">
+        <button type="button" className="icon" onClick={onBack} aria-label={t('app.back')}><ArrowLeft size={20} /></button>
+        <h1 className="ellipsis">{project.name}</h1>
+        <div className="bar-actions">
+          <button type="button" className="icon" onClick={sync} aria-label={t('projects.refresh')}>
+            <RefreshCw size={20} className={status.state === 'syncing' ? 'spin' : ''} />
           </button>
-          <button type="button" className={tab === 'files' ? 'active' : ''} onClick={() => setTab('files')}>
-            <Files size={20} /><span>{t('project.files')}</span>
-          </button>
-        </nav>
-      </div>
-      {openChatId && (
-        <ChatView
-          services={services}
-          settings={settings}
-          project={project}
-          session={session}
-          conversation={conversation}
-          chat={chat}
-          initialDraft={draft}
-          onDraftUsed={() => setDraft('')}
-          onBack={() => { setOpenChatId(null); sync(); }}
-          onChatCreated={(created) => setOpenChatId(created.id)}
-          onChanged={refreshConversation}
-          onBusy={(busy) => { busyTurn.current = busy; }}
-          onOpenSettings={onOpenSettings}
-          onSettingsChange={onSettingsChange}
-          status={status}
-        />
+          <button type="button" className="icon" onClick={onOpenSettings} aria-label={t('projects.settings')}><SettingsIcon size={20} /></button>
+        </div>
+      </header>
+      <SyncStatus status={status} />
+      {problem && (
+        <p className="notice">{t(problem.code === 'no-export' ? 'project.noExport' : 'project.exportNewer')}</p>
       )}
-    </>
+      <main className="scroll" hidden={tab !== 'chats'}>
+        <ChatList
+          conversation={conversation}
+          selectedId={wide && detail === 'chat' ? openChatId : null}
+          onOpen={openChat}
+          onNew={() => openChat('__new__')}
+        />
+      </main>
+      <main className="scroll" hidden={tab !== 'files'}>
+        <FileBrowser
+          workspace={session.workspace}
+          version={conversation}
+          onAsk={askAboutFile}
+          openPath={openFile}
+          onOpenFile={chooseFile}
+          viewerElsewhere={wide}
+          header={<OfflineCard enabled={offlineEnabled} state={offline} onToggle={toggleOffline} />}
+        />
+      </main>
+      <nav className="tabs">
+        <button type="button" className={tab === 'chats' ? 'active' : ''} onClick={() => setTab('chats')}>
+          <MessageSquare size={20} /><span>{t('project.chats')}</span>
+        </button>
+        <button type="button" className={tab === 'files' ? 'active' : ''} onClick={() => setTab('files')}>
+          <Files size={20} /><span>{t('project.files')}</span>
+        </button>
+      </nav>
+    </div>
+  );
+
+  if (!wide) {
+    return (
+      <>
+        {listPane}
+        {chatView}
+      </>
+    );
+  }
+
+  const showFile = openFile && (detail === 'file' || !openChatId);
+  return (
+    <div className="split">
+      {listPane}
+      <section className="pane-detail">
+        {showFile ? (
+          <div className="screen">
+            <main className="scroll">
+              <FileViewer workspace={session.workspace} path={openFile} onClose={() => setOpenFile(null)} onAsk={askAboutFile} />
+            </main>
+          </div>
+        ) : chatView || (
+          <div className="screen center pane-empty">
+            <PanelRight size={40} className="muted" />
+            <p className="muted">{t('project.pickDetail')}</p>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 

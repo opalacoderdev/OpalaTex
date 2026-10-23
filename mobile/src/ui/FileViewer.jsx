@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { ArrowLeft, ChevronLeft, ChevronRight, MessageSquarePlus } from 'lucide-react';
@@ -79,9 +79,20 @@ function PdfPages({ url }) {
   const { t } = useTranslation();
   const [pages, setPages] = useState(0);
   const [page, setPage] = useState(1);
-  const width = Math.min(globalThis.innerWidth || 360, 900) - 16;
+  // The page fits the space it is given — the whole screen on a phone, the
+  // detail pane on a tablet — and follows rotation.
+  const boxRef = useRef(null);
+  const [boxWidth, setBoxWidth] = useState(0);
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return undefined;
+    const observer = new ResizeObserver(([entry]) => setBoxWidth(Math.floor(entry.contentRect.width)));
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, []);
+  const width = Math.min(boxWidth || globalThis.innerWidth || 360, 900);
   return (
-    <div className="pdf">
+    <div className="pdf" ref={boxRef}>
       <Document file={url} onLoadSuccess={({ numPages }) => setPages(numPages)} loading={<p className="muted pad">…</p>}>
         <Page pageNumber={page} width={width} renderAnnotationLayer={false} renderTextLayer={false} />
       </Document>

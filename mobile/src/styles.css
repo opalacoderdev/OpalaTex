@@ -100,6 +100,7 @@ input, select, textarea {
 .row-sub { font-size: 0.82rem; color: var(--muted); }
 .row-meta { font-size: 0.8rem; color: var(--muted); flex: none; }
 .crumb { min-height: 48px; background: var(--surface); }
+.row.selected { background: var(--surface-2); }
 
 .tabs { display: flex; border-top: 1px solid var(--border); }
 .tabs button { flex: 1; flex-direction: column; gap: 2px; min-height: 56px; border: none; border-radius: 0; background: transparent; color: var(--muted); font-size: 0.75rem; }
@@ -108,12 +109,37 @@ input, select, textarea {
 .sync-status { display: flex; align-items: center; gap: 6px; padding: 4px var(--gutter); font-size: 0.8rem; color: var(--muted); background: var(--surface); }
 .sync-status.failed { color: var(--danger); }
 
-.messages { padding: 12px var(--gutter); display: flex; flex-direction: column; gap: 10px; }
+/* The conversation keeps a readable line length on a wide screen. */
+.messages {
+  padding: 12px max(var(--gutter), calc((100% - 860px) / 2));
+  display: flex; flex-direction: column; gap: 10px;
+}
 .bubble { max-width: 100%; padding: 10px 12px; border-radius: 14px; background: var(--surface); overflow-wrap: anywhere; }
 .bubble.user { align-self: flex-end; max-width: 88%; background: var(--user-bubble); color: var(--user-text); }
 .bubble.user .bubble-meta { color: inherit; opacity: 0.75; }
 .user-text { margin: 0; white-space: pre-wrap; }
-.bubble-meta { display: block; margin-top: 6px; font-size: 0.72rem; color: var(--muted); }
+.bubble-meta { display: block; font-size: 0.72rem; color: var(--muted); }
+.bubble-foot { display: flex; align-items: center; gap: 4px; margin-top: 6px; min-height: 20px; }
+.bubble-foot .bubble-meta { flex: 1; min-width: 0; }
+/* A 44px target that does not make every bubble 44px taller. */
+button.bubble-more { margin: -12px -8px -12px 0; color: var(--muted); }
+.bubble.user button.bubble-more { color: inherit; opacity: 0.8; }
+
+.turn-end { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--border); }
+.turn-end p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.turn-end.failed { border-style: solid; border-color: var(--danger); }
+.turn-end.failed p { color: var(--danger); }
+.turn-end-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.editing-bar {
+  display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px max(var(--gutter), calc((100% - 860px) / 2));
+  border-top: 1px solid var(--border); background: var(--surface); color: var(--muted);
+}
+.actions-preview { margin: 0 0 8px; overflow-wrap: anywhere; }
+.actions-sheet .action-row { padding-left: 4px; padding-right: 4px; }
+.toast {
+  position: fixed; left: 50%; bottom: calc(88px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 20;
+  padding: 8px 16px; border-radius: 18px; background: var(--text); color: var(--bg); font-size: 0.9rem;
+}
 .thoughts { margin-bottom: 6px; font-size: 0.85rem; color: var(--muted); }
 .thoughts pre { white-space: pre-wrap; font-family: inherit; max-height: 40vh; overflow-y: auto; margin: 6px 0 0; }
 
@@ -128,7 +154,7 @@ input, select, textarea {
 .table-scroll table { border-collapse: collapse; }
 .table-scroll th, .table-scroll td { border: 1px solid var(--border); padding: 4px 8px; }
 
-.composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px var(--gutter); border-top: 1px solid var(--border); background: var(--bg); }
+.composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px max(var(--gutter), calc((100% - 860px) / 2)); border-top: 1px solid var(--border); background: var(--bg); }
 .composer textarea { resize: none; max-height: 40vh; }
 
 .viewer { display: flex; flex-direction: column; min-height: 100%; }
@@ -149,6 +175,9 @@ input, select, textarea {
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; }
 .settings section { margin-bottom: 24px; }
 .settings h2 { font-size: 1rem; margin: 0 0 8px; }
+/* Forms and lists stay a readable column on a wide screen. */
+.scroll.settings { padding-left: max(var(--gutter), calc((100% - 720px) / 2)); padding-right: max(var(--gutter), calc((100% - 720px) / 2)); }
+.scroll.readable { padding-left: max(0px, calc((100% - 760px) / 2)); padding-right: max(0px, calc((100% - 760px) / 2)); }
 
 .sheet-backdrop { position: fixed; inset: 0; background: rgb(0 0 0 / 45%); display: flex; align-items: flex-end; z-index: 10; }
 .sheet { width: 100%; max-height: 85vh; overflow-y: auto; background: var(--bg); border-radius: 16px 16px 0 0; padding: 16px var(--gutter) calc(16px + env(safe-area-inset-bottom)); }
@@ -191,3 +220,16 @@ button.icon.tiny { width: 32px; min-height: 32px; }
 .offline-toggle input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
 .offline-toggle input[type=checkbox]:checked::after { transform: translateX(18px); background: var(--accent-text); }
 .badge { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; background: var(--surface-2); color: var(--muted); }
+
+/* ── Two panes: list beside detail (TWO_PANE_QUERY in ui/layout.js) ── */
+.split { display: flex; height: 100%; }
+.split > .pane-list { flex: none; width: clamp(300px, 34%, 400px); border-right: 1px solid var(--border); }
+.split > .pane-list[inert] { opacity: 0.6; }
+.pane-detail { flex: 1; min-width: 0; height: 100%; }
+.pane-empty { color: var(--muted); }
+
+/* On a wide screen a sheet is a centred dialog, not a full-width drawer. */
+@media (min-width: 600px) {
+  .sheet-backdrop { align-items: center; justify-content: center; padding: 24px; }
+  .sheet { max-width: 560px; border-radius: 16px; padding-bottom: 16px; }
+}

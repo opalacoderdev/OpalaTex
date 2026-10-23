@@ -11,7 +11,9 @@ answered by fakes behind request interception:
   sign in (development token) → project list → open project → configure a
   connection → chat turn that reads a file, proposes an edit, is approved →
   the answer renders with KaTeX → the journal and the edited file are in the
-  fake Drive in the desktop's format → the file viewer shows the new text.
+  fake Drive in the desktop's format → a failed turn is tried again in place,
+  an answer is tried again in a new chat → the file viewer shows the new text
+  → at tablet size, chats and files open beside the list.
 
 What it cannot cover: the native plugin (Google authorization, Keystore,
 native streaming). Those run only on Android. The browser is started with web
@@ -183,7 +185,11 @@ MODEL_SCRIPT = [
     tool_call("c2", "edit_file", {"path": "main.tex", "old_string": "Hello world", "new_string": "Hello from the phone"}),
     sse([{"choices": [{"delta": {"content": piece}}]} for piece in ["Updated the intro. ", "Energy is $E=mc^2$."]]),
     sse([{"choices": [{"delta": {"content": "Answered by the other model."}}]}]),
+    (500, json.dumps({"error": {"message": "The model is overloaded."}})),
+    sse([{"choices": [{"delta": {"content": "Answered on the second try."}}]}]),
+    sse([{"choices": [{"delta": {"content": "A fresh answer in the branch."}}]}]),
 ]
+TABLET = (1024, 768)
 
 
 # ─── Chrome over CDP ──────────────────────────────────────────────────────────
@@ -339,7 +345,9 @@ async def main(headful: bool, shots: str) -> int:
                     content_type = "text/plain" if isinstance(payload, str) else "application/json"
                 elif "api.openai.com" in request["url"]:
                     model_requests.append(json.loads(body))
-                    status, text, content_type = 200, script.pop(0), "text/event-stream"
+                    entry = script.pop(0)
+                    status, text = entry if isinstance(entry, tuple) else (200, entry)
+                    content_type = "text/event-stream" if status == 200 else "application/json"
                 else:
                     await page.send("Fetch.continueRequest", requestId=params["requestId"])
                     return
@@ -432,6 +440,48 @@ async def main(headful: bool, shots: str) -> int:
             check("the next turn runs on the chosen model", await page.wait("document.body.innerText.includes('Answered by the other model')", 15))
             check("the request named the chosen model", model_requests[-1]["model"] == "gpt-other", model_requests[-1]["model"])
 
+            # A failed turn keeps the question, and it is tried again in place.
+            await page.type(".composer textarea", "Third question")
+            await page.click_selector("button[aria-label='Send']")
+            check("a failed turn offers to try again",
+                  await page.wait("document.querySelector('.turn-end.failed')?.innerText.includes('Try again')", 15),
+                  await page.js("document.querySelector('.messages')?.innerText.slice(-300)"))
+            await page.screenshot(os.path.join(shots, "7-failed.png"))
+            await page.click_text("Try again", ".turn-end button")
+            check("trying again answers the stored question", await page.wait("document.body.innerText.includes('Answered on the second try')", 15))
+            check("the retry sent the question once",
+                  [m["content"] for m in model_requests[-1]["messages"] if m["role"] == "user"].count("Third question") == 1)
+            # The journal is uploaded before the turn ends (the Stop button goes).
+            await page.wait("!document.querySelector(\"button[aria-label='Stop']\")", 10)
+            journal = json.loads(drive.read(".opalatex/session/devices/" + journal_files[0]["name"]) or "{}")
+            check("the journal holds the question once",
+                  [m["content"] for m in journal.get("messages", [])].count("Third question") == 1)
+
+            # An answer is tried again in a new chat; the original stays.
+            last_more = await page.js("""(() => {
+                const el = [...document.querySelectorAll('.bubble.assistant .bubble-more')].filter(e => e.getClientRects().length).pop();
+                el.scrollIntoView({block: 'center'});
+                const r = el.getBoundingClientRect();
+                return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+            })()""")
+            await page.tap(last_more["x"], last_more["y"])
+            check("the message options offer copy and try again",
+                  await page.wait("document.querySelector('.actions-sheet')?.innerText.includes('Try again in a new chat')"))
+            await page.screenshot(os.path.join(shots, "8-actions.png"))
+            await page.click_text("Try again in a new chat", ".actions-sheet button")
+            check("the retry continues in a branch",
+                  await page.wait(f"{page.visible('.chat-screen h1')}?.innerText.includes('Main Chat (branch)')", 10))
+            check("the branch gets a new answer", await page.wait("document.body.innerText.includes('A fresh answer in the branch')", 15))
+            check("the branch asked the copied question",
+                  [m["content"] for m in model_requests[-1]["messages"] if m["role"] == "user"][-1] == "Third question")
+            # The journal is uploaded before the turn ends (the Stop button goes).
+            await page.wait("!document.querySelector(\"button[aria-label='Stop']\")", 10)
+            journal = json.loads(drive.read(".opalatex/session/devices/" + journal_files[0]["name"]) or "{}")
+            branch_ids = [c["id"] for c in journal.get("chats", []) if c["name"] == "Main Chat (branch)"]
+            check("the branch is a new chat in the journal", len(branch_ids) == 1, str(journal.get("chats")))
+            check("the original answer is kept",
+                  any(m["chat_id"] == "main_thesis_db" and m["content"] == "Answered on the second try." for m in journal.get("messages", [])))
+
             await page.click_selector("button[aria-label='Back']")
             await page.wait("document.querySelector('.tabs')")
             await page.click_text("Files", ".tabs button")
@@ -469,6 +519,25 @@ async def main(headful: bool, shots: str) -> int:
             await page.click_selector("button[aria-label='Back']")
             check("the project list marks the project as offline",
                   await page.wait("[...document.querySelectorAll('.row')].some(r => r.innerText.includes('thesis') && r.querySelector('.badge'))", 5))
+
+            # At tablet size the list stays beside what is open.
+            await page.send("Emulation.setDeviceMetricsOverride", width=TABLET[0], height=TABLET[1], deviceScaleFactor=2, mobile=True)
+            await page.click_text("thesis", ".row")
+            check("a tablet shows the list and an empty detail pane",
+                  await page.wait("document.querySelector('.split .pane-list') && document.querySelector('.pane-empty')"))
+            await page.click_text("Main Chat (branch)", ".row")
+            check("a chat opens beside the list",
+                  await page.wait("document.querySelector('.pane-detail .chat-screen')?.innerText.includes('A fresh answer') && "
+                                  f"{page.visible('.pane-list .tabs')}"))
+            check("the open chat is marked in the list", await page.js("document.querySelector('.row.selected')?.innerText.includes('(branch)')"))
+            check("no horizontal scroll at tablet width", await page.js("document.documentElement.scrollWidth <= window.innerWidth"))
+            await page.screenshot(os.path.join(shots, "9-tablet-chat.png"))
+            await page.click_text("Files", ".tabs button")
+            await page.click_text("main.tex", ".row")
+            check("a file opens beside the list",
+                  await page.wait("document.querySelector('.pane-detail .source')?.innerText.includes('Hello from the phone') && "
+                                  f"{page.visible('.pane-list')}"))
+            await page.screenshot(os.path.join(shots, "10-tablet-file.png"))
             reader.cancel()
     finally:
         chrome.terminate()

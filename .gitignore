@@ -49,6 +49,8 @@ downloads/
 eggs/
 .eggs/
 lib/
+# Source, not a Python build directory.
+!mobile/src/lib/
 lib64/
 parts/
 sdist/

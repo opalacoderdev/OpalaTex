@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { MessageSquare, Plus } from 'lucide-react';
 
-export default function ChatList({ conversation, onOpen, onNew }) {
+export default function ChatList({ conversation, selectedId = null, onOpen, onNew }) {
   const { t } = useTranslation();
   if (!conversation) return <p className="muted pad">{t('app.loading')}</p>;
   return (
@@ -16,7 +16,7 @@ export default function ChatList({ conversation, onOpen, onNew }) {
           const last = chat.messages[chat.messages.length - 1];
           return (
             <li key={chat.id}>
-              <button type="button" className="row" onClick={() => onOpen(chat.id)}>
+              <button type="button" className={`row${chat.id === selectedId ? ' selected' : ''}`} onClick={() => onOpen(chat.id)}>
                 <MessageSquare size={20} className="row-icon" />
                 <span className="row-main">
                   <span className="row-title">{chat.name}</span>

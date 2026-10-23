@@ -81,7 +81,9 @@ export async function buildConversation({ exportDoc = null, journals = [] }) {
       content: message.role === 'assistant' ? stripProgressFence(message.content) : message.content,
     }));
     const last = withThoughts[withThoughts.length - 1];
-    result.push({ ...chat, messages: withThoughts, updated_at: last?.timestamp || chat.created_at });
+    // A branch is newer than the messages it copied: it sorts by its creation.
+    const updated = [last?.timestamp || '', chat.created_at].reduce((a, b) => (String(b) > String(a) ? b : a));
+    result.push({ ...chat, messages: withThoughts, updated_at: updated });
   }
   result.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
   return { chats: result, settings: exportDoc?.settings || {}, projectName: exportDoc?.project || '' };

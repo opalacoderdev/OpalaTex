@@ -65,6 +65,11 @@ publishes a signed APK and AAB for tags `mobile-v*`.
 5. Chat. Edits are shown before they are written; the desktop picks them up on
    its next sync, and the conversation continues there with the orchestrator
    aware of what was said on the phone.
+6. When a turn fails, **Try again** answers the same question. The ⋯ on any
+   message copies it, tries an answered turn again, edits a question, or
+   branches; those three continue in a new chat, since an answer already shared
+   with the desktop is never replaced. On a tablet the chat or file opens beside
+   the list.
 
 Ollama: `https://ollama.com/v1` with an Ollama API key works. A LAN server over
 plain `http://` is refused by Android's cleartext policy, which the app keeps.

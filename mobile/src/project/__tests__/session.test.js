@@ -4,7 +4,7 @@ import { createDriveClient } from '../../drive/client.js';
 import { createFakeDrive, goodToken } from '../../drive/__tests__/fakeDrive.js';
 import { createMemoryKv } from '../../platform/kv.js';
 import { createProjectSession } from '../session.js';
-import { runChatTurn } from '../turn.js';
+import { branchChat, runChatTurn } from '../turn.js';
 import { createTools } from '../../agent/tools.js';
 
 const device = { id: 'dev-1', name: 'Pixel' };
@@ -190,4 +190,89 @@ test('a pull keeps the previous conversation until the new one is read', async (
   const { chats } = await session.conversation();
   assert.equal(chats[0].messages.length, 2);
   await pending;
+});
+
+/** A scripted completion that records the messages it was sent. */
+function recording(responses) {
+  const requests = [];
+  const run = scripted(responses);
+  const complete = async (request) => {
+    requests.push(request.messages.map((m) => [m.role, m.content]));
+    return run(request);
+  };
+  return { complete, requests };
+}
+
+test('a failed turn can be tried again without asking the question twice', async () => {
+  const { fake, root, session } = setup();
+  await session.pull();
+  let [chat] = (await session.conversation()).chats;
+  const failing = async () => { throw new Error('provider down'); };
+  await assert.rejects(runChatTurn({
+    session, chat, text: 'phone q', complete: failing, tools: [], approve: async () => true, today: 't', device,
+  }), /provider down/);
+
+  [chat] = (await session.conversation()).chats;
+  assert.deepEqual(chat.messages.map((m) => [m.role, m.content]).at(-1), ['user', 'phone q']);
+  const { complete, requests } = recording([{ content: 'phone a' }]);
+  await runChatTurn({ session, chat, retry: true, complete, tools: [], approve: async () => true, today: 't', device });
+
+  // The model sees the question once, as the message it answers.
+  assert.deepEqual(requests[0].slice(1), [
+    ['user', 'desktop question'], ['assistant', 'desktop answer'], ['user', 'phone q'],
+  ]);
+  const journal = JSON.parse(fake.read('.opalatex/session/devices/dev-1.json', root));
+  assert.deepEqual(journal.messages.map((m) => [m.role, m.content]), [['user', 'phone q'], ['assistant', 'phone a']]);
+});
+
+test('retrying a chat whose last message is an answer is refused', async () => {
+  const { session } = setup();
+  await session.pull();
+  const [chat] = (await session.conversation()).chats;
+  await assert.rejects(runChatTurn({
+    session, chat, retry: true, complete: scripted([{ content: 'x' }]), tools: [], approve: async () => true, today: 't', device,
+  }), /no answer/);
+});
+
+test('a branch copies the conversation into a new chat and leaves the source alone', async () => {
+  const { fake, root, session } = setup();
+  await session.pull();
+  await runChatTurn({
+    session, chat: (await session.conversation()).chats[0], text: 'phone q',
+    complete: scripted([{ reasoning: 'weigh it', content: 'a wrong answer' }]), tools: [], approve: async () => true, today: 't', device,
+  });
+  const source = (await session.conversation()).chats[0];
+  assert.equal(source.messages.length, 4);
+
+  // Try the last question again: branch through it, then answer it there.
+  const branch = await branchChat({ session, messages: source.messages.slice(0, 3), name: 'Main Chat (branch)', device });
+  const { complete, requests } = recording([{ content: 'a better answer' }]);
+  await runChatTurn({ session, chat: branch, retry: true, complete, tools: [], approve: async () => true, today: 't', device });
+  assert.deepEqual(requests[0].slice(1).map(([role]) => role), ['user', 'assistant', 'user']);
+
+  const { chats } = await session.conversation();
+  assert.equal(chats[0].id, branch.id, 'the branch is the newest chat');
+  assert.deepEqual(chats[0].messages.map((m) => m.content), ['desktop question', 'desktop answer', 'phone q', 'a better answer']);
+  const original = chats.find((c) => c.id === source.id);
+  assert.deepEqual(original.messages.map((m) => m.content), ['desktop question', 'desktop answer', 'phone q', 'a wrong answer']);
+  assert.equal(original.messages.at(-1).thoughts, 'weigh it');
+
+  const journal = JSON.parse(fake.read('.opalatex/session/devices/dev-1.json', root));
+  assert.deepEqual(journal.chats.map((c) => c.name), ['Main Chat (branch)']);
+  const copies = journal.messages.filter((m) => m.chat_id === branch.id);
+  assert.deepEqual(copies.slice(0, 3).map((m) => m.timestamp), source.messages.slice(0, 3).map((m) => m.timestamp));
+  assert.equal(new Set(journal.messages.map((m) => m.client_message_id)).size, journal.messages.length);
+});
+
+test('a branch carries the reasoning of the answers it copies', async () => {
+  const { session } = setup();
+  await session.pull();
+  await runChatTurn({
+    session, chat: (await session.conversation()).chats[0], text: 'q',
+    complete: scripted([{ reasoning: 'think hard', content: 'a' }]), tools: [], approve: async () => true, today: 't', device,
+  });
+  const source = (await session.conversation()).chats[0];
+  const branch = await branchChat({ session, messages: source.messages, name: 'b', device });
+  const copied = (await session.conversation()).chats.find((c) => c.id === branch.id);
+  assert.deepEqual(copied.messages.map((m) => m.thoughts), ['', '', '', 'think hard']);
 });
