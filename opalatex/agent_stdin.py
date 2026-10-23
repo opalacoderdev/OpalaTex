@@ -2980,6 +2980,8 @@ async def handle_run(data: dict):
                 print_event("checkpoint_finalized", {
                     "agent": agent_type,
                     "success": checkpoint_saved,
+                    "changed_files": list(turn_checkpoint.changed_files),
+                    "project_path": turn_checkpoint.project_path,
                 })
                 if not checkpoint_saved:
                     from opalatex.i18n import _
@@ -2995,6 +2997,8 @@ async def handle_run(data: dict):
                 print_event("checkpoint_finalized", {
                     "agent": agent_type,
                     "success": bool(turn_checkpoint.finalize_result),
+                    "changed_files": list(turn_checkpoint.changed_files),
+                    "project_path": turn_checkpoint.project_path,
                 })
                 if not turn_checkpoint.finalize_result:
                     from opalatex.i18n import _
@@ -3009,6 +3013,8 @@ async def handle_run(data: dict):
                 print_event("checkpoint_finalized", {
                     "agent": agent_type,
                     "success": False,
+                    "changed_files": [],
+                    "project_path": turn_checkpoint.project_path,
                 })
                 print_event("problem", {
                     "agent": agent_type,

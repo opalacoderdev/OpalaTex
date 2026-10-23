@@ -236,10 +236,15 @@ def _get_agents_config() -> dict:
         except Exception as e:
             print(f"Warning: Failed to parse {user_yaml}: {e}")
             
-    # Project local
+    # Project local. Read through sys.modules rather than imported: this runs at
+    # module load, and importing `tools` drags in agenticblocks and litellm
+    # (~4 s), which delayed everything that only needs configuration — the
+    # desktop window's splash screen included. Until `tools` has been imported
+    # no project can have been set, and its get_project_path() would return
+    # the working directory, which is what is used then.
     try:
-        from .tools import get_project_path
-        proj_path = get_project_path()
+        tools = sys.modules.get(f"{__package__}.tools")
+        proj_path = tools.get_project_path() if tools is not None else os.getcwd()
         proj_yaml = pathlib.Path(proj_path) / ".opalatex" / "agents.yaml"
         if not proj_yaml.exists():
             proj_yaml = pathlib.Path(proj_path) / "agents.yaml"

@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Folder, File, ChevronRight, ChevronDown } from 'lucide-react';
 import CloudFileBadge from './CloudFileBadge';
+import AgentChangeBadge from './AgentChangeBadge';
 import InlineCreateNode from './InlineCreateNode';
 import { isSameTreePath, treePathContains } from '../utils/inlineCreate';
+import { hasAgentChanges, markerPathKey } from '../utils/fileMarkers';
 
 // Recursive file/directory tree node with drag-and-drop, inline rename and
 // inline creation support.
@@ -10,8 +13,8 @@ export default function FileNode({
   node,
   selectedFile,
   selectedNodes,
-  fileContents,
-  originalFileContents,
+  unsavedFiles,
+  agentChangedFiles,
   handleNodeSelect,
   handleFileSelect,
   handleNodeContextMenu,
@@ -132,7 +135,9 @@ export default function FileNode({
   // Check if node is part of the multi-selection
   const isMultiSelected = selectedNodes && selectedNodes.has(node.path);
 
-  const isDirty = !isDir && originalFileContents && fileContents?.[node.path] !== originalFileContents[node.path] && originalFileContents[node.path] !== undefined;
+  const { t } = useTranslation();
+  const isUnsaved = !isDir && Boolean(unsavedFiles?.has(markerPathKey(node.path)));
+  const isAgentChanged = hasAgentChanges(agentChangedFiles, node.path, isDir);
 
   const renderRenameInput = () => (
     <input
@@ -187,6 +192,7 @@ export default function FileNode({
           {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           <Folder size={14} className="text-white" style={{ color: 'var(--vscode-fg-folder)', flexShrink: 0 }} />
           {isRenaming ? renderRenameInput() : <span className="truncate">{node.name}</span>}
+          {!isRenaming && isAgentChanged && <AgentChangeBadge inside />}
           <CloudFileBadge state={cloudState} />
         </div>
         {isOpen && (
@@ -206,8 +212,8 @@ export default function FileNode({
                 node={child}
                 selectedFile={selectedFile}
                 selectedNodes={selectedNodes}
-                fileContents={fileContents}
-                originalFileContents={originalFileContents}
+                unsavedFiles={unsavedFiles}
+                agentChangedFiles={agentChangedFiles}
                 handleNodeSelect={handleNodeSelect}
                 handleFileSelect={handleFileSelect}
                 handleNodeContextMenu={handleNodeContextMenu}
@@ -246,7 +252,13 @@ export default function FileNode({
       onContextMenu={(e) => handleNodeContextMenu(e, node)}
     >
       <File size={14} className="text-white" style={{ color: 'var(--vscode-text-muted)', flexShrink: 0 }} />
-      {isRenaming ? renderRenameInput() : <span className="truncate">{node.name}{isDirty ? ' *' : ''}</span>}
+      {isRenaming ? renderRenameInput() : (
+        <span className="truncate">
+          {node.name}
+          {isUnsaved && <span title={t('explorer.unsaved', 'Unsaved changes')}> *</span>}
+        </span>
+      )}
+      {!isRenaming && isAgentChanged && <AgentChangeBadge />}
       <CloudFileBadge state={cloudState} />
     </div>
   );

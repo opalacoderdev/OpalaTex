@@ -959,8 +959,12 @@ class ProjectStore:
             if row is None:
                 return None
 
+            # Creation order is a contract: the GUI opens a project on the last
+            # entry. Chats synced from another device keep their own created_at,
+            # so this is when a chat was made, not when it arrived; rowid breaks
+            # ties in insertion order.
             chats_rows = conn.execute(
-                "SELECT id, name, reasoning_effort FROM project_chats WHERE project = ? ORDER BY created_at ASC", (name,)
+                "SELECT id, name, reasoning_effort FROM project_chats WHERE project = ? ORDER BY created_at ASC, rowid ASC", (name,)
             ).fetchall()
             chats = [{"id": r["id"], "name": r["name"]} for r in chats_rows]
             chat_efforts = {r["id"]: _stored_chat_reasoning_effort(r["reasoning_effort"]) for r in chats_rows}

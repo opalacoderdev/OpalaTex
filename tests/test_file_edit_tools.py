@@ -358,14 +358,14 @@ async def test_agent_turn_finalization_survives_repeated_cancellation(monkeypatc
 
     finalize_started = threading.Event()
     release_finalize = threading.Event()
-    real_finalize = vcs.finalize_agent_turn_checkpoint
+    real_finalize = vcs.finalize_agent_turn_checkpoint_details
 
     def delayed_finalize(project_path, start_checkpoint=None, agent_label=None):
         finalize_started.set()
         release_finalize.wait(timeout=5)
         return real_finalize(project_path, start_checkpoint, agent_label)
 
-    monkeypatch.setattr(vcs, "finalize_agent_turn_checkpoint", delayed_finalize)
+    monkeypatch.setattr(vcs, "finalize_agent_turn_checkpoint_details", delayed_finalize)
     task = asyncio.create_task(checkpoint.finalize())
 
     assert await asyncio.to_thread(finalize_started.wait, 5)
@@ -408,6 +408,58 @@ async def test_agent_turn_finalization_survives_repeated_cancellation(monkeypatc
     assert "Agent turn end checkpoint" in log
     assert status == ""
 
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_agent_turn_reports_the_files_it_changed(tmp_path):
+    from opalatex.vcs import begin_agent_turn_checkpoint, finalize_agent_turn_checkpoint_details
+
+    (tmp_path / "edited.tex").write_text("before\n", encoding="utf-8")
+    (tmp_path / "untouched.tex").write_text("same\n", encoding="utf-8")
+    (tmp_path / "removed.tex").write_text("bye\n", encoding="utf-8")
+    # A change made before the turn is not the turn's work.
+    (tmp_path / "user.tex").write_text("user edit\n", encoding="utf-8")
+
+    start_checkpoint = begin_agent_turn_checkpoint(str(tmp_path))
+    assert start_checkpoint
+    (tmp_path / "edited.tex").write_text("after\n", encoding="utf-8")
+    (tmp_path / "chapters").mkdir()
+    (tmp_path / "chapters" / "new file.tex").write_text("new\n", encoding="utf-8")
+    (tmp_path / "removed.tex").unlink()
+
+    result = finalize_agent_turn_checkpoint_details(str(tmp_path), start_checkpoint)
+
+    assert result.saved
+    # Deleted files are left out: there is nothing left to mark.
+    assert result.changed_files == ("chapters/new file.tex", "edited.tex")
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_agent_turn_without_net_diff_reports_no_changed_files(tmp_path):
+    from opalatex.vcs import begin_agent_turn_checkpoint, finalize_agent_turn_checkpoint_details
+
+    target = tmp_path / "main.tex"
+    target.write_text("original\n", encoding="utf-8")
+    start_checkpoint = begin_agent_turn_checkpoint(str(tmp_path))
+    target.write_text("changed\n", encoding="utf-8")
+    target.write_text("original\n", encoding="utf-8")
+
+    result = finalize_agent_turn_checkpoint_details(str(tmp_path), start_checkpoint)
+
+    assert result.saved
+    assert result.changed_files == ()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.asyncio
+async def test_async_agent_turn_checkpoint_exposes_changed_files(tmp_path):
+    import opalatex.vcs as vcs
+
+    checkpoint = vcs.AsyncAgentTurnCheckpoint(str(tmp_path))
+    assert await checkpoint.begin()
+    (tmp_path / "agent.tex").write_text("agent edit\n", encoding="utf-8")
+
+    assert await checkpoint.finalize()
+    assert checkpoint.changed_files == ("agent.tex",)
 
 
 def test_write_content_pos_on_missing_file_points_at_write_file(tmp_path):

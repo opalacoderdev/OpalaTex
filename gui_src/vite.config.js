@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -7,8 +8,36 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const backendTarget = process.env.OPALATEX_BACKEND_URL || 'http://localhost:3000';
 
+// Puts the startup splash (public/splash.html, its single source) inside #root,
+// so it stays on screen while the bundle loads and React replaces it on its
+// first render. The desktop shell shows the same page before the window has a
+// server to load from; see the comment at the top of splash.html.
+function inlineSplash() {
+  const read = (name) => fs.readFileSync(path.resolve(__dirname, 'public', name));
+  const pick = (source, pattern, what) => {
+    const match = source.match(pattern);
+    if (!match) throw new Error(`public/splash.html: ${what} not found`);
+    return match[0];
+  };
+  return {
+    name: 'opalatex-inline-splash',
+    transformIndexHtml(html) {
+      const source = read('splash.html').toString('utf8');
+      const icon = `data:image/png;base64,${read('splash-icon.png').toString('base64')}`;
+      const style = pick(source, /<style id="opalatex-splash-style">[\s\S]*?<\/style>/, 'splash style');
+      const markup = pick(source, /<!-- splash:begin -->[\s\S]*?<!-- splash:end -->/, 'splash markup')
+        .replace('src="__SPLASH_ICON__"', `src="${icon}"`)
+        .replace('data-status="loading"', 'data-status="opening"');
+      if (!html.includes('<div id="root"></div>')) throw new Error('index.html: empty #root not found');
+      return html
+        .replace('</head>', `${style}\n  </head>`)
+        .replace('<div id="root"></div>', `<div id="root">${markup}</div>`);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), inlineSplash()],
   resolve: {
     alias: [
       {

@@ -9,11 +9,21 @@ export function CustomDialogProvider({ children }) {
   const [dialog, setDialog] = useState(null);
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef(null);
+  const dialogRef = useRef(null);
+
+  // There is one dialog slot. Opening another while one is showing settles the
+  // first as dismissed, so its caller is not left awaiting a promise forever.
+  const openDialog = (next) => {
+    const previous = dialogRef.current;
+    dialogRef.current = next;
+    setDialog(next);
+    if (previous) previous.resolve(dismissedValue(previous.type));
+  };
 
   // Define show dialog methods
   const showAlert = (message, title = '') => {
     return new Promise((resolve) => {
-      setDialog({
+      openDialog({
         type: 'alert',
         title: title || t('alertModal.title', 'Notification'),
         message,
@@ -22,12 +32,18 @@ export function CustomDialogProvider({ children }) {
     });
   };
 
-  const showConfirm = (message, title = '') => {
+  // `options.okLabel` / `options.cancelLabel` name the two choices. With
+  // `options.destructive`, OK is the choice that loses something: the focus
+  // starts on Cancel and Enter does not stand for OK.
+  const showConfirm = (message, title = '', options = {}) => {
     return new Promise((resolve) => {
-      setDialog({
+      openDialog({
         type: 'confirm',
         title: title || t('confirmModal.title', 'Confirmation'),
         message,
+        okLabel: options.okLabel,
+        cancelLabel: options.cancelLabel,
+        destructive: Boolean(options.destructive),
         resolve,
       });
     });
@@ -36,7 +52,7 @@ export function CustomDialogProvider({ children }) {
   const showPrompt = (message, defaultValue = '', title = '') => {
     return new Promise((resolve) => {
       setInputValue(defaultValue);
-      setDialog({
+      openDialog({
         type: 'prompt',
         title: title || t('askModal.title', 'Input Required'),
         message,
@@ -52,7 +68,7 @@ export function CustomDialogProvider({ children }) {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         handleCancel();
-      } else if (e.key === 'Enter' && dialog.type !== 'prompt') {
+      } else if (e.key === 'Enter' && dialog.type !== 'prompt' && !dialog.destructive) {
         // For prompt, enter key inside input handles submission
         handleOk();
       }
@@ -76,6 +92,7 @@ export function CustomDialogProvider({ children }) {
   const handleOk = () => {
     if (!dialog) return;
     const { resolve, type } = dialog;
+    dialogRef.current = null;
     setDialog(null);
     if (type === 'prompt') {
       resolve(inputValue);
@@ -89,14 +106,9 @@ export function CustomDialogProvider({ children }) {
   const handleCancel = () => {
     if (!dialog) return;
     const { resolve, type } = dialog;
+    dialogRef.current = null;
     setDialog(null);
-    if (type === 'confirm') {
-      resolve(false);
-    } else if (type === 'prompt') {
-      resolve(null);
-    } else {
-      resolve(undefined);
-    }
+    resolve(dismissedValue(type));
   };
 
   return (
@@ -185,12 +197,13 @@ export function CustomDialogProvider({ children }) {
                     type="button" 
                     className="vscode-button" 
                     onClick={handleCancel}
+                    autoFocus={dialog.destructive}
                     style={{ background: 'transparent', border: '1px solid var(--vscode-border)', color: 'var(--vscode-text-fg)', minWidth: '80px' }}
                   >
-                    {t('confirmModal.cancel', 'Cancel')}
+                    {dialog.cancelLabel || t('confirmModal.cancel', 'Cancel')}
                   </button>
-                  <button type="button" className="vscode-button" onClick={handleOk} autoFocus style={{ minWidth: '80px' }}>
-                    {t('confirmModal.yes', 'OK')}
+                  <button type="button" className="vscode-button" onClick={handleOk} autoFocus={!dialog.destructive} style={{ minWidth: '80px' }}>
+                    {dialog.okLabel || t('confirmModal.yes', 'OK')}
                   </button>
                 </>
               )}
@@ -215,6 +228,12 @@ export function CustomDialogProvider({ children }) {
       )}
     </CustomDialogContext.Provider>
   );
+}
+
+function dismissedValue(type) {
+  if (type === 'confirm') return false;
+  if (type === 'prompt') return null;
+  return undefined;
 }
 
 export function useCustomDialog() {

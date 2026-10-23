@@ -1110,6 +1110,11 @@
     "toolProblem": "[Problem in {{tool}}]: {{message}}",
     "loadingChat": "Loading chat...",
     "reloadedFromDisk": "Reloaded from disk: {{path}}",
+    "agentChangedUnsavedTitle": "File changed by the agent",
+    "agentChangedUnsavedPrompt": "The agent changed \"{{path}}\" on disk, but this file also has unsaved edits in the editor.\n\nKeep my edits: the agent's version stays on disk until you save; saving replaces it.\nLoad the agent's version: your unsaved edits are discarded.",
+    "loadAgentVersion": "Load the agent's version",
+    "keepMyEdits": "Keep my edits",
+    "keptUnsavedEdits": "Kept your unsaved edits of {{path}}; saving will replace the agent's version.",
     "changesDiscarded": "Discarded changes: {{path}}",
     "discardFailed": "Failed to discard: {{error}}",
     "discardChangesError": "Error discarding changes: {{error}}",
@@ -1537,7 +1542,10 @@
     "cloudSynced": "Synced to the cloud",
     "cloudPending": "Waiting for the next sync",
     "cloudSyncing": "Syncing now",
-    "cloudConflict": "Changed in both places — needs a decision"
+    "cloudConflict": "Changed in both places — needs a decision",
+    "unsaved": "Unsaved changes",
+    "agentChanged": "Changed by the agent (cleared when you open the file)",
+    "agentChangedInside": "Contains files changed by the agent"
   },
   "deck": {
     "loading": "Loading presentation editor…",

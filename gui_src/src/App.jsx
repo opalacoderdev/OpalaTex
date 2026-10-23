@@ -26,6 +26,15 @@ import {
   joinMergedLogMessage,
 } from './utils/logMerge';
 import { childNamesAt, resolveInlineCreatePath, suggestUniqueName } from './utils/inlineCreate';
+import {
+  markerPathKey,
+  removeAgentChangedFiles,
+  renameAgentChangedFiles,
+  unsavedFilePaths,
+  withAgentChangedFiles,
+  withoutAgentChangedFile,
+} from './utils/fileMarkers';
+import { createAgentFileSync } from './utils/agentFileSync';
 
 // Hooks
 import { useResizing } from './hooks/useResizing';
@@ -78,6 +87,8 @@ const numericMessageId = (message) => {
   const parsed = Number(message.id);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
+
+const AGENT_WRITE_TOOLS = new Set(['write_file', 'write_content_pos', 'replace_content_range', 'edit_file']);
 
 const normalizeEditorPathKey = (filePath, caseInsensitive = false) => {
   if (!filePath) return '';
@@ -254,7 +265,7 @@ const isUnsupportedSystemFile = (filePath) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
   const { t } = useTranslation();
-  const { showAlert } = useCustomDialog();
+  const { showAlert, showConfirm } = useCustomDialog();
 
   // ── Projects / files ──────────────────────────────────────────────────────
   const [projects, setProjects] = useState([]);
@@ -278,6 +289,20 @@ export default function App() {
     const oldSegments = normalizedOld.split('/').filter(Boolean).length;
     const suffix = normalizedFile.split('/').filter(Boolean).slice(oldSegments).join('/');
     return suffix ? `${newPath}/${suffix}` : newPath;
+  };
+  // Keep the unsaved marker's disk baseline under the paths the buffers move
+  // to. Mutated in place: saveFile treats a new object as a project switch.
+  const moveDiskContents = (oldPath, newPath) => {
+    const cache = diskFileContentsRef.current;
+    const moves = Object.keys(cache)
+      .filter(key => isFileInsidePath(key, oldPath))
+      .map(key => [key, replaceFilePathPrefix(key, oldPath, newPath), cache[key]]);
+    for (const [key] of moves) delete cache[key];
+    for (const [, moved, content] of moves) cache[moved] = content;
+  };
+  const dropDiskContents = (path) => {
+    const cache = diskFileContentsRef.current;
+    for (const key of Object.keys(cache)) if (isFileInsidePath(key, path)) delete cache[key];
   };
   const dedupeOpenFileList = (files, preferredPath = null) => {
     const preferredKey = preferredPath ? filePathKey(preferredPath) : null;
@@ -346,7 +371,12 @@ export default function App() {
     return t('assetStore.themeApplied', '{{name}} applied to {{file}}. Save to keep it.',
       { name: asset.name, file: selectedFile });
   }, [fileContent, selectedFile, t]);
+  // Baseline of the diff view (the file at git HEAD), not of the unsaved
+  // marker: that one compares with the disk (see utils/fileMarkers.js).
   const [originalFileContents, setOriginalFileContents] = useState({});
+  // Project-relative paths an agent turn changed and the user has not opened
+  // since, from `checkpoint_finalized.changed_files`.
+  const [agentChangedFiles, setAgentChangedFiles] = useState(() => new Set());
   const [rightClickedNode, setRightClickedNode] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -765,7 +795,9 @@ export default function App() {
   const [inlinePrompt, setInlinePrompt] = useState(null);
   // Stores the Monaco range that should be replaced after an inline agent reply
   const pendingInlineRangeRef = useRef(null);
-  const pendingWritePathRef = useRef(null);
+  // Paths the turn's write tools named so far, reconciled with open buffers
+  // after each write and once more when the turn ends.
+  const turnWrittenPathsRef = useRef(new Set());
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const terminalRef = useRef(null);
@@ -778,6 +810,19 @@ export default function App() {
   const monacoRef = useRef(null);
   const saveFileRef = useRef(null);
   const diskFileContentsRef = useRef({});
+  const fileContentsRef = useRef(fileContents);
+  fileContentsRef.current = fileContents;
+  // Recomputed on every render rather than memoized: the disk baseline is a
+  // ref, and each write to it comes with a buffer state update (fileContent /
+  // fileContents), which is what brings the render.
+  const unsavedFiles = new Set(unsavedFilePaths({
+    openFiles,
+    fileContents,
+    activeFile: selectedFile,
+    activeContent: fileContent,
+    diskContents: diskFileContentsRef.current,
+    isBinary: isBinaryEditorFile,
+  }).map(markerPathKey));
   const fileSaveQueueRef = useRef(createFileSaveQueue());
   const pendingSaveCountRef = useRef(0);
   const documentContextRef = useRef(null);
@@ -1017,23 +1062,12 @@ export default function App() {
             // sidebar rather than from the ActivityBar button.
             setTutorialChatId(data.tutorial_chat_id || '');
 
-            // Restore the last chat, but only if it still exists. Every candidate
-            // is checked against the loaded list: an id the project no longer has
-            // (a deleted chat, or a sentinel written by an older build) must not
-            // reach the server, which would answer with a different chat's
-            // history and leave the selector disagreeing with the transcript.
-            const isKnownChat = (id) => !!id && loadedChats.some(c => c.id === id);
-            const savedChatId = localStorage.getItem(`lastChat_${activeProject.name}`);
-            const currentChatId = [savedChatId, activeProject.current_chat_id, projectMainChatId]
-              .find(isKnownChat) || (loadedChats.length > 0 ? loadedChats[0].id : '');
-            if (savedChatId !== currentChatId) {
-              // Drop the stale pointer so the next reopen does not repeat this.
-              if (currentChatId) {
-                localStorage.setItem(`lastChat_${activeProject.name}`, currentChatId);
-              } else {
-                localStorage.removeItem(`lastChat_${activeProject.name}`);
-              }
-            }
+            // Opening a project lands on its most recently created chat. The
+            // server lists chats in creation order, so that is the last entry;
+            // taking it from the list (not from browser storage) keeps the
+            // choice the same in every distribution and always names a chat
+            // the project still has.
+            const currentChatId = loadedChats.length > 0 ? loadedChats[loadedChats.length - 1].id : '';
             setActiveChatId(currentChatId);
             if (!activeProject.current_chat_id || activeProject.current_chat_id !== currentChatId) {
               setActiveProject(prev => prev ? { ...prev, current_chat_id: currentChatId } : null);
@@ -1125,7 +1159,6 @@ export default function App() {
     setChatContextUsage(null);
     setActiveChatId(id);
     setActiveProject(prev => prev ? { ...prev, current_chat_id: id } : null);
-    localStorage.setItem(`lastChat_${activeProject.name}`, id);
 
     setTimeout(async () => {
       try {
@@ -1174,7 +1207,6 @@ export default function App() {
     setChats(prev => prev.some(chat => chat.id === chatId) ? prev : [...prev, data]);
     setActiveChatId(chatId);
     setActiveProject(prev => prev ? { ...prev, current_chat_id: chatId } : null);
-    localStorage.setItem(`lastChat_${activeProject.name}`, chatId);
     // A brand-new chat has no measured window yet: the previous chat's
     // measurement must not leak into this one's indicator.
     setChatContextUsage(null);
@@ -1214,7 +1246,6 @@ export default function App() {
       setChatContextUsage(contextUsageFromPayload(data.context_usage));
       setActiveChatId(chatId);
       setActiveProject(prev => prev ? { ...prev, current_chat_id: chatId } : null);
-      localStorage.setItem(`lastChat_${activeProject.name}`, chatId);
       setChatMessages(data.history || []);
 
       if (layoutMode === 'ide') setIsChatVisible(true);
@@ -1353,6 +1384,8 @@ export default function App() {
 
   useEffect(() => {
     diskFileContentsRef.current = {};
+    turnWrittenPathsRef.current = new Set();
+    setAgentChangedFiles(new Set());
   }, [activeProject?.project_path]);
 
   useEffect(() => {
@@ -1960,11 +1993,11 @@ export default function App() {
       currentContents[selectedFile] = fileContent;
     }
 
-    const dirtyFiles = openFiles.filter((filePath) => {
-      if (isBinaryEditorFile(filePath)) return false;
-      const currentContent = currentContents[filePath];
-      const diskContent = diskFileContentsRef.current[filePath];
-      return currentContent !== undefined && diskContent !== undefined && currentContent !== diskContent;
+    const dirtyFiles = unsavedFilePaths({
+      openFiles,
+      fileContents: currentContents,
+      diskContents: diskFileContentsRef.current,
+      isBinary: isBinaryEditorFile,
     });
 
     if (dirtyFiles.length > 0) {
@@ -2122,6 +2155,7 @@ export default function App() {
     setFileContent('');
     setFileContents({});
     setOriginalFileContents({});
+    setAgentChangedFiles(new Set());
     setJumpToLine(null);
     await fetchFiles();
     await fetchGitStatus();
@@ -2191,6 +2225,8 @@ export default function App() {
   const handleFileSelect = async (filePath, jumpLine = null) => {
     if (!activeProject) return;
     setIsBottomMaximized(false);
+    // Opening the file is what acknowledges the agent's change to it.
+    setAgentChangedFiles(prev => withoutAgentChangedFile(prev, filePath));
     if (selectedFile) {
       const currentContent = getCurrentTextFileContent();
       setFileContents(prev => ({ ...prev, [selectedFile]: currentContent }));
@@ -2376,6 +2412,76 @@ export default function App() {
   };
 
   useEffect(() => { saveFileRef.current = saveFile; }, [saveFile]);
+
+  // ── Buffers vs. files the agent wrote ─────────────────────────────────────
+  // The rule and its orchestration live in utils/agentFileSync.js. The agent
+  // event handler may be a closure from when the turn's stream started, so the
+  // reconciliation is created once and reads every value through refs; the
+  // deps object is refreshed each render for the helpers that close over state.
+  const applyAgentDiskContent = (filePath, content) => {
+    const live = documentContextRef.current;
+    if (live?.selectedFile && sameFilePath(live.selectedFile, filePath)) {
+      setFileContent(content);
+      setFileContents(prev => ({ ...prev, [filePath]: content }));
+      fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(filePath)}&t=${Date.now()}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(gitData => {
+          setOriginalFileContents(prev => ({ ...prev, [filePath]: gitData?.content ?? '' }));
+        })
+        .catch(() => {
+          setOriginalFileContents(prev => ({ ...prev, [filePath]: '' }));
+        });
+    } else {
+      setFileContents(prev => (Object.hasOwn(prev, filePath) ? { ...prev, [filePath]: content } : prev));
+    }
+  };
+  const agentFileSyncDepsRef = useRef(null);
+  agentFileSyncDepsRef.current = {
+    getProjectPath: () => documentContextRef.current?.projectPath || '',
+    caseInsensitive: () => isCaseInsensitiveProjectPath,
+    bufferedPaths: () => {
+      const live = documentContextRef.current?.selectedFile;
+      return [...Object.keys(fileContentsRef.current), ...(live ? [live] : [])];
+    },
+    bufferOf: (filePath) => {
+      const live = documentContextRef.current;
+      if (live?.selectedFile && sameFilePath(live.selectedFile, filePath)) return live.getContent();
+      return fileContentsRef.current[filePath];
+    },
+    baselineOf: (filePath) => diskFileContentsRef.current[filePath],
+    setBaseline: (filePath, content) => { diskFileContentsRef.current[filePath] = content; },
+    samePath: sameFilePath,
+    pathKey: filePathKey,
+    isBinary: isBinaryEditorFile,
+    readDisk: async (projectPath, filePath) => {
+      try {
+        const res = await fetch(`/api/file/read?projectPath=${encodeURIComponent(projectPath)}&filePath=${encodeURIComponent(filePath)}&t=${Date.now()}`);
+        if (!res.ok) return undefined;
+        const data = await res.json();
+        return typeof data.content === 'string' ? data.content : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    apply: applyAgentDiskContent,
+    confirmLoad: (filePath) => showConfirm(
+      t('app.agentChangedUnsavedPrompt', { path: filePath }),
+      t('app.agentChangedUnsavedTitle', 'File changed by the agent'),
+      {
+        okLabel: t('app.loadAgentVersion', "Load the agent's version"),
+        cancelLabel: t('app.keepMyEdits', 'Keep my edits'),
+        destructive: true,
+      },
+    ),
+    log: (kind, filePath) => addLog('info', kind === 'kept'
+      ? t('app.keptUnsavedEdits', { path: filePath })
+      : t('app.reloadedFromDisk', { path: filePath })),
+  };
+  const agentFileSyncRef = useRef(null);
+  if (!agentFileSyncRef.current) {
+    const deps = new Proxy({}, { get: (_, name) => agentFileSyncDepsRef.current[name] });
+    agentFileSyncRef.current = createAgentFileSync(deps).reconcile;
+  }
 
   const handleCloseTab = (filePath, e) => {
     if (e) { e.stopPropagation(); e.preventDefault(); }
@@ -2582,6 +2688,8 @@ export default function App() {
           setOriginalFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[replaceFilePathPrefix(k, node.path, newPath)] = v; return n; });
           if (isFileInsidePath(selectedFile, node.path)) setSelectedFile(prev => replaceFilePathPrefix(prev, node.path, newPath));
         }
+        moveDiskContents(node.path, newPath);
+        setAgentChangedFiles(prev => renameAgentChangedFiles(prev, node.path, newPath));
         await fetchFiles();
       } else {
         const e = await res.json();
@@ -2662,6 +2770,8 @@ export default function App() {
               setOpenFiles(prev => prev.filter(f => !isFileInsidePath(f, pathToDelete)));
               setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) if (!isFileInsidePath(k, pathToDelete)) n[k] = v; return n; });
               setOriginalFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) if (!isFileInsidePath(k, pathToDelete)) n[k] = v; return n; });
+              dropDiskContents(pathToDelete);
+              setAgentChangedFiles(prev => removeAgentChangedFiles(prev, pathToDelete));
               if (isFileInsidePath(selectedFile, pathToDelete)) {
                 // If it's the current file, we can't reliably pick the 'last' open file easily in a loop, so we just clear it.
                 setSelectedFile(null); setFileContent('');
@@ -2697,6 +2807,8 @@ export default function App() {
           setOpenFiles(prev => dedupeOpenFileList(prev.map(f => isFileInsidePath(f, oldPath) ? replaceFilePathPrefix(f, oldPath, newPath) : f), newPath));
           setFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[isFileInsidePath(k, oldPath) ? replaceFilePathPrefix(k, oldPath, newPath) : k] = v; return n; });
           setOriginalFileContents(prev => { const n = {}; for (const [k, v] of Object.entries(prev)) n[isFileInsidePath(k, oldPath) ? replaceFilePathPrefix(k, oldPath, newPath) : k] = v; return n; });
+          moveDiskContents(oldPath, newPath);
+          setAgentChangedFiles(prev => renameAgentChangedFiles(prev, oldPath, newPath));
           if (isFileInsidePath(selectedFile, oldPath)) setSelectedFile(prev => replaceFilePathPrefix(prev, oldPath, newPath));
         } else {
           const e = await res.json();
@@ -3147,9 +3259,8 @@ export default function App() {
       }
       case 'tool_call':
         addLog('tool_call', t('app.callingTool', { tool: data.tool, arguments: JSON.stringify(data.arguments) }), data.agent);
-        if (['write_file', 'write_content_pos', 'replace_content_range', 'edit_file'].includes(data.tool)) {
-          const writePath = data.arguments?.path;
-          if (writePath) pendingWritePathRef.current = writePath;
+        if (AGENT_WRITE_TOOLS.has(data.tool) && data.arguments?.path) {
+          turnWrittenPathsRef.current.add(data.arguments.path);
         }
         break;
       case 'tool_result':
@@ -3158,53 +3269,11 @@ export default function App() {
         } else {
           addLog('tool_result', t('app.toolSucceeded', { tool: data.tool }), data.agent);
         }
-        if (['write_file', 'write_content_pos', 'replace_content_range', 'edit_file'].includes(data.tool)) {
-          const writtenPath = pendingWritePathRef.current;
-          pendingWritePathRef.current = null;
-          if (writtenPath) {
-            // Invalidate cached content so the editor reloads from disk on next open.
-            // Use the relative path as stored in fileContents (basename only, no leading slash).
-            const relPath = writtenPath.replace(/^.*[/\\]/, '') === writtenPath
-              ? writtenPath
-              : writtenPath.split(/[/\\]/).pop();
-            setFileContents(prev => {
-              // Remove any key that ends with this relative path segment.
-              const updated = { ...prev };
-              for (const key of Object.keys(updated)) {
-                if (key === writtenPath || key.endsWith('/' + relPath) || key === relPath) {
-                  delete updated[key];
-                }
-              }
-              return updated;
-            });
-            // If this file is currently open in the editor, reload it from disk now.
-            if (selectedFile && !isBinaryEditorFile(selectedFile) && (selectedFile === writtenPath || selectedFile.endsWith('/' + relPath) || selectedFile === relPath)) {
-              if (activeProject) {
-                fetch(`/api/file/read?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(selectedFile)}`)
-                  .then(r => r.ok ? r.json() : null)
-                  .then(d => {
-                    if (d) {
-                      diskFileContentsRef.current[selectedFile] = d.content;
-                      setFileContent(d.content);
-                      setFileContents(prev => ({ ...prev, [selectedFile]: d.content }));
-                      fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(selectedFile)}&t=${Date.now()}`)
-                        .then(r => r.ok ? r.json() : null)
-                        .then(gitData => {
-                          if (gitData && gitData.content !== undefined) {
-                            setOriginalFileContents(prev => ({ ...prev, [selectedFile]: gitData.content }));
-                          } else {
-                            setOriginalFileContents(prev => ({ ...prev, [selectedFile]: '' }));
-                          }
-                        })
-                        .catch(() => {
-                          setOriginalFileContents(prev => ({ ...prev, [selectedFile]: '' }));
-                        });
-                    }
-                  })
-                  .catch(() => { });
-              }
-            }
-          }
+        // Tool events carry no call id, so a result cannot be paired with its
+        // call: every path written so far is checked, and the ones whose disk
+        // is unchanged cost a read and nothing else.
+        if (AGENT_WRITE_TOOLS.has(data.tool)) {
+          agentFileSyncRef.current?.([...turnWrittenPathsRef.current]);
         }
         break;
       case 'agent_response':
@@ -3295,10 +3364,31 @@ export default function App() {
         // and the flush effect sends them as the next turn.
         addLog('info', t('app.messageBacklog', 'The turn ended before {{count}} queued message(s) were delivered. Sending them as a new turn.', { count: (data.items || []).length }));
         break;
-      case 'agent_finished': addLog('info', t('app.processingCompleted', 'Processamento concluído.')); break;
-      case 'checkpoint_finalized':
-        setCheckpointRevision(value => value + 1);
+      case 'agent_finished':
+        addLog('info', t('app.processingCompleted', 'Processamento concluído.'));
+        // Without a checkpoint (git strategy "none") this is the turn's last
+        // chance to reconcile what its write tools named.
+        agentFileSyncRef.current?.([...turnWrittenPathsRef.current]);
+        turnWrittenPathsRef.current = new Set();
         break;
+      case 'checkpoint_finalized': {
+        setCheckpointRevision(value => value + 1);
+        // A turn of a project the user has since left must not mark files of
+        // the one on screen. The ref is read because this handler may be a
+        // closure from when the turn's stream started.
+        const turnProject = String(data.project_path || '').replace(/[\\/]+$/, '');
+        const shownProject = String(documentContextRef.current?.projectPath || '').replace(/[\\/]+$/, '');
+        if (data.success && turnProject && turnProject === shownProject && data.changed_files?.length) {
+          setAgentChangedFiles(prev => withAgentChangedFiles(prev, data.changed_files));
+        }
+        // The checkpoint also sees what no tool event reports: workers' writes,
+        // run_command, scripts. Open buffers of all of them are brought up to date.
+        if (turnProject && turnProject === shownProject) {
+          agentFileSyncRef.current?.([...(data.changed_files || []), ...turnWrittenPathsRef.current]);
+          turnWrittenPathsRef.current = new Set();
+        }
+        break;
+      }
       case 'input_request_closed':
         setPlanRequest(prev => prev?.id === data.id ? null : prev);
         setAskRequest(prev => prev?.id === data.id ? null : prev);
@@ -3800,7 +3890,6 @@ export default function App() {
       const newChatId = data.new_chat_id;
       setActiveChatId(newChatId);
       setActiveProject(prev => prev ? { ...prev, current_chat_id: newChatId } : null);
-      if (activeProject) localStorage.setItem(`lastChat_${activeProject.name}`, newChatId);
       setChats(prev => [...prev, { id: newChatId, name: data.name || newChatName }]);
       // The branched chat has its own (shorter) history: the source chat's
       // measured window does not describe it.
@@ -4563,8 +4652,8 @@ export default function App() {
                 files={files}
                 selectedFile={selectedFile}
                 selectedNodes={selectedNodes}
-                fileContents={fileContents}
-                originalFileContents={originalFileContents}
+                unsavedFiles={unsavedFiles}
+                agentChangedFiles={agentChangedFiles}
                 handleNodeSelect={handleNodeSelect}
                 handleFileSelect={handleFileSelect}
                 handleNodeContextMenu={handleNodeContextMenu}
@@ -4642,8 +4731,8 @@ export default function App() {
                 files={files}
                 selectedFile={selectedFile}
                 selectedNodes={selectedNodes}
-                fileContents={fileContents}
-                originalFileContents={originalFileContents}
+                unsavedFiles={unsavedFiles}
+                agentChangedFiles={agentChangedFiles}
                 handleNodeSelect={handleNodeSelect}
                 handleFileSelect={handleFileSelect}
                 handleNodeContextMenu={handleNodeContextMenu}
@@ -4712,8 +4801,9 @@ export default function App() {
               selectedFile={selectedFile}
               openFiles={openFiles}
               fileContent={fileContent}
-              fileContents={fileContents}
               originalFileContents={originalFileContents}
+              unsavedFiles={unsavedFiles}
+              agentChangedFiles={agentChangedFiles}
               isSaving={isSaving}
               theme={theme}
               uiScale={uiScale}

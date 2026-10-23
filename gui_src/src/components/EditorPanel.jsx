@@ -23,6 +23,8 @@ import { findSelectionHeading, readSelectionWithin } from '../utils/documentSele
 import { FormattedMessage } from '../utils/formatMessage';
 import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 import { viewportPointToApp } from '../utils/uiScale';
+import { hasAgentChanges, markerPathKey } from '../utils/fileMarkers';
+import AgentChangeBadge from './AgentChangeBadge';
 import Split from 'react-split';
 import PdfPreview from './PdfPreview';
 import HtmlPreview from './HtmlPreview';
@@ -42,8 +44,9 @@ export default function EditorPanel({
   selectedFile,
   openFiles,
   fileContent,
-  fileContents,
   originalFileContents,
+  unsavedFiles,
+  agentChangedFiles,
   isSaving,
   theme,
   uiScale = 1,
@@ -1460,8 +1463,8 @@ export default function EditorPanel({
         <div className="vscode-tab-list">
           {openFiles.map(filePath => {
             const isActive = filePath === selectedFile;
-            const currentContent = isActive ? fileContent : fileContents[filePath];
-            const isDirty = originalFileContents && currentContent !== originalFileContents[filePath] && originalFileContents[filePath] !== undefined;
+            const isUnsaved = Boolean(unsavedFiles?.has(markerPathKey(filePath)));
+            const isAgentChanged = hasAgentChanges(agentChangedFiles, filePath, false);
 
             return (
               <div
@@ -1480,8 +1483,10 @@ export default function EditorPanel({
                   title={filePath}
                   style={{ color: isActive ? '#ffffff' : 'var(--vscode-text-subtle)' }}
                 >
-                  {filePath.replace(/\\/g, '/').split('/').pop()}{isDirty ? ' *' : ''}
+                  {filePath.replace(/\\/g, '/').split('/').pop()}
+                  {isUnsaved && <span title={t('explorer.unsaved', 'Unsaved changes')}> *</span>}
                 </span>
+                {isAgentChanged && <AgentChangeBadge />}
                 <button
                   onClick={(e) => handleCloseTab(filePath, e)}
                   className="vscode-tab-close-btn"

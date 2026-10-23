@@ -1080,7 +1080,6 @@ export default function ChatPanel({
       const greeting = activeProject.project_name || activeProject.name;
       setChats([data.chat]);
       setActiveChatId(data.chat.id);
-      localStorage.setItem(`lastChat_${activeProject.name}`, data.chat.id);
       setChatInput('');
       setPendingAttachments([]);
       setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);

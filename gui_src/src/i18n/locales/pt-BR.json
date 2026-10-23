@@ -1110,6 +1110,11 @@
     "toolProblem": "[Problema em {{tool}}]: {{message}}",
     "loadingChat": "Carregando chat...",
     "reloadedFromDisk": "Recarregado do disco: {{path}}",
+    "agentChangedUnsavedTitle": "Arquivo alterado pelo agente",
+    "agentChangedUnsavedPrompt": "O agente alterou \"{{path}}\" no disco, mas este arquivo também tem edições não salvas no editor.\n\nManter minhas edições: a versão do agente fica no disco até você salvar; salvar a substitui.\nCarregar a versão do agente: suas edições não salvas são descartadas.",
+    "loadAgentVersion": "Carregar a versão do agente",
+    "keepMyEdits": "Manter minhas edições",
+    "keptUnsavedEdits": "Suas edições não salvas de {{path}} foram mantidas; salvar substituirá a versão do agente.",
     "changesDiscarded": "Alteracoes descartadas: {{path}}",
     "discardFailed": "Falha ao descartar: {{error}}",
     "discardChangesError": "Erro ao descartar alteracoes: {{error}}",
@@ -1537,7 +1542,10 @@
     "cloudSynced": "Sincronizado com a nuvem",
     "cloudPending": "Aguardando a próxima sincronização",
     "cloudSyncing": "Sincronizando agora",
-    "cloudConflict": "Alterado nos dois lados — precisa de uma decisão"
+    "cloudConflict": "Alterado nos dois lados — precisa de uma decisão",
+    "unsaved": "Alterações não salvas",
+    "agentChanged": "Alterado pelo agente (a marca some quando você abre o arquivo)",
+    "agentChangedInside": "Contém arquivos alterados pelo agente"
   },
   "deck": {
     "loading": "Carregando editor de apresentações…",

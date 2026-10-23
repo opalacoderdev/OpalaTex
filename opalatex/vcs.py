@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import threading
 from abc import ABC, abstractmethod
-from typing import List, Callable
+from typing import List, Callable, NamedTuple
 
 from .subprocess_utils import utf8_text_kwargs
 
@@ -372,43 +372,80 @@ def begin_agent_turn_checkpoint(project_path: str | None = None, agent_label: st
             return None
 
 
-def finalize_agent_turn_checkpoint(
+class AgentTurnFinalization(NamedTuple):
+    """Outcome of closing an agent turn's checkpoints.
+
+    ``changed_files`` lists the project-relative POSIX paths that exist at the
+    end of the turn and differ from its start (deletions are left out: there is
+    nothing left to point at). It is empty when the turn had no net diff or the
+    checkpoint could not be saved.
+    """
+
+    saved: bool
+    changed_files: tuple[str, ...] = ()
+
+
+def _agent_turn_changed_files(project_path: str, start_checkpoint: str) -> tuple[str, ...]:
+    diff = _run_shadow_git(
+        ["diff", "--name-only", "-z", "--no-renames", "--diff-filter=d", start_checkpoint, "HEAD", "--"],
+        project_path,
+    )
+    if diff.returncode != 0:
+        return ()
+    return tuple(sorted(name for name in diff.stdout.split("\0") if name))
+
+
+def finalize_agent_turn_checkpoint_details(
     project_path: str | None = None,
     start_checkpoint: str | None = None,
     agent_label: str | None = None,
-) -> bool:
-    """Create an end checkpoint and discard the turn checkpoints when no net diff exists."""
+) -> AgentTurnFinalization:
+    """Create an end checkpoint, discard the turn when it has no net diff, and
+    report which files the turn changed."""
     if project_path is None:
         project_path = _get_project_path()
     project_path = os.path.abspath(project_path)
     if not project_path or not os.path.isdir(project_path):
-        return False
+        return AgentTurnFinalization(False)
 
     with _SHADOW_GIT_LOCK:
         try:
             _init_shadow_git(project_path)
             if not start_checkpoint:
-                return False
+                return AgentTurnFinalization(False)
             verify_start = _run_shadow_git(
                 ["rev-parse", "--verify", f"{start_checkpoint}^{{commit}}"],
                 project_path,
             )
             if verify_start.returncode != 0:
-                return False
+                return AgentTurnFinalization(False)
             _run_shadow_git("add .", project_path)
             res = _run_shadow_git(
                 ["commit", "--allow-empty", "-m", _agent_checkpoint_message("end", agent_label)],
                 project_path,
             )
             if res.returncode != 0:
-                return False
+                return AgentTurnFinalization(False)
 
             diff = _run_shadow_git(["diff", "--quiet", start_checkpoint, "HEAD", "--"], project_path)
             if diff.returncode == 0:
-                return _remove_agent_turn_checkpoints(project_path, start_checkpoint)
-            return diff.returncode == 1
+                return AgentTurnFinalization(_remove_agent_turn_checkpoints(project_path, start_checkpoint))
+            if diff.returncode != 1:
+                return AgentTurnFinalization(False)
+            # Read under the same lock as the end commit, so a concurrent
+            # checkpoint cannot move HEAD between the two.
+            return AgentTurnFinalization(True, _agent_turn_changed_files(project_path, start_checkpoint))
         except Exception:
-            return False
+            return AgentTurnFinalization(False)
+
+
+def finalize_agent_turn_checkpoint(
+    project_path: str | None = None,
+    start_checkpoint: str | None = None,
+    agent_label: str | None = None,
+) -> bool:
+    """Create an end checkpoint and discard the turn checkpoints when no net diff exists."""
+    return finalize_agent_turn_checkpoint_details(project_path, start_checkpoint, agent_label).saved
 
 
 async def _await_checkpoint_operation(operation, *args):
@@ -440,6 +477,9 @@ class AsyncAgentTurnCheckpoint:
         self.agent_label = agent_label
         self.start_checkpoint: str | None = None
         self.finalize_result: bool | None = None
+        # Files the turn changed, known once finalize() has run (see
+        # AgentTurnFinalization). Empty for a turn with no net diff.
+        self.changed_files: tuple[str, ...] = ()
         self._begin_finished = False
         self._finalize_finished = False
 
@@ -472,12 +512,13 @@ class AsyncAgentTurnCheckpoint:
             return False
 
         result, was_cancelled = await _await_checkpoint_operation(
-            finalize_agent_turn_checkpoint,
+            finalize_agent_turn_checkpoint_details,
             self.project_path,
             self.start_checkpoint,
             self.agent_label,
         )
-        self.finalize_result = bool(result)
+        self.finalize_result = bool(result.saved)
+        self.changed_files = tuple(result.changed_files)
         self._finalize_finished = True
 
         if was_cancelled:

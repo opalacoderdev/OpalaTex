@@ -1097,7 +1097,7 @@ async def test_handle_run_finalizes_checkpoint_when_cancelled(monkeypatch, tmp_p
     events = []
     finalize_started = threading.Event()
     release_finalize = threading.Event()
-    real_finalize = vcs.finalize_agent_turn_checkpoint
+    real_finalize = vcs.finalize_agent_turn_checkpoint_details
 
     def delayed_finalize(project_path, start_checkpoint=None, agent_label=None):
         finalize_started.set()
@@ -1149,7 +1149,7 @@ async def test_handle_run_finalizes_checkpoint_when_cancelled(monkeypatch, tmp_p
     monkeypatch.setattr(stdin_mod, "current_project", FakeProject())
     store = FakeStore()
     monkeypatch.setattr(stdin_mod, "current_store", store)
-    monkeypatch.setattr(vcs, "finalize_agent_turn_checkpoint", delayed_finalize)
+    monkeypatch.setattr(vcs, "finalize_agent_turn_checkpoint_details", delayed_finalize)
 
     task = asyncio.create_task(stdin_mod.handle_run({
         "agent": "chat_orchestrator",
@@ -1196,7 +1196,12 @@ async def test_handle_run_finalizes_checkpoint_when_cancelled(monkeypatch, tmp_p
     assert "Agent turn end checkpoint" in log
     assert status == ""
     assert store.closed is True
-    assert ("checkpoint_finalized", {"agent": "chat_orchestrator", "success": True}) in events
+    assert ("checkpoint_finalized", {
+        "agent": "chat_orchestrator",
+        "success": True,
+        "changed_files": ["cancelled.tex"],
+        "project_path": str(tmp_path),
+    }) in events
 
 
 @pytest.mark.asyncio

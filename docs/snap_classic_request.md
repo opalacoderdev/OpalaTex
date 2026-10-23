@@ -53,7 +53,11 @@ Examples from real LaTeX work:
   `gnuplot`, `inkscape` (SVG import), `graphviz`, `R`/`python3` scripts that generate
   figures and tables from the user's own environments;
 - project build systems (`make`, custom scripts) and the user's `git` with its
-  configuration, hooks and credential helpers.
+  configuration, hooks and credential helpers;
+- Python virtual environments in the project folder. In the strict snap, `python -m venv`
+  in the terminal builds on the `core24` Python 3.12, so an environment made there does
+  not run in the user's own shell, and one made with the host's Python does not run
+  inside the snap.
 
 Under strict confinement the snap's processes run on the `core24` runtime, so the host's
 executables and their libraries are not available to them. No interface exposes an

@@ -41,6 +41,10 @@ bash install.sh
 
 The application is installed under `~/.local/share/OpalaTex`, with a command symlink in `~/.local/bin/opalatex` and a desktop launcher in `~/.local/share/applications/opalatex.desktop`.
 
+### Snap installations and the integrated terminal
+
+The snap runs under strict confinement, so its integrated terminal cannot run programs installed on the host. There, `python` is the Python 3.12 bundled with OpalaTex: `python -m venv .venv` works, but the environment it creates is meant to be used from OpalaTex's terminal, and one created in a system terminal will not work inside OpalaTex, because each side has a different `/usr/bin/python3`. If you need your own toolchain (your Python, TeX Live, `make`, and so on) from the terminal or the AI assistant, use the direct installer above.
+
 ### Windows (PowerShell One-Liner via `irm`)
 
 Open PowerShell and execute:

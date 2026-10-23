@@ -1,5 +1,3 @@
-import litellm
-litellm.suppress_debug_info = True
 """OpalaTex entry point — run with: python main.py [--mode auto|plan|edit] [--model ...]"""
 import sys
 import os

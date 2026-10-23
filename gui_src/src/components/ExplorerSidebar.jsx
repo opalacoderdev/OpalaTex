@@ -19,8 +19,8 @@ export default function ExplorerSidebar({
   selectedFile,
   selectedNodes,
   handleNodeSelect,
-  fileContents,
-  originalFileContents,
+  unsavedFiles,
+  agentChangedFiles,
   handleFileSelect,
   handleNodeContextMenu,
   handleWorkspaceContextMenu,
@@ -314,8 +314,8 @@ export default function ExplorerSidebar({
                 node={node}
                 selectedFile={selectedFile}
                 selectedNodes={selectedNodes}
-                fileContents={fileContents}
-                originalFileContents={originalFileContents}
+                unsavedFiles={unsavedFiles}
+                agentChangedFiles={agentChangedFiles}
                 handleNodeSelect={handleNodeSelect}
                 handleFileSelect={handleFileSelect}
                 handleNodeContextMenu={handleNodeContextMenu}

@@ -6274,6 +6274,35 @@ def find_available_port(host, start_port, max_port=3050):
                 continue
     raise RuntimeError(f"No available ports found between {start_port} and {max_port}")
 
+# Background of the startup window before its first paint; matches splash.html,
+# so the window does not flash white (pywebview's default) before the splash.
+SPLASH_BACKGROUND = "#11181f"
+
+
+def load_splash_page(static_dir, lang=""):
+    """The startup splash (gui/splash.html) ready for pywebview's ``html=``.
+
+    The page is shown before the local server exists, so nothing in it may be
+    fetched: the icon is inlined as a data URI. ``lang`` is the saved UI
+    language ("" lets the page ask the system). Returns None when the bundle has
+    no splash page (built before it existed, or API-only).
+    """
+    import html as _html
+    if not static_dir:
+        return None
+    try:
+        with open(os.path.join(static_dir, "splash.html"), "r", encoding="utf-8") as f:
+            page = f.read()
+        with open(os.path.join(static_dir, "splash-icon.png"), "rb") as f:
+            icon = base64.b64encode(f.read()).decode("ascii")
+    except OSError:
+        return None
+    page = page.replace('src="__SPLASH_ICON__"', f'src="data:image/png;base64,{icon}"', 1)
+    if lang:
+        page = page.replace('data-splash-lang=""', f'data-splash-lang="{_html.escape(lang, quote=True)}"', 1)
+    return page
+
+
 def start_gui_server(host="127.0.0.1", port=3000):
     import os
     from opalatex import crash_report
@@ -6331,37 +6360,13 @@ def start_gui_server(host="127.0.0.1", port=3000):
         static_dir = None
 
     server = AsyncHTTPServer(host=host, port=port, static_dir=static_dir)
+    url = f"http://{host}:{port}"
 
-    import opalatex.agent_stdin as agent_stdin
-
-    def web_event_hook(payload):
-        for q in server.active_queues:
-            q.put_nowait(payload)
-
-    agent_stdin.event_hook = web_event_hook
-    import litellm
-    litellm.event_hook = web_event_hook
-
-    # TEMPORARY DIAGNOSTIC — remove together with agenticblocks'
-    # _await_reporting_cancellation. Stamps the "never awaited" warning with the
-    # time so it can be matched to a "[LLM CALL CANCELLED ...]" line.
-    import sys as _sys
-    import warnings as _warnings
-    from datetime import datetime as _datetime
-    _show_warning = _warnings.showwarning
-
-    def _show_warning_with_time(message, category, filename, lineno, file=None, line=None):
-        if "never awaited" in str(message):
-            print(f"[WARNING TIME {_datetime.now():%H:%M:%S.%f}]", file=_sys.stderr, flush=True)
-        _show_warning(message, category, filename, lineno, file, line)
-
-    _warnings.showwarning = _show_warning_with_time
-
-    # --- Run asyncio server in a background daemon thread so the main thread
-    # is free for the desktop window toolkit (GTK/pywebview requires main thread).
     import threading
 
     server_ready = threading.Event()
+    backend = {"thread": None}
+    backend_lock = threading.Lock()
 
     def _run_asyncio_server():
         async def _inner():
@@ -6372,13 +6377,58 @@ def start_gui_server(host="127.0.0.1", port=3000):
 
         asyncio.run(_inner())
 
-    t = threading.Thread(target=_run_asyncio_server, daemon=True)
-    t.start()
+    def _start_backend(report=lambda _phase: None):
+        """Load the agent runtime and start serving; safe to call twice.
 
-    # Wait until the server is ready before opening the window
-    server_ready.wait(timeout=10)
+        This is where launching spends its time: the agent runtime pulls in
+        litellm, about 4 s on a warm disk. It therefore runs once the window is
+        already showing the splash screen, in pywebview's worker thread, or on
+        the main thread when no window could be opened (browser fallback).
+        `report` names the phase for the splash, which starts in "loading": it
+        is not reported, because evaluating JavaScript waits for the page to
+        finish loading and would hold the imports back by that long.
+        """
+        with backend_lock:
+            if backend["thread"] is None:
+                import opalatex.agent_stdin as agent_stdin
 
-    url = f"http://{host}:{port}"
+                def web_event_hook(payload):
+                    for q in server.active_queues:
+                        q.put_nowait(payload)
+
+                agent_stdin.event_hook = web_event_hook
+                import litellm
+                litellm.event_hook = web_event_hook
+                # litellm prints a "Give Feedback / Get Help" banner with every
+                # provider error. The packaged entry point (main.py) silenced it
+                # by importing litellm first thing, which kept the window, and
+                # its splash screen, from appearing for ~4 s.
+                litellm.suppress_debug_info = True
+
+                # TEMPORARY DIAGNOSTIC — remove together with agenticblocks'
+                # _await_reporting_cancellation. Stamps the "never awaited" warning with the
+                # time so it can be matched to a "[LLM CALL CANCELLED ...]" line.
+                import sys as _sys
+                import warnings as _warnings
+                from datetime import datetime as _datetime
+                _show_warning = _warnings.showwarning
+
+                def _show_warning_with_time(message, category, filename, lineno, file=None, line=None):
+                    if "never awaited" in str(message):
+                        print(f"[WARNING TIME {_datetime.now():%H:%M:%S.%f}]", file=_sys.stderr, flush=True)
+                    _show_warning(message, category, filename, lineno, file, line)
+
+                _warnings.showwarning = _show_warning_with_time
+
+                # --- Run asyncio server in a background daemon thread so the main thread
+                # is free for the desktop window toolkit (GTK/pywebview requires main thread).
+                report("starting")
+                thread = threading.Thread(target=_run_asyncio_server, daemon=True)
+                thread.start()
+                backend["thread"] = thread
+        # Nothing may load the URL before the server accepts connections.
+        server_ready.wait(timeout=10)
+        return backend["thread"]
 
     try:
         import os as _os
@@ -6608,15 +6658,48 @@ def start_gui_server(host="127.0.0.1", port=3000):
         except Exception:
             pass
 
+        # The window opens on the splash screen at once; the agent runtime and
+        # the server come up behind it (_boot below). A bundle built before the
+        # splash existed has no page to show, and then the window waits for the
+        # server exactly as it always did.
+        splash = load_splash_page(static_dir, saved_lang)
+        if splash is None:
+            print("[OpalaTex] gui/splash.html not found in the front-end bundle; starting without a splash screen.")
+            _start_backend()
         window = webview.create_window(
             title="OpalaTex",
-            url=url,
+            url=None if splash else url,
+            html=splash,
             width=width,
             height=height,
             resizable=True,
             text_select=True,
             zoomable=True,
+            background_color=SPLASH_BACKGROUND,
         )
+
+        def _boot():
+            def report(phase):
+                try:
+                    window.evaluate_js(f"window.opalatexSplash && window.opalatexSplash.status({json.dumps(phase)})")
+                except Exception:
+                    pass
+
+            try:
+                _start_backend(report)
+            except Exception as exc:
+                # Off the main thread a failure would otherwise leave the splash
+                # spinning forever: say what broke, on screen and in the log.
+                import traceback
+                traceback.print_exc()
+                detail = json.dumps(f"{type(exc).__name__}: {exc}")
+                try:
+                    window.evaluate_js(f"window.opalatexSplash && window.opalatexSplash.fail({detail})")
+                except Exception:
+                    pass
+                return
+            report("opening")
+            window.load_url(url)
 
         icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
         if not os.path.exists(icon_path):
@@ -6635,7 +6718,10 @@ def start_gui_server(host="127.0.0.1", port=3000):
         os.makedirs(storage_path, exist_ok=True)
         
         gui_engine = 'qt' if getattr(sys, 'frozen', False) and sys.platform == 'win32' else None
-        webview.start(gui=gui_engine, debug=False, icon=icon_path, private_mode=False, storage_path=storage_path)
+        webview.start(
+            func=_boot if splash else None,
+            gui=gui_engine, debug=False, icon=icon_path, private_mode=False, storage_path=storage_path,
+        )
 
     except (ImportError, Exception) as e:
         import traceback
@@ -6647,10 +6733,11 @@ def start_gui_server(host="127.0.0.1", port=3000):
         # Graceful fallback: open in the default web browser
         import webbrowser
         print(f"[OpalaTex] pywebview failed to launch ({type(e).__name__}: {e}) — opening browser at {url}")
+        backend_thread = _start_backend()
         webbrowser.open(url)
         # Keep the server alive
         try:
-            t.join()
+            backend_thread.join()
         except KeyboardInterrupt:
             pass
 
