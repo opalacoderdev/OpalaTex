@@ -2857,6 +2857,89 @@ input:focus, select:focus, textarea:focus {
   border-top: 1px solid var(--vscode-border);
 }
 
+/* "Look up" (§2.13.4) reuses the translation popup's frame; an answer is
+   usually longer than a translation, so the card is wider and taller. */
+.snippet-query-popup {
+  width: 460px;
+}
+
+.snippet-query-body {
+  max-height: calc(62 * var(--ui-vh));
+}
+
+.snippet-query-source {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.snippet-query-question-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: calc(12.5px * var(--snippet-translate-text-scale, 1));
+  line-height: 1.45;
+  color: var(--vscode-input-fg);
+  background-color: var(--vscode-input-bg);
+  border: 1px solid var(--vscode-input-border, var(--vscode-border));
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.snippet-query-question-input:focus {
+  outline: 1px solid var(--vscode-focus);
+  outline-offset: -1px;
+}
+
+.snippet-query-hint,
+.snippet-query-files {
+  font-size: 11px;
+  color: var(--vscode-text-muted);
+}
+
+.snippet-query-question {
+  font-size: calc(12px * var(--snippet-translate-text-scale, 1));
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.snippet-query-answer {
+  font-size: calc(12.5px * var(--snippet-translate-text-scale, 1));
+  line-height: 1.5;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.snippet-query-warning {
+  font-size: 11.5px;
+  color: var(--vscode-fg-warning);
+}
+
+.snippet-query-saved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--vscode-fg-success);
+}
+
+.snippet-query-footer {
+  flex-wrap: wrap;
+}
+
+.snippet-query-footer-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.snippet-query-footer-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* Dictation: the composer's microphone. Recording is a state the user must be
    able to see at a glance, because the alternative is a hot microphone nobody
    noticed. */

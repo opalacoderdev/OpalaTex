@@ -21,6 +21,7 @@ export default function TextContextMenu({
   onPaste,
   onSelectAll,
   onAskAbout,
+  onLookUp,
   onTranslate,
   onPronounce,
   canAsk = true,
@@ -64,6 +65,7 @@ export default function TextContextMenu({
             canPronounce={canPronounce}
             pronounceUnavailableHint={pronounceUnavailableHint}
             onAskAbout={() => onAskAbout?.(menu)}
+            onLookUp={onLookUp ? (() => onLookUp(menu)) : undefined}
             onTranslate={() => onTranslate(menu)}
             onPronounce={onPronounce ? (() => onPronounce(menu)) : undefined}
           />

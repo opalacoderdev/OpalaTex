@@ -6035,6 +6035,32 @@ class AsyncHTTPServer:
             except Exception as e:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
 
+        elif path == '/api/snippet-query' and method == 'POST':
+            from opalatex.snippet_query import SnippetQuerySource, execute_snippet_query
+            excerpt = str(data.get("excerpt") or "")
+            question = str(data.get("question") or "")
+            if not excerpt.strip() or not question.strip():
+                self.send_response(writer, 400, b'{"error":"excerpt and question are required"}', "application/json")
+                return
+            try:
+                result = await execute_snippet_query(
+                    excerpt,
+                    question,
+                    source=SnippetQuerySource.from_payload(data.get("source")),
+                    project_path=str(data.get("projectPath") or "").strip() or None,
+                    model=str(data.get("model") or "").strip() or None,
+                )
+                self.send_response(writer, 200, json.dumps({
+                    "success": True,
+                    "answer": result.answer,
+                    "truncated": result.truncated,
+                    "files_read": result.files_read,
+                }).encode('utf-8'), "application/json")
+            except ValueError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
         elif path == '/api/speech' and method == 'POST':
             from agenticblocks.blocks.speech import SpeechSynthesisError
             from opalatex.speech import execute_speech_synthesis, resolve_language_tag

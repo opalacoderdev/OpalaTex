@@ -1,30 +1,20 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { readUiScale, viewportPointToApp, viewportPxToApp } from '../utils/uiScale';
+import React, { useEffect, useRef } from 'react';
 import { Languages, X, Copy, RefreshCw, ZoomIn, ZoomOut, Volume2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { safeGetLocalStorage, safeSetLocalStorage } from '../utils/storage';
+import {
+  MAX_TEXT_SCALE,
+  MIN_TEXT_SCALE,
+  TEXT_SCALE_STEP,
+  useFloatingPosition,
+  useRememberedTextScale,
+} from '../hooks/useFloatingPopup';
 
-// Text scale of the popup, kept between 80% and 240% so the excerpt stays
-// readable without the popup growing past its own scroll area. The choice is
-// persisted: someone who needs larger text needs it every time.
-const MIN_TEXT_SCALE = 0.8;
-const MAX_TEXT_SCALE = 2.4;
-const TEXT_SCALE_STEP = 0.15;
-const TEXT_SCALE_STORAGE_KEY = 'snippetTranslationTextScale';
+export const TEXT_SCALE_STORAGE_KEY = 'snippetTranslationTextScale';
 // The popup used to belong to the PDF viewer and stored its scale under this
 // key. Renaming the key would quietly reset a preference someone chose because
 // they need larger text, so the old value is still read when the new key is
 // absent; the next change writes the new one.
 const LEGACY_TEXT_SCALE_STORAGE_KEY = 'pdfTranslationTextScale';
-
-// Gap kept between the popup and the window edges, both when it opens and while
-// it is dragged, so the header (and therefore the drag handle) never goes
-// off-screen where it could not be grabbed back.
-const VIEWPORT_MARGIN = 8;
-
-const clampTextScale = (value) => (
-  Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, Math.round(value * 100) / 100))
-);
 
 /**
  * Floating popup that shows the translation of a document excerpt.
@@ -41,70 +31,19 @@ const clampTextScale = (value) => (
 export default function TranslationPopup({ state, onClose, onRetry, onCopy, onSpeak }) {
   const { t } = useTranslation();
   const popupRef = useRef(null);
-  const [textScale, setTextScale] = useState(() => {
-    const saved = safeGetLocalStorage(
-      TEXT_SCALE_STORAGE_KEY,
-      safeGetLocalStorage(LEGACY_TEXT_SCALE_STORAGE_KEY, '1'),
-    );
-    const stored = Number(saved);
-    return Number.isFinite(stored) && stored > 0 ? clampTextScale(stored) : 1;
-  });
+  const [textScale, changeTextScale] = useRememberedTextScale(
+    TEXT_SCALE_STORAGE_KEY,
+    LEGACY_TEXT_SCALE_STORAGE_KEY,
+  );
 
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragGrabRef = useRef(null);
-
-  const changeTextScale = (delta) => {
-    setTextScale((prev) => {
-      const next = clampTextScale(prev + delta);
-      safeSetLocalStorage(TEXT_SCALE_STORAGE_KEY, String(next));
-      return next;
-    });
-  };
-
-  // A new translation re-anchors the popup at the click that asked for it. A
+  // A new translation re-anchors the popup at the click that asked for it; a
   // retry reuses the same coordinates and the same excerpt, so a popup the user
   // has already dragged somewhere comfortable stays put.
-  //
-  // This must be a layout effect, and must be declared before the viewport
-  // clamp below: as a passive effect it would run *after* the clamp had already
-  // painted the popup at its previous (or initial) coordinates for one frame.
-  useLayoutEffect(() => {
-    if (!state) return;
-    setPosition({ x: state.x, y: state.y });
-  }, [state?.x, state?.y, state?.sourceText]);
-
-  const startDrag = (e) => {
-    // Only the header background drags; the zoom and close buttons still click.
-    if (e.button !== 0 || e.target.closest('button')) return;
-    const el = popupRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    dragGrabRef.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
-    setIsDragging(true);
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    if (!isDragging) return undefined;
-    const handleMove = (e) => {
-      const grab = dragGrabRef.current;
-      if (!grab) return;
-      setPosition(viewportPointToApp(e.clientX - grab.dx, e.clientY - grab.dy));
-    };
-    const endDrag = () => {
-      dragGrabRef.current = null;
-      setIsDragging(false);
-    };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', endDrag);
-    window.addEventListener('pointercancel', endDrag);
-    return () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', endDrag);
-      window.removeEventListener('pointercancel', endDrag);
-    };
-  }, [isDragging]);
+  const { position, isDragging, startDrag } = useFloatingPosition(popupRef, {
+    anchor: state,
+    anchorKey: state?.sourceText,
+    measureKey: `${state?.status}:${textScale}`,
+  });
 
   useEffect(() => {
     if (!state) return undefined;
@@ -125,25 +64,6 @@ export default function TranslationPopup({ state, onClose, onRetry, onCopy, onSp
       document.removeEventListener('mousedown', handleClick, true);
     };
   }, [state, onClose]);
-
-  // Keep the popup inside the viewport — on open, whenever a phase or the text
-  // scale changes its height, and on every drag step. Clamping is idempotent,
-  // so re-running it on its own result settles in one pass.
-  useLayoutEffect(() => {
-    if (!state || !popupRef.current) return;
-    // `position` is a CSS length inside the zoomed app, while the rect and the
-    // window are measured in viewport pixels; the bounds have to be brought
-    // into the same space before they can be compared.
-    const scale = readUiScale();
-    const rect = popupRef.current.getBoundingClientRect();
-    const maxX = Math.max(VIEWPORT_MARGIN, viewportPxToApp(window.innerWidth - rect.width, scale) - VIEWPORT_MARGIN);
-    const maxY = Math.max(VIEWPORT_MARGIN, viewportPxToApp(window.innerHeight - rect.height, scale) - VIEWPORT_MARGIN);
-    setPosition((prev) => {
-      const x = Math.min(Math.max(VIEWPORT_MARGIN, prev.x), maxX);
-      const y = Math.min(Math.max(VIEWPORT_MARGIN, prev.y), maxY);
-      return x === prev.x && y === prev.y ? prev : { x, y };
-    });
-  }, [state, state?.status, textScale, position]);
 
   if (!state) return null;
 

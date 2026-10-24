@@ -173,17 +173,6 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
         invalid_tools = _repeated_tool_validation_error_names(cleaned_messages)
         if invalid_tools:
             names = ", ".join(sorted(invalid_tools))
-            cleaned_messages = cleaned_messages + [{
-                "role": "system",
-                "content": (
-                    "SYSTEM ALERT: Repeated invalid arguments were rejected for these tools: "
-                    f"{names}. They are unavailable for the rest of this turn. Continue with a "
-                    "different available tool whose declared schema matches the task. Do not "
-                    "repeat or rename the rejected call, and do not claim that all tools are "
-                    "unavailable. For whole-file content use read_file(path); search_code always "
-                    "requires query. In plan mode, finish by calling create_plan when ready."
-                ),
-            }]
             # Disable only the tool whose schema the model repeatedly violated.
             # Keeping the remaining schemas lets it recover with a real read tool
             # and still reach create_plan. This is a loop breaker, not a semantic
@@ -192,6 +181,29 @@ def wrap_agent_litellm_compat(agent: Any) -> Any:
                 schema for schema in kwargs.get("tools", [])
                 if _litellm_tool_name(schema) not in invalid_tools
             ]
+            # Name only tools this request still declares: an agent with its own
+            # read-only tool set (the snippet query, say) has no read_file or
+            # create_plan, and pointing a small model at a tool it does not hold
+            # sends it calling that tool instead of recovering.
+            remaining = {_litellm_tool_name(schema) for schema in kwargs["tools"]}
+            hints = []
+            if "read_file" in remaining:
+                hints.append("For whole-file content use read_file(path).")
+            if "search_code" in remaining:
+                hints.append("search_code always requires query.")
+            if "create_plan" in remaining:
+                hints.append("In plan mode, finish by calling create_plan when ready.")
+            cleaned_messages = cleaned_messages + [{
+                "role": "system",
+                "content": " ".join([
+                    "SYSTEM ALERT: Repeated invalid arguments were rejected for these tools: "
+                    f"{names}. They are unavailable for the rest of this turn. Continue with a "
+                    "different available tool whose declared schema matches the task. Do not "
+                    "repeat or rename the rejected call, and do not claim that all tools are "
+                    "unavailable.",
+                    *hints,
+                ]),
+            }]
         if model_requires_single_system_message(model):
             cleaned_messages = consolidate_leading_system_messages(cleaned_messages)
         try:

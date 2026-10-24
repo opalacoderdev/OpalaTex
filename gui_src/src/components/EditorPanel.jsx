@@ -16,8 +16,10 @@ import EditorContextMenuOverlay from './EditorContextMenuOverlay';
 import TabContextMenu from './TabContextMenu';
 import MarkdownContextMenu from './MarkdownContextMenu';
 import TranslationPopup from './TranslationPopup';
+import SnippetQueryPopup from './SnippetQueryPopup';
 import SpeechPopup from './SpeechPopup';
 import { useSnippetTranslation } from '../hooks/useSnippetTranslation';
+import { useSnippetQuery } from '../hooks/useSnippetQuery';
 import { useSnippetSpeech } from '../hooks/useSnippetSpeech';
 import { findSelectionHeading, readSelectionWithin } from '../utils/documentSelection';
 import { FormattedMessage } from '../utils/formatMessage';
@@ -153,6 +155,21 @@ export default function EditorPanel({
     uiLanguage: i18n.language,
   });
 
+  // "Look up": a one-off question answered in a card, never in the chat (§2.13.4).
+  const {
+    query: lookup,
+    open: openLookup,
+    setQuestion: setLookupQuestion,
+    submit: submitLookup,
+    compose: composeLookup,
+    copy: copyLookup,
+    saveMarkdown: saveLookupMarkdown,
+    close: closeLookup,
+  } = useSnippetQuery({
+    model: activeProject?.model || '',
+    projectPath: activeProject?.project_path || '',
+  });
+
   const {
     speech,
     availability: speechAvailability,
@@ -193,6 +210,14 @@ export default function EditorPanel({
       documentPath: selectedFile,
       heading: menu.heading || '',
       selectedText: menu.selectedText || '',
+    });
+  };
+
+  const handleLookUpMarkdownSelection = (menu) => {
+    openLookup(menu.selectedText, { x: menu.x, y: menu.y }, {
+      surface: 'markdown',
+      documentPath: selectedFile || '',
+      heading: menu.heading || '',
     });
   };
 
@@ -1997,6 +2022,7 @@ export default function EditorPanel({
         onClose={() => setMarkdownContextMenu(null)}
         onCopy={handleCopyMarkdownSelection}
         onAskAbout={handleAskAboutMarkdown}
+        onLookUp={handleLookUpMarkdownSelection}
         onTranslate={handleTranslateMarkdownSelection}
         onPronounce={handlePronounceMarkdownSelection}
         canAsk={Boolean(onAskAboutMarkdown && activeProject && selectedFile)}
@@ -2010,6 +2036,17 @@ export default function EditorPanel({
         onRetry={retryTranslation}
         onCopy={copyTranslation}
         onSpeak={speechAvailability.ready ? speak : undefined}
+      />
+
+      <SnippetQueryPopup
+        state={lookup}
+        projectPath={activeProject?.project_path || ''}
+        onClose={closeLookup}
+        onQuestionChange={setLookupQuestion}
+        onSubmit={submitLookup}
+        onCompose={composeLookup}
+        onCopy={copyLookup}
+        onSaveMarkdown={saveLookupMarkdown}
       />
 
       <SpeechPopup

@@ -575,6 +575,57 @@ def test_repeated_validation_disables_only_the_rejected_tool():
     assert "create_plan" in alert
 
 
+def test_the_breaker_alert_names_only_tools_the_request_still_declares():
+    """An agent with its own tool set must not be pointed at read_file or create_plan."""
+    from opalatex.litellm_compat import wrap_agent_litellm_compat
+
+    captured = {}
+
+    class FakeAgent:
+        model = "ollama/glm-5.3:cloud"
+        name = "snippet_query"
+        tools = []
+
+        async def _acompletion(self, messages, **kwargs):
+            captured["messages"] = messages
+            captured["kwargs"] = kwargs
+            return "ok"
+
+    messages = [{"role": "user", "content": "Look this up"}]
+    for index in range(2):
+        call_id = f"bad-{index}"
+        messages.extend([
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": "search_project", "arguments": '{"path":"."}'},
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": call_id,
+                "name": "search_project",
+                "content": "1 validation error for SearchProjectInput\nquery\n Field required",
+            },
+        ])
+    schemas = [
+        {"type": "function", "function": {"name": name}}
+        for name in ("search_project", "read_project_file")
+    ]
+    agent = wrap_agent_litellm_compat(FakeAgent())
+
+    import asyncio
+
+    asyncio.run(agent._acompletion(messages, tools=schemas, tool_choice="auto"))
+    alert = captured["messages"][-1]["content"]
+    assert "search_project" in alert
+    for foreign in ("read_file", "search_code", "create_plan"):
+        assert foreign not in alert
+
+
 def test_repeated_validation_reports_each_offending_tool():
     from opalatex.litellm_compat import _repeated_tool_validation_error_names
 

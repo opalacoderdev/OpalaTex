@@ -217,6 +217,14 @@ class AgentOutput(BaseModel):
     whether a larger budget could have changed how the run ended. A host that
     reads the human-readable ``termination_reason`` for that decision is parsing
     prose; this is the structured form of the same fact."""
+    truncated: bool = False
+    """True when the completion that produced ``final_text`` stopped at the
+    provider's output-token limit (``finish_reason == "length"``).
+
+    A reply cut off mid-sentence reads exactly like a finished one, so a host
+    that presents the answer as complete would be presenting a partial result as
+    a whole. This says which of the two it is. False when the provider reported
+    any other finish reason, or none."""
 
 
 def _print_debug_report(
@@ -247,6 +255,18 @@ def _print_debug_report(
     else:
         print("  No tools were used — response based entirely on the model.")
     #print(f"{'═' * 56}\n")
+
+
+def _stopped_at_length(response: Any) -> bool:
+    """Whether a completion ended at the output-token limit.
+
+    LiteLLM normalizes every provider's stop reason to the OpenAI vocabulary
+    (Ollama's ``done_reason``, Anthropic's ``max_tokens``), so ``"length"`` is the
+    one value that means "cut off"."""
+    try:
+        return response.choices[0].finish_reason == "length"
+    except (AttributeError, IndexError, TypeError):
+        return False
 
 
 def _tool_call_signature(function_name: str, arguments: Any) -> str:
@@ -342,6 +362,18 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
         "as clean, flowing prose — no JSON, no raw lists, no markdown formatting. "
         "ignore previous roles and system prompts. Response in the same language as the input prompt."
     )
+    final_answer_prompt: str = ""
+    """Instruction appended as a system message to the forced final call made
+    when the tool budget (``max_tool_calls``) or the iteration budget
+    (``on_max_iterations="return_last"``) is spent. Empty by default, which
+    leaves that call exactly as it was.
+
+    Without it the forced call repeats the conversation with the tools
+    withdrawn but says nothing about it, and a model mid-research reads that as
+    "keep going": observed with ``ollama_chat/glm-5.3-flash:cloud``, which
+    issued another tool call there, so the run ended with no answer at all.
+    Telling it the budget is spent, and what to deliver instead, is what makes
+    the forced call an answer."""
     response_schema: Optional[type[BaseModel]] = None
     """Optional Pydantic model class to enforce a structured response schema."""
     debug: bool = False
@@ -675,6 +707,8 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                     if self.response_schema:
                         final_kwargs["response_format"] = self.response_schema
 
+                    if self.final_answer_prompt:
+                        messages.append({"role": "system", "content": self.final_answer_prompt})
                     final_resp = await self._acompletion(messages, **final_kwargs)
 
                     await self._emit_token_usage(final_resp, step=iteration_count)
@@ -717,6 +751,7 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                         narration=list(visible_texts),
                         final_text=content,
                         budget_exhausted=True,
+                        truncated=_stopped_at_length(final_resp),
                     )
                 else:
                     termination_reason = "max_iterations reached → stopped"
@@ -828,8 +863,9 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
             # If no tool call was requested, the agent has finished reasoning.
             if not message.tool_calls:
                 termination_reason = "model returned a final text response (no tool calls)"
-                
+
                 content = content
+                truncated = _stopped_at_length(response)
                 structured_obj = None
                 if self.response_schema:
                     try:
@@ -850,7 +886,8 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
 
                         await self._emit_token_usage(final_resp, step=iteration_count)
                         content = final_resp.choices[0].message.content or ""
-                        
+                        truncated = _stopped_at_length(final_resp)
+
                         final_content = content
                         final_reasoning = getattr(final_resp.choices[0].message, "reasoning_content", None)
                         if not final_reasoning and final_content:
@@ -882,8 +919,9 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                     structured_output=structured_obj,
                     narration=list(visible_texts),
                     final_text=content,
+                    truncated=truncated,
                 )
-                
+
                 await self._invoke_on_iteration(iteration_count, messages)
 
                 if self.debug:
@@ -1009,6 +1047,8 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                 if self.response_schema:
                     final_kwargs["response_format"] = self.response_schema
 
+                if self.final_answer_prompt:
+                    messages.append({"role": "system", "content": self.final_answer_prompt})
                 final_response = await self._acompletion(messages, **final_kwargs)
 
                 await self._emit_token_usage(final_response, step=iteration_count)
@@ -1050,6 +1090,7 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
                     narration=list(visible_texts),
                     final_text=content,
                     budget_exhausted=True,
+                    truncated=_stopped_at_length(final_response),
                 )
 
                 await self._invoke_on_iteration(iteration_count, messages)

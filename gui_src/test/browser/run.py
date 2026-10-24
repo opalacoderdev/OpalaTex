@@ -35,6 +35,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -817,6 +818,223 @@ async def check_pdf_tab_switch(page: Page, check: Checks) -> None:
     shrunk, ok = await settle_at(lambda s: page_two is not None and abs(s["top"] - page_two) <= 2)
     check("a pdf that lost the remembered page opens at its new last page", ok,
           f"top={shrunk and shrunk['top']} page 2 at={page_two}")
+
+
+PDF_TEXT_SPAN = (
+    "(() => { const s = [...document.querySelectorAll('.textLayer span')]"
+    "    .find(e => e.textContent.includes('Amazon'));"
+    "  if (!s) return null; const r = s.getBoundingClientRect();"
+    "  return {left: r.left, right: r.right, cy: r.top + r.height / 2, cx: r.left + r.width / 2}; })()"
+)
+
+
+def element_with_text(selector: str, text: str) -> str:
+    """JS returning the centre of the first `selector` whose text contains `text`."""
+    return (
+        f"(() => {{ const el = [...document.querySelectorAll({json.dumps(selector)})]"
+        f"    .find(e => e.textContent.includes({json.dumps(text)}));"
+        "  if (!el) return null; const r = el.getBoundingClientRect();"
+        "  return {x: r.left + r.width / 2, y: r.top + r.height / 2,"
+        "          disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true')}; })()"
+    )
+
+
+async def wait_js(page: Page, expression: str, timeout: float = 8.0):
+    deadline = time.time() + timeout
+    value = None
+    while time.time() < deadline:
+        value = await page.js(expression)
+        if value:
+            return value
+        await asyncio.sleep(0.15)
+    return value
+
+
+async def select_pdf_excerpt(page: Page) -> dict | None:
+    """Drag across the fixture's line of text, as a mouse would."""
+    span = await wait_js(page, PDF_TEXT_SPAN)
+    if not span:
+        return None
+    await page.press(span["left"] + 1, span["cy"])
+    await page.move(span["cx"], span["cy"])
+    await page.move(span["right"] - 1, span["cy"])
+    await page.release(span["right"] - 1, span["cy"])
+    await asyncio.sleep(SETTLE)
+    return span
+
+
+async def check_pdf_lookup(page: Page, check: Checks) -> None:
+    """Look up an excerpt: a question and its answer in a card, never in the chat.
+
+    What only a browser can answer: that the selection survives the right-click
+    and the menu press (it collapses the moment a button takes focus), that the
+    question box takes the keyboard, that Ctrl+Enter sends, that a click on the
+    document does not throw the answer away, and that "Save as PDF note"
+    writes a highlight carrying the answer on exactly the passage selected.
+    """
+    if not check("pdf viewer renders for the look-up", await open_pdf_harness(page)):
+        return
+    await page.js("window.__openTab('text'); window.__requests = []")
+    if not check("the text fixture renders", await wait_for_pdf_pages(page, 1)):
+        return
+
+    span = await select_pdf_excerpt(page)
+    selected = await page.js("String(window.getSelection())")
+    if not check("a mouse drag selects the excerpt", span is not None and "Amazon" in (selected or ""),
+                 f"selection={selected!r}"):
+        return
+
+    await page.right_click(span["cx"], span["cy"])
+    item = await wait_js(page, element_with_text(".vscode-context-menu-item", "Look up the selection"))
+    menu_items = await page.js("[...document.querySelectorAll('.vscode-context-menu-item')].map(e => e.textContent)")
+    check("the menu offers Look up for a selection", item is not None and not item["disabled"],
+          f"items={menu_items}")
+    if not item:
+        return
+    await page.click(item["x"], item["y"])
+
+    card = await wait_js(page, "!!document.querySelector('.snippet-query-popup')")
+    if not check("Look up opens the card", card):
+        return
+    excerpt = await page.js("document.querySelector('.snippet-query-popup .snippet-translate-popup-source').textContent")
+    check("the card quotes the excerpt captured at right-click", "Amazon" in (excerpt or ""), repr(excerpt))
+    check("the question box has the keyboard",
+          await page.js("document.activeElement && document.activeElement.id === 'snippet-query-question'"))
+    send = await page.js(element_with_text(".snippet-query-footer button", "Send"))
+    check("Send is disabled until a question is written", send is not None and send["disabled"])
+
+    await page.type_text("What kind of forest is it?")
+    await page.key("Enter", 13, modifiers=2)        # Ctrl+Enter
+    answered = await wait_js(page, "(() => { const s = document.querySelector('.snippet-query-answer strong');"
+                                   " return s && s.textContent; })()")
+    check("Ctrl+Enter sends and the answer renders as Markdown", answered == "tropical", repr(answered))
+
+    sent = await page.js("window.__requests.filter(r => r.path === '/api/snippet-query')")
+    body = (sent or [{}])[0].get("body") or {}
+    source = body.get("source") or {}
+    check("one look-up request was sent", len(sent or []) == 1, f"{len(sent or [])} requests")
+    check("it carries the excerpt and the question",
+          "Amazon" in body.get("excerpt", "") and body.get("question") == "What kind of forest is it?")
+    check("it names the document, the page and the project",
+          source.get("surface") == "pdf" and source.get("documentPath") == "doc.pdf"
+          and source.get("page") == 1 and source.get("totalPages") == 1
+          and body.get("projectPath") == "/harness-project" and body.get("model") == "harness-model",
+          json.dumps({k: body.get(k) for k in ("source", "projectPath", "model")}))
+
+    # A click on the document is not a dismissal: that would lose the answer.
+    scroller = await page.rect(".pdf-preview-scroll")
+    await page.click(scroller["x"] + 12, scroller["bottom"] - 12)
+    await asyncio.sleep(SETTLE)
+    check("a click on the document keeps the card open",
+          await page.js("!!document.querySelector('.snippet-query-popup')"))
+
+    save_note = await page.js(element_with_text(".snippet-query-footer button", "Save as PDF note"))
+    check("a standalone PDF offers to save the answer as a note",
+          save_note is not None and not save_note["disabled"])
+    if save_note:
+        await page.click(save_note["x"], save_note["y"])
+        posted = await wait_js(page, "window.__requests.filter(r => r.path === '/api/pdf/annotations')"
+                                     ".map(r => r.body)[0] || null")
+        posted = posted or {}
+        check("the note is a highlight on the selected passage",
+              posted.get("kind") == "highlight" and posted.get("page") == 1 and len(posted.get("rects") or []) > 0,
+              json.dumps({k: posted.get(k) for k in ("kind", "page")}))
+        check("carrying the question and the answer",
+              str(posted.get("content", "")).startswith("Question: What kind of forest is it?")
+              and "tropical" in str(posted.get("content", "")))
+        saved = await wait_js(page, element_with_text(".snippet-query-footer button", "Saved as PDF note"))
+        check("and the button says it is saved", saved is not None and saved["disabled"])
+
+    # Save as Markdown asks for a path in the app's own dialog. Escape there
+    # belongs to the dialog: it must cancel the save, not close the card.
+    save_md = await page.js(element_with_text(".snippet-query-footer button", "Save as Markdown"))
+    if check("the card offers to save the answer as Markdown", save_md is not None and not save_md["disabled"]):
+        dialog_input = "document.querySelector('.vscode-modal-content input[type=text]')"
+        await page.click(save_md["x"], save_md["y"])
+        suggested = await wait_js(page, f"(() => {{ const i = {dialog_input}; return i && i.value; }})()")
+        check("the dialog suggests a dated file under lookups/",
+              bool(re.fullmatch(r"lookups/\d{4}-\d{2}-\d{2}-\d{4}-what-kind-of-forest-is-it\.md", suggested or "")),
+              repr(suggested))
+        await page.key("Escape", 27)
+        await asyncio.sleep(SETTLE)
+        check("Escape in the dialog cancels the save and keeps the card",
+              await page.js(f"!{dialog_input} && !!document.querySelector('.snippet-query-popup')"))
+        check("and writes nothing",
+              await page.js("window.__requests.filter(r => r.path === '/api/file/write').length") == 0)
+
+        await page.click(save_md["x"], save_md["y"])
+        # The dialog focuses its input on a timer; typing before that would go
+        # to the button that opened it, which no person manages to do.
+        await wait_js(page, f"(() => {{ const i = {dialog_input}; return !!i && document.activeElement === i; }})()")
+        await page.key("Enter", 13, text="\r")
+        written = await wait_js(page, "window.__requests.filter(r => r.path === '/api/file/write').map(r => r.body)[0] || null")
+        written = written or {}
+        check("Enter writes the file without overwriting anything",
+              written.get("exclusive") is True and written.get("filePath") == suggested
+              and written.get("projectPath") == "/harness-project",
+              json.dumps({k: written.get(k) for k in ("filePath", "exclusive")}))
+        check("the file holds the excerpt, the question and the answer",
+              "> The Amazon" in written.get("content", "") and "## Answer" in written.get("content", "")
+              and "tropical" in written.get("content", ""))
+        saved_line = await wait_js(page, "(() => { const s = document.querySelector('.snippet-query-saved');"
+                                         " return s && s.textContent; })()")
+        check("the card says where it was saved", suggested and suggested in (saved_line or ""), repr(saved_line))
+
+    await page.key("Escape", 27)
+    await asyncio.sleep(SETTLE)
+    check("Escape closes the card", await page.js("!document.querySelector('.snippet-query-popup')"))
+
+
+async def check_pdf_translation_popup(page: Page, check: Checks) -> None:
+    """The translation popup, after its drag and clamp moved to a shared hook.
+
+    It must still open at the click, follow a drag of its header, and close on a
+    click elsewhere, which the look-up card deliberately does not do.
+    """
+    if not check("pdf viewer renders for translation", await open_pdf_harness(page)):
+        return
+    await page.js("window.__openTab('text'); window.__requests = []")
+    if not await wait_for_pdf_pages(page, 1):
+        return
+    span = await select_pdf_excerpt(page)
+    if not span:
+        check("the text fixture has a selectable line", False)
+        return
+    await page.right_click(span["cx"], span["cy"])
+    item = await wait_js(page, element_with_text(".vscode-context-menu-item", "Translate selection"))
+    if not check("the menu offers Translate", item is not None):
+        return
+    await page.click(item["x"], item["y"])
+    result = await wait_js(page, "(() => { const r = document.querySelector('.snippet-translate-popup-result');"
+                                 " return r && r.textContent; })()")
+    check("the translation renders", result == "A Amazônia é a maior floresta.", repr(result))
+
+    header = await page.rect(".snippet-translate-popup-header")
+    start = await page.rect(".snippet-translate-popup")
+    grab_x, grab_y = header["x"] + 20, header["cy"]
+    await page.press(grab_x, grab_y)
+    await page.move(grab_x - 60, grab_y + 40)
+    await page.move(grab_x - 120, grab_y + 80)
+    await page.release(grab_x - 120, grab_y + 80)
+    await asyncio.sleep(SETTLE)
+    moved = await page.rect(".snippet-translate-popup")
+    check("dragging the header moves the popup",
+          abs((start["x"] - moved["x"]) - 120) <= 3 and abs((moved["y"] - start["y"]) - 80) <= 3,
+          f"dx={start['x'] - moved['x']:.1f} dy={moved['y'] - start['y']:.1f}")
+
+    await page.press(grab_x - 120, grab_y + 80)
+    await page.move(-400, -400)
+    await page.release(-400, -400)
+    await asyncio.sleep(SETTLE)
+    clamped = await page.rect(".snippet-translate-popup")
+    check("and a drag off-screen keeps the header reachable",
+          clamped["x"] >= 0 and clamped["y"] >= 0, f"x={clamped['x']:.1f} y={clamped['y']:.1f}")
+
+    scroller = await page.rect(".pdf-preview-scroll")
+    await page.click(scroller["right"] - 12, scroller["bottom"] - 12)
+    await asyncio.sleep(SETTLE)
+    check("a click elsewhere closes the translation",
+          await page.js("!document.querySelector('.snippet-translate-popup')"))
 
 
 async def check_pdf_presentation(page: Page, check: Checks) -> None:
@@ -1890,6 +2108,8 @@ SUITE = (
     check_presentation,
     check_pdf_tab_switch,
     check_pdf_presentation,
+    check_pdf_lookup,
+    check_pdf_translation_popup,
 )
 
 

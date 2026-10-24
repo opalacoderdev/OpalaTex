@@ -15,8 +15,10 @@ import { turnEndFromContent } from '../utils/turnMarkers.js';
 import { formatWaitDuration, providerWaitSeconds } from '../utils/providerWait.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import TranslationPopup from './TranslationPopup.jsx';
+import SnippetQueryPopup from './SnippetQueryPopup.jsx';
 import SpeechPopup from './SpeechPopup.jsx';
 import { useSnippetTranslation } from '../hooks/useSnippetTranslation.js';
+import { useSnippetQuery } from '../hooks/useSnippetQuery.js';
 import { useSnippetSpeech } from '../hooks/useSnippetSpeech.js';
 import { useDictation } from '../hooks/useDictation.js';
 import { buildQuoteExcerptPrompt } from '../utils/askAboutPrompt.js';
@@ -212,6 +214,22 @@ export default function ChatPanel({
     model: activeProject?.model || '',
     uiLanguage: i18n.language,
   });
+  // "Look up" answers in a card of its own, so a question about an excerpt of
+  // the conversation does not become a turn of it (§2.13.4).
+  const {
+    query: lookup,
+    open: openLookup,
+    setQuestion: setLookupQuestion,
+    submit: submitLookup,
+    compose: composeLookup,
+    copy: copyLookup,
+    saveMarkdown: saveLookupMarkdown,
+    close: closeLookup,
+  } = useSnippetQuery({
+    model: activeProject?.model || '',
+    projectPath: activeProject?.project_path || '',
+  });
+
   const {
     speech,
     availability: speechAvailability,
@@ -252,6 +270,11 @@ export default function ChatPanel({
     setChatInput((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n\n${prompt}` : prompt));
     closeMenu();
   }, [t, setChatInput, closeMenu]);
+
+  const handleLookUpExcerpt = useCallback((m) => {
+    closeMenu();
+    openLookup(m?.selectedText, { x: m.x, y: m.y }, { surface: 'chat' });
+  }, [closeMenu, openLookup]);
 
   const handleTranslateExcerpt = useCallback((m) => {
     closeMenu();
@@ -1516,6 +1539,7 @@ export default function ChatPanel({
         onPaste={handlePaste}
         onSelectAll={() => handleSelectAll(historyRef)}
         onAskAbout={handleQuoteExcerpt}
+        onLookUp={handleLookUpExcerpt}
         onTranslate={handleTranslateExcerpt}
         onPronounce={handlePronounceExcerpt}
         canPronounce={speechAvailability.ready}
@@ -1528,6 +1552,17 @@ export default function ChatPanel({
         onRetry={retryTranslation}
         onCopy={copyTranslation}
         onSpeak={speechAvailability.ready ? speak : undefined}
+      />
+
+      <SnippetQueryPopup
+        state={lookup}
+        projectPath={activeProject?.project_path || ''}
+        onClose={closeLookup}
+        onQuestionChange={setLookupQuestion}
+        onSubmit={submitLookup}
+        onCompose={composeLookup}
+        onCopy={copyLookup}
+        onSaveMarkdown={saveLookupMarkdown}
       />
 
       <SpeechPopup

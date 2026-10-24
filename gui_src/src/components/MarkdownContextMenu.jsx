@@ -21,6 +21,7 @@ export default function MarkdownContextMenu({
   onClose,
   onCopy,
   onAskAbout,
+  onLookUp,
   onTranslate,
   onPronounce,
   canAsk = true,
@@ -63,6 +64,7 @@ export default function MarkdownContextMenu({
         canPronounce={canPronounce}
         pronounceUnavailableHint={pronounceUnavailableHint}
         onAskAbout={() => run(onAskAbout)}
+        onLookUp={onLookUp ? (() => run(onLookUp)) : undefined}
         onTranslate={() => run(onTranslate)}
         onPronounce={onPronounce ? (() => run(onPronounce)) : undefined}
       />

@@ -9,7 +9,9 @@ import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, Chevr
 import PdfContextMenu, { ANNOTATION_COLORS } from './PdfContextMenu';
 import TranslationPopup from './TranslationPopup';
 import SpeechPopup from './SpeechPopup';
+import SnippetQueryPopup from './SnippetQueryPopup';
 import { useSnippetTranslation } from '../hooks/useSnippetTranslation';
+import { useSnippetQuery } from '../hooks/useSnippetQuery';
 import { useSnippetSpeech } from '../hooks/useSnippetSpeech';
 import { readSelectionWithin } from '../utils/documentSelection';
 import PdfAnnotationLayer from './PdfAnnotationLayer';
@@ -78,6 +80,25 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     model: activeProject?.model || '',
     uiLanguage: i18n.language,
   });
+
+  // "Look up" answers a one-off question in a card of its own, never in the
+  // chat (§2.13.4). The selection geometry is kept beside it so the answer can
+  // become a note on exactly the passage that was asked about.
+  const {
+    query: lookup,
+    open: openLookup,
+    setQuestion: setLookupQuestion,
+    submit: submitLookup,
+    compose: composeLookup,
+    copy: copyLookup,
+    saveMarkdown: saveLookupMarkdown,
+    markNoteSaved: markLookupNoteSaved,
+    close: closeLookup,
+  } = useSnippetQuery({
+    model: activeProject?.model || '',
+    projectPath: activeProject?.project_path || '',
+  });
+  const lookupSelectionRef = useRef([]);
 
   const {
     speech,
@@ -769,6 +790,52 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
 
   const handleTranslateSelection = (menu) => {
     runTranslation(menu.selectedText, { x: menu.x, y: menu.y });
+  };
+
+  const handleLookUpSelection = (menu) => {
+    lookupSelectionRef.current = menu.selectionRects || [];
+    openLookup(menu.selectedText, { x: menu.x, y: menu.y }, {
+      surface: 'pdf',
+      documentPath: resolvePdfDocumentPath(),
+      // The compiled preview renders the main file's PDF; the .tex open in the
+      // editor is a different file, and the agent is told about both.
+      sourceFile: isStandalonePdf ? '' : (selectedFile || ''),
+      page: menu.page,
+      totalPages: numPages || 0,
+    });
+  };
+
+  // Same gate as every other annotation (§2.14): only a PDF opened on its own,
+  // never the compiled preview, which the next build overwrites.
+  const lookupNoteRects = lookupSelectionRef.current;
+  let lookupNoteReason = '';
+  if (!canAnnotate) {
+    lookupNoteReason = t('snippetQuery.noteCompiledPreview', 'Notes can only be saved in a PDF opened on its own. The compiled preview is regenerated on every build.');
+  } else if (!showAnnotations) {
+    lookupNoteReason = t('snippetQuery.noteAnnotationsHidden', 'Show annotations to save a note.');
+  } else if (lookupNoteRects.length === 0) {
+    lookupNoteReason = t('pdfPreview.annotationSelectionLost', 'Could not read the selected area. Select the text again and retry.');
+  }
+
+  // A selection crossing a page break is one highlight per page; the note goes
+  // on the first, where the passage begins.
+  const handleSaveLookupNote = async (noteText) => {
+    const groups = lookupSelectionRef.current;
+    if (groups.length === 0) return;
+    for (let index = 0; index < groups.length; index += 1) {
+      const group = groups[index];
+      // Sequential on purpose: each write is an incremental save of the same file.
+      // eslint-disable-next-line no-await-in-loop
+      const created = await createAnnotation({
+        page: group.page,
+        kind: 'highlight',
+        rects: group.rects,
+        color: annotationColor,
+        content: index === 0 ? noteText : '',
+      });
+      if (!created) return;
+    }
+    markLookupNoteSaved();
   };
 
   const handlePronounceSelection = (menu) => {
@@ -1851,6 +1918,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         menu={contextMenu}
         onClose={() => setContextMenu(null)}
         onAskAbout={handleAskAboutPdf}
+        onLookUp={handleLookUpSelection}
         onTranslate={handleTranslateSelection}
         onPronounce={handlePronounceSelection}
         canPronounce={speechAvailability.ready}
@@ -1910,6 +1978,22 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         onRetry={handleRetryTranslation}
         onCopy={handleCopyTranslation}
         onSpeak={speechAvailability.ready ? speak : undefined}
+      />
+
+      <SnippetQueryPopup
+        state={lookup}
+        projectPath={activeProject?.project_path || ''}
+        onClose={closeLookup}
+        onQuestionChange={setLookupQuestion}
+        onSubmit={submitLookup}
+        onCompose={composeLookup}
+        onCopy={copyLookup}
+        onSaveMarkdown={saveLookupMarkdown}
+        noteAction={{
+          available: !lookupNoteReason,
+          reason: lookupNoteReason,
+          onSave: handleSaveLookupNote,
+        }}
       />
 
       {isPresenting && pdfUrl && (
