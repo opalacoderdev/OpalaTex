@@ -253,6 +253,38 @@ def guess_main_file(project_dir: str) -> str:
     return ""
 
 
+def find_pdf_source_tex(project_dir: str, pdf_path: str) -> str:
+    """Return the project-relative .tex file that compiles to ``pdf_path``.
+
+    Compilation writes ``name.pdf`` next to ``name.tex``, so the source of a PDF
+    is the root document with the same stem in the same directory. Returns ""
+    when there is no such file, when it is a fragment that cannot be compiled on
+    its own, or when either path falls outside the project.
+    """
+    if not project_dir or not pdf_path or not os.path.isdir(project_dir):
+        return ""
+    project_root = os.path.abspath(project_dir)
+    abs_pdf = os.path.abspath(os.path.join(project_root, pdf_path))
+    stem, ext = os.path.splitext(abs_pdf)
+    if ext.lower() != ".pdf":
+        return ""
+    abs_tex = stem + ".tex"
+    try:
+        if os.path.commonpath([abs_tex, project_root]) != project_root:
+            return ""
+    except ValueError:
+        return ""
+    if not os.path.isfile(abs_tex):
+        return ""
+    try:
+        with open(abs_tex, "r", encoding="utf-8", errors="ignore") as file:
+            if not is_independent(file.read()):
+                return ""
+    except OSError:
+        return ""
+    return os.path.relpath(abs_tex, project_root).replace("\\", "/")
+
+
 LATEX_ARTIFACT_EXTENSIONS = {
     ".aux", ".bbl", ".bcf", ".blg", ".dvi", ".fdb_latexmk", ".fls",
     ".idx", ".ilg", ".ind", ".lof", ".log", ".lot", ".nav", ".out",

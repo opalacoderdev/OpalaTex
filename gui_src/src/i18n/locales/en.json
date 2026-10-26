@@ -316,6 +316,8 @@
     "present": "Present (full screen)",
     "presentationLabel": "PDF presentation",
     "previousMatch": "Previous match",
+    "recompileDropsAnnotations": "Recompiling replaces this PDF with a new build of {{file}}. The {{count}} annotation(s) stored in it will be lost.",
+    "recompileFromSource": "Recompile from {{file}}",
     "searchPdf": "Search PDF",
     "searchPlaceholder": "Search PDF...",
     "technicalDetails": "View Technical Details (Full Log)",

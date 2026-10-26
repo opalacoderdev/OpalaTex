@@ -5,7 +5,8 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import { viewportPointToApp, viewportPxToApp } from '../utils/uiScale';
 import { clampViewAnchor, isAnchorLaidOut, scrollTopForAnchor, viewAnchorAt } from '../utils/pdfViewState';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare, Sparkles, MonitorPlay } from 'lucide-react';
+import { useCustomDialog } from './modals/CustomDialogProvider';
+import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare, Sparkles, MonitorPlay, RefreshCw } from 'lucide-react';
 import PdfContextMenu, { ANNOTATION_COLORS } from './PdfContextMenu';
 import TranslationPopup from './TranslationPopup';
 import SpeechPopup from './SpeechPopup';
@@ -42,6 +43,7 @@ const VIEW_RESTORE_ATTEMPTS = 100;
 // where it was left (see utils/pdfViewState.js).
 const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onAskAboutPdf, speechSettingsSignal = 0, isAgentRunning = false, uiScale = 1, initialViewState = null, onViewStateChange }, ref) => {
   const { t, i18n } = useTranslation();
+  const { showAlert, showConfirm } = useCustomDialog();
   const [numPages, setNumPages] = useState(null);
   const [pdfUrl, setPdfUrl] = useState('');
   const [highlight, setHighlight] = useState(null);
@@ -506,6 +508,58 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
     }
     isReloadingPdfRef.current = true;
     setPdfUrl(renderedPdfUrl());
+  };
+
+  // ── Recompile from source ──────────────────────────────────────────────
+  // A standalone PDF the project builds from a .tex (name.pdf next to name.tex)
+  // can be rebuilt from here without opening that .tex. The compiled preview
+  // beside an open .tex is excluded: the editor owns its compile state.
+  const [sourceTexFile, setSourceTexFile] = useState('');
+  const [isRecompiling, setIsRecompiling] = useState(false);
+
+  useEffect(() => {
+    setSourceTexFile('');
+    if (!isStandalonePdf || !activeProject?.project_path) return undefined;
+    let cancelled = false;
+    fetch(`/api/latex/pdf-source?projectPath=${encodeURIComponent(activeProject.project_path)}&pdfPath=${encodeURIComponent(selectedFile)}`)
+      .then((res) => res.json())
+      .then((data) => { if (!cancelled) setSourceTexFile(data.texFile || ''); })
+      .catch((err) => console.error('Could not resolve the PDF source file:', err));
+    return () => { cancelled = true; };
+  }, [isStandalonePdf, activeProject?.project_path, selectedFile]);
+
+  const handleRecompileFromSource = async () => {
+    if (!sourceTexFile || isRecompiling) return;
+    // The build overwrites this PDF, and with it the annotations stored inside.
+    if (annotations.length > 0) {
+      const confirmed = await showConfirm(
+        t('pdfPreview.recompileDropsAnnotations', 'Recompiling replaces this PDF with a new build of {{file}}. The {{count}} annotation(s) stored in it will be lost.', { file: sourceTexFile, count: annotations.length }),
+        t('pdfPreview.recompileFromSource', 'Recompile from {{file}}', { file: sourceTexFile }),
+        { destructive: true },
+      );
+      if (!confirmed) return;
+    }
+    setIsRecompiling(true);
+    try {
+      const res = await fetch('/api/latex/compile-pdf-source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectPath: activeProject.project_path,
+          pdfPath: selectedFile,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        reloadRenderedPdf();
+      } else {
+        showAlert(String(data.log || '').trim() || t('pdfPreview.genericCompileError'), t('pdfPreview.compileErrorTitle'));
+      }
+    } catch (err) {
+      showAlert(String(err.message || err), t('pdfPreview.compileErrorTitle'));
+    } finally {
+      setIsRecompiling(false);
+    }
   };
 
   const createAnnotation = async ({ page, kind, rects, color, content = '' }) => {
@@ -1402,7 +1456,7 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
 
   return (
     <div className="w-full h-full relative overflow-hidden" style={{ background: 'var(--pdf-viewer-bg, var(--vscode-editor-bg))' }}>
-      {isCompiling && (
+      {(isCompiling || isRecompiling) && (
         <div className="pdf-preview-compile-overlay" role="status" aria-live="polite">
           <div className="pdf-preview-compile-panel">
             <div className="pdf-preview-compile-orbit" aria-hidden="true">
@@ -1465,6 +1519,29 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
         >
           <Download size={18} />
         </button>
+        {sourceTexFile && (
+          <button
+            type="button"
+            onClick={handleRecompileFromSource}
+            disabled={isRecompiling}
+            className="flex items-center justify-center rounded-md transition-colors"
+            style={{
+              width: '32px',
+              height: '32px',
+              background: 'var(--vscode-input-bg)',
+              border: '1px solid var(--vscode-border)',
+              color: 'var(--vscode-text-fg)',
+              opacity: isRecompiling ? 0.5 : 1,
+              cursor: isRecompiling ? 'default' : 'pointer',
+            }}
+            onMouseEnter={(e) => { if (!isRecompiling) { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; } }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+            title={t('pdfPreview.recompileFromSource', 'Recompile from {{file}}', { file: sourceTexFile })}
+            aria-label={t('pdfPreview.recompileFromSource', 'Recompile from {{file}}', { file: sourceTexFile })}
+          >
+            <RefreshCw size={18} className={isRecompiling ? 'animate-spin' : ''} />
+          </button>
+        )}
         <button
           type="button"
           onClick={handleStartPresentation}

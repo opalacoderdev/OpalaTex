@@ -851,6 +851,7 @@ class AsyncHTTPServer:
     # instead of freezing for the length of a compile.
     EXCLUSIVE_WORK_PATHS = frozenset({
         '/api/latex/compile',
+        '/api/latex/compile-pdf-source',
         '/api/git/status',
         '/api/files',
     })
@@ -1412,6 +1413,83 @@ class AsyncHTTPServer:
             timing["request_seconds"] = round(time.perf_counter() - request_started, 3)
             result["timing"] = timing
                 
+            self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
+            return
+        # 0.b The .tex that a standalone PDF is compiled from, if the project has
+        #     one. The PDF viewer asks so it offers a recompile button only for
+        #     PDFs that can actually be rebuilt.
+        if path == '/api/latex/pdf-source' and method == 'GET':
+            from opalatex.latex_compiler import find_pdf_source_tex
+            project_path = query.get('projectPath', [''])[0]
+            pdf_path = query.get('pdfPath', [''])[0]
+            if not project_path or not pdf_path:
+                self.send_response(writer, 400, b'{"error":"projectPath and pdfPath are required"}', "application/json")
+                return
+            tex_file = find_pdf_source_tex(project_path, pdf_path)
+            self.send_response(writer, 200, json.dumps({"texFile": tex_file}).encode('utf-8'), "application/json")
+            return
+
+        # 0.c Recompile a standalone PDF from its source .tex, read from disk, so
+        #     the PDF can be rebuilt without opening the .tex in the editor. The
+        #     output overwrites the viewed PDF (Tectonic writes name.pdf next to
+        #     name.tex).
+        if path == '/api/latex/compile-pdf-source' and method == 'POST':
+            from opalatex.latex_compiler import compile_latex, find_pdf_source_tex
+            request_started = time.perf_counter()
+            project_path = str(data.get('projectPath', '') or '').strip()
+            pdf_path = str(data.get('pdfPath', '') or '').strip()
+            draft = bool(data.get('draft', False))
+            from opalatex.ui_settings import load_ui_settings
+            ui_cfg = load_ui_settings()
+            draft_synctex_enabled = bool(ui_cfg.get("draft_synctex_enabled", False))
+            synctex_enabled = (not draft) or draft_synctex_enabled
+
+            if not project_path or not os.path.isdir(project_path) or not pdf_path:
+                self.send_response(writer, 400, json.dumps({
+                    "success": False,
+                    "log": "compile-pdf-source requires a valid projectPath and pdfPath.",
+                }).encode('utf-8'), "application/json")
+                return
+
+            tex_file = find_pdf_source_tex(project_path, pdf_path)
+            if not tex_file:
+                self.send_response(writer, 200, json.dumps({
+                    "success": False,
+                    "log": f"No root LaTeX document compiles to {pdf_path}: expected a .tex file with the same name in the same folder.",
+                    "compiled_main_file": "",
+                }).encode('utf-8'), "application/json")
+                return
+
+            abs_tex = os.path.abspath(os.path.join(project_path, tex_file))
+            try:
+                with open(abs_tex, "r", encoding="utf-8", errors="ignore", newline="") as f:
+                    content = f.read()
+            except OSError as e:
+                self.send_response(writer, 200, json.dumps({
+                    "success": False,
+                    "log": f"Could not read {tex_file}: {e}",
+                    "compiled_main_file": tex_file,
+                }).encode('utf-8'), "application/json")
+                return
+
+            def _run_source_compilation():
+                return compile_latex(content, abs_tex, tex_file, project_path,
+                                     include_pdf_base64=False, draft=draft,
+                                     synctex=synctex_enabled)
+
+            # Same exclusive-work handling as /api/latex/compile (see
+            # EXCLUSIVE_WORK_PATHS).
+            result = await asyncio.to_thread(_run_source_compilation)
+            result["compiled_main_file"] = tex_file
+
+            if result.get("success") and result.get("pdf_path"):
+                self.last_pdf_path = result["pdf_path"]
+                self.last_synctex_path = result.get("synctex_path", "")
+                self.last_pdf_bytes = None
+            timing = result.get("timing") or {}
+            timing["request_seconds"] = round(time.perf_counter() - request_started, 3)
+            result["timing"] = timing
+
             self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
             return
 

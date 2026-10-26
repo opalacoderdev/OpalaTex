@@ -316,6 +316,8 @@
     "present": "Apresentar (tela cheia)",
     "presentationLabel": "Apresentação do PDF",
     "previousMatch": "Resultado anterior",
+    "recompileDropsAnnotations": "Recompilar substitui este PDF por uma nova compilação de {{file}}. As {{count}} anotação(ões) armazenadas nele serão perdidas.",
+    "recompileFromSource": "Recompilar a partir de {{file}}",
     "searchPdf": "Buscar no PDF",
     "searchPlaceholder": "Buscar no PDF...",
     "technicalDetails": "Ver detalhes tecnicos (log completo)",
