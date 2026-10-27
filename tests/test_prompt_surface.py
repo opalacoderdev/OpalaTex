@@ -139,6 +139,29 @@ def test_the_orchestrator_built_for_a_terminal_has_no_editor_tool(tmp_path, term
 # ── The filter itself ────────────────────────────────────────────────────────
 
 
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_no_editor_tool_reaches_the_terminal_prompt(variant, terminal):
+    body = body_for_surface(_body(variant))
+    for name in GUI_ONLY_TOOLS:
+        assert name not in body, name
+
+
+@pytest.mark.parametrize("variant", VARIANTS)
+def test_the_desktop_prompt_offers_the_ide_control_tools(variant):
+    body = body_for_surface(_body(variant))
+    assert "`open_file`" in body and "`close_file`" in body
+
+
+def test_a_routing_row_whose_route_is_removed_goes():
+    table = (
+        '| "What file is open?" | your own `get_editor_state` | `command-line` |\n'
+        '| "Change line 42 of `main.tex`" | your own `replace_content_range` | `command-line` |\n'
+    )
+    filtered = strip_items(table, {"get_editor_state"})
+    assert "get_editor_state" not in filtered
+    assert "replace_content_range" in filtered
+
+
 def test_a_fenced_example_is_left_alone():
     body = "* `/chat`: switch chat\n```\n/chat new draft\n```\n"
     filtered = strip_items(body, {"/chat"})

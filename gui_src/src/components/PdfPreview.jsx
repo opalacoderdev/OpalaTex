@@ -41,7 +41,7 @@ const VIEW_RESTORE_ATTEMPTS = 100;
 // `onViewStateChange` reports the same shape as the user scrolls and zooms. The
 // owner keeps it per document so a viewer unmounted by a tab switch comes back
 // where it was left (see utils/pdfViewState.js).
-const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onAskAboutPdf, speechSettingsSignal = 0, isAgentRunning = false, uiScale = 1, initialViewState = null, onViewStateChange }, ref) => {
+const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onLatexCompileError, onLatexCompileSuccess, onAskAboutPdf, speechSettingsSignal = 0, isAgentRunning = false, uiScale = 1, initialViewState = null, onViewStateChange }, ref) => {
   const { t, i18n } = useTranslation();
   const { showAlert, showConfirm } = useCustomDialog();
   const [numPages, setNumPages] = useState(null);
@@ -551,15 +551,50 @@ const PdfPreview = forwardRef(({ base64Pdf, sourceUrl, directUrl, isCompiling, e
       });
       const data = await res.json();
       if (data.success) {
+        onLatexCompileSuccess?.({ filePath: sourceTexFile, compiledMainFile: data.compiled_main_file || sourceTexFile });
         reloadRenderedPdf();
       } else {
-        showAlert(String(data.log || '').trim() || t('pdfPreview.genericCompileError'), t('pdfPreview.compileErrorTitle'));
+        reportRecompileFailure({
+          log: data.log || 'LaTeX compilation failed.',
+          compiledMainFile: data.compiled_main_file || '',
+          fileContent: data.source_content || '',
+        });
       }
     } catch (err) {
-      showAlert(String(err.message || err), t('pdfPreview.compileErrorTitle'));
+      reportRecompileFailure({ log: 'Failed to connect to backend: ' + err.message, compiledMainFile: '', fileContent: '' });
     } finally {
       setIsRecompiling(false);
     }
+  };
+
+  // Same problem record the editor's compile reports, so the failure also lands
+  // in the Problems panel and "Fix with AI" works on the .tex that is not open.
+  const reportRecompileFailure = async ({ log, compiledMainFile, fileContent }) => {
+    const problem = {
+      source: 'latex_compile',
+      filePath: sourceTexFile,
+      fileContent,
+      projectPath: activeProject?.project_path || '',
+      projectName: activeProject?.name || '',
+      mainFile: activeProject?.main_file || '',
+      compiledMainFile,
+      log,
+      message: log,
+      compileDebug: {},
+      partial: false,
+      draft: false,
+    };
+    onLatexCompileError?.(problem);
+    const title = t('pdfPreview.compileErrorTitle');
+    if (!onFixLatexProblem || isAgentRunning) {
+      showAlert(log, title);
+      return;
+    }
+    const fix = await showConfirm(log, title, {
+      okLabel: t('bottomPanel.fixWithAi'),
+      cancelLabel: t('common.close'),
+    });
+    if (fix) onFixLatexProblem(problem);
   };
 
   const createAnnotation = async ({ page, kind, rects, color, content = '' }) => {

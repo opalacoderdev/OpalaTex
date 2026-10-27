@@ -1798,6 +1798,9 @@ def stage_editor_state(project_path: str, data: dict) -> dict:
         "current_file": data.get("current_file", ""),
         "editor_content": data.get("editor_content", ""),
         "selected_text": data.get("selected_text", ""),
+        # The tab the buffer and selection belong to. open_file/close_file move
+        # `current_file` during the turn; this one stays (tools.get_editor_state).
+        "editor_content_file": data.get("current_file", ""),
     }
     # Not every caller tracks the tab list: the inline editor posts only the file
     # it is editing. An absent "open_files" means "this caller does not know",

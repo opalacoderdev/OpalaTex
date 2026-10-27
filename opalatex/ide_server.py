@@ -1481,6 +1481,10 @@ class AsyncHTTPServer:
             # EXCLUSIVE_WORK_PATHS).
             result = await asyncio.to_thread(_run_source_compilation)
             result["compiled_main_file"] = tex_file
+            if not result.get("success"):
+                # The .tex is not open in the editor, so "Fix with AI" gets the
+                # compiled source from here (the editor sends its buffer instead).
+                result["source_content"] = content
 
             if result.get("success") and result.get("pdf_path"):
                 self.last_pdf_path = result["pdf_path"]
@@ -3645,6 +3649,18 @@ class AsyncHTTPServer:
                 self.send_response(writer, 404, b'{"error":"No pending request with that id"}', "application/json")
             return
 
+        # 7a1. IDE command result (the window's answer to an agent's open_file/close_file)
+        #
+        # Not input_response either: that one carries a person's answer, this
+        # one the application's (opalatex/ide_control.py).
+        elif path == '/api/opalatex/ide_command_result' and method == 'POST':
+            from opalatex.ide_control import resolve_ide_command
+            if resolve_ide_command(str(data.get("id") or ""), data):
+                self.send_response(writer, 200, b'{"ok":true}', "application/json")
+            else:
+                self.send_response(writer, 404, b'{"error":"No pending IDE command with that id"}', "application/json")
+            return
+
         # 7a2. Message to a running agent turn
         #
         # This is NOT /api/opalatex/input_response. That endpoint answers a
@@ -3960,7 +3976,31 @@ class AsyncHTTPServer:
                 self.send_response(writer, 200, b'{"ok":true}', "application/json")
             else:
                 self.send_response(writer, 400, b'{"error":"Invalid action"}', "application/json")
-                
+
+        # 7d1. What the main terminal shows, as plain text (the agent's
+        # read_terminal). Read-only: a terminal that is not running is reported,
+        # never started, and one belonging to another project is not read.
+        elif path == '/api/terminal/output' and method == 'GET':
+            from opalatex.terminal_manager import screen_text
+            project_path = query.get('projectPath', [''])[0]
+            if not project_path:
+                self.send_response(writer, 400, b'{"error":"projectPath parameter is required"}', "application/json")
+                return
+            session = self.active_terminal
+            if session is None or not session.is_running:
+                self.send_response(writer, 404, b'{"error":"The main terminal is not running."}', "application/json")
+                return
+            if not self._same_path(session.project_path, project_path):
+                self.send_response(writer, 409, json.dumps({
+                    "error": f"The main terminal belongs to another project ({session.project_path})."
+                }).encode('utf-8'), "application/json")
+                return
+            backlog, _ = session.backlog_since(None)
+            self.send_response(writer, 200, json.dumps({
+                "text": screen_text(backlog),
+                "truncated": session.total_bytes > len(backlog),
+            }).encode('utf-8'), "application/json")
+
         elif path == '/api/terminal/start' and method == 'POST':
             term_id = data.get("term_id")
             project_path = data.get("projectPath")

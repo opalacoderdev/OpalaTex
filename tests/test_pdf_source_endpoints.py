@@ -79,3 +79,26 @@ async def test_compile_rebuilds_the_viewed_pdf_from_disk(tmp_path):
     assert body["compiled_main_file"] == "doc.tex"
     assert pdf.read_bytes().startswith(b"%PDF")
     assert os.path.samefile(server.last_pdf_path, pdf)
+
+
+@pytest.mark.skipif(not latex_compiler.get_tectonic_path(), reason="Tectonic is not installed")
+@pytest.mark.asyncio
+async def test_failed_compile_returns_the_source_for_fix_with_ai(tmp_path):
+    # The .tex is not open in the editor, so "Fix with AI" can only show the
+    # agent the source if the endpoint returns it.
+    broken = "\\documentclass{article}\n\\begin{document}\n\\undefinedmacro\n\\end{document}\n"
+    (tmp_path / "doc.tex").write_text(broken, encoding="utf-8")
+    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.4")
+    server, responses = _server()
+
+    await server.route_api(
+        "POST", "/api/latex/compile-pdf-source", {}, {},
+        json.dumps({"projectPath": str(tmp_path), "pdfPath": "doc.pdf"}).encode("utf-8"),
+        AsyncMock(),
+    )
+
+    status, body = responses[0]
+    assert status == 200
+    assert body["success"] is False
+    assert body["compiled_main_file"] == "doc.tex"
+    assert body["source_content"] == broken

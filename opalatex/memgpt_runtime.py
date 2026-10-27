@@ -1328,7 +1328,8 @@ def chat_orchestrator_system_prompt(project, store=None) -> str:
 
     from .agent_stdin import REPLY_SURFACE_TERMINAL, reply_surface
     surface_block = (
-        _TERMINAL_REPLY_BLOCK if reply_surface() == REPLY_SURFACE_TERMINAL else ""
+        _TERMINAL_REPLY_BLOCK if reply_surface() == REPLY_SURFACE_TERMINAL
+        else desktop_workspace_block(orchestrator_policy)
     )
 
     system_prompt = (
@@ -1367,6 +1368,70 @@ _TERMINAL_REPLY_BLOCK = (
     "- This is about your chat text only. Files you write keep the syntax their format "
     "requires: .tex stays LaTeX, .md stays Markdown.\n"
 )
+
+
+#: The parts of the desktop window and the orchestrator tool that reaches each,
+#: as (tool, line). The skill bodies describe each tool on its own; this is the
+#: map of the place they all act on, so the agent knows that compiling reloads
+#: the pane the user is looking at and that its terminal is the user's terminal.
+_DESKTOP_WORKSPACE_PARTS = (
+    ("get_editor_state",
+     "**Editor tabs** — what the user has open, which tab is focused and what is selected: "
+     "`get_editor_state` reads them."),
+    ("open_file",
+     "`open_file` puts a file on screen (optionally at a line) or adds a background tab, and "
+     "`close_file` closes one. They change the window, never the file."),
+    ("compile_latex",
+     "**PDF pane** — `compile_latex` is the editor's own Compile: the pane beside the `.tex` "
+     "reloads with the new PDF, and a failure fills its error card and the Problems panel, exactly "
+     "as when the user clicks Compile."),
+    ("reveal_in_pdf",
+     "`reveal_in_pdf` scrolls the PDF pane to where a source line was typeset and highlights it "
+     "(SyncTeX forward search), with the `.tex` focused at that line beside it."),
+    ("get_problems",
+     "**Problems panel** — the failures the window shows, including a compile the user ran "
+     "themselves: `get_problems` reads it."),
+    ("read_terminal",
+     "**Main terminal** — the user's own shell tab: `read_terminal` reads its last lines."),
+    ("run_background_command",
+     "`run_background_command` types a long-running command into that terminal; read its output "
+     "with `read_terminal`."),
+    ("run_interactive_command",
+     "**Interactive terminal popup** — `run_interactive_command` opens one for a command that "
+     "asks the user something."),
+    ("set_layout",
+     "**Layout** — `set_layout` switches the window between its layouts (editor, studio, document, "
+     "chat, review)."),
+)
+
+
+def desktop_workspace_block(orchestrator_policy: str) -> str:
+    """The map of the desktop window, for the tools this orchestrator holds.
+
+    Rendered only on the desktop surface, and only with the parts the policy
+    leaves in reach: a delegate orchestrator has no `compile_latex` or terminal
+    of its own, so naming them would send it after tools it was not given.
+    """
+    from .prompt_surface import GUI_ONLY_TOOLS
+    from .tools import get_workspace_action_tools
+
+    held = set(GUI_ONLY_TOOLS)
+    if orchestrator_policy != "delegate":
+        held |= {str(getattr(tool, "name", "")) for tool in get_workspace_action_tools()}
+    parts = [f"- {line}" for tool, line in _DESKTOP_WORKSPACE_PARTS if tool in held]
+    return (
+        "\n## The IDE you work in\n"
+        "You run inside the OpalaTex desktop IDE, and the user is watching the same window while "
+        "you work. Its parts are within your reach:\n"
+        + "\n".join(parts) + "\n"
+        "Use the window the way a colleague at the user's screen would: when you finish changing "
+        "a file the user will want to look at, open it focused at the line that matters, or "
+        "reveal that line in the PDF when the typeset result is what they care about. Do not "
+        "hop between tabs as a way of reading — `read_file` does that without moving the user's "
+        "view — and close only tabs you opened or were asked to close. The layout is the user's "
+        "choice: change it only when they ask or when what you are showing cannot be seen in the "
+        "current one.\n"
+    )
 
 
 def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
@@ -1411,11 +1476,12 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     enable_achievements = model_params.get("enable_achievements", True)
     
     from .agent_stdin import wrap_tool
-    from .tools import create_plan, ask_question, get_diagnostic_tools
+    from .tools import create_plan, ask_question, get_diagnostic_tools, get_ide_control_tools
 
     # Read/answer tools the orchestrator keeps under every policy. The memory
     # tools write, but only to core memory -- never to the user's files -- so
-    # they are not part of what "delegate" withholds.
+    # they are not part of what "delegate" withholds. Neither do the IDE
+    # control tools: they move the window, not the project.
     orchestrator_tools = [
         wrap_tool(ask_question),
         wrap_tool(read_core_memory),
@@ -1429,6 +1495,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         wrap_tool(web_search),
         wrap_tool(analyze_image),
         *(wrap_tool(tool) for tool in get_diagnostic_tools()),
+        *(wrap_tool(tool) for tool in get_ide_control_tools()),
     ]
 
     # The terminal has no editor to report, and the snapshot a desktop session

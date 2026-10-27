@@ -45,3 +45,48 @@ const CHAT_SIDEBAR_LAYOUTS = new Set(['chat', 'chat-bottom']);
 
 /** Does `mode` dock the chat-list + explorer sidebar? */
 export const layoutHasChatSidebar = (mode) => CHAT_SIDEBAR_LAYOUTS.has(mode);
+
+// Every layout the window has. The agent's `set_layout` tool offers these same
+// names (opalatex/tools.py IDE_LAYOUTS).
+export const LAYOUT_MODES = ['ide', 'chat', 'chat-bottom', 'studio', 'document', 'review'];
+
+/**
+ * What entering `mode` sets besides the mode itself; a field left out is left
+ * as it is.
+ *
+ *   - The studio is a four-surface layout, so it opens with all four on screen
+ *     — except the workspace explorer, which starts retracted because the
+ *     layout exists to give the document the width. It names its bottom cell
+ *     the terminal, so that cell opens on the terminal rather than on whichever
+ *     tab was last read there.
+ *   - The document layout is two panes and nothing else, the open document and
+ *     its preview, so the explorer starts retracted for the same reason. With
+ *     no document open there is nothing to give the width to, and the editor's
+ *     empty state points at the file tree, so it opens on the explorer instead.
+ *   - The review layout replaces the sidebar with its checkpoint list.
+ */
+export function layoutEntry(mode, { hasOpenDocument = false } = {}) {
+  if (mode === 'studio') {
+    return { sidebarTab: null, chatVisible: true, terminalCollapsed: false, bottomTab: 'terminal' };
+  }
+  if (mode === 'document') return { sidebarTab: hasOpenDocument ? null : 'explorer' };
+  if (mode === 'review') return { sidebarTab: null };
+  return {};
+}
+
+/** Switch to `mode` the way its Activity Bar button does (see `layoutEntry`). */
+export function enterLayout(mode, {
+  hasOpenDocument = false,
+  setLayoutMode,
+  setActiveSidebarTab,
+  setIsChatVisible,
+  setIsTerminalCollapsed,
+  setActiveBottomTab,
+}) {
+  const entry = layoutEntry(mode, { hasOpenDocument });
+  setLayoutMode(mode);
+  if ('sidebarTab' in entry) setActiveSidebarTab(entry.sidebarTab);
+  if ('chatVisible' in entry) setIsChatVisible(entry.chatVisible);
+  if ('terminalCollapsed' in entry) setIsTerminalCollapsed(entry.terminalCollapsed);
+  if ('bottomTab' in entry) setActiveBottomTab(entry.bottomTab);
+}

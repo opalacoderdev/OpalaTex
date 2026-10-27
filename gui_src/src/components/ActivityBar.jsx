@@ -7,7 +7,7 @@ import {
   pickActivityBarDensity,
 } from '../utils/activityBarDensity';
 import { readUiScale } from '../utils/uiScale';
-import { layoutAllowsChatToggle, layoutHasChatSidebar, layoutShowsEditor } from '../utils/layoutModes';
+import { enterLayout, layoutAllowsChatToggle, layoutHasChatSidebar, layoutShowsEditor } from '../utils/layoutModes';
 
 // Left-side vertical activity bar (VSCode-style icon strip).
 export default function ActivityBar({
@@ -44,6 +44,16 @@ export default function ActivityBar({
   // The visibility toggle has nothing to switch in the layouts that do not
   // render the chat as a panel, so it is disabled rather than silently inert.
   const isChatToggleDisabled = !layoutAllowsChatToggle(layoutMode);
+  // What a layout button sets on entry lives in layoutModes.js, shared with the
+  // agent's set_layout command, so both switch layouts the same way.
+  const layoutSetters = {
+    hasOpenDocument,
+    setLayoutMode,
+    setActiveSidebarTab,
+    setIsChatVisible,
+    setIsTerminalCollapsed,
+    setActiveBottomTab,
+  };
 
   const barRef = useRef(null);
   const [densityName, setDensityName] = useState(ACTIVITY_BAR_DEFAULT_DENSITY.name);
@@ -149,16 +159,7 @@ export default function ActivityBar({
               setLayoutMode('ide');
               return;
             }
-            // The studio is a four-surface layout, so it opens with all four on
-            // screen — except the workspace explorer, which starts retracted
-            // because the layout exists to give the document the width.
-            setLayoutMode('studio');
-            setActiveSidebarTab(null);
-            setIsChatVisible(true);
-            setIsTerminalCollapsed(false);
-            // The layout names that cell the terminal, so it opens on the
-            // terminal rather than on whichever tab was last read there.
-            setActiveBottomTab('terminal');
+            enterLayout('studio', layoutSetters);
           }}
           className={`vscode-activitybar-btn ${layoutMode === 'studio' ? 'active' : ''}`}
           title={layoutMode === 'studio' ? t('activityBar.editMode') : t('activityBar.studioMode')}
@@ -172,15 +173,7 @@ export default function ActivityBar({
               setLayoutMode('ide');
               return;
             }
-            // Two panes and nothing else: the open document and its preview.
-            // The explorer starts retracted for the same reason the studio
-            // retracts it — the layout exists to give the document the width,
-            // and it can be reopened from this bar without leaving the layout.
-            // With no document open there is nothing to give the width to, and
-            // the editor's empty state points at the file tree, so the layout
-            // opens on the explorer instead of on a closed sidebar.
-            setLayoutMode('document');
-            setActiveSidebarTab(hasOpenDocument ? null : 'explorer');
+            enterLayout('document', layoutSetters);
           }}
           className={`vscode-activitybar-btn ${layoutMode === 'document' ? 'active' : ''}`}
           title={layoutMode === 'document' ? t('activityBar.editMode') : t('activityBar.documentMode')}
@@ -189,10 +182,7 @@ export default function ActivityBar({
         </button>
 
         <button
-          onClick={() => {
-            setLayoutMode('review');
-            setActiveSidebarTab(null);
-          }}
+          onClick={() => enterLayout('review', layoutSetters)}
           className={`vscode-activitybar-btn ${layoutMode === 'review' ? 'active' : ''}`}
           title={t('activityBar.reviewMode')}
         >

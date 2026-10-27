@@ -205,6 +205,26 @@ def test_failure_returns_the_compiler_output(project, fake_compiler):
     assert "[TRUNCATED]" in report and len(report) < 4000
 
 
+@pytest.mark.parametrize("success", [True, False])
+def test_the_ide_is_told_about_the_compile(project, fake_compiler, monkeypatch, success):
+    # The PDF pane and Problems show the agent's compile as if Compile had been
+    # pressed; without the event the pane kept the old PDF.
+    from opalatex import agent_stdin
+    from opalatex.tools import compile_latex
+
+    events = []
+    monkeypatch.setattr(agent_stdin, "event_hook", events.append)
+    fake_compiler.reply["result"] = {"success": success, "pdf_path": "", "log": "LOG", "timing": {}}
+    _call(compile_latex, draft=True)
+
+    compiled = [e for e in events if e.get("event") == "latex_compiled"]
+    assert len(compiled) == 1
+    assert compiled[0]["project_path"] == str(project)
+    assert compiled[0]["main_file"] == "main.tex"
+    assert compiled[0]["success"] is success
+    assert compiled[0]["draft"] is True and compiled[0]["log"] == "LOG"
+
+
 @pytest.mark.skipif(
     not __import__("opalatex.latex_compiler", fromlist=["get_tectonic_path"]).get_tectonic_path(),
     reason="Tectonic is not available",

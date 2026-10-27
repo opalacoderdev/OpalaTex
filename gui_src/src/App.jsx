@@ -7,7 +7,7 @@ import i18n from './i18n/index.js';
 // Utils
 import { safeGetLocalStorage, safeSetLocalStorage } from './utils/storage';
 import { UI_SCALE_DEFAULT, UI_SCALE_KEY_STEP, clampUiScale, roundUiScale, viewportPointToApp, viewportPxToApp } from './utils/uiScale';
-import { layoutAfterOpeningFile, layoutAllowsChatToggle, layoutHasChatSidebar, layoutShowsEditor } from './utils/layoutModes';
+import { enterLayout, layoutAfterOpeningFile, layoutAllowsChatToggle, layoutHasChatSidebar, layoutShowsEditor } from './utils/layoutModes';
 import { compactChatLayoutFor } from './utils/chatCompact';
 import { clearAnsweredRequest, confirmRequestDialog, dialogRequestKey, normalizeInputRequest } from './utils/askQuestion';
 import { readRunConflict, RUN_CONFLICT_TURN_STOPPING } from './utils/agentRunConflict';
@@ -35,6 +35,7 @@ import {
   withoutAgentChangedFile,
 } from './utils/fileMarkers';
 import { createAgentFileSync } from './utils/agentFileSync';
+import { createIdeCommandRunner, sameProjectPath } from './utils/ideCommands.js';
 
 // Hooks
 import { useResizing } from './hooks/useResizing';
@@ -89,6 +90,11 @@ const numericMessageId = (message) => {
 };
 
 const AGENT_WRITE_TOOLS = new Set(['write_file', 'write_content_pos', 'replace_content_range', 'edit_file']);
+
+// How long the editor panel gets to show an agent's reveal_in_pdf, loading the
+// PDF included; below the backend's IDE_COMMAND_TIMEOUT, so the agent hears
+// this reason rather than "the window did not answer".
+const PDF_REVEAL_TIMEOUT_MS = 12000;
 
 const normalizeEditorPathKey = (filePath, caseInsensitive = false) => {
   if (!filePath) return '';
@@ -530,6 +536,13 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState(null);
   const [clipboardNode, setClipboardNode] = useState(null);
   const [jumpToLine, setJumpToLine] = useState(null);
+  // The last compile an agent ran (`latex_compiled`); `seq` makes each one an
+  // event for the editor panel, even when two in a row have the same outcome.
+  const [agentCompile, setAgentCompile] = useState(null);
+  // The agent's reveal_in_pdf, carried out by the editor panel's forward search
+  // ({ seq, file, line, resolve }; see requestPdfReveal).
+  const [pdfRevealRequest, setPdfRevealRequest] = useState(null);
+  const pdfRevealSeqRef = useRef(0);
   const [showAdvancedParams, setShowAdvancedParams] = useState(false);
   const [dirPicker, setDirPicker] = useState(null);
   const [alertMessage, setAlertMessage] = useState('');
@@ -2222,7 +2235,27 @@ export default function App() {
     setLayoutMode(layoutAfterOpeningFile);
   }, []);
 
-  const handleFileSelect = async (filePath, jumpLine = null) => {
+  // The diff view's baseline for a freshly read file: its content at git HEAD,
+  // or empty when it has none.
+  const loadHeadBaseline = (filePath) => {
+    fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(filePath)}&t=${Date.now()}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(gitData => {
+        if (gitData && gitData.content !== undefined) {
+          setOriginalFileContents(prev => ({ ...prev, [filePath]: gitData.content }));
+        } else {
+          setOriginalFileContents(prev => ({ ...prev, [filePath]: '' }));
+        }
+      })
+      .catch(() => {
+        setOriginalFileContents(prev => ({ ...prev, [filePath]: '' }));
+      });
+  };
+
+  // `focusEditor: false` scrolls to `jumpLine` without moving the keyboard
+  // focus: an agent showing the user a file must not pull them out of the chat
+  // composer they may be typing in.
+  const handleFileSelect = async (filePath, jumpLine = null, { focusEditor = true } = {}) => {
     if (!activeProject) return;
     setIsBottomMaximized(false);
     // Opening the file is what acknowledges the agent's change to it.
@@ -2271,7 +2304,7 @@ export default function App() {
       setSelectedFile(filePath);
       revealEditorLayout(); // Put the editor on screen if the layout hides it
       if (jumpLine !== null) {
-        setJumpToLine({ file: filePath, line: jumpLine });
+        setJumpToLine({ file: filePath, line: jumpLine, focusEditor });
       }
       return;
     }
@@ -2286,21 +2319,10 @@ export default function App() {
         setSelectedFile(filePath);
         revealEditorLayout(); // Put the editor on screen if the layout hides it
         if (jumpLine !== null) {
-          setJumpToLine({ file: filePath, line: jumpLine });
+          setJumpToLine({ file: filePath, line: jumpLine, focusEditor });
         }
 
-        fetch(`/api/git/file-at-head?${gitQuerySuffix()}&filePath=${encodeURIComponent(filePath)}&t=${Date.now()}`)
-          .then(r => r.ok ? r.json() : null)
-          .then(gitData => {
-            if (gitData && gitData.content !== undefined) {
-              setOriginalFileContents(prev => ({ ...prev, [filePath]: gitData.content }));
-            } else {
-              setOriginalFileContents(prev => ({ ...prev, [filePath]: '' }));
-            }
-          })
-          .catch(() => {
-            setOriginalFileContents(prev => ({ ...prev, [filePath]: '' }));
-          });
+        loadHeadBaseline(filePath);
       }
       else {
         addLog('error', t('app.fileReadFailed', { path: filePath }));
@@ -2503,6 +2525,89 @@ export default function App() {
       return remaining;
     });
   };
+
+  // A tab an agent opens without focusing it. Its content is read now, as
+  // handleFileSelect reads a focused one: closing the focused tab shows its
+  // neighbour from the buffer cache, and a tab with nothing cached there would
+  // show an empty editor whose save would empty the file.
+  const openBackgroundTab = async (filePath) => {
+    if (!activeProject) return;
+    if (!isBinaryEditorFile(filePath) && fileContentsRef.current[filePath] === undefined) {
+      const res = await fetch(`/api/file/read?projectPath=${encodeURIComponent(activeProject.project_path)}&filePath=${encodeURIComponent(filePath)}`);
+      if (!res.ok) throw new Error(`could not read ${filePath} (HTTP ${res.status})`);
+      const data = await res.json();
+      diskFileContentsRef.current[filePath] = data.content;
+      setFileContents(prev => (prev[filePath] === undefined ? { ...prev, [filePath]: data.content } : prev));
+      setOriginalFileContents(prev => ({ ...prev, [filePath]: data.content }));
+      loadHeadBaseline(filePath);
+    }
+    setOpenFiles(prev => (prev.some(f => sameFilePath(f, filePath)) ? prev : [...prev, filePath]));
+  };
+
+  // Hands reveal_in_pdf to the editor panel, which answers through the request's
+  // resolver. An answered request is cleared, so a panel that remounts later
+  // never replays it, and one no panel takes up (the editor is not on screen)
+  // is answered with that rather than left to the backend's timeout.
+  const requestPdfReveal = (filePath, line) => new Promise((resolve) => {
+    let timer = null;
+    const finish = (answer) => {
+      if (timer === null) return;
+      clearTimeout(timer);
+      timer = null;
+      setPdfRevealRequest(prev => (prev?.resolve === finish ? null : prev));
+      resolve(answer);
+    };
+    timer = setTimeout(() => finish({
+      ok: false,
+      error: `The editor did not show ${filePath} in the PDF pane within ${PDF_REVEAL_TIMEOUT_MS / 1000} s.`,
+    }), PDF_REVEAL_TIMEOUT_MS);
+    pdfRevealSeqRef.current += 1;
+    setPdfRevealRequest({ seq: pdfRevealSeqRef.current, file: filePath, line, resolve: finish });
+  });
+
+  // Commands an agent sends to this window (open_file, close_file,
+  // reveal_in_pdf, set_layout, get_problems; opalatex/ide_control.py). As with the file sync above, every piece of
+  // state is read through a ref: the stream handler that receives a command
+  // may be a closure from when the turn started.
+  const ideCommandDepsRef = useRef(null);
+  ideCommandDepsRef.current = {
+    getProjectPath: () => documentContextRef.current?.projectPath || '',
+    caseInsensitive: () => isCaseInsensitiveProjectPath,
+    samePath: sameFilePath,
+    openFiles: () => openFiles,
+    selectedFile: () => selectedFile,
+    opensOutside: isUnsupportedSystemFile,
+    hasNoLines: isBinaryEditorFile,
+    isUnsaved: (filePath) => {
+      const live = documentContextRef.current;
+      return unsavedFilePaths({
+        openFiles: [filePath],
+        fileContents: fileContentsRef.current,
+        activeFile: live?.selectedFile,
+        activeContent: live?.getContent(),
+        diskContents: diskFileContentsRef.current,
+        isBinary: isBinaryEditorFile,
+      }).length > 0;
+    },
+    focusTab: (filePath, line) => handleFileSelect(filePath, line, { focusEditor: false }),
+    addBackgroundTab: openBackgroundTab,
+    closeTab: (filePath) => handleCloseTab(filePath),
+    revealInPdf: requestPdfReveal,
+    setLayout: (mode) => enterLayout(mode, {
+      hasOpenDocument: !!selectedFile,
+      setLayoutMode,
+      setActiveSidebarTab,
+      setIsChatVisible,
+      setIsTerminalCollapsed,
+      setActiveBottomTab,
+    }),
+    problems: () => problems,
+  };
+  const ideCommandRunnerRef = useRef(null);
+  if (!ideCommandRunnerRef.current) {
+    const deps = new Proxy({}, { get: (_, name) => ideCommandDepsRef.current[name] });
+    ideCommandRunnerRef.current = createIdeCommandRunner(deps);
+  }
 
   // Keeps only `filePath` open. When it is not the active tab we go through
   // handleFileSelect first, so its content is loaded/persisted exactly like a
@@ -3387,6 +3492,49 @@ export default function App() {
           agentFileSyncRef.current?.([...(data.changed_files || []), ...turnWrittenPathsRef.current]);
           turnWrittenPathsRef.current = new Set();
         }
+        break;
+      }
+      case 'ide_command': {
+        // The agent waits for this answer (opalatex/ide_control.py); a refusal
+        // is posted too, so it fails with the reason instead of timing out.
+        const commandId = data.id;
+        Promise.resolve(ideCommandRunnerRef.current(data))
+          .then((result) => {
+            if (result.ok) {
+              addLog('info', t('app.ideCommandDone', 'Agent: {{action}} {{path}}', { action: data.action, path: data.args?.path || data.args?.layout || '' }), data.agent);
+            } else {
+              addLog('error', t('app.ideCommandRefused', 'Agent command {{action}} not carried out: {{error}}', { action: data.action, error: result.error }));
+            }
+            return fetch('/api/opalatex/ide_command_result', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...result, id: commandId }),
+            });
+          })
+          .catch((err) => addLog('error', t('app.ideCommandFailed', 'Could not answer the agent\'s IDE command: {{error}}', { error: err.message })));
+        break;
+      }
+      case 'latex_compiled': {
+        // compile_latex is the editor's own Compile, so its outcome is shown the
+        // same way: the PDF pane reloads and a failure fills the error card and
+        // Problems. A compile of a project the user has left changes nothing.
+        const shownProject = documentContextRef.current?.projectPath || '';
+        const caseInsensitive = ideCommandDepsRef.current.caseInsensitive();
+        if (!sameProjectPath(data.project_path, shownProject, { caseInsensitive })) break;
+        const details = {
+          filePath: data.main_file || '',
+          fileContent: '',
+          projectPath: data.project_path || '',
+          mainFile: data.main_file || '',
+          compiledMainFile: data.main_file || '',
+          log: data.log || '',
+          compileDebug: {},
+          partial: false,
+          draft: Boolean(data.draft),
+        };
+        if (data.success) handleLatexCompileSuccess();
+        else handleLatexCompileError(details);
+        setAgentCompile(prev => ({ ...details, success: Boolean(data.success), seq: (prev?.seq || 0) + 1 }));
         break;
       }
       case 'input_request_closed':
@@ -4857,6 +5005,8 @@ export default function App() {
               }}
               onLatexCompileError={handleLatexCompileError}
               onLatexCompileSuccess={handleLatexCompileSuccess}
+              agentCompile={agentCompile}
+              pdfRevealRequest={pdfRevealRequest}
               onFixLatexProblem={handleFixLatexProblem}
               onAskAboutPdf={handleAskAboutPdf}
               onAskAboutMarkdown={handleAskAboutMarkdown}

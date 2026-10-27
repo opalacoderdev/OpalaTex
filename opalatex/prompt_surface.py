@@ -5,11 +5,14 @@ both front-ends, but some of what they describe exists in only one of them:
 
 * the **terminal commands** the desktop chat refuses outright
   (``cli_commands.CommandRegistry`` marks them ``cli_only``), and
-* the **editor tool**, which reports what the user has open in the IDE. The
-  terminal has no editor, so under the command-line interface it can only
-  answer "nothing was staged" -- or, worse, hand back the snapshot a desktop
-  session left on disk earlier, as though it were what the user is looking at
-  now.
+* the **window tools**: ``get_editor_state`` reports what the user has open in
+  the IDE; ``open_file``/``close_file``, ``reveal_in_pdf`` and ``set_layout``
+  change what the window shows; ``get_problems`` and ``read_terminal`` read its
+  Problems panel and its main terminal. The terminal has no editor, so under
+  the command-line interface the first can only answer "nothing was staged" --
+  or, worse, hand back the snapshot a desktop session left on disk earlier, as
+  though it were what the user is looking at now -- and the others would wait
+  for a window, or read a terminal tab, that does not exist.
 
 Offering either where it cannot work spends context describing it and invites
 the model to call it and then report a capability the user does not have. The
@@ -17,9 +20,11 @@ surface is decided by ``agent_stdin.reply_surface``: the command-line interface
 installs it (``cli_render.install``), and the desktop app leaves it unset.
 
 Filtering is by the *subject* of each item -- the first backticked name in a
-bullet or in a comma-separated list entry -- because that is how both list
-shapes in the bodies are written. A line that merely mentions a name in passing
-keeps its own subject, so nothing that belongs to this surface is dropped.
+bullet, a table row or a comma-separated list entry -- because that is how the
+list shapes in the bodies are written (a routing-table row names its correct
+route first, after a request written in plain quotes). A line that merely
+mentions a name in passing keeps its own subject, so nothing that belongs to
+this surface is dropped.
 """
 
 from __future__ import annotations
@@ -27,12 +32,17 @@ from __future__ import annotations
 import re
 
 #: Tools that only mean something in the desktop window.
-GUI_ONLY_TOOLS = frozenset({"get_editor_state"})
+GUI_ONLY_TOOLS = frozenset({
+    "get_editor_state", "open_file", "close_file", "reveal_in_pdf", "set_layout",
+    "get_problems", "read_terminal",
+})
 
 #: The first backticked name of an item: `/project [new]`, `get_editor_state`.
 _SUBJECT_RE = re.compile(r"`([A-Za-z_/][\w./-]*)[^`]*`")
 
 _BULLET_RE = re.compile(r"^\s*[*-]\s")
+
+_TABLE_ROW_RE = re.compile(r"^\s*\|")
 
 
 def is_terminal_surface() -> bool:
@@ -86,10 +96,11 @@ def strip_items(text: str, removed: frozenset[str] | set[str]) -> str:
         if in_fence or "`" not in line:
             lines.append(line)
             continue
-        # A bullet whose subject is removed goes entirely; one that survives is
-        # still filtered inside, because a bullet can carry a comma-separated
-        # list of its own ("neither is any tool of yours: `read_file`, …").
-        if _BULLET_RE.match(line) and _subject(line) in removed:
+        # A bullet or table row whose subject is removed goes entirely; one that
+        # survives is still filtered inside, because a bullet can carry a
+        # comma-separated list of its own ("neither is any tool of yours:
+        # `read_file`, …").
+        if (_BULLET_RE.match(line) or _TABLE_ROW_RE.match(line)) and _subject(line) in removed:
             continue
         segments = _split_top_level(line)
         if len(segments) < 2:

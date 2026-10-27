@@ -80,6 +80,12 @@ export default function EditorPanel({
   onCompileRequestHandled,
   onLatexCompileError,
   onLatexCompileSuccess,
+  // The last compile an agent ran ({ seq, success, log, ... }); shown here as
+  // if Compile had been pressed.
+  agentCompile,
+  // An agent's reveal_in_pdf ({ seq, file, line, resolve }), answered through
+  // its resolver once the PDF pane shows the line.
+  pdfRevealRequest,
   onFixLatexProblem,
   onAskAboutPdf,
   onAskAboutMarkdown,
@@ -283,6 +289,9 @@ export default function EditorPanel({
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [isCleaningLatex, setIsCleaningLatex] = useState(false);
   const pendingPdfSyncRef = useRef(null);
+  // reveal_in_pdf's scroll, held while the viewer (re)loads the document.
+  const pendingPdfRevealRef = useRef(null);
+  const handledPdfRevealRef = useRef(0);
   const lastCompiledContentsRef = useRef({});
   const lastHandledCompileRequestIdRef = useRef(null);
 
@@ -332,6 +341,11 @@ export default function EditorPanel({
   }, []);
 
   const handlePdfDocumentReady = useCallback(() => {
+    const reveal = pendingPdfRevealRef.current;
+    if (reveal) {
+      pendingPdfRevealRef.current = null;
+      reveal();
+    }
     const pending = pendingPdfSyncRef.current;
     if (!pending) return;
     pendingPdfSyncRef.current = null;
@@ -426,6 +440,94 @@ export default function EditorPanel({
     return () => { cancelled = true; };
   }, [selectedFile, activeProject?.project_path]);
 
+  // A compile the agent ran with compile_latex. Success reloads the PDF the
+  // same way opening the .tex finds it (check-pdf also points /api/latex/pdf
+  // at that file); failure fills the error card. The pane is not expanded,
+  // just as the Compile button does not expand it.
+  useEffect(() => {
+    if (!agentCompile) return undefined;
+    if (!agentCompile.success) {
+      setPdfErrorLog(agentCompile.log);
+      setLatexCompileProblem({ source: 'latex_compile', ...agentCompile, message: agentCompile.log });
+      return undefined;
+    }
+    setPdfErrorLog('');
+    setLatexCompileProblem(null);
+    if (!selectedFile || !selectedFile.toLowerCase().endsWith('.tex') || !activeProject?.project_path) {
+      return undefined;
+    }
+    let cancelled = false;
+    fetch(`/api/latex/check-pdf?filePath=${encodeURIComponent(selectedFile)}&projectPath=${encodeURIComponent(activeProject.project_path)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!cancelled && data.found && (data.pdf_url || data.pdf_base64)) {
+          setPdfUrl(data.pdf_url || `/api/latex/pdf?ts=${Date.now()}`);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // Only a new compile is an event; a tab switch is handled by the effect above.
+  }, [agentCompile?.seq]);
+
+  // An agent's reveal_in_pdf: the forward search Ctrl+Click runs, for a line the
+  // agent names. App focuses the tab at that line first, so the request is taken
+  // up once it is the selected file. The PDF is found the way opening the .tex
+  // finds it (check-pdf, which also points the SyncTeX lookup at that PDF), the
+  // pane is opened, and the scroll waits for the viewer when it is loading.
+  useEffect(() => {
+    const request = pdfRevealRequest;
+    if (!request || request.seq === handledPdfRevealRef.current) return;
+    if (request.file !== selectedFile || !activeProject?.project_path) return;
+    handledPdfRevealRef.current = request.seq;
+    const { file, line, resolve } = request;
+    const query = `filePath=${encodeURIComponent(file)}&projectPath=${encodeURIComponent(activeProject.project_path)}`;
+    const hadPdf = Boolean(pdfUrl);
+    const paneWasOpen = !isPdfPreviewCollapsed;
+    (async () => {
+      try {
+        const check = await (await fetch(`/api/latex/check-pdf?${query}`)).json();
+        if (!check.found && !hadPdf) {
+          resolve({ ok: false, error: `${file} has no compiled PDF yet: the document has to be compiled first.` });
+          return;
+        }
+        const res = await fetch(`/api/latex/synctex?action=tex2pdf&line=${line}&${query}`);
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 404) {
+          resolve({
+            ok: false,
+            error: `The PDF of ${file} has no SyncTeX data: compile the document fully (a draft pass writes none) and reveal again.`,
+          });
+          return;
+        }
+        if (!res.ok) {
+          resolve({ ok: false, error: `The SyncTeX lookup failed: ${data.error || `HTTP ${res.status}`}.` });
+          return;
+        }
+        const position = data.result;
+        if (!position?.page) {
+          resolve({
+            ok: false,
+            error: `Line ${line} of ${file} has no typeset output in the PDF: it is a comment, preamble or `
+              + 'text the document does not include, or the PDF was compiled before that line was written.',
+          });
+          return;
+        }
+        const reveal = () => {
+          pdfPreviewRef.current?.scrollTo(position.page, position.x, position.y, position.w, position.h);
+          resolve({ ok: true, page: position.page });
+        };
+        if (check.found) setPdfUrl(check.pdf_url || `/api/latex/pdf?ts=${Date.now()}`);
+        setIsPdfPreviewCollapsed(false);
+        // A new URL reloads the viewer and an opened pane mounts one; either
+        // reports through handlePdfDocumentReady once the pages exist.
+        if (check.found || !paneWasOpen || !pdfPreviewRef.current) pendingPdfRevealRef.current = reveal;
+        else reveal();
+      } catch (err) {
+        resolve({ ok: false, error: `The PDF lookup failed: ${err.message}` });
+      }
+    })();
+  }, [pdfRevealRequest, selectedFile, activeProject?.project_path]);
+
   // Jump to line effect when switching files
   useEffect(() => {
     if (jumpToLine && jumpToLine.file === selectedFile && localEditorRef.current) {
@@ -434,7 +536,7 @@ export default function EditorPanel({
         if (localEditorRef.current) {
           localEditorRef.current.revealLineInCenter(jumpToLine.line);
           localEditorRef.current.setPosition({ lineNumber: jumpToLine.line, column: 1 });
-          localEditorRef.current.focus();
+          if (jumpToLine.focusEditor !== false) localEditorRef.current.focus();
         }
         setJumpToLine(null);
       }, 100);
@@ -1931,6 +2033,9 @@ export default function EditorPanel({
               activeProject={activeProject}
               selectedFile={selectedFile}
               onSyncTexNavigate={handleSyncTexNavigate}
+              onFixLatexProblem={onFixLatexProblem}
+              onLatexCompileError={onLatexCompileError}
+              onLatexCompileSuccess={onLatexCompileSuccess}
               onAskAboutPdf={onAskAboutPdf}
               speechSettingsSignal={speechSettingsSignal}
               isAgentRunning={isAgentRunning}

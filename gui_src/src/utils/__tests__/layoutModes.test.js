@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   EDITOR_LAYOUTS,
+  LAYOUT_MODES,
+  enterLayout,
   layoutAfterOpeningFile,
   layoutAllowsChatToggle,
   layoutHasChatSidebar,
@@ -60,5 +62,57 @@ test('the chat-first layouts dock the chat-list sidebar', () => {
 test('no other layout docks the chat-list sidebar', () => {
   for (const mode of ['ide', 'studio', 'document', 'review', undefined]) {
     assert.equal(layoutHasChatSidebar(mode), false);
+  }
+});
+
+// A recorder for the setters a layout entry calls.
+function setters(hasOpenDocument) {
+  const calls = {};
+  const record = (name) => (value) => { calls[name] = value; };
+  return {
+    calls,
+    deps: {
+      hasOpenDocument,
+      setLayoutMode: record('layout'),
+      setActiveSidebarTab: record('sidebar'),
+      setIsChatVisible: record('chat'),
+      setIsTerminalCollapsed: record('terminalCollapsed'),
+      setActiveBottomTab: record('bottomTab'),
+    },
+  };
+}
+
+test('every layout the window renders can be entered', () => {
+  assert.deepEqual([...LAYOUT_MODES].sort(), ['chat', 'chat-bottom', 'document', 'ide', 'review', 'studio']);
+  for (const mode of EDITOR_LAYOUTS) assert.ok(LAYOUT_MODES.includes(mode));
+});
+
+test('the studio opens with its four surfaces and the explorer retracted', () => {
+  const { calls, deps } = setters(true);
+  enterLayout('studio', deps);
+  assert.deepEqual(calls, {
+    layout: 'studio', sidebar: null, chat: true, terminalCollapsed: false, bottomTab: 'terminal',
+  });
+});
+
+test('the document layout opens on the explorer only when no document is open', () => {
+  const open = setters(true);
+  enterLayout('document', open.deps);
+  assert.deepEqual(open.calls, { layout: 'document', sidebar: null });
+
+  const empty = setters(false);
+  enterLayout('document', empty.deps);
+  assert.deepEqual(empty.calls, { layout: 'document', sidebar: 'explorer' });
+});
+
+test('the other layouts change only what they own', () => {
+  const review = setters(true);
+  enterLayout('review', review.deps);
+  assert.deepEqual(review.calls, { layout: 'review', sidebar: null });
+
+  for (const mode of ['ide', 'chat', 'chat-bottom']) {
+    const plain = setters(true);
+    enterLayout(mode, plain.deps);
+    assert.deepEqual(plain.calls, { layout: mode });
   }
 });

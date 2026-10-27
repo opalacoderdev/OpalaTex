@@ -1687,6 +1687,20 @@ def compile_latex(path: str = "", draft: bool = False) -> str:
         include_pdf_base64=False, draft=draft,
     )
     log = str(result.get("log") or "")
+    # The IDE shows the outcome as if its Compile button had been pressed: the
+    # PDF pane reloads, a failure fills the error card and Problems. Without it
+    # the agent compiled out of the user's sight and the pane kept the old PDF.
+    try:
+        from opalatex.agent_stdin import print_event
+        print_event("latex_compiled", {
+            "project_path": project_dir,
+            "main_file": main,
+            "success": bool(result.get("success")),
+            "draft": bool(draft),
+            "log": log,
+        })
+    except Exception:
+        pass
     seconds = (result.get("timing") or {}).get("compile_seconds")
     took = f" in {seconds:.1f}s" if isinstance(seconds, (int, float)) else ""
     mode = "draft pass" if draft else "full compile"
@@ -1789,7 +1803,10 @@ async def run_background_command(command: str) -> str:
         # prevent it from accepting the very request the tool is waiting for.
         status = await asyncio.to_thread(send)
         if status == 200:
-            return f"SUCCESS: The command '{command}' has been sent to the main background terminal and is now running."
+            return (
+                f"SUCCESS: The command '{command}' has been sent to the main background terminal and is "
+                "now running. Read what it prints with read_terminal."
+            )
         return f"FAILED to start background command: HTTP {status}"
     except Exception as e:
         return f"FAILED to send command to background terminal: {str(e)}"
@@ -2592,6 +2609,7 @@ def get_available_tools():
         ask_question,
         *get_diagnostic_tools(),
         get_editor_state,
+        read_terminal,
         *get_workspace_action_tools(),
     ]
 
@@ -2655,6 +2673,13 @@ def get_editor_state(include_content: bool = False) -> str:
     open_files = [str(p).replace("\\", "/") for p in state.get("open_files") or [] if str(p).strip()]
     selected_text = str(state.get("selected_text", "") or "")
     editor_content = str(state.get("editor_content", "") or "")
+    # The buffer and the selection are captured once, at the start of the turn,
+    # for the tab focused then. open_file/close_file keep the tab list current
+    # but cannot capture a buffer, so once the agent moves the focus the two
+    # belong to a tab that is no longer the focused one. Absent in states staged
+    # before the key existed, where they always belonged to `current_file`.
+    buffer_file = str(state.get("editor_content_file", current_file) or "").replace("\\", "/")
+    focus_moved = buffer_file != current_file
 
     lines = ["## Editor State"]
 
@@ -2679,9 +2704,17 @@ def get_editor_state(include_content: bool = False) -> str:
     else:
         lines.append("- **Focused file**: (no file open in the editor)")
 
-    if selected_text:
+    if focus_moved:
         lines.append(
-            f"\n### Selected text ({len(selected_text.splitlines())} lines, "
+            "- **Focus changed during this turn**: the selection and live buffer below were "
+            f"captured at its start for `{buffer_file or '(no file)'}`. Nothing was captured for "
+            f"`{current_file or '(no file)'}`; read it from disk with read_file."
+        )
+
+    if selected_text:
+        where = f" in `{buffer_file}`" if focus_moved else ""
+        lines.append(
+            f"\n### Selected text{where} ({len(selected_text.splitlines())} lines, "
             f"{len(selected_text):,} chars)\n```\n"
             + _truncate_to_context_budget(selected_text, reserve_pct=25)
             + "\n```"
@@ -2692,7 +2725,7 @@ def get_editor_state(include_content: bool = False) -> str:
     if include_content:
         if editor_content:
             lines.append(
-                f"\n### Live buffer of `{current_file or 'the focused tab'}` "
+                f"\n### Live buffer of `{buffer_file or 'the focused tab'}` "
                 f"({len(editor_content.splitlines()):,} lines, {len(editor_content):,} chars)\n"
                 "This is the editor buffer, which may contain unsaved edits that differ from "
                 "the file on disk.\n```\n"
@@ -2708,6 +2741,328 @@ def get_editor_state(include_content: bool = False) -> str:
         )
 
     return "\n".join(lines)
+
+
+# ─── IDE Control ──────────────────────────────────────────────────────────────
+# get_editor_state reports the window; these move it. Each is a round trip to
+# the desktop app (opalatex/ide_control.py), which performs the command with the
+# handlers a click uses and answers with the resulting tabs. Those are written
+# back into the staged editor state, so get_editor_state stays true for the rest
+# of the turn. They change what the window shows, never a file, so they are
+# safe: showing the user something is as legitimate in plan mode as reading it.
+
+def _ide_project_file(path: str) -> tuple[str, str]:
+    """(project dir, project-relative POSIX path) of *path*, which must be inside the project."""
+    if not str(path or "").strip():
+        raise ValueError("Error: 'path' is required: the project-relative path of a file.")
+    project_dir = os.path.abspath(get_project_path())
+    resolved = os.path.abspath(_resolve_path(path))
+    try:
+        common = os.path.commonpath([os.path.normcase(project_dir), os.path.normcase(resolved)])
+    except ValueError:  # different drives on Windows
+        common = ""
+    if common != os.path.normcase(project_dir):
+        raise ValueError(
+            f"Error: {_preview(path)} is outside the project. The IDE shows only files of the "
+            f"open project ({project_dir})."
+        )
+    return project_dir, os.path.relpath(resolved, project_dir).replace(os.sep, "/")
+
+
+def _record_editor_tabs(project_dir: str, open_files: list, current_file: str) -> None:
+    """Write the tabs the IDE reported after a command into the staged editor state."""
+    try:
+        state = _load_editor_state(project_dir)
+    except ValueError:
+        state = {}
+    # The buffer and selection still belong to the tab they were captured for.
+    state.setdefault("editor_content_file", state.get("current_file", ""))
+    state["open_files"] = [str(p) for p in open_files if str(p).strip()]
+    state["current_file"] = current_file
+    path = editor_state_path(project_dir)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+    except OSError as e:
+        print(f"Warning: Failed to record the editor tabs: {e}", file=sys.stderr)
+
+
+def _ide_tabs_after(project_dir: str, result: dict) -> str:
+    """Record and describe the tab state the IDE answered with."""
+    open_files = [str(p) for p in result.get("open_files") or [] if str(p).strip()]
+    current_file = str(result.get("current_file") or "")
+    _record_editor_tabs(project_dir, open_files, current_file)
+    if not open_files:
+        return "No tabs are open now."
+    listed = ", ".join(
+        f"`{p}`" + (" (focused)" if p == current_file else "") for p in open_files
+    )
+    return f"Open tabs now ({len(open_files)}): {listed}."
+
+
+def _line_count(path: str) -> int:
+    with open(path, "rb") as f:
+        data = f.read()
+    return max(1, data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0))
+
+
+@opalatex_tool(
+    name="open_file",
+    is_safe=True,
+    description=(
+        "Open a project file in the user's IDE editor, to show them what you are talking about or "
+        "what you changed. `path` is project-relative. `line` (1-based, optional) scrolls the "
+        "editor to that line. With focus=true (the default) the file becomes the visible tab and "
+        "the editor is brought on screen; with focus=false it is only added as a background tab "
+        "and the user's view is left alone. The user's keyboard focus is never moved. This changes "
+        "only what the window shows: it neither reads the file for you (use read_file) nor "
+        "modifies it. Files the IDE has no tab for (images, archives, office documents) are refused."
+    ),
+)
+async def open_file(path: str, line: int = 0, focus: bool = True) -> str:
+    AGENT_PROGRESS.update("open_file", f"{path}" + (f":{line}" if line else ""))
+    from .ide_control import send_ide_command
+
+    project_dir, rel = _ide_project_file(path)
+    resolved = os.path.join(project_dir, rel)
+    if not os.path.isfile(resolved):
+        candidates = _same_name_candidates(resolved)
+        where = (
+            "A file with this name exists at: " + ", ".join(candidates) + "."
+            if candidates
+            else "No file with this name exists anywhere in the project; list it with get_project_overview."
+        )
+        raise ValueError(f"Error: file not found: {_preview(rel)}. {where}")
+    if line < 0:
+        raise ValueError("Error: 'line' is 1-based; pass 0 (or omit it) to open without scrolling.")
+    if line and not focus:
+        raise ValueError(
+            "Error: 'line' scrolls the visible editor, so it needs focus=true. A background tab "
+            "opens at its top."
+        )
+    if line:
+        total = _line_count(resolved)
+        if line > total:
+            raise ValueError(f"Error: {rel} has {total} lines; line {line} does not exist.")
+
+    result = await send_ide_command(
+        "open_file",
+        {"path": rel, "line": line or None, "focus": bool(focus)},
+        project_path=project_dir,
+    )
+    how = "as the focused tab" if focus else "as a background tab"
+    at = f", scrolled to line {line}" if line else ""
+    return f"Opened `{rel}` in the editor {how}{at}.\n{_ide_tabs_after(project_dir, result)}"
+
+
+@opalatex_tool(
+    name="close_file",
+    is_safe=True,
+    description=(
+        "Close a tab in the user's IDE editor. `path` is project-relative, as get_editor_state "
+        "lists the open tabs. A tab with unsaved edits is never closed: the call is refused, so "
+        "the user's work stays on screen. Close only tabs you opened yourself or that the user "
+        "asked you to close."
+    ),
+)
+async def close_file(path: str) -> str:
+    AGENT_PROGRESS.update("close_file", str(path))
+    from .ide_control import send_ide_command
+
+    project_dir, rel = _ide_project_file(path)
+    result = await send_ide_command("close_file", {"path": rel}, project_path=project_dir)
+    return f"Closed the tab of `{rel}`.\n{_ide_tabs_after(project_dir, result)}"
+
+
+@opalatex_tool(
+    name="reveal_in_pdf",
+    is_safe=True,
+    description=(
+        "Show the user where a line of LaTeX source lands in the compiled PDF. The IDE focuses the "
+        "`.tex` tab at that line, opens the PDF pane beside it and scrolls the PDF to the typeset "
+        "text, highlighting it briefly: the editor's own forward search (Ctrl+Click). `path` is a "
+        "project-relative .tex file and `line` is 1-based. It reads the SyncTeX data of the last "
+        "full compile, so after changing the source the document must be compiled again (a draft "
+        "pass does not update it). The answer says which PDF page the line is on."
+    ),
+)
+async def reveal_in_pdf(path: str, line: int) -> str:
+    AGENT_PROGRESS.update("reveal_in_pdf", f"{path}:{line}")
+    from .ide_control import send_ide_command
+
+    project_dir, rel = _ide_project_file(path)
+    resolved = os.path.join(project_dir, rel)
+    if not os.path.isfile(resolved):
+        raise ValueError(f"Error: file not found: {_preview(rel)}.")
+    if not rel.lower().endswith(".tex"):
+        raise ValueError(
+            f"Error: {rel} is not a .tex file. Only LaTeX source has a place in the PDF; use "
+            "open_file to show any other file."
+        )
+    if line < 1:
+        raise ValueError("Error: 'line' is the 1-based source line to find in the PDF.")
+    total = _line_count(resolved)
+    if line > total:
+        raise ValueError(f"Error: {rel} has {total} lines; line {line} does not exist.")
+
+    result = await send_ide_command(
+        "reveal_in_pdf", {"path": rel, "line": line}, project_path=project_dir,
+    )
+    page = result.get("page")
+    where = f"on page {page}" if page else "in the PDF"
+    return (
+        f"Showing line {line} of `{rel}` {where}, highlighted in the PDF pane beside the editor.\n"
+        f"{_ide_tabs_after(project_dir, result)}"
+    )
+
+
+#: The window's layouts, as `set_layout` offers them (`layoutModes.js` holds the
+#: same names), with what each one puts on screen.
+IDE_LAYOUTS = {
+    "ide": "the editor with its PDF/preview pane, the file explorer, the chat panel and the "
+           "bottom panel (terminal, Problems)",
+    "studio": "editor, PDF/preview, chat and terminal on one screen",
+    "document": "only the open file and its preview, side by side",
+    "chat": "the conversation fills the window; the editor is hidden",
+    "chat-bottom": "the conversation above the bottom panel (terminal, Problems); the editor is hidden",
+    "review": "the checkpoint history of the agent's changes, where the user reviews or restores them",
+}
+
+
+@opalatex_tool(
+    name="set_layout",
+    is_safe=True,
+    description=(
+        "Switch the user's IDE window to another layout, as the layout buttons of the activity bar "
+        "do. Layouts: "
+        + "; ".join(f"`{name}`: {what}" for name, what in IDE_LAYOUTS.items())
+        + ". Change the layout only when the user asks for it or when what you are about to show "
+        "needs it (for example `review` after a change the user wants to inspect); the layout is "
+        "the user's workspace, not yours."
+    ),
+)
+async def set_layout(layout: str) -> str:
+    AGENT_PROGRESS.update("set_layout", str(layout))
+    from .ide_control import send_ide_command
+
+    name = str(layout or "").strip()
+    if name not in IDE_LAYOUTS:
+        raise ValueError(
+            f"Error: unknown layout {_preview(layout)}. Layouts: "
+            + ", ".join(f"`{n}`" for n in IDE_LAYOUTS) + "."
+        )
+    project_dir = os.path.abspath(get_project_path())
+    await send_ide_command("set_layout", {"layout": name}, project_path=project_dir)
+    return f"The IDE window is now in the `{name}` layout: {IDE_LAYOUTS[name]}."
+
+
+#: Most recent Problems entries `get_problems` reports, and the length kept of
+#: a message that is not a compile log.
+_PROBLEMS_SHOWN = 30
+_PROBLEM_MESSAGE_CHARS = 1500
+
+
+@opalatex_tool(
+    name="get_problems",
+    is_safe=True,
+    description=(
+        "Read the Problems panel of the user's IDE: the failures the window is showing right now, "
+        "such as a LaTeX compile the user ran with the Compile button and the errors of tools. "
+        "Each entry gives its source, severity, file and message (a compile entry carries the "
+        "compiler output). Use it when the user refers to an error they see, before guessing."
+    ),
+)
+async def get_problems() -> str:
+    AGENT_PROGRESS.update("get_problems")
+    from .ide_control import send_ide_command
+
+    project_dir = os.path.abspath(get_project_path())
+    result = await send_ide_command("get_problems", {}, project_path=project_dir)
+    problems = [p for p in result.get("problems") or [] if isinstance(p, dict)]
+    if not problems:
+        return "The Problems panel is empty."
+    shown = problems[-_PROBLEMS_SHOWN:]
+    lines = [f"Problems panel ({len(problems)} entries, oldest first):"]
+    if len(problems) > len(shown):
+        lines.append(f"(the {len(problems) - len(shown)} oldest are omitted)")
+    for index, problem in enumerate(shown, 1):
+        message = str(problem.get("message") or "").strip()
+        if problem.get("source") == "latex_compile":
+            message = _trim_compile_log(message)
+        elif len(message) > _PROBLEM_MESSAGE_CHARS:
+            message = message[:_PROBLEM_MESSAGE_CHARS] + " ... [TRUNCATED]"
+        head = f"{index}. [{problem.get('severity') or 'error'}] {problem.get('tool') or 'IDE'}"
+        if problem.get("file"):
+            head += f" — `{problem['file']}`"
+        if problem.get("time"):
+            head += f" ({problem['time']})"
+        lines.append(f"{head}\n{message}")
+    return "\n".join(lines)
+
+
+#: Lines `read_terminal` returns by default and at most.
+_TERMINAL_DEFAULT_LINES = 60
+_TERMINAL_MAX_LINES = 400
+
+
+@opalatex_tool(
+    name="read_terminal",
+    is_safe=True,
+    description=(
+        "Read the last lines of the user's main IDE terminal, as plain text: the output of a server "
+        "or build started there with run_background_command, or of commands the user ran "
+        "themselves. `lines` is how many lines from the bottom to return "
+        f"(default {_TERMINAL_DEFAULT_LINES}, at most {_TERMINAL_MAX_LINES}). It only reads; it "
+        "never types into the terminal or starts one."
+    ),
+)
+async def read_terminal(lines: int = _TERMINAL_DEFAULT_LINES) -> str:
+    AGENT_PROGRESS.update("read_terminal", f"lines={lines}")
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    if lines < 1 or lines > _TERMINAL_MAX_LINES:
+        raise ValueError(f"Error: 'lines' must be between 1 and {_TERMINAL_MAX_LINES}.")
+    project_dir = os.path.abspath(get_project_path())
+
+    def fetch():
+        from .local_auth import local_api_connection
+        base_url, cookie = local_api_connection()
+        url = base_url + "/api/terminal/output?" + urllib.parse.urlencode({"projectPath": project_dir})
+        request = urllib.request.Request(url, headers={"Cookie": cookie})
+        try:
+            with urllib.request.urlopen(request, timeout=5.0) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            try:
+                reason = json.loads(e.read().decode("utf-8")).get("error") or ""
+            except ValueError:
+                reason = ""
+            raise ValueError(f"Error: {reason or f'the IDE answered HTTP {e.code}'}") from None
+
+    # The HTTP server shares this event loop (see run_background_command).
+    data = await asyncio.to_thread(fetch)
+    screen = str(data.get("text") or "").rstrip("\n").split("\n")
+    while screen and not screen[0].strip():
+        screen.pop(0)
+    if not screen:
+        return "The main terminal is running and shows nothing yet."
+    tail = screen[-lines:]
+    earlier = len(screen) - len(tail)
+    note = f"last {len(tail)} of {len(screen)} lines" if earlier else f"all {len(tail)} lines"
+    if data.get("truncated") and not earlier:
+        note += "; older output is no longer kept"
+    return f"Main terminal ({note}):\n```text\n" + "\n".join(tail) + "\n```"
+
+
+def get_ide_control_tools():
+    """Tools that drive or read the desktop window. The orchestrator's: a worker
+    runs out of sight of the user, so there is nothing for it to show them.
+    `read_terminal` only reads, and workers that start a background command get
+    it too (`get_available_tools`)."""
+    return [open_file, close_file, reveal_in_pdf, set_layout, get_problems, read_terminal]
 
 
 # ─── Achievements Memory ─────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import subprocess
 import asyncio
@@ -11,6 +12,39 @@ from .external_tools import environment_with_managed_tools
 # that reconnects (tab switch, React remount, dropped SSE stream) can restore
 # the visible scrollback instead of showing an empty terminal.
 SCROLLBACK_LIMIT = 256 * 1024
+
+
+# Escape sequences a shell and its programs write to the PTY: OSC (window title,
+# hyperlinks, cwd reports), CSI (colours, cursor moves, erase, private modes such
+# as bracketed paste) and the remaining two-byte escapes.
+_ESCAPE_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def screen_text(data: bytes) -> str:
+    """The lines a terminal shows for raw PTY output, as plain text.
+
+    Colours and cursor sequences are dropped. A carriage return rewinds the
+    line, so a progress bar redrawn in place reads as its last state rather than
+    as every frame glued together; a backspace erases the character before it.
+    The scrollback is a rolling window, so a sequence cut at its start is only
+    lost text, never an error.
+    """
+    text = _ESCAPE_RE.sub("", data.decode("utf-8", errors="replace"))
+    lines = []
+    for raw in text.split("\n"):
+        cells: list[str] = []
+        for segment in raw.rstrip("\r").split("\r"):
+            drawn: list[str] = []
+            for char in segment:
+                if char == "\b":
+                    if drawn:
+                        drawn.pop()
+                elif char == "\t" or not _CONTROL_RE.match(char):
+                    drawn.append(char)
+            cells = drawn + cells[len(drawn):]
+        lines.append("".join(cells).rstrip())
+    return "\n".join(lines)
 
 
 def enable_ctrl_c_for_children():
