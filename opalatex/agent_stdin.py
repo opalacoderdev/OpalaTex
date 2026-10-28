@@ -555,6 +555,15 @@ def _friendly_llm_error(exc: Exception, project=None) -> str:
         from opalatex.i18n import _
         return _("err_context_exceeded").format(model=model)
 
+    # Checked before the Ollama-status and connection branches: LiteLLM words
+    # every timeout as a connection problem ("Connection timed out", or an
+    # APIConnectionError for a stream that stalls mid-response), and a timeout
+    # value such as "500.0 seconds" would be read as an HTTP status.
+    timeout_kind = _llm_timeout_kind(low)
+    if timeout_kind is not None:
+        from opalatex.i18n import _
+        return _(timeout_kind, model=model)
+
     ollama_status = _ollama_http_status_from_error(msg)
     if ollama_status is not None:
         return (
@@ -3259,6 +3268,31 @@ async def stdin_server_loop():
 def start_stdin_server():
     claim_stdout_for_protocol()
     asyncio.run(stdin_server_loop())
+
+# A read timeout on an open response: the server answered, then went silent.
+_STALLED_RESPONSE_MARKERS = (
+    "timeout on reading data",
+    "read timed out",
+    "the read operation timed out",
+    "readtimeout",
+)
+# Any other request timeout; LiteLLM does not say whether it hit while
+# connecting or while waiting for the first byte.
+_REQUEST_TIMEOUT_MARKERS = (
+    "timed out",
+    "litellm.timeout",
+    "apitimeouterror",
+)
+
+
+def _llm_timeout_kind(low_message: str) -> str | None:
+    """Return the i18n key describing a timed-out LLM request, if it is one."""
+    if any(marker in low_message for marker in _STALLED_RESPONSE_MARKERS):
+        return "err_response_stalled"
+    if any(marker in low_message for marker in _REQUEST_TIMEOUT_MARKERS):
+        return "err_request_timeout"
+    return None
+
 
 def _ollama_http_status_from_error(message: str) -> int | None:
     """Return an Ollama HTTP status embedded in a LiteLLM exception message."""

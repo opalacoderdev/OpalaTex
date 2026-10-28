@@ -227,6 +227,64 @@ def test_ollama_404_page_not_found_is_reported_as_connection_error():
     assert "Could not connect to ollama/gpt-oss:20b" in msg
 
 
+def test_stream_stalled_mid_response_is_not_reported_as_connection_error():
+    """A stream that goes silent until the read timeout fires.
+
+    Text captured from LiteLLM against a server that streamed thinking chunks
+    and then stopped sending data.
+    """
+    from opalatex.i18n import set_lang
+
+    project = SimpleNamespace(model="ollama/gpt-oss:20b", api_base="http://100.85.255.111:11434/v1")
+    exc = Exception(
+        "litellm.MidStreamFallbackError: litellm.APIConnectionError: "
+        "Ollama_chatException - Timeout on reading data from socket Original exception: "
+        "APIConnectionError: litellm.APIConnectionError: Ollama_chatException - "
+        "Timeout on reading data from socket"
+    )
+
+    set_lang("en")
+    en_msg = _friendly_llm_error(exc, project)
+    assert "Could not connect" not in en_msg
+    assert "ollama/gpt-oss:20b started responding, then stopped sending data" in en_msg
+
+    set_lang("pt")
+    pt_msg = _friendly_llm_error(exc, project)
+    assert "Falha de conexão" not in pt_msg
+    assert "parou de enviar dados" in pt_msg
+
+
+def test_request_timeout_is_not_reported_as_connection_error():
+    from opalatex.i18n import set_lang
+
+    project = SimpleNamespace(model="ollama/gpt-oss:20b", api_base="http://100.85.255.111:11434/v1")
+    # A 500 s timeout must not be read as an Ollama HTTP 500 either.
+    exc = Exception(
+        "litellm.Timeout: Ollama_chatException - litellm.Timeout: Connection timed out "
+        "after 500.0 seconds."
+    )
+
+    set_lang("en")
+    msg = _friendly_llm_error(exc, project)
+
+    assert "Could not connect" not in msg
+    assert "HTTP 500" not in msg
+    assert "ollama/gpt-oss:20b did not respond before the request timed out" in msg
+
+
+def test_refused_connection_is_still_reported_as_connection_error():
+    from opalatex.i18n import set_lang
+
+    project = SimpleNamespace(model="ollama/gpt-oss:20b", api_base="http://10.255.255.1:11434")
+    exc = Exception(
+        "litellm.APIConnectionError: Ollama_chatException - Cannot connect to host "
+        "10.255.255.1:11434 [Connect call failed ('10.255.255.1', 11434)]"
+    )
+
+    set_lang("en")
+    assert "Could not connect to ollama/gpt-oss:20b" in _friendly_llm_error(exc, project)
+
+
 def test_insufficient_quota_error_is_localized():
     from opalatex.i18n import set_lang
     project = SimpleNamespace(model="openai/gpt-5.5")
