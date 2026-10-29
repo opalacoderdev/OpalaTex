@@ -404,9 +404,20 @@ const REHYPE_PLUGINS = [[rehypeKatex, { strict: 'ignore', output: 'mathml' }]];
 // ── Public API ──────────────────────────────────────────────────────────────
 // This runs only for completed assistant messages. Live stream chunks remain
 // raw text so partial Markdown and LaTex never delay or distort the output.
+// A display formula whose `$$` shares a line with its content and spans
+// several lines (`$$a\n=b$$`). remark-math reads text after an opening `$$`
+// as fence meta and closes only on a line holding `$$` alone, so it dropped
+// the first line and swallowed the rest of the message into one math node.
+const ATTACHED_DISPLAY_MATH = /^([ \t]{0,3})\$\$((?:(?!\$\$)[\s\S])*?\n(?:(?!\$\$)[\s\S])*?)\$\$[ \t]*$/gm;
+
 function normalizeFinalMathDelimiters(content) {
   const normalizeProse = (prose) => prose
     .replace(/(?<!\\)\\\[([\s\S]*?)(?<!\\)\\\]/g, (_, math) => `\n$$\n${math.trim()}\n$$\n`)
+    .replace(ATTACHED_DISPLAY_MATH, (block, indent, math) => (
+      /^[ \t]*\n/.test(math) && /\n[ \t]*$/.test(math)
+        ? block
+        : `${indent}$$\n${math.trim()}\n${indent}$$`
+    ))
     .replace(/(?<!\\)\\\(([\s\S]*?)(?<!\\)\\\)/g, (_, math) => {
       const trimmed = math.trim();
       return trimmed.includes('\n') ? `\n$$\n${trimmed}\n$$\n` : `$${trimmed}$`;
