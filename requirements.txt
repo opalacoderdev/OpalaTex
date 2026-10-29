@@ -20,11 +20,15 @@ pywinpty>=2.0.0; sys_platform == "win32"
 # window. Qt 6.10.2 ships MSVCP140 14.26, which crashes onnxruntime on the first
 # agent message. The -Qt6 packages carry that runtime, so they are pinned to the
 # release that was verified, not left to PyQt6's looser >=6.11.0.
+# All four share one ceiling so they stay on the same Qt minor: PyQt6-WebEngine
+# does not constrain PyQt6-Qt6, and PyQt6 6.12 next to WebEngine 6.11 failed to
+# load QtWebEngineWidgets on Windows. Raise it only once the next minor of all
+# four is out and passes the same checks.
 # See PROJECT_DESIGN.md 2.16.1.
-PyQt6>=6.11.0
-PyQt6-Qt6>=6.11.2
-PyQt6-WebEngine>=6.11.0
-PyQt6-WebEngine-Qt6>=6.11.2
+PyQt6>=6.11.0,<6.12
+PyQt6-Qt6>=6.11.2,<6.12
+PyQt6-WebEngine>=6.11.0,<6.12
+PyQt6-WebEngine-Qt6>=6.11.2,<6.12
 qtpy>=2.4.0
 ddgs>=1.0.0
 pymupdf4llm>=0.0.17

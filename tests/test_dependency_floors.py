@@ -13,6 +13,11 @@ graphics crash:
 6.11.2 passes both. The ``-Qt6`` packages are the ones that carry the runtime,
 so they are held to the verified patch release rather than to PyQt6's own
 ``>=6.11.0``. Lowering any of these needs the same two checks run again.
+
+The four also share one ceiling. PyQt6-WebEngine pins its own Qt binaries but
+not PyQt6-Qt6, so when PyQt6 6.12 was published before PyQt6-WebEngine 6.12,
+pip installed 6.12 next to WebEngine 6.11 and the Windows release build failed
+to load QtWebEngineWidgets ("The specified procedure could not be found").
 """
 
 import re
@@ -44,6 +49,20 @@ def _floors(lines):
             mins = [Version(s.version) for s in req.specifier if s.operator in (">=", "==")]
             floors[name] = max(mins) if mins else None
     return floors
+
+
+def _ceilings(lines):
+    ceilings = {}
+    for line in lines:
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        req = Requirement(line)
+        name = re.sub(r"[-_.]+", "-", req.name).lower()
+        if name in VERIFIED:
+            caps = [Version(s.version) for s in req.specifier if s.operator == "<"]
+            ceilings[name] = min(caps) if caps else None
+    return ceilings
 
 
 def _requirements_txt():
@@ -84,6 +103,26 @@ def test_the_floor_is_never_below_the_verified_release():
 def test_both_files_agree():
     """The snap installs from pyproject.toml, a checkout from requirements.txt."""
     assert _requirements_txt() == _pyproject_gui_extra()
+
+
+def test_all_qt_packages_share_one_ceiling_in_both_files():
+    """A shared ceiling is what keeps the four on the same Qt minor."""
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    for source, lines in (
+        ("requirements.txt", (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()),
+        ("pyproject.toml", data["project"]["optional-dependencies"]["gui"]),
+    ):
+        ceilings = _ceilings(lines)
+        assert set(ceilings) == set(VERIFIED), f"{source} must declare all of {sorted(VERIFIED)}"
+        assert len(set(ceilings.values())) == 1 and None not in ceilings.values(), (
+            f"{source}: every Qt package needs the same '<' ceiling, got {ceilings}"
+        )
+        ceiling = next(iter(ceilings.values()))
+        assert ceiling.release[2:] in ((), (0,)), f"{source}: the ceiling must be a minor release, got {ceiling}"
+        for name, verified in VERIFIED.items():
+            assert verified.release[:2] < ceiling.release[:2], (
+                f"{source}: {name}'s verified {verified} is not below the ceiling {ceiling}"
+            )
 
 
 def test_the_base_install_carries_no_qt():

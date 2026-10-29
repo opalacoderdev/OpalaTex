@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opalatex"
-version = "0.2.24"
+version = "0.2.25"
 description = "Autonomous coding agent with interactive planning and modular execution"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -72,10 +72,12 @@ gui = [
     "pywinpty>=2.0.0; sys_platform == 'win32'",
     # Oldest Qt verified to run OpalaTex on Windows; see requirements.txt and
     # PROJECT_DESIGN.md 2.16.1 (6.8: PDF viewer breaks; 6.10.2: agent crashes).
-    "PyQt6>=6.11.0",
-    "PyQt6-Qt6>=6.11.2",
-    "PyQt6-WebEngine>=6.11.0",
-    "PyQt6-WebEngine-Qt6>=6.11.2",
+    # One shared ceiling keeps all four on the same Qt minor: PyQt6-WebEngine
+    # does not constrain PyQt6-Qt6, and PyQt6 6.12 alone broke the Windows build.
+    "PyQt6>=6.11.0,<6.12",
+    "PyQt6-Qt6>=6.11.2,<6.12",
+    "PyQt6-WebEngine>=6.11.0,<6.12",
+    "PyQt6-WebEngine-Qt6>=6.11.2,<6.12",
     "qtpy>=2.4.0",
     "faster-whisper>=1.1.0",
 ]

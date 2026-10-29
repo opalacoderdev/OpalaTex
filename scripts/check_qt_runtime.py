@@ -7,11 +7,14 @@ Python package themselves. The floor declared in pyproject.toml therefore
 protects users only if the build confirms it — `pip install .` upgrades a
 too-old Qt, but nothing checked what PyInstaller was actually about to copy.
 
-Two checks, the cheap one first:
+Three checks, the cheap ones first:
 
 1. The Qt floors declared in pyproject.toml (the file the build installs from)
    against the installed distributions.
-2. The failure itself, on Windows: a child process imports QtWebEngine and
+2. All four Qt packages from the same Qt minor release. PyQt6-WebEngine does
+   not constrain PyQt6-Qt6, so PyQt6 6.12 installed next to WebEngine 6.11 and
+   QtWebEngineWidgets failed to load on Windows.
+3. The failure itself, on Windows: a child process imports QtWebEngine and
    *then* onnxruntime — the order the application loads them in. Qt 6.10.2
    ships MSVCP140 14.26; Windows binds a DLL name once per process, so the Qt
    copy served onnxruntime too, and the first agent message died in
@@ -91,6 +94,24 @@ def version_problems(
     return problems
 
 
+def mixed_release_problem(installed: Callable[[str], str] = metadata.version) -> str | None:
+    """Report Qt packages that do not all come from the same Qt minor release.
+
+    PyQt6-WebEngine pins its own Qt binaries but not PyQt6-Qt6, so a new PyQt6
+    minor installs next to the previous WebEngine. On Windows that pair failed
+    to load QtWebEngineWidgets ("The specified procedure could not be found").
+    """
+    versions = {name: Version(installed(name)) for name in QT_PACKAGES}
+    if len({v.release[:2] for v in versions.values()}) == 1:
+        return None
+    found = ", ".join(f"{name} {v}" for name, v in versions.items())
+    return (
+        f"the Qt packages come from different Qt releases ({found}). PyQt6-WebEngine "
+        "is built against the Qt of its own release, so all four must share one "
+        "major.minor; pyproject.toml declares a common ceiling for that."
+    )
+
+
 def import_order_problem(
     python: str = sys.executable,
     platform: str = sys.platform,
@@ -114,6 +135,9 @@ def import_order_problem(
         how = f"failed (exit {result.returncode})"
     tail = (result.stderr or "").strip().splitlines()[-3:]
     detail = f": {' | '.join(tail)}" if tail else ""
+    if 'File "<string>", line 1,' in (result.stderr or ""):
+        # The first line of the probe is the Qt import: onnxruntime never ran.
+        return "importing QtWebEngine " + how + detail + ". The application window could not start."
     return (
         "importing onnxruntime after QtWebEngine " + how + detail +
         ". The application loads them in this order, so its first agent message would die the same way."
@@ -122,6 +146,10 @@ def import_order_problem(
 
 def main() -> int:
     problems = version_problems(qt_floors())
+    if not problems:
+        mixed = mixed_release_problem()
+        if mixed:
+            problems.append(mixed)
     if not problems:
         order = import_order_problem()
         if order:
@@ -136,8 +164,8 @@ def main() -> int:
     for problem in problems:
         print(f"::error::{problem}" if on_actions else f"ERROR: {problem}", file=sys.stderr)
     print(
-        "Refusing to package this Qt. See tests/test_dependency_floors.py for what "
-        "broke below the floor.",
+        "Refusing to package this Qt. See tests/test_dependency_floors.py for the "
+        "verified Qt range and what broke outside it.",
         file=sys.stderr,
     )
     return 1

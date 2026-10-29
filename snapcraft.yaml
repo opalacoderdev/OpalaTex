@@ -1,6 +1,6 @@
 name: opalatex
 title: OpalaTex
-version: "0.2.24"
+version: "0.2.25"
 summary: AI-assisted LaTeX editor and project IDE
 description: |
   OpalaTex is a project-centric, AI-assisted LaTeX editor with a local
@@ -190,6 +190,9 @@ parts:
       python3 -m venv --copies "$CRAFT_PART_INSTALL"
       "$CRAFT_PART_INSTALL/bin/python" -m pip install --upgrade pip setuptools wheel
       "$CRAFT_PART_INSTALL/bin/python" -m pip install ".[gui]"
+      # The snap ships whatever Qt pip resolved here; refuse one below the
+      # verified floor or mixing Qt releases, as the release builds do.
+      "$CRAFT_PART_INSTALL/bin/python" scripts/check_qt_runtime.py
       "$CRAFT_PART_INSTALL/bin/python" -c "from opalatex.assetstore import list_assets; assets = list_assets('template'); assert len(assets) > 0, 'No templates found in assetstore'"
 
       # The Google OAuth client is .gitignore'd, so a packaging rule that drops

@@ -99,3 +99,50 @@ def test_every_build_script_runs_the_gate_before_packaging(script):
         # PowerShell's ErrorActionPreference does not stop on a native exit code.
         after = text[check:package]
         assert "$LASTEXITCODE" in after, "build_exe.ps1 must stop when the gate fails"
+
+
+def test_qt_packages_from_different_releases_are_refused():
+    """The set pip resolved for v0.2.24, the day PyQt6 6.12 came out without WebEngine 6.12."""
+    mixed = {
+        "pyqt6": "6.12.0",
+        "pyqt6-qt6": "6.12.0",
+        "pyqt6-webengine": "6.11.0",
+        "pyqt6-webengine-qt6": "6.11.2",
+    }
+    problem = gate.mixed_release_problem(installed=mixed.__getitem__)
+    assert "different Qt releases" in problem
+    assert "pyqt6-qt6 6.12.0" in problem and "pyqt6-webengine-qt6 6.11.2" in problem
+
+
+def test_qt_packages_from_one_release_pass_whatever_their_patch_level():
+    same = {
+        "pyqt6": "6.11.0",
+        "pyqt6-qt6": "6.11.2",
+        "pyqt6-webengine": "6.11.0",
+        "pyqt6-webengine-qt6": "6.11.2",
+    }
+    assert gate.mixed_release_problem(installed=same.__getitem__) is None
+
+
+def test_a_failing_qt_import_is_not_blamed_on_onnxruntime():
+    """The v0.2.24 build log: the probe's first line, the Qt import, is what failed."""
+    stderr = (
+        "Traceback (most recent call last):\n"
+        '  File "<string>", line 1, in <module>\n'
+        "ImportError: DLL load failed while importing QtWebEngineWidgets: "
+        "The specified procedure could not be found.\n"
+    )
+    failed = lambda *a, **k: subprocess.CompletedProcess(a[0], 1, "", stderr)
+    problem = gate.import_order_problem(python="python", platform="win32", runner=failed)
+    assert problem.startswith("importing QtWebEngine failed (exit 1)")
+    assert "onnxruntime" not in problem
+    assert "procedure could not be found" in problem
+
+
+def test_the_snap_runs_the_gate_after_installing_qt():
+    text = (ROOT / "snapcraft.yaml").read_text(encoding="utf-8")
+    install = text.index('"$CRAFT_PART_INSTALL/bin/python" -m pip install ".[gui]"')
+    check = text.index('"$CRAFT_PART_INSTALL/bin/python" scripts/check_qt_runtime.py')
+    assert install < check, "snapcraft.yaml must check the Qt it installed with the interpreter it ships"
+    block = text[text.rindex("override-build: |", 0, install):install]
+    assert "set -eu" in block, "the snap build must stop when the gate fails"
