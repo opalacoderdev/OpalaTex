@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from .archival import clear_archival_chat
+from .project import ChatNotFoundError
 from .token_usage import context_scope_key, reset_context_usage
 
 
@@ -23,6 +24,9 @@ def clear_chat(project: Any, store: Any, chat_id: str) -> Any:
     just deleted, and reopening the chat cannot rehydrate the occupancy of a
     window that no longer exists.
     """
+    # An empty id would make `clear_project_history` erase every chat.
+    if not chat_id:
+        raise ChatNotFoundError(f"Project '{project.name}' has no open chat to clear")
     store.clear_project_history(project.name, chat_id)
 
     # An isolated chat keeps its own core memory; a shared one must not be

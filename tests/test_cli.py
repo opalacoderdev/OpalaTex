@@ -88,17 +88,22 @@ def _args(**overrides):
     return types.SimpleNamespace(**defaults)
 
 
-def _project(tmp_path, **kwargs):
+def _project(tmp_path, with_chat=True, **kwargs):
+    """A registered project, opened on a chat named "First" unless *with_chat* is false."""
     db = os.path.join(str(tmp_path), "s.db")
     store = ProjectStore(db_path=db)
+    name = kwargs.pop("name", "p")
     project = store.create(
-        name=kwargs.pop("name", "p"),
+        name=name,
         mode=kwargs.pop("mode", "auto"),
         model=kwargs.pop("model", "ollama/test"),
         project_name="P",
         project_path=str(tmp_path),
         **kwargs,
     )
+    if with_chat:
+        store.create_chat(name, f"first-{name}", "First")
+        project = store.load(name)
     return store, project
 
 
@@ -433,6 +438,46 @@ def test_a_turn_goes_through_the_shared_engine(tmp_path, monkeypatch):
     assert seen["prompt"] == "write chapter 2"
     assert seen["chat_id"] == project.current_chat_id
     assert "resume_interrupted" not in seen
+
+
+def test_a_first_message_starts_a_chat_when_the_project_has_none(tmp_path, monkeypatch):
+    """A project may have no chat; sending a message is what creates one."""
+    store, project = _project(tmp_path, with_chat=False)
+    assert project.current_chat_id == ""
+    state = REPLState(project, store, renderer=cli_render.TerminalEventRenderer())
+    seen = {}
+
+    async def _fake_run(data):
+        seen.update(data)
+
+    monkeypatch.setattr(agent_stdin, "handle_run", _fake_run)
+    monkeypatch.setattr(agent_stdin, "current_project", project)
+    monkeypatch.setattr(agent_stdin, "current_store", store)
+    monkeypatch.setattr(agent_stdin, "current_memgpt", None)
+
+    assert asyncio.run(cli.run_turn(state, "hello", db_path=store.db_path)) is True
+
+    chats = store.load("p").chats
+    assert len(chats) == 1
+    assert seen["chat_id"] == chats[0]["id"]
+    assert chats[0]["name"] == cli._("default_chat_name")
+
+
+def test_a_resumed_turn_does_not_start_a_chat(tmp_path, monkeypatch):
+    store, project = _project(tmp_path, with_chat=False)
+    state = REPLState(project, store, renderer=cli_render.TerminalEventRenderer())
+
+    async def _fake_run(_data):
+        pass
+
+    monkeypatch.setattr(agent_stdin, "handle_run", _fake_run)
+    monkeypatch.setattr(agent_stdin, "current_project", project)
+    monkeypatch.setattr(agent_stdin, "current_store", store)
+    monkeypatch.setattr(agent_stdin, "current_memgpt", None)
+
+    asyncio.run(cli.run_turn(state, "", db_path=store.db_path, resume_interrupted=True))
+
+    assert store.load("p").chats == []
 
 
 def test_a_resumed_turn_asks_the_engine_to_rebuild_the_prompt(tmp_path, monkeypatch):
@@ -777,14 +822,14 @@ def test_mode_is_stored_and_reaches_the_permission_gate(tmp_path):
 def test_chat_switching_reloads_the_project_on_that_chat(tmp_path):
     store, project = _project(tmp_path)
     state = REPLState(project, store, renderer=object())
-    main_chat = project.current_chat_id
+    first_chat = project.current_chat_id
 
     asyncio.run(_registry.dispatch(state, "/chat", ["new draft"]))
-    assert state.project.current_chat_id != main_chat
+    assert state.project.current_chat_id != first_chat
     new_chat = state.project.current_chat_id
 
-    asyncio.run(_registry.dispatch(state, "/chat", ["switch Main"]))
-    assert state.project.current_chat_id == main_chat
+    asyncio.run(_registry.dispatch(state, "/chat", ["switch First"]))
+    assert state.project.current_chat_id == first_chat
 
     asyncio.run(_registry.dispatch(state, "/chat", ["switch draft"]))
     assert state.project.current_chat_id == new_chat

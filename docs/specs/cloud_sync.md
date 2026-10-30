@@ -195,9 +195,10 @@ Three constraints fix this order, and each of them bites if the order changes.
    correct on a project with no history of its own.
 
 The clone also reuses the internal project name from the incoming export when it
-is free on this machine: chat ids are derived from it (`main_<name>`), so a
-fresh key would leave the clone with an empty default chat sitting beside the
-imported one.
+is free on this machine: reserved chat ids are derived from it
+(`tutorial_<name>`), so under a fresh key the tutorial button would open a
+second tutorial chat beside the imported one. (New projects are created without
+any chat, so the clone no longer gains an empty "Main Chat" either way.)
 
 ### The pull contract had a hole
 

@@ -24,6 +24,8 @@ def chat(tmp_path):
     store = ProjectStore(db_path=str(tmp_path / "s.db"))
     project = store.create(name="p", mode="auto", model="m",
                            project_name="P", project_path=str(tmp_path))
+    store.create_chat("p", "chat-p", "Chat")
+    project = store.load("p")
     chat_id = project.current_chat_id
 
     def thought(text):
@@ -90,6 +92,8 @@ def test_a_chat_with_no_reasoning_reports_none(tmp_path):
     store = ProjectStore(db_path=str(tmp_path / "s.db"))
     project = store.create(name="q", mode="auto", model="m",
                            project_name="Q", project_path=str(tmp_path))
+    store.create_chat("q", "chat-q", "Chat")
+    project = store.load("q")
     store.append_message(project, "user", "oi")
     store.append_message(project, "assistant", "olá")
     store.save(project)
@@ -114,6 +118,8 @@ def test_a_runaway_turn_costs_no_more_to_open_than_any_other(tmp_path):
     store = ProjectStore(db_path=str(tmp_path / "s.db"))
     project = store.create(name="r", mode="auto", model="m",
                            project_name="R", project_path=str(tmp_path))
+    store.create_chat("r", "chat-r", "Chat")
+    project = store.load("r")
     chat_id = project.current_chat_id
     store.append_message(project, "user", "faça algo")
     for index in range(5000):

@@ -397,6 +397,26 @@ def _adopt_turn_state(state: REPLState) -> None:
         state.memgpt = agent_stdin.current_memgpt
 
 
+def _ensure_chat(state: REPLState) -> None:
+    """Create and open a chat when the project has none, as the GUI does on send.
+
+    A project may have no chat at all; the first message is what starts one.
+    """
+    if state.project.current_chat_id:
+        return
+    import uuid
+
+    from .tools import set_project_context
+
+    chat_id = str(uuid.uuid4())
+    name = _("default_chat_name")
+    state.store.create_chat(state.project.name, chat_id, name)
+    state.project = state.store.load(state.project.name, chat_id=chat_id)
+    set_project_context(state.project, state.store)
+    state.invalidate_memgpt()
+    T.info(_("cli_chat_created", name=name))
+
+
 async def run_turn(
     state: REPLState,
     prompt: str,
@@ -406,6 +426,10 @@ async def run_turn(
 ) -> bool:
     """Run one agent turn and render it. Returns False when it was interrupted."""
     from . import agent_stdin
+
+    # Resuming continues an existing chat; only a new message starts one.
+    if not resume_interrupted:
+        _ensure_chat(state)
 
     if state.renderer is not None:
         state.renderer.begin_turn()

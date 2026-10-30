@@ -131,6 +131,8 @@ async def test_handle_run_accepts_project_with_configured_model(monkeypatch):
             project_name="P1",
             project_path=os.path.join(tmp, "p1"),
         )
+        store.create_chat("p1", "chat-1", "Chat")
+        project = store.load("p1")
 
         monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
         monkeypatch.setattr(stdin_mod, "current_project", project)

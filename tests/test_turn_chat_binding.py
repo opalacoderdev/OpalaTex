@@ -42,6 +42,7 @@ def api(tmp_path, monkeypatch):
         project_path=str(project_dir),
         description="before",
     )
+    store.create_chat("myproj", "chat-myproj", "Chat")
     store.create_chat("myproj", "second-chat", "Aula03")
     live = store.load("myproj", chat_id="second-chat")
 
@@ -162,6 +163,7 @@ async def test_slash_commands_are_refused_while_a_turn_is_alive(api, monkeypatch
 async def test_client_messages_do_not_replace_the_orchestrators_restored_memory(tmp_path, monkeypatch):
     store = ProjectStore(db_path=str(tmp_path / "projects.db"))
     store.create(name="proj", mode="auto", model="fake/model", project_name="Proj", project_path=str(tmp_path))
+    store.create_chat("proj", "chat-proj", "Chat")
     project = store.load("proj")
 
     restored = [
@@ -244,9 +246,10 @@ def test_a_second_start_from_this_window_cannot_idle_the_running_turn():
         assert "await " not in guarded
         assert body.count("localTurnRef.current = false;") >= 1
 
-    # Every exit after the lock in handleSendMessage releases it: the failed
-    # truncate, the slash-command path and the run itself.
-    assert send.count("localTurnRef.current = false;") == 3
+    # Every exit after the lock in handleSendMessage releases it: a failed
+    # creation of the chat a first message starts, the failed truncate, the
+    # slash-command path and the run itself.
+    assert send.count("localTurnRef.current = false;") == 4
 
     assert "isTurnBusy()" in edit
     branch = edit.index("editBranchInFlightRef.current = true;")

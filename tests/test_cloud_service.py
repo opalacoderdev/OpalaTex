@@ -37,6 +37,8 @@ def make_machine(tmp_path, name, remote_base, project_name="alpha"):
         project_name, "plan", "ollama/test",
         project_name=project_name, project_path=str(project_dir),
     )
+    store.create_chat(project_name, f"chat-{project_name}", "Chat")
+    project = store.load(project_name)
     store.close_activity_connection()
 
     save_settings(str(project_dir), CloudSettings(

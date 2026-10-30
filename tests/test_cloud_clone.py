@@ -267,6 +267,8 @@ def source_machine(tmp_path, remote_base, monkeypatch, name="thesis"):
         name, "plan", "openai/gpt-4o-mini", project_name=name, project_path=str(project_dir),
         description="written on machine A",
     )
+    store.create_chat(name, f"chat-{name}", "Chat")
+    project = store.load(name)
     store.append_message(project, "user", "a question I asked on machine A")
     store.close_activity_connection()
 

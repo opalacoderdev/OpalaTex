@@ -23,3 +23,21 @@ def _no_provider_context_discovery(monkeypatch):
     context_discovery.reset_discovery_state()
     yield
     context_discovery.reset_discovery_state()
+
+
+@pytest.fixture(autouse=True)
+def _english_backend_messages():
+    """Start every test with the backend speaking English.
+
+    The language is process-wide (`opalatex.i18n._LANG`), and code under test
+    changes it as it does in production: `/api/opalatex/run` and `cli.main`
+    adopt the requested language, falling back to the machine's
+    (`config.DEFAULT_LANG`). A test that switched it, or ran one of those paths
+    on a Portuguese machine, left every later test reading Portuguese, so
+    assertions on English text failed only in a full run.
+    """
+    from opalatex.i18n import set_lang
+
+    set_lang("en")
+    yield
+    set_lang("en")

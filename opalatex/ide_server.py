@@ -3011,6 +3011,9 @@ class AsyncHTTPServer:
 
             # ``chat_id`` may have been None: clear the chat the project resolved to.
             chat_id = project.current_chat_id
+            if not chat_id:
+                self.send_response(writer, 404, b'{"error":"project has no chat"}', "application/json")
+                return
             clear_chat(project, store, chat_id)
 
             # Drop the in-memory orchestrator so a stale internal_history cannot
@@ -3038,7 +3041,7 @@ class AsyncHTTPServer:
 
             store = ProjectStore(db_path=DEFAULT_DB_PATH)
             try:
-                main_chat = store.clear_all_chats(project_name)
+                store.clear_all_chats(project_name)
             except ValueError as exc:
                 self.send_response(
                     writer,
@@ -3055,7 +3058,7 @@ class AsyncHTTPServer:
             self.send_response(
                 writer,
                 200,
-                json.dumps({"status": "ok", "chat": main_chat}).encode('utf-8'),
+                json.dumps({"status": "ok"}).encode('utf-8'),
                 "application/json",
             )
 
@@ -3299,10 +3302,9 @@ class AsyncHTTPServer:
             if not project:
                 self.send_response(writer, 404, b'{"error":"project not found"}', "application/json")
                 return
-            # The client must not guess which chat is the default: it is a real
-            # stored id, never the literal "main". Loading without a chat id
-            # resolves it — the main chat, or the first one for a project whose
-            # main chat an older build deleted.
+            # Chats are listed newest first and the default chat is the first
+            # entry (empty when the project has no chat). The server resolves it
+            # so the client never guesses an id.
             #
             # The tutorial chat is published the same way, and only when it actually
             # exists, so the front-end can recognise it after a reload (to show the
@@ -3319,7 +3321,6 @@ class AsyncHTTPServer:
             ]
             self.send_response(writer, 200, json.dumps({
                 "chats": chats,
-                "main_chat_id": project.current_chat_id,
                 "current_chat_id": project.current_chat_id,
                 "tutorial_chat_id": tutorial_id if has_tutorial else "",
             }).encode(), "application/json")
@@ -5563,9 +5564,9 @@ class AsyncHTTPServer:
                 pass
 
             # Reuse the internal name the project has on the machine it came
-            # from when it is free here. Chat ids are derived from it
-            # (`main_<name>`), so an arbitrary new key would leave the clone with
-            # an empty default chat sitting beside the imported one.
+            # from when it is free here. Reserved chat ids are derived from it
+            # (`tutorial_<name>`), so under an arbitrary new key the tutorial
+            # button would open a second tutorial beside the imported one.
             export = cloud_chats.read_export(destination) or {}
             preferred = str(export.get("project", "") or "").strip()
             db_key = preferred if preferred and not store.exists(preferred) else ""

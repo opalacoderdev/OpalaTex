@@ -29,6 +29,8 @@ def project_dir(tmp_path):
 def make_project(db_path, name, project_path, messages=(), activity=()):
     store = ProjectStore(db_path)
     project = store.create(name, "plan", "ollama/test", project_name=name, project_path=project_path)
+    store.create_chat(name, f"chat-{name}", "Chat")
+    project = store.load(name)
     for role, content in messages:
         store.append_message(project, role, content)
     for event, content in activity:

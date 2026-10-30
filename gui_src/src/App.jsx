@@ -715,7 +715,6 @@ export default function App() {
   // branch) happens before any turn starts: without it a double submit made
   // two branches of one message.
   const editBranchInFlightRef = useRef(false);
-  const [mainChatId, setMainChatId] = useState('');
   const [chats, setChats] = useState([]);
   // The built-in tutorial lives in a reserved chat (`tutorial_<project>`). Its id and
   // question menu come from the backend so the front-end never has to guess either.
@@ -1069,22 +1068,25 @@ export default function App() {
           .then(data => {
             const loadedChats = data.chats || [];
             setChats(loadedChats);
-            const projectMainChatId = data.main_chat_id || (loadedChats.length > 0 ? loadedChats[0].id : '');
-            setMainChatId(projectMainChatId);
             // Published by the server (empty when the project has no tutorial chat) so
             // the question menu reappears when the tutorial is reopened from the chat
             // sidebar rather than from the ActivityBar button.
             setTutorialChatId(data.tutorial_chat_id || '');
 
             // Opening a project lands on its most recently created chat. The
-            // server lists chats in creation order, so that is the last entry;
+            // server lists chats newest first, so that is the first entry;
             // taking it from the list (not from browser storage) keeps the
             // choice the same in every distribution and always names a chat
-            // the project still has.
-            const currentChatId = loadedChats.length > 0 ? loadedChats[loadedChats.length - 1].id : '';
+            // the project still has. A project with no chat opens none.
+            const currentChatId = loadedChats.length > 0 ? loadedChats[0].id : '';
             setActiveChatId(currentChatId);
-            if (!activeProject.current_chat_id || activeProject.current_chat_id !== currentChatId) {
+            if (activeProject.current_chat_id !== currentChatId) {
               setActiveProject(prev => prev ? { ...prev, current_chat_id: currentChatId } : null);
+            }
+            if (!currentChatId) {
+              setTerminalLogs([]);
+              setIsLoadingChat(false);
+              return;
             }
 
             // Now fetch history for this chat
@@ -1157,7 +1159,6 @@ export default function App() {
       setChatMessages([]);
       setChatContextUsage(null);
       setActiveChatId('');
-      setMainChatId('');
       setGitChanges([]);
       setTerminalLogs([]);
       setAchievementsMemory('');
@@ -1167,7 +1168,17 @@ export default function App() {
   }, [activeProject]);
 
   const handleSwitchChat = async (id) => {
-    if (!activeProject || !id || id === activeChatId) return;
+    if (!activeProject || id === activeChatId) return;
+    if (!id) {
+      // No chat left to show (the last one was deleted): the panel stays empty
+      // until the user creates a chat or sends a message, which starts one.
+      setChatContextUsage(null);
+      setActiveChatId('');
+      setActiveProject(prev => prev ? { ...prev, current_chat_id: '' } : null);
+      setChatMessages([]);
+      setTerminalLogs([]);
+      return;
+    }
     setIsLoadingChat(true);
     // Another chat is another history: the measured window no longer applies.
     setChatContextUsage(null);
@@ -1218,7 +1229,7 @@ export default function App() {
     }
     const data = await res.json();
     const chatId = data.id;
-    setChats(prev => prev.some(chat => chat.id === chatId) ? prev : [...prev, data]);
+    setChats(prev => prev.some(chat => chat.id === chatId) ? prev : [data, ...prev]);
     setActiveChatId(chatId);
     setActiveProject(prev => prev ? { ...prev, current_chat_id: chatId } : null);
     // A brand-new chat has no measured window yet: the previous chat's
@@ -1253,7 +1264,7 @@ export default function App() {
 
       setTutorialChatId(chatId);
       setTutorialTopics(data.topics || []);
-      setChats(prev => prev.some(c => c.id === chatId) ? prev : [...prev, { id: chatId, name: data.name }]);
+      setChats(prev => prev.some(c => c.id === chatId) ? prev : [{ id: chatId, name: data.name }, ...prev]);
 
       // Another chat is another history: the previous chat's measurement no
       // longer applies, and this one's comes back with its transcript.
@@ -3692,7 +3703,7 @@ export default function App() {
 
   const handleSendMessage = async (e, retryMsg = null, options = {}) => {
     if (e && e.preventDefault) e.preventDefault();
-    const targetChatId = options.chatIdOverride || activeChatId;
+    let targetChatId = options.chatIdOverride || activeChatId;
 
     let userText = '';
     let displayText = '';
@@ -3740,6 +3751,14 @@ export default function App() {
           addLog('error', t('app.slashCommandWhileRunning', 'Slash commands cannot run while the agent is working. Stop the agent first.'));
           return;
         }
+        // With no chat open there is no conversation to join: handing it to
+        // the running turn would put it in another chat.
+        if (!targetChatId) {
+          setChatInput(userText);
+          setPendingAttachments(attachmentsSnapshot);
+          addLog('error', t('app.noChatWhileRunning', 'No chat is open. Wait for the agent to finish, then send the message to start a new chat.'));
+          return;
+        }
         // The composer stays live during a turn. This message joins the turn in
         // flight instead of waiting for it to end, so it does not start a run of
         // its own here.
@@ -3749,6 +3768,23 @@ export default function App() {
     }
     // Taken before any request below is made; every exit from here on releases it.
     localTurnRef.current = true;
+    // A project may have no chat: the first message is what starts one. Slash
+    // commands act on the project or on an existing chat and never create one.
+    if (!targetChatId && !options.resumeInterrupted && !userText.trim().startsWith('/')) {
+      try {
+        const created = await createChatForTask(t('chatPanel.defaultChatName', 'New Chat'));
+        targetChatId = created.chatId;
+        if (!options.baseMessages) options = { ...options, baseMessages: created.baseMessages };
+      } catch (err) {
+        if (options.overrideText === undefined && !retryMsg) {
+          setChatInput(userText);
+          setPendingAttachments(attachmentsSnapshot);
+        }
+        addLog('error', t('app.autoCreateChatFailed', 'Could not create a chat for this message: {{error}}', { error: err.message }));
+        localTurnRef.current = false;
+        return;
+      }
+    }
     if (!clientMessageId) {
       clientMessageId = makeClientMessageId();
     }
@@ -4037,7 +4073,7 @@ export default function App() {
       const newChatId = data.new_chat_id;
       setActiveChatId(newChatId);
       setActiveProject(prev => prev ? { ...prev, current_chat_id: newChatId } : null);
-      setChats(prev => [...prev, { id: newChatId, name: data.name || newChatName }]);
+      setChats(prev => [{ id: newChatId, name: data.name || newChatName }, ...prev]);
       // The branched chat has its own (shorter) history: the source chat's
       // measured window does not describe it.
       setChatContextUsage(null);
@@ -4843,7 +4879,6 @@ export default function App() {
                 chats={chats}
                 activeChatId={activeChatId}
                 setActiveChatId={setActiveChatId}
-                mainChatId={mainChatId}
                 setChats={setChats}
                 activeProject={activeProject}
                 setChatMessages={setChatMessages}
@@ -5066,7 +5101,6 @@ export default function App() {
               setWebSearchConfig={setWebSearchConfig}
               activeChatId={activeChatId}
               setActiveChatId={setActiveChatId}
-              mainChatId={mainChatId}
               chats={chats}
               setChats={setChats}
               setChatMessages={setChatMessages}
@@ -5166,7 +5200,6 @@ export default function App() {
               setWebSearchConfig={setWebSearchConfig}
               activeChatId={activeChatId}
               setActiveChatId={setActiveChatId}
-              mainChatId={mainChatId}
               chats={chats}
               setChats={setChats}
               setChatMessages={setChatMessages}

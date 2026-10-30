@@ -30,6 +30,7 @@ def _store_with_project(tmp_path):
         project_name="Proj",
         project_path=str(tmp_path),
     )
+    store.create_chat("proj", "chat-proj", "Chat")
     return store, store.load("proj")
 
 

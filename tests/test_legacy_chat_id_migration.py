@@ -1,9 +1,11 @@
-"""Pre-multi-chat rows must end up in the project's real main chat.
+"""Pre-multi-chat rows must end up in the chat older builds created for them.
 
 ``chat_id`` was added to ``project_history`` and ``project_activity`` with
 ``DEFAULT 'main'`` and never backfilled. Since no chat is stored under that id,
 every conversation written before multi-chat support became unreachable: the
-read paths all scope by a real chat id. The migration moves those rows once.
+read paths all scope by a real chat id. The migration moves those rows once,
+into the "Main Chat" (`main_<project>`) those builds created with every project,
+recreating it when it is gone -- new projects are created without any chat.
 """
 import sqlite3
 
@@ -11,9 +13,9 @@ import pytest
 
 from opalatex.project import (
     LEGACY_MAIN_CHAT_ID,
-    MAIN_CHAT_NAME,
+    LEGACY_MAIN_CHAT_NAME,
     ProjectStore,
-    main_chat_id,
+    legacy_main_chat_id,
 )
 
 
@@ -49,7 +51,7 @@ def db_path(tmp_path):
     return str(tmp_path / "projects.db")
 
 
-def test_legacy_history_is_reattached_to_the_main_chat(db_path):
+def test_legacy_history_is_reattached_to_the_legacy_main_chat(db_path):
     store = ProjectStore(db_path=db_path)
     store.create("myproj", "chat", "gpt-4")
     _write_legacy_rows(db_path, "myproj", messages=["old question", "old answer"],
@@ -60,7 +62,7 @@ def test_legacy_history_is_reattached_to_the_main_chat(db_path):
     loaded = store.load("myproj")
 
     assert [m["content"] for m in loaded.history] == ["old question", "old answer"]
-    assert [a["content"] for a in store.list_activity("myproj", main_chat_id("myproj"))] == ["old thought"]
+    assert [a["content"] for a in store.list_activity("myproj", legacy_main_chat_id("myproj"))] == ["old thought"]
     assert _legacy_rows(db_path, "project_history", "myproj") == 0
     assert _legacy_rows(db_path, "project_activity", "myproj") == 0
 
@@ -86,7 +88,8 @@ def test_legacy_rows_do_not_leak_into_other_chats(db_path):
 
     store = ProjectStore(db_path=db_path)
 
-    assert [m["content"] for m in store.load("myproj").history] == ["legacy message"]
+    legacy = store.load("myproj", chat_id=legacy_main_chat_id("myproj"))
+    assert [m["content"] for m in legacy.history] == ["legacy message"]
     assert [m["content"] for m in store.load("myproj", chat_id="second").history] == ["message in second"]
 
 
@@ -116,29 +119,24 @@ def test_a_project_owning_a_chat_named_main_is_left_untouched(db_path):
     assert [m["content"] for m in store.load("myproj", chat_id=LEGACY_MAIN_CHAT_ID).history] == [
         "belongs to the 'main' chat"
     ]
-    assert store.load("myproj").history == []
+    assert [c["id"] for c in store.load("myproj").chats] == [LEGACY_MAIN_CHAT_ID]
 
 
-def test_main_chat_is_recreated_when_a_legacy_project_lost_it(db_path):
-    """Older builds could delete the main chat: its delete guard never matched."""
+def test_legacy_main_chat_is_recreated_when_it_is_gone(db_path):
+    """The chat may have been deleted, or the project never had one."""
     store = ProjectStore(db_path=db_path)
     store.create("myproj", "chat", "gpt-4")
     store.create_chat("myproj", "second", "Second Chat")
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "DELETE FROM project_chats WHERE project = ? AND id = ?",
-            ("myproj", main_chat_id("myproj")),
-        )
     _write_legacy_rows(db_path, "myproj", messages=["orphaned history"])
 
     store = ProjectStore(db_path=db_path)
-    loaded = store.load("myproj")
+    loaded = store.load("myproj", chat_id=legacy_main_chat_id("myproj"))
 
-    assert loaded.current_chat_id == main_chat_id("myproj")
     assert [m["content"] for m in loaded.history] == ["orphaned history"]
-    # Restored with the project's own creation time, so it still sorts first.
-    assert [c["id"] for c in loaded.chats] == [main_chat_id("myproj"), "second"]
-    assert loaded.chats[0]["name"] == MAIN_CHAT_NAME
+    # Restored with the project's own creation time: it holds the oldest
+    # conversation, so it is listed last.
+    assert [c["id"] for c in loaded.chats] == ["second", legacy_main_chat_id("myproj")]
+    assert loaded.chats[1]["name"] == LEGACY_MAIN_CHAT_NAME
 
 
 def test_a_colliding_client_message_id_does_not_abort_the_move(db_path):
@@ -148,7 +146,10 @@ def test_a_colliding_client_message_id_does_not_abort_the_move(db_path):
     UPDATE; the message must survive, only its send-dedup marker is dropped.
     """
     store = ProjectStore(db_path=db_path)
-    project = store.create("myproj", "chat", "gpt-4")
+    store.create("myproj", "chat", "gpt-4")
+    # The chat an older build created with the project, already in use.
+    store.create_chat("myproj", legacy_main_chat_id("myproj"), LEGACY_MAIN_CHAT_NAME)
+    project = store.load("myproj")
     store.append_message(project, "user", "current message", client_message_id="cid-1")
     _write_legacy_rows(db_path, "myproj", messages=["legacy message"],
                        client_message_ids={"legacy message": "cid-1"})
@@ -162,7 +163,9 @@ def test_a_colliding_client_message_id_does_not_abort_the_move(db_path):
 
 def test_projects_without_legacy_rows_are_unchanged(db_path):
     store = ProjectStore(db_path=db_path)
-    project = store.create("myproj", "chat", "gpt-4")
+    store.create("myproj", "chat", "gpt-4")
+    store.create_chat("myproj", "modern", "Modern Chat")
+    project = store.load("myproj")
     store.append_message(project, "user", "modern message", client_message_id="cid-1")
 
     store = ProjectStore(db_path=db_path)

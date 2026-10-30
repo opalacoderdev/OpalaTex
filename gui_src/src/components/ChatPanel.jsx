@@ -152,7 +152,6 @@ export default function ChatPanel({
   setWebSearchConfig,
   activeChatId,
   setActiveChatId,
-  mainChatId = '',
   chats,
   setChats,
   setChatMessages,
@@ -994,7 +993,7 @@ export default function ChatPanel({
       });
       if (!res.ok) throw new Error('Failed to create chat');
       const data = await res.json();
-      setChats(prev => [...prev, data]);
+      setChats(prev => [data, ...prev]);
       setActiveChatId(data.id);
       // A brand-new chat has no measured window yet: the previous chat's
       // measurement must not leak into this one's indicator.
@@ -1014,12 +1013,12 @@ export default function ChatPanel({
 
   const handleDeleteChatClick = (id, e) => {
     e.stopPropagation();
-    if (!activeProject || !id || id === mainChatId) return;
+    if (!activeProject || !id) return;
     setChatToDelete(id);
   };
 
   const confirmDeleteChat = async () => {
-    if (!activeProject || !chatToDelete || chatToDelete === mainChatId) return;
+    if (!activeProject || !chatToDelete) return;
     const id = chatToDelete;
 
     try {
@@ -1032,12 +1031,8 @@ export default function ChatPanel({
       const newChats = chats.filter(c => c.id !== id);
       setChats(newChats);
       if (activeChatId === id) {
-        // Fall back to a chat that actually exists. The main chat's id is
-        // `main_<project>`, never the literal "main".
-        const fallbackId = newChats.some(c => c.id === mainChatId)
-          ? mainChatId
-          : (newChats[0]?.id || '');
-        handleSwitchChat(fallbackId, newChats);
+        // Open the most recent chat left (the list is newest first), or none.
+        handleSwitchChat(newChats[0]?.id || '');
       }
       setChatToDelete(null);
     } catch (err) {
@@ -1100,14 +1095,12 @@ export default function ChatPanel({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
 
-      const greeting = activeProject.project_name || activeProject.name;
-      setChats([data.chat]);
-      setActiveChatId(data.chat.id);
+      // The project is left with no chat: nothing is open until the user
+      // creates one or sends a message, which starts one.
+      setChats([]);
       setChatInput('');
       setPendingAttachments([]);
-      setChatMessages([{ role: 'assistant', content: t('app.greeting', { projectName: greeting }) }]);
-      // Every chat was deleted server-side, so the measured occupancy is gone too.
-      setChatContextUsage?.(null);
+      handleSwitchChat('');
     } catch (err) {
       console.error('Failed to clear all chats:', err);
       showAlert(t('chatPanel.clearAllChatsFailed', 'Could not delete all chats: {{message}}', {
@@ -1917,7 +1910,7 @@ export default function ChatPanel({
             <button onClick={handleCreateChatClick} title={t('chatSidebar.newChat', 'Novo Chat')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-fg-teal)', display: 'flex', alignItems: 'center', padding: '2px' }}>
               <Plus size={14} />
             </button>
-            {activeChatId && activeChatId !== mainChatId && (
+            {activeChatId && (
               <button onClick={(e) => handleDeleteChatClick(activeChatId, e)} title={t('chatPanel.deleteCurrentChat', 'Deletar Chat Atual')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-fg-danger)', display: 'flex', alignItems: 'center', padding: '2px' }}>
                 <Trash2 size={14} />
               </button>
@@ -2203,6 +2196,11 @@ export default function ChatPanel({
 
       {/* Message history */}
       <div className="vscode-chat-history" ref={historyRef} onScroll={handleHistoryScroll} onContextMenu={handleChatContextMenu} style={{ zoom: chatZoom }}>
+        {activeProject && !activeChatId && chatMessages.length === 0 && (
+          <div style={{ padding: '16px', fontSize: '12px', color: 'var(--vscode-text-muted)', textAlign: 'center' }}>
+            {t('chatPanel.noChatOpen', 'No chat is open. Send a message to start a new chat.')}
+          </div>
+        )}
         {chatMessages.map((msg, i) => {
           if (isHiddenChatSystemMessage(msg)) {
             return null;

@@ -40,6 +40,8 @@ def test_the_configured_size_is_clamped():
 def _store_with_turn(tmp_path):
     store = ProjectStore(str(tmp_path / "sessions.db"))
     project = store.create("p", "auto", "fake/model", project_name="p", project_path=str(tmp_path))
+    store.create_chat("p", "chat-p", "Chat")
+    project = store.load("p")
     store.append_message(project, "user", "old request")
     store.append_activity(project, "thought", content="stale reasoning", agent="chat_orchestrator")
     store.append_message(project, "assistant", "old answer")

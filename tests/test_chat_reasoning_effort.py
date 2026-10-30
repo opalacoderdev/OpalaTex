@@ -31,6 +31,7 @@ def store(tmp_path):
         name="myproj", mode="auto", model="ollama/thinker",
         project_name="My Project", project_path=str(tmp_path),
     )
+    store.create_chat("myproj", "first", "First Chat")
     store.create_chat("myproj", "second", "Second Chat")
     return store
 
@@ -62,7 +63,7 @@ def _register(tmp_path, monkeypatch, model_id, provider="ollama", **fields):
 
 
 def test_a_chat_follows_the_catalog_until_an_effort_is_set(store):
-    assert store.get_chat_reasoning_effort("myproj", "main_myproj") == ""
+    assert store.get_chat_reasoning_effort("myproj", "first") == ""
     assert store.load("myproj").chat_reasoning_effort == ""
     assert store.list_chat_reasoning_efforts("myproj") == {}
 
@@ -71,7 +72,7 @@ def test_the_effort_belongs_to_one_chat(store):
     assert store.set_chat_reasoning_effort("myproj", "second", "LOW ") == "low"
 
     assert store.load("myproj", chat_id="second").chat_reasoning_effort == "low"
-    assert store.load("myproj", chat_id="main_myproj").chat_reasoning_effort == ""
+    assert store.load("myproj", chat_id="first").chat_reasoning_effort == ""
     assert store.list_chat_reasoning_efforts("myproj") == {"second": "low"}
 
 
@@ -99,8 +100,8 @@ def test_the_chat_list_shape_is_unchanged(store):
     """`ProjectData.chats` stays `{id, name}`; the effort has its own accessors."""
     store.set_chat_reasoning_effort("myproj", "second", "high")
     assert store.load("myproj").chats == [
-        {"id": "main_myproj", "name": "Main Chat"},
         {"id": "second", "name": "Second Chat"},
+        {"id": "first", "name": "First Chat"},
     ]
 
 
@@ -113,7 +114,7 @@ def test_a_branch_keeps_the_effort_of_the_chat_it_came_from(store):
 
     store.branch_chat("myproj", "second", "branch-a", "Branch A", 0, message_id=anchor)
     store.branch_chat_before_message("myproj", "second", "branch-b", "Branch B", message_id=anchor)
-    store.branch_chat("myproj", "main_myproj", "branch-c", "Branch C", -1)
+    store.branch_chat("myproj", "first", "branch-c", "Branch C", -1)
 
     assert store.get_chat_reasoning_effort("myproj", "branch-a") == "high"
     assert store.get_chat_reasoning_effort("myproj", "branch-b") == "high"
@@ -124,13 +125,14 @@ def test_a_database_from_before_the_setting_gains_the_column(tmp_path):
     db_path = str(tmp_path / "old.db")
     store = ProjectStore(db_path=db_path)
     store.create(name="old", mode="auto", model="ollama/thinker", project_path=str(tmp_path))
+    store.create_chat("old", "old-chat", "Chat")
     with sqlite3.connect(db_path) as conn:
         conn.execute("ALTER TABLE project_chats DROP COLUMN reasoning_effort")
 
     reopened = ProjectStore(db_path=db_path)
 
     assert reopened.load("old").chat_reasoning_effort == ""
-    assert reopened.set_chat_reasoning_effort("old", "main_old", "low") == "low"
+    assert reopened.set_chat_reasoning_effort("old", "old-chat", "low") == "low"
 
 
 # ── What reaches the provider ────────────────────────────────────────────────
@@ -148,7 +150,7 @@ def test_each_chat_runs_its_orchestrator_at_its_own_effort(store, tmp_path, monk
 
     # Ollama carries the level in `think` (config.resolve_think_request).
     assert _orchestrator_kwargs(store, "second")["think"] == "low"
-    assert _orchestrator_kwargs(store, "main_myproj")["think"] == "high"
+    assert _orchestrator_kwargs(store, "first")["think"] == "high"
 
 
 def test_the_effort_reaches_an_openai_compatible_provider_as_reasoning_effort(store, tmp_path, monkeypatch):
@@ -162,7 +164,7 @@ def test_the_effort_reaches_an_openai_compatible_provider_as_reasoning_effort(st
     store.set_chat_reasoning_effort("myproj", "second", "high")
 
     assert _orchestrator_kwargs(store, "second")["reasoning_effort"] == "high"
-    assert _orchestrator_kwargs(store, "main_myproj")["reasoning_effort"] == "low"
+    assert _orchestrator_kwargs(store, "first")["reasoning_effort"] == "low"
 
 
 def test_a_model_that_does_not_reason_is_sent_no_effort(store, tmp_path, monkeypatch):
@@ -221,7 +223,7 @@ def test_the_workers_of_a_chat_run_at_its_effort(store, tmp_path, monkeypatch):
 
     assert _worker_kwargs(store, "second", monkeypatch, "ollama/helper")["think"] == "low"
     # A chat without an override leaves the worker on its own catalog entry.
-    assert _worker_kwargs(store, "main_myproj", monkeypatch, "ollama/helper")["think"] == "medium"
+    assert _worker_kwargs(store, "first", monkeypatch, "ollama/helper")["think"] == "medium"
 
 
 def test_a_worker_model_that_does_not_reason_is_sent_no_effort(store, tmp_path, monkeypatch):
@@ -275,8 +277,8 @@ def test_the_endpoint_stores_the_effort_and_the_chat_list_reports_it(store, api)
     status, body = asyncio.run(chat_list())
     assert status == 200
     assert body["chats"] == [
-        {"id": "main_myproj", "name": "Main Chat", "reasoning_effort": ""},
         {"id": "second", "name": "Second Chat", "reasoning_effort": "high"},
+        {"id": "first", "name": "First Chat", "reasoning_effort": ""},
     ]
 
 
@@ -339,7 +341,7 @@ def test_the_cli_sets_and_clears_the_effort_of_the_current_chat(store, tmp_path,
 
     assert _dispatch(state, "high") == "continue"
     assert store.get_chat_reasoning_effort("myproj", "second") == "high"
-    assert store.get_chat_reasoning_effort("myproj", "main_myproj") == ""
+    assert store.get_chat_reasoning_effort("myproj", "first") == ""
     assert state.project.chat_reasoning_effort == "high"
     assert state._memgpt is None
     assert [level for level, _msg in said] == ["success"]

@@ -725,6 +725,8 @@ async def test_handle_run_does_not_duplicate_user_message_on_failed_retries(monk
         project_name="Project",
         project_path=str(project_dir),
     )
+    store.create_chat("proj", "chat-proj", "Chat")
+    project = store.load("proj")
 
     class FakeMemGPT:
         model = "fake/model"

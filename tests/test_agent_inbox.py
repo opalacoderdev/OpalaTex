@@ -368,6 +368,7 @@ def opalatex_turn(tmp_path, monkeypatch):
         project_name="Proj",
         project_path=str(tmp_path),
     )
+    store.create_chat("proj", "chat-proj", "Chat")
     project = store.load("proj")
 
     events = []

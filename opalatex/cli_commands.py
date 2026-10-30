@@ -276,7 +276,10 @@ async def cmd_clear(state: REPLState, _args: list[str]) -> None:
 
 @_registry.register("/clear_chat", description="Clear only the current chat's history and its isolated memory (if any)")
 async def cmd_clear_chat(state: REPLState, _args: list[str]) -> None:
-    chat_id = getattr(state.project, "current_chat_id", "main")
+    chat_id = getattr(state.project, "current_chat_id", "")
+    if not chat_id:
+        T.info(_("cli_no_chats"))
+        return
     if await T.aconfirm(f"Are you sure you want to clear chat '{chat_id}' history?"):
         from .chat_ops import clear_chat
         state.project = clear_chat(state.project, state.store, chat_id)
@@ -979,6 +982,9 @@ async def cmd_chat(state: REPLState, args: list[str]) -> str | None:
     chats = list(getattr(state.project, "chats", []) or [])
 
     if action == "list":
+        if not chats:
+            T.info(_("cli_no_chats"))
+            return "continue"
         T.console.print(f"\n[dim]{_('cli_chats_header')}[/dim]")
         for chat in chats:
             mark = "[green]*[/green]" if chat["id"] == state.project.current_chat_id else " "
@@ -1034,6 +1040,9 @@ async def cmd_effort(state: REPLState, args: list[str]) -> str | None:
 
     chat_id = state.project.current_chat_id
     requested = " ".join(args).strip().lower()
+    if not chat_id:
+        T.info(_("cli_no_chats"))
+        return "continue"
 
     if not requested:
         current = state.store.get_chat_reasoning_effort(state.project.name, chat_id)

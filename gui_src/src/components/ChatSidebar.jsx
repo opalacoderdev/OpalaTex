@@ -7,7 +7,6 @@ export default function ChatSidebar({
   chats,
   activeChatId,
   setActiveChatId,
-  mainChatId = '',
   setChats,
   activeProject,
   setChatMessages,
@@ -21,7 +20,7 @@ export default function ChatSidebar({
 
   const handleRenameChatClick = async (id, currentName, e) => {
     e.stopPropagation();
-    if (!activeProject || !id || id === mainChatId) return;
+    if (!activeProject || !id) return;
 
     const newName = await showPrompt(t('chatSidebar.renamePrompt', 'Novo nome do chat:'), currentName);
     if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
@@ -65,7 +64,7 @@ export default function ChatSidebar({
       });
       if (!res.ok) throw new Error('Failed to create chat');
       const data = await res.json();
-      setChats(prev => [...prev, data]);
+      setChats(prev => [data, ...prev]);
       setActiveChatId(data.id);
       
       const greeting = activeProject.project_name || activeProject.name;
@@ -78,12 +77,12 @@ export default function ChatSidebar({
 
   const handleDeleteChatClick = (id, e) => {
     e.stopPropagation();
-    if (!activeProject || !id || id === mainChatId) return;
+    if (!activeProject || !id) return;
     setChatToDelete(id);
   };
 
   const confirmDeleteChat = async () => {
-    if (!activeProject || !chatToDelete || chatToDelete === mainChatId) return;
+    if (!activeProject || !chatToDelete) return;
     const id = chatToDelete;
     
     try {
@@ -96,12 +95,8 @@ export default function ChatSidebar({
       const newChats = chats.filter(c => c.id !== id);
       setChats(newChats);
       if (activeChatId === id) {
-        // Fall back to a chat that actually exists: the main chat's id is
-        // `main_<project>`, never the literal "main".
-        const fallbackId = newChats.some(c => c.id === mainChatId)
-          ? mainChatId
-          : (newChats[0]?.id || '');
-        if (fallbackId) handleSwitchChat(fallbackId);
+        // Open the most recent chat left (the list is newest first), or none.
+        handleSwitchChat(newChats[0]?.id || '');
       }
       setChatToDelete(null);
     } catch (err) {
@@ -176,24 +171,22 @@ export default function ChatSidebar({
                 <div className="truncate flex-1" style={{ fontSize: '12px' }}>
                   {c.name}
                 </div>
-                {c.id !== mainChatId && (
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button
-                      onClick={(e) => handleRenameChatClick(c.id, c.name, e)}
-                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)', padding: '2px 4px' }}
-                      title={t('chatSidebar.renameChat', 'Renomear Chat')}
-                    >
-                      <Pencil size={12} />
-                    </button>
-                    <button
-                      onClick={(e) => handleDeleteChatClick(c.id, e)}
-                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)', padding: '2px 4px' }}
-                      title={t('chatSidebar.removeChat', 'Remover Chat')}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                )}
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button
+                    onClick={(e) => handleRenameChatClick(c.id, c.name, e)}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)', padding: '2px 4px' }}
+                    title={t('chatSidebar.renameChat', 'Renomear Chat')}
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteChatClick(c.id, e)}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)', padding: '2px 4px' }}
+                    title={t('chatSidebar.removeChat', 'Remover Chat')}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               </div>
             );
           })}

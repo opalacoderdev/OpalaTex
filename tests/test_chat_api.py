@@ -18,6 +18,8 @@ async def test_chat_truncate_endpoint_returns_superseded_ids(tmp_path, monkeypat
         project_name="My Project",
         project_path=str(tmp_path / "project"),
     )
+    store.create_chat("myproj", "chat-myproj", "Chat")
+    project = store.load("myproj")
     first_id = store.append_message(project, "user", "first")
     reply_id = store.append_message(project, "assistant", "first reply")
     second_id = store.append_message(project, "user", "second")
@@ -68,6 +70,8 @@ async def test_chat_truncate_endpoint_rejects_request_without_stable_anchor(tmp_
         project_name="My Project",
         project_path=str(tmp_path / "project"),
     )
+    store.create_chat("myproj", "chat-myproj", "Chat")
+    project = store.load("myproj")
     store.append_message(project, "user", "first")
     store.append_message(project, "assistant", "first reply")
     monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
@@ -108,6 +112,8 @@ async def test_clear_all_chats_endpoint_resets_project_chats(tmp_path, monkeypat
         project_name="My Project",
         project_path=str(tmp_path / "project"),
     )
+    store.create_chat("myproj", "chat-myproj", "Chat")
+    project = store.load("myproj")
     store.append_message(project, "user", "main message")
     store.create_chat("myproj", "branch-1", "Branch")
     branch = store.load("myproj", chat_id="branch-1")
@@ -132,11 +138,11 @@ async def test_clear_all_chats_endpoint_resets_project_chats(tmp_path, monkeypat
         writer,
     )
 
-    assert responses == [
-        (200, {"status": "ok", "chat": {"id": "main_myproj", "name": "Main Chat"}}, "application/json")
-    ]
-    loaded = store.load("myproj", chat_id="main_myproj")
-    assert loaded.chats == [{"id": "main_myproj", "name": "Main Chat"}]
+    assert responses == [(200, {"status": "ok"}, "application/json")]
+    # No chat is recreated: the project is left with none.
+    loaded = store.load("myproj")
+    assert loaded.chats == []
+    assert loaded.current_chat_id == ""
     assert loaded.history == []
 
 
@@ -293,12 +299,15 @@ async def test_chat_history_rejects_an_unknown_chat_id(tmp_path, monkeypatch):
     """The stale-id case that made the selector and the transcript disagree.
 
     A client holding the sentinel ``"main"`` used to be answered with the most
-    recently created chat, so the panel showed "Main Chat" over another chat's
-    messages. It must fail instead, letting the client fall back to a real id.
+    recently created chat, so the panel showed one chat in the selector over
+    another chat's messages. It must fail instead, letting the client fall back
+    to a real id.
     """
     store, server, responses = _api_harness(tmp_path, monkeypatch)
-    project = store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
-    store.append_message(project, "user", "message in main")
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "first", "First Chat")
+    first = store.load("myproj", chat_id="first")
+    store.append_message(first, "user", "message in first")
     store.create_chat("myproj", "second", "Second Chat")
     second = store.load("myproj", chat_id="second")
     store.append_message(second, "user", "message in second")
@@ -318,10 +327,12 @@ async def test_chat_history_rejects_an_unknown_chat_id(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_chat_history_without_chat_id_returns_the_main_chat(tmp_path, monkeypatch):
+async def test_chat_history_without_chat_id_returns_the_most_recent_chat(tmp_path, monkeypatch):
     store, server, responses = _api_harness(tmp_path, monkeypatch)
-    project = store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
-    store.append_message(project, "user", "message in main")
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "first", "First Chat")
+    first = store.load("myproj", chat_id="first")
+    store.append_message(first, "user", "message in first")
     store.create_chat("myproj", "second", "Second Chat")
     second = store.load("myproj", chat_id="second")
     store.append_message(second, "user", "message in second")
@@ -337,8 +348,39 @@ async def test_chat_history_without_chat_id_returns_the_main_chat(tmp_path, monk
 
     status_code, data, _ = responses[0]
     assert status_code == 200
-    assert data["chat_id"] == "main_myproj"
-    assert [m["content"] for m in data["history"]] == ["message in main"]
+    assert data["chat_id"] == "second"
+    assert [m["content"] for m in data["history"]] == ["message in second"]
+
+
+@pytest.mark.asyncio
+async def test_chat_history_of_a_project_without_chats_is_empty(tmp_path, monkeypatch):
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+
+    await server.route_api(
+        "GET", "/api/chat/history", {"project_name": ["myproj"]}, {}, b"", AsyncMock(),
+    )
+
+    status_code, data, _ = responses[0]
+    assert status_code == 200
+    assert data["chat_id"] == ""
+    assert data["history"] == []
+    # Reading does not invent a chat.
+    assert store.load("myproj").chats == []
+
+
+@pytest.mark.asyncio
+async def test_clearing_without_a_chat_is_refused(tmp_path, monkeypatch):
+    """An empty chat id must never reach the store: it would erase every chat."""
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+
+    await server.route_api(
+        "POST", "/api/chat/clear", {}, {},
+        json.dumps({"project_name": "myproj"}).encode("utf-8"), AsyncMock(),
+    )
+
+    assert responses[0][0] == 404
 
 
 @pytest.mark.asyncio
@@ -428,9 +470,10 @@ async def test_chat_history_reports_no_occupancy_for_an_unmeasured_chat(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_chat_list_reports_the_real_main_chat_id(tmp_path, monkeypatch):
+async def test_chat_list_is_newest_first_and_opens_the_most_recent(tmp_path, monkeypatch):
     store, server, responses = _api_harness(tmp_path, monkeypatch)
     store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "first", "First Chat")
     store.create_chat("myproj", "second", "Second Chat")
 
     await server.route_api(
@@ -444,32 +487,48 @@ async def test_chat_list_reports_the_real_main_chat_id(tmp_path, monkeypatch):
 
     status_code, data, _ = responses[0]
     assert status_code == 200
-    assert data["main_chat_id"] == "main_myproj"
-    assert [c["id"] for c in data["chats"]] == ["main_myproj", "second"]
+    assert "main_chat_id" not in data
+    assert [c["id"] for c in data["chats"]] == ["second", "first"]
+    assert data["current_chat_id"] == "second"
 
 
 @pytest.mark.asyncio
-async def test_chat_delete_refuses_the_main_chat(tmp_path, monkeypatch):
+async def test_chat_list_of_a_project_without_chats_opens_none(tmp_path, monkeypatch):
     store, server, responses = _api_harness(tmp_path, monkeypatch)
     store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+
+    await server.route_api(
+        "GET", "/api/chat/list", {"project_name": ["myproj"]}, {}, b"", AsyncMock(),
+    )
+
+    status_code, data, _ = responses[0]
+    assert status_code == 200
+    assert data["chats"] == []
+    assert data["current_chat_id"] == ""
+
+
+@pytest.mark.asyncio
+async def test_chat_delete_accepts_the_last_chat(tmp_path, monkeypatch):
+    store, server, responses = _api_harness(tmp_path, monkeypatch)
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "only", "Only Chat")
 
     await server.route_api(
         "POST",
         "/api/chat/delete",
         {},
         {},
-        json.dumps({"project_name": "myproj", "chat_id": "main_myproj"}).encode("utf-8"),
+        json.dumps({"project_name": "myproj", "chat_id": "only"}).encode("utf-8"),
         AsyncMock(),
     )
 
-    status_code, data, _ = responses[0]
-    assert status_code == 400
-    assert "main chat" in data["error"]
-    assert store.load("myproj").chats == [{"id": "main_myproj", "name": "Main Chat"}]
+    status_code, _data, _ = responses[0]
+    assert status_code == 200
+    assert store.load("myproj").chats == []
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("chat_id", ["main_myproj", "second"])
+@pytest.mark.parametrize("chat_id", ["first", "second"])
 async def test_chat_history_reports_the_reasoning_of_each_answer(tmp_path, monkeypatch, chat_id):
     """Answer tokens must never displace persisted reasoning on chat reload.
 
@@ -480,7 +539,8 @@ async def test_chat_history_reports_the_reasoning_of_each_answer(tmp_path, monke
     Nothing is dropped and nothing is capped: that is what this guards.
     """
     store, server, responses = _api_harness(tmp_path, monkeypatch)
-    project = store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "first", "First Chat")
     store.create_chat("myproj", "second", "Second Chat")
     project = store.load("myproj", chat_id=chat_id)
     store.append_message(project, "user", "Inspect the document.")
@@ -488,7 +548,7 @@ async def test_chat_history_reports_the_reasoning_of_each_answer(tmp_path, monke
     for _ in range(1001):
         store.append_activity(project, "stream_chunk", "answer token ")
     store.append_message(project, "assistant", "Document inspected.")
-    other_id = "second" if chat_id == "main_myproj" else "main_myproj"
+    other_id = "second" if chat_id == "first" else "first"
     other = store.load("myproj", chat_id=other_id)
     store.append_activity(other, "thought", "Another chat's thought.")
     store.close_activity_connection()
@@ -540,6 +600,8 @@ async def test_the_token_stream_cap_can_never_reach_the_reasoning(tmp_path, monk
 
     store, server, responses = _api_harness(tmp_path, monkeypatch)
     project = store.create("myproj", "plan", "fake/model", project_path=str(tmp_path / "project"))
+    store.create_chat("myproj", "chat-myproj", "Chat")
+    project = store.load("myproj")
     chat_id = project.current_chat_id
 
     store.append_message(project, "user", "Do it.")

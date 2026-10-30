@@ -517,7 +517,9 @@
     "cancelAllQueuedMessages": "Cancelar todas",
     "aiThoughtsPieces": "({{count}} pedaços)",
     "aiThoughtsOpenHint": "Abrir o raciocínio completo no painel Agent Thinking",
-    "aiThoughtsOpenPanel": "Raciocínio completo"
+    "aiThoughtsOpenPanel": "Raciocínio completo",
+    "noChatOpen": "Nenhum chat aberto. Envie uma mensagem para começar um novo chat.",
+    "defaultChatName": "Novo Chat"
   },
   "chatSidebar": {
     "newChat": "Novo Chat",
@@ -1242,7 +1244,9 @@
     "projectCloudCopyRemoved": "Cópia na nuvem de {{name}} apagada.",
     "markdownSectionLabel": "Seção",
     "markdownSelectedExcerptLabel": "Trecho selecionado na pré-visualização Markdown",
-    "quotedExcerptLabel": "Sobre este trecho"
+    "quotedExcerptLabel": "Sobre este trecho",
+    "noChatWhileRunning": "Nenhum chat aberto. Aguarde o agente terminar e envie a mensagem para começar um novo chat.",
+    "autoCreateChatFailed": "Não foi possível criar um chat para esta mensagem: {{error}}"
   },
   "onboarding": {
     "welcome": "Bem-vindo ao OpalaTex! 🚀",

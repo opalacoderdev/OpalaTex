@@ -517,7 +517,9 @@
     "cancelAllQueuedMessages": "Cancel all",
     "aiThoughtsPieces": "({{count}} pieces)",
     "aiThoughtsOpenHint": "Open the full reasoning in the Agent Thinking panel",
-    "aiThoughtsOpenPanel": "Full reasoning"
+    "aiThoughtsOpenPanel": "Full reasoning",
+    "noChatOpen": "No chat is open. Send a message to start a new chat.",
+    "defaultChatName": "New Chat"
   },
   "chatSidebar": {
     "newChat": "New Chat",
@@ -1242,7 +1244,9 @@
     "projectCloudCopyRemoved": "Cloud copy of {{name}} deleted.",
     "markdownSectionLabel": "Section",
     "markdownSelectedExcerptLabel": "Excerpt selected in the Markdown preview",
-    "quotedExcerptLabel": "About this excerpt"
+    "quotedExcerptLabel": "About this excerpt",
+    "noChatWhileRunning": "No chat is open. Wait for the agent to finish, then send the message to start a new chat.",
+    "autoCreateChatFailed": "Could not create a chat for this message: {{error}}"
   },
   "onboarding": {
     "welcome": "Welcome to OpalaTex! ",

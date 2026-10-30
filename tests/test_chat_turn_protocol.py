@@ -202,6 +202,7 @@ def test_orchestrator_state_survives_a_rebuild(tmp_path):
         project_name="Proj",
         project_path=str(tmp_path),
     )
+    store.create_chat("proj", "chat-proj", "Chat")
     project = store.load("proj")
 
     agent = MemGPTAgentBlock(name="chat_orchestrator", model="fake/model")
@@ -227,6 +228,7 @@ def test_orchestrator_state_is_dropped_when_the_chat_is_cleared(tmp_path):
         project_name="Proj",
         project_path=str(tmp_path),
     )
+    store.create_chat("proj", "chat-proj", "Chat")
     project = store.load("proj")
 
     agent = MemGPTAgentBlock(name="chat_orchestrator", model="fake/model")
@@ -249,6 +251,7 @@ def test_orchestrator_state_is_dropped_when_a_message_is_superseded(tmp_path):
         project_name="Proj",
         project_path=str(tmp_path),
     )
+    store.create_chat("proj", "chat-proj", "Chat")
     project = store.load("proj")
     anchor_id = store.append_message(project, "user", "original question")
     store.append_message(project, "assistant", "original answer")

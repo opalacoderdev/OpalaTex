@@ -333,6 +333,7 @@ def test_delete_removes_project(store):
 
 def test_delete_removes_history(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     store.append_message(p, "user", "hello")
     store.append_message(p, "assistant", "hi")
@@ -344,26 +345,29 @@ def test_delete_removes_history(store):
     assert p2.history == []
 
 
-def test_clear_all_chats_recreates_an_empty_main_chat(store):
+def test_clear_all_chats_leaves_the_project_without_a_chat(store):
     store.create(**_base_args())
-    project = store.load("myproj")
-    store.append_message(project, "user", "Main chat message")
-    store.append_activity(project, "thought", "Main chat thought", agent="chat_orchestrator")
+    store.create_chat("myproj", "chat-1", "First")
+    project = store.load("myproj", chat_id="chat-1")
+    store.append_message(project, "user", "First chat message")
+    store.append_activity(project, "thought", "First chat thought", agent="chat_orchestrator")
     store.create_chat("myproj", "branch-1", "Branch")
     branch = store.load("myproj", chat_id="branch-1")
     store.append_message(branch, "user", "Branch message")
 
-    main_chat = store.clear_all_chats("myproj")
+    store.clear_all_chats("myproj")
 
-    assert main_chat == {"id": "main_myproj", "name": "Main Chat"}
-    loaded = store.load("myproj", chat_id=main_chat["id"])
-    assert loaded.chats == [main_chat]
+    loaded = store.load("myproj")
+    assert loaded.chats == []
+    assert loaded.current_chat_id == ""
     assert loaded.history == []
-    assert store.list_activity("myproj", main_chat["id"]) == []
+    assert store.list_activity("myproj", "chat-1") == []
+    assert store.list_activity("myproj", "branch-1") == []
 
 
 def test_append_message_persists_attachments(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     att = {"type": "image", "data": "abc123", "mime": "image/jpeg", "name": "shot.jpg"}
 
@@ -378,6 +382,7 @@ def test_append_message_persists_attachments(store):
 
 def test_append_message_is_idempotent_by_client_message_id(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
 
     first_id = store.append_message(
@@ -401,6 +406,7 @@ def test_append_message_is_idempotent_by_client_message_id(store):
 
 def test_append_activity_persists_diagnostics_outside_chat_history(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     store.append_message(p, "user", "review main.tex")
 
@@ -426,6 +432,7 @@ def test_append_activity_persists_diagnostics_outside_chat_history(store):
 
 def test_branch_chat_copies_attachments(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     source_chat = p.current_chat_id
     att = {"type": "image", "data": "abc123", "mime": "image/jpeg", "name": "shot.jpg"}
@@ -443,6 +450,7 @@ def test_branch_chat_with_message_index_negative_one_copies_no_history(store):
     # before it to copy) — the branch should still succeed, yielding an
     # empty new chat.
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     source_chat = p.current_chat_id
     store.append_message(p, "user", "hello")
@@ -458,6 +466,7 @@ def test_branch_chat_does_not_inherit_source_core_memory(store):
     # too; inheriting it made an isolated branch answer from a conversation it
     # never had.
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     source_chat = p.current_chat_id
     anchor_id = store.append_message(p, "user", "hello")
@@ -471,6 +480,7 @@ def test_branch_chat_does_not_inherit_source_core_memory(store):
 
 def test_branch_chat_before_message_does_not_inherit_source_core_memory(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     source_chat = p.current_chat_id
     store.append_message(p, "user", "first")
@@ -487,6 +497,7 @@ def test_branch_chat_before_message_does_not_inherit_source_core_memory(store):
 
 def test_branch_chat_by_message_id_is_not_shifted_by_mode_entries(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     source_chat = p.current_chat_id
     for mode in ("auto", "auto", "plan"):
@@ -515,6 +526,7 @@ def test_branch_chat_by_message_id_is_not_shifted_by_mode_entries(store):
 
 def test_branch_chat_by_client_message_id_targets_user_message(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     source_chat = p.current_chat_id
     store.append_message(p, "system", "[MODE] Agent turn started. Current mode: 'auto'.")
@@ -539,6 +551,7 @@ def test_branch_chat_by_client_message_id_targets_user_message(store):
 
 def test_branch_chat_resolves_stale_main_source_by_message_id(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     source_chat = p.current_chat_id
     user_id = store.append_message(p, "user", "review main.tex", client_message_id="client-turn-1")
@@ -560,6 +573,7 @@ def test_branch_chat_resolves_stale_main_source_by_message_id(store):
 
 def test_branch_chat_resolves_stale_main_source_by_client_message_id(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     store.append_message(p, "user", "review main.tex", client_message_id="client-turn-1")
     store.append_message(p, "assistant", "Here is the review.")
@@ -581,6 +595,7 @@ def test_branch_chat_resolves_stale_main_source_by_client_message_id(store):
 def test_restore_transient_project_mode_never_persists_auto(initial_mode):
     store = _tmp_store()
     store.create(**_base_args(mode=initial_mode))
+    store.create_chat("myproj", "chat-myproj", "Chat")
     project = store.load("myproj")
     project.mode = "auto"
 
@@ -639,6 +654,7 @@ def test_create_plan_temporary_auto_does_not_save_project_mode(monkeypatch):
 
 def test_supersede_chat_history_hides_suffix_without_deleting_rows(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     first_id = store.append_message(p, "user", "first")
     reply_id = store.append_message(p, "assistant", "first reply")
@@ -671,6 +687,7 @@ def test_supersede_chat_history_hides_suffix_without_deleting_rows(store):
 
 def test_supersede_chat_history_accepts_client_message_id(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     store.append_message(p, "user", "first")
     target_id = store.append_message(p, "user", "second", client_message_id="cid-2")
@@ -687,6 +704,7 @@ def test_supersede_chat_history_accepts_client_message_id(store):
 
 def test_supersede_chat_history_requires_a_stable_anchor(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     store.append_message(p, "user", "first")
 
@@ -704,6 +722,7 @@ def test_supersede_chat_history_requires_a_stable_anchor(store):
 
 def test_supersede_chat_history_hides_future_activity(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     store.append_message(p, "user", "first")
     store.append_activity(p, "thought", "first thought", agent="chat_orchestrator")
@@ -720,6 +739,7 @@ def test_supersede_chat_history_hides_future_activity(store):
 
 def test_branch_chat_before_message_copies_earlier_messages(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     source_chat = p.current_chat_id
     att = {"type": "image", "data": "abc123", "mime": "image/jpeg", "name": "shot.jpg"}
@@ -742,6 +762,7 @@ def test_branch_chat_before_message_copies_earlier_messages(store):
 
 def test_branch_chat_before_message_requires_a_stable_anchor(store):
     store.create(**_base_args())
+    store.create_chat("myproj", "chat-myproj", "Chat")
     p = store.load("myproj")
     store.append_message(p, "user", "first")
 

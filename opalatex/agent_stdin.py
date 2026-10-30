@@ -1919,8 +1919,9 @@ async def handle_load_project(data: dict):
     db_path = data.get("db") or DEFAULT_DB_PATH
     
     current_store = ProjectStore(db_path=db_path)
-    # No chat id means "the project's default chat"; a literal sentinel here
-    # would silently resolve to whatever chat happened to be stored last.
+    # No chat id means "the project's default chat" (the most recent one, or
+    # none when the project has no chat); a literal sentinel here would
+    # silently resolve to whatever chat happened to be stored last.
     chat_id = data.get("chat_id") or None
     if current_store.exists(project_name):
         current_project = current_store.load(project_name, chat_id=chat_id)
@@ -2355,6 +2356,19 @@ async def handle_run(data: dict):
     ):
         from opalatex.i18n import _ as _translate
         print_event("error", {"agent": agent_type, "message": _translate("no_model_configured")})
+        print_event("agent_finished", {"agent": agent_type})
+        return
+
+    # A project may have no chat. The front-ends create one before sending the
+    # first message; a turn reaching here without one has nowhere to store its
+    # conversation, so it fails here rather than on its first write.
+    if (
+        agent_type in ("orchestrator", "chat_orchestrator")
+        and current_project is not None
+        and not getattr(current_project, "current_chat_id", "")
+    ):
+        from opalatex.i18n import _ as _translate
+        print_event("error", {"agent": agent_type, "message": _translate("no_chat_open")})
         print_event("agent_finished", {"agent": agent_type})
         return
 
@@ -3211,6 +3225,66 @@ def handle_input_response(data: dict) -> None:
     fut.set_result(str(data.get("response", "")))
 
 
+async def handle_stdin_run(data: dict) -> None:
+    """`run` as a client driving OpalaTex over stdin sends it.
+
+    A project may have no chat, and in every front-end the first message is
+    what starts one (PROJECT_DESIGN 2.8). The desktop window and the REPL create
+    it before they call `handle_run`, which stays strict because the window
+    shares it; this front-end does the same here. The new chat is announced
+    with `chat_created`, so the client can name it with `chat_id` later.
+    """
+    global current_project, current_memgpt
+    agent_type = data.get("agent") or "chat_orchestrator"
+    if (
+        agent_type not in ("orchestrator", "chat_orchestrator")
+        or data.get("chat_id")
+        or data.get("resume_interrupted")
+    ):
+        await handle_run(data)
+        return
+
+    names_project = "project_path" in data or "project_name" in data
+    if names_project:
+        store = ProjectStore(db_path=data.get("db") or DEFAULT_DB_PATH)
+        name = data.get("project_name") or "stdin_project"
+    elif current_project is not None and current_store is not None:
+        store, name = current_store, current_project.name
+    else:
+        store, name = None, ""
+
+    from opalatex.i18n import _ as _translate
+
+    if store is not None and not store.exists(name):
+        # Only this front-end can name a project the store does not hold; its
+        # turn would fail on its first write (the history tables reference
+        # `projects`), so it is refused with the actual cause.
+        print_event("error", {"agent": agent_type, "message": _translate("project_not_registered", name=name)})
+        print_event("agent_finished", {"agent": agent_type})
+        return
+
+    if store is not None and not store.load(name).current_chat_id:
+        import uuid
+
+        chat_id = str(uuid.uuid4())
+        chat_name = _translate("default_chat_name")
+        store.create_chat(name, chat_id, chat_name)
+        print_event("chat_created", {"project_name": name, "chat_id": chat_id, "name": chat_name})
+        if names_project:
+            # `handle_run` reloads the named project, now on this chat.
+            data = {**data, "chat_id": chat_id}
+        else:
+            # The project `load_project` opened keeps its in-memory overrides;
+            # only its chat view moves to the new chat.
+            opened = store.load(name, chat_id=chat_id)
+            for field_name in ("chats", "current_chat_id", "chat_reasoning_effort", "history"):
+                setattr(current_project, field_name, getattr(opened, field_name))
+            set_project_context(current_project, store)
+            current_memgpt = build_chat_orchestrator(current_project, store)
+
+    await handle_run(data)
+
+
 async def stdin_server_loop():
     print_event("server_ready", {})
     
@@ -3242,7 +3316,7 @@ async def stdin_server_loop():
             elif cmd == "load_project":
                 await handle_load_project(data)
             elif cmd == "run":
-                await handle_run(data)
+                await handle_stdin_run(data)
             elif cmd == "list_projects":
                 await handle_list_projects(data)
             elif cmd == "create_project":

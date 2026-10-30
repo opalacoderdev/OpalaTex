@@ -147,6 +147,8 @@ _STRINGS = {
         "unknown_tool_called": "The model called a tool that does not exist: '{tool}'. Nothing was executed; the model was sent the list of available tools.",
         "project_exists_in_folder": "The folder is already being used by the project '{name}'. Only one project per folder is allowed.",
         "no_model_configured": "No model is configured for this project. Select an orchestrator model in the chat toolbar (or in Project Settings > Orchestrator) before running the agent.",
+        "no_chat_open": "No chat is open in this project. Create a chat before running the agent.",
+        "project_not_registered": "Project '{name}' is not registered. Create it with the create_project command before running the agent.",
 
         # -- Command-line interface (cli.py, cli_render.py, cli_commands.py)
         "cli_assistant_label": "OpalaTex:",
@@ -166,6 +168,8 @@ _STRINGS = {
         "cli_usage_chat": "Usage: /chat [list | new <name> | switch <name-or-id>]",
         "cli_chats_header": "Chats in this project:",
         "cli_chat_created": "Chat '{name}' created and selected.",
+        "cli_no_chats": "This project has no chat open. Send a message to start one, or create one with /chat new <name>.",
+        "default_chat_name": "New Chat",
         "cli_chat_switched": "Switched to chat '{name}'.",
         "cli_chat_not_found": "No chat matching '{name}' in this project.",
         "cli_usage_effort": "Usage: /effort [default | low | medium | high | xhigh]",
@@ -432,6 +436,8 @@ _STRINGS = {
         "unknown_tool_called": "O modelo chamou uma ferramenta que não existe: '{tool}'. Nada foi executado; o modelo recebeu a lista de ferramentas disponíveis.",
         "project_exists_in_folder": "Esta pasta já está sendo usada pelo projeto '{name}'. Só é permitido um projeto por pasta.",
         "no_model_configured": "Nenhum modelo está configurado para este projeto. Selecione um modelo orquestrador na barra do chat (ou em Configurações do Projeto > Orquestrador) antes de executar o agente.",
+        "no_chat_open": "Nenhum chat está aberto neste projeto. Crie um chat antes de executar o agente.",
+        "project_not_registered": "O projeto '{name}' não está registrado. Crie-o com o comando create_project antes de executar o agente.",
 
         # -- Interface de linha de comando
         "cli_assistant_label": "OpalaTex:",
@@ -451,6 +457,8 @@ _STRINGS = {
         "cli_usage_chat": "Uso: /chat [list | new <nome> | switch <nome-ou-id>]",
         "cli_chats_header": "Chats deste projeto:",
         "cli_chat_created": "Chat '{name}' criado e selecionado.",
+        "cli_no_chats": "Este projeto não tem nenhum chat aberto. Envie uma mensagem para começar um, ou crie um com /chat new <nome>.",
+        "default_chat_name": "Novo Chat",
         "cli_chat_switched": "Alternado para o chat '{name}'.",
         "cli_chat_not_found": "Nenhum chat corresponde a '{name}' neste projeto.",
         "cli_usage_effort": "Uso: /effort [default | low | medium | high | xhigh]",
