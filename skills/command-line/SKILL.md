@@ -13,9 +13,12 @@ This skill provides the sub-agent with tools to manipulate files and directories
 
         get_project_overview,
         search_code,
+        find_symbol,
+        code_outline,
         read_file,
         read_content_pos,
         write_file,
+        edit_file,
         write_content_pos,
         replace_content_range,
         compile_latex,
@@ -32,6 +35,7 @@ This skill provides the sub-agent with tools to manipulate files and directories
 **CRITICAL: LARGE FILES & TRUNCATION PREVENTION**
 If a file is large (more than ~100-200 lines, e.g., large `.tex` files or large code files), do NOT attempt to use `write_file` to write the entire file content, as the LLM output limits will cause the JSON tool call to be cut off mid-response (`[TRUNCATED RESPONSE]`).
 Instead:
+- Use `edit_file` to replace an exact passage, found by its text — preferred, since an earlier edit cannot shift it.
 - Use `replace_content_range` to surgically replace only the specific line ranges that need changes.
 - Use `write_content_pos` only when inserting new content before a specific line.
 - Or, write a small Python helper script that reads the file, performs the string replacements/modifications programmatically (e.g. read, replace, write), and writes it back, then run it using `run_command`.
@@ -87,13 +91,23 @@ replace_content_range("tictactoe.html", 1, 10, "<content>")
 replace_content_range("src/utils.js", 10, 20, "<content>")
 ```
 
-6. search_code: use search_code to find text or regex matches across project files without shell commands. It returns relative paths and line numbers. For example:
+6. edit_file: use edit_file to replace an exact passage of an existing file. old_string must match the file's text exactly, indentation included, and occur exactly once — add surrounding lines until it is unique, or pass replace_all=True to change every occurrence. An empty new_string deletes the passage. The result shows the edited region with line numbers. For example:
+```
+edit_file("<relative_or_absolute_path>", "<exact current text>", "<replacement text>")
+```
+Examples:
+```
+edit_file("main.tex", "\\section{Introducao}", "\\section{Introdução}")
+edit_file("src/utils.js", "const limit = 10;", "const limit = 20;")
+```
+
+7. search_code: use search_code to find text or regex matches across project files without shell commands. It returns relative paths and line numbers. For example:
 ```
 search_code("Metodologia", "projeto_pesquisa.tex")
 search_code("\\\\section\\{Metodologia\\}", ".", true)
 ```
 
-7. run_command: use run_command to execute non-interactive shell commands (e.g. build, compile, list, python/pip commands). For example:
+8. run_command: use run_command to execute non-interactive shell commands (e.g. build, compile, list, python/pip commands). For example:
 ```
 run_command("<command>")
 ```
@@ -111,26 +125,26 @@ compile_latex("chapters/intro.tex", draft=True)
 ```
 `draft=True` is one fast pass for a syntax check; undefined references are expected after it. Do a full compile before reporting that the document builds. Report that you could not compile only if `compile_latex` itself says Tectonic is missing.
 
-8. run_interactive_command: use this specifically for commands that require human interaction, choices, or input. It will open a popup terminal for the user.
+9. run_interactive_command: use this specifically for commands that require human interaction, choices, or input. It will open a popup terminal for the user.
 ```
 run_interactive_command("npm create vite@latest app -- --template react")
 run_interactive_command("npm init")
 ```
 
-9. run_background_command: use this to start long-running servers or background processes (e.g., `npm run dev`) directly in the user's main IDE terminal. It returns immediately and does not block.
+10. run_background_command: use this to start long-running servers or background processes (e.g., `npm run dev`) directly in the user's main IDE terminal. It returns immediately and does not block.
 ```
 run_background_command("npm run dev")
 run_background_command("python manage.py runserver")
 ```
 
-10. get_project_overview: use get_project_overview for directly access project tree of files. Try with a minimum depth of 5.
+11. get_project_overview: use get_project_overview for directly access project tree of files. Try with a minimum depth of 5.
 Example:
 ```
 get_project_overview(5)
 ```
 Use this only when the project structure is unknown. Skip it when the task already identifies the target file or provides an explicit command.
 
-11. search_conversation_history: use search_conversation_history for directly search conversation history without shell. For example:
+12. search_conversation_history: use search_conversation_history for directly search conversation history without shell. For example:
 ```
 search_conversation_history("<keyword>")
 ```
@@ -140,7 +154,7 @@ search_conversation_history("tictactoe")
 search_conversation_history("src")
 ```
 
-12. ask_question: use ask_question to ask the user clarifying questions, prompt for choices, or gather missing parameters during execution without aborting the task. For example:
+13. ask_question: use ask_question to ask the user clarifying questions, prompt for choices, or gather missing parameters during execution without aborting the task. For example:
 ```
 ask_question("Found multiple configuration files: [config.json, config.yaml]. Which one should I update?")
 ```

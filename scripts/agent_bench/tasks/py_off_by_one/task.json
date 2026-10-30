@@ -1,0 +1,4 @@
+{
+  "prompt": "The tests in test_stats.py fail. Find the bug in stats.py and fix it without changing the tests, then run the tests (python -m unittest) to confirm they pass.",
+  "timeout": 600
+}

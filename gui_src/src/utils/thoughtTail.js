@@ -10,7 +10,23 @@ export const DEFAULT_THOUGHT_CONTEXT_TOKENS = 32000;
 
 const estimateTokens = (text) => Math.ceil(String(text || '').length / 4);
 
-export const createThoughtTail = () => ({ chunks: [], startTokens: 0, lastTokens: 0, omittedTokens: 0 });
+// A tail is a window `[first, count)` over `items`, an array the states built
+// from one another share. Appending pushes onto that array instead of copying
+// the window: while streaming, a window of tens of thousands of chunks was
+// copied once per token, so a long reasoning phase cost seconds of main-thread
+// time (30,000 chunks measured ~28 s). A state is never changed after it is
+// returned: appending to a state that is no longer the newest one copies its
+// window first, so every state keeps describing the same chunks.
+const makeTail = (items, first, count, startTokens, lastTokens) => ({
+  items, first, count, startTokens, lastTokens, omittedTokens: startTokens,
+});
+
+export const createThoughtTail = () => makeTail([], 0, 0, 0, 0);
+
+// Once the dropped prefix outweighs the window, the window is copied to a new
+// array, so the shared array stays within twice the window and the copy costs
+// amortized O(1) per append.
+const COMPACT_MIN_DROPPED = 1024;
 
 // Append a chunk and keep only the most recent chunks within `limit` tokens.
 export const appendThoughtChunk = (state, content, tokens, limit) => {
@@ -19,17 +35,33 @@ export const appendThoughtChunk = (state, content, tokens, limit) => {
   const end = Number.isFinite(tokens) && tokens > state.lastTokens
     ? tokens
     : state.lastTokens + estimateTokens(text);
-  const chunks = [...state.chunks, { text, end }];
+  let { items, first, count } = state;
+  if (count !== items.length) {
+    items = items.slice(first, count);
+    count -= first;
+    first = 0;
+  }
+  items.push({ text, end });
+  count += 1;
   // A chunk starts where the previous one ended; the first kept chunk starts at
   // the tokens already omitted.
-  const startOf = (index) => (index === 0 ? state.startTokens : chunks[index - 1].end);
-  let first = 0;
-  while (first < chunks.length - 1 && end - startOf(first) > limit) first += 1;
-  const omittedTokens = startOf(first);
-  return { chunks: chunks.slice(first), startTokens: omittedTokens, lastTokens: end, omittedTokens };
+  const startOf = (index) => (index === first ? state.startTokens : items[index - 1].end);
+  let next = first;
+  while (next < count - 1 && end - startOf(next) > limit) next += 1;
+  const omittedTokens = startOf(next);
+  if (next >= COMPACT_MIN_DROPPED && next * 2 >= count) {
+    items = items.slice(next, count);
+    count -= next;
+    next = 0;
+  }
+  return makeTail(items, next, count, omittedTokens, end);
 };
 
-export const thoughtTailText = (state) => state.chunks.map(chunk => chunk.text).join('');
+export const thoughtTailText = (state) => {
+  let text = '';
+  for (let index = state.first; index < state.count; index += 1) text += state.items[index].text;
+  return text;
+};
 
 // Build the visible tail of a finished list of chunks ({ content, tokens }).
 //
@@ -63,7 +95,7 @@ export const tailThoughtChunks = (items, limit) => {
   let first = 0;
   while (first < chunks.length - 1 && lastTokens - startOf(first) > limit) first += 1;
   const omittedTokens = startOf(first);
-  return { chunks: chunks.slice(first), startTokens: omittedTokens, lastTokens, omittedTokens };
+  return makeTail(chunks, first, chunks.length, omittedTokens, lastTokens);
 };
 
 // Estimate-only tail for plain text (the Output panel merges text without counts).

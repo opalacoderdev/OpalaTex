@@ -1,0 +1,5 @@
+{
+  "name": "strings",
+  "type": "module",
+  "scripts": {"test": "node --test"}
+}

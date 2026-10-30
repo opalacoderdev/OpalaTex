@@ -259,7 +259,7 @@ When you register a model in the catalog you can declare capabilities:
   condensed version (same rules, less prose) that saves tokens and latency.
 - **Orchestrator writes** (`direct` or `delegate`) — whether this model, **when it is the
   orchestrator**, may touch files. On `direct` it creates and edits them itself with
-  `write_file`, `write_content_pos` and `replace_content_range`. On `delegate` it only
+  `write_file`, `edit_file`, `write_content_pos` and `replace_content_range`. On `delegate` it only
   reads: every create, edit, rename or delete has to go through a worker via `run_skill`.
   As a worker the model writes normally — the setting has no effect in that role, because
   a worker has nobody to delegate to.
@@ -423,7 +423,7 @@ Rules of thumb for small models:
 
 - activate two or three skills, not all of them;
 - prefer surgical edits (`search_code` → `read_content_pos` →
-  `replace_content_range`) over asking for a whole rewritten file — long tool-call JSON
+  `edit_file` or `replace_content_range`) over asking for a whole rewritten file — long tool-call JSON
   gets truncated by output limits;
 - if the same skill fails twice in a row, stop and change the approach; OpalaTex
   detects that and will tell the assistant to stop redelegating.
@@ -443,9 +443,10 @@ Beyond basic LaTeX file editing, OpalaTex includes powerful built-in tools and c
   breaking the flow.
 - **Safe Confirmations** — potentially destructive actions and plan executions prompt a
   clean confirmation modal before proceeding.
-- **Surgical Text Editing** — `search_code`, `read_content_pos`, `replace_content_range`,
-  and `write_content_pos` allow the AI to locate and modify precise line spans without
-  reading or rewriting huge files. The last two only edit a file that already exists; a
+- **Surgical Text Editing** — `search_code`, `read_content_pos`, `edit_file`,
+  `replace_content_range` and `write_content_pos` allow the AI to locate and modify precise
+  passages without reading or rewriting huge files. `edit_file` finds the passage by its exact
+  text, so earlier edits cannot shift it. The last three only edit a file that already exists; a
   new file is always created with `write_file`.
 - **Attachments & Multimodal Input** — drag and drop images, PDFs, text, or data files
   into the chat. OpalaTex automatically extracts text from documents or forwards images to

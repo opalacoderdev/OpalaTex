@@ -6,9 +6,12 @@ Manipulate files/directories and run commands, restricted to the project workspa
 - `write_file(path, content)` — create or fully overwrite a file. Never build file content with shell echo/cat.
 - `read_file(path)` — read a whole small file.
 - `read_content_pos(path, start_line, end_line)` — read a line range.
+- `edit_file(path, old_string, new_string, replace_all=False)` — replace an exact passage, copied as read with enough context to be unique; preferred for changing existing text.
 - `write_content_pos(path, content, line_number)` — insert before a line.
 - `replace_content_range(path, start_line, end_line, content)` — replace/delete an inclusive line range (empty content deletes).
 - `search_code(pattern, path=".", regex=False)` — find text/regex matches with line numbers.
+- `find_symbol(name)` — where a function/class/LaTeX label/macro/citation key is defined, with file:line.
+- `code_outline(path=".")` — a file's definitions with line numbers, or a folder's map.
 - `compile_latex(path="", draft=False)` — compile a `.tex` with Tectonic, the IDE's engine; `SUCCESS`/`FAILED` with `file:line` errors. The only way to compile LaTeX: never `pdflatex`/`xelatex`/`latexmk` in the shell.
 - `run_command(cmd)` — non-interactive shell command (build/test). Never for commands needing input, and never for servers.
 - `run_interactive_command(cmd)` — commands needing user input (e.g. `npm init`).
@@ -18,7 +21,7 @@ Manipulate files/directories and run commands, restricted to the project workspa
 - `ask_question(question)` — ask the user for missing info mid-task.
 
 ## Large files
-Never write a whole large file (~100+ lines) with `write_file` — output limits truncate the call. Use `replace_content_range`/`write_content_pos` for the specific range, or a small Python script run via `run_command` for bulk edits.
+Never write a whole large file (~100+ lines) with `write_file` — output limits truncate the call. Use `edit_file` for the exact passage, `replace_content_range`/`write_content_pos` for a specific range, or a small Python script run via `run_command` for bulk edits.
 
 ## command_executor.py (insert-text, remove/create/rename/copy)
 `run_python_script("<command_executor.py_path>", "--project-path <project_path> <subcommand> <args>")`

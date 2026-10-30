@@ -1,0 +1,12 @@
+{
+  "server": {
+    "host": "localhost",
+    "port": 8080,
+    "timeouts": {"read": 30, "write": 30}
+  },
+  "features": ["search", "export"],
+  "log": {
+    "level": "info",
+    "file": "logs/app.log"
+  }
+}

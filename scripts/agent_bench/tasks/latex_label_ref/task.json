@@ -1,0 +1,4 @@
+{
+  "prompt": "In main.tex, give the Metodologia section the label sec:metodologia, and in the Resultados section replace the words \"na seção de metodologia\" with a cross-reference to it: \"na Seção~\\ref{sec:metodologia}\". Leave the rest of the document unchanged.",
+  "timeout": 600
+}

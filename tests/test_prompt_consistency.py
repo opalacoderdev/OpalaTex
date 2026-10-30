@@ -244,6 +244,7 @@ def test_the_worker_write_rule_does_not_contradict_range_edits():
 
     assert "ALWAYS use the write_file tool" not in source
     assert "replace_content_range or write_content_pos to change part of an existing file" in source
+    assert "edit_file (an exact passage, found by its text)" in source
 
 
 # ── Inline editor ────────────────────────────────────────────────────────────

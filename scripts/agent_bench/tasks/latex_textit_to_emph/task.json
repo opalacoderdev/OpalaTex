@@ -1,0 +1,4 @@
+{
+  "prompt": "In capitulo.tex, replace every \\textit{...} with \\emph{...} (keep the argument as it is). Do not change anything else in the file.",
+  "timeout": 600
+}

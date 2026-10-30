@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .atomic_file import write_text_atomic
 from .config import get_opalatex_home
 
 _SETTINGS_PATH = Path(get_opalatex_home()) / "ui_settings.json"
@@ -111,4 +112,4 @@ def save_ui_settings(settings: dict[str, Any]) -> None:
     _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     current = load_ui_settings()
     current.update(settings)
-    _SETTINGS_PATH.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_text_atomic(str(_SETTINGS_PATH), json.dumps(current, indent=2, ensure_ascii=False))

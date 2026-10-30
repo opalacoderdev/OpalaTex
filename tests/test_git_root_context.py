@@ -189,6 +189,44 @@ def test_discard_removes_staged_new_file(tmp_path):
     assert _git(project, "status", "--porcelain").stdout == ""
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_discard_removes_untracked_file(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "base.txt").write_text("base", encoding="utf-8")
+    _init_repo(project)
+    _git(project, "add", ".")
+    _git(project, "commit", "-m", "initial")
+    untracked = project / "scratch.txt"
+    untracked.write_text("scratch", encoding="utf-8")
+
+    ctx = _resolve_git_context(str(project), use_shadow=False)
+    _discard_git_path(ctx, "scratch.txt")
+
+    assert not untracked.exists()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+def test_discard_keeps_the_file_when_git_cannot_answer(tmp_path):
+    # A corrupt index makes `git ls-files` exit 128. That is not "untracked":
+    # the tracked file the user asked to restore must not be deleted.
+    project = tmp_path / "project"
+    project.mkdir()
+    tracked = project / "a.txt"
+    tracked.write_text("original", encoding="utf-8")
+    _init_repo(project)
+    _git(project, "add", ".")
+    _git(project, "commit", "-m", "initial")
+    tracked.write_text("changed", encoding="utf-8")
+
+    ctx = _resolve_git_context(str(project), use_shadow=False)
+    (project / ".git" / "index").write_bytes(b"garbage")
+
+    with pytest.raises(RuntimeError):
+        _discard_git_path(ctx, "a.txt")
+    assert tracked.read_text(encoding="utf-8") == "changed"
+
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 async def test_git_stage_endpoint_stages_all_changes_in_one_request(tmp_path):

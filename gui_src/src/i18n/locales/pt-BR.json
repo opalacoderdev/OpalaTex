@@ -941,7 +941,7 @@
     "orchestratorPolicyLabel": "Ações do orquestrador",
     "orchestratorPolicy": {
       "direct": "Direta",
-      "directHint": "O orquestrador age no projeto por conta própria: cria e edita arquivos (write_file, write_content_pos, replace_content_range) e executa comandos (run_command, run_python_script) com as mesmas ferramentas de um worker de skill. Menos idas e vindas; o conteúdo do arquivo passa pelo contexto do orquestrador. O modo plan continua bloqueando essas ferramentas e o modo edit continua pedindo sua confirmação.",
+      "directHint": "O orquestrador age no projeto por conta própria: cria e edita arquivos (write_file, edit_file, write_content_pos, replace_content_range) e executa comandos (run_command, run_python_script) com as mesmas ferramentas de um worker de skill. Menos idas e vindas; o conteúdo do arquivo passa pelo contexto do orquestrador. O modo plan continua bloqueando essas ferramentas e o modo edit continua pedindo sua confirmação.",
       "delegate": "Delegada",
       "delegateHint": "O orquestrador apenas lê, e toda alteração de arquivo ou execução de comando vai para um worker de skill via run_skill. Mantém escritas grandes fora do contexto do orquestrador. Exige pelo menos uma skill ativa para ser utilizável."
     },

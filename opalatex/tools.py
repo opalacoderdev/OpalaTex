@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
@@ -374,15 +375,15 @@ def _read_logical_text_file(path: str) -> str:
 
 
 def _decode_escape_sequences(s: str) -> str:
-    """Fix content where the model emitted literal \\n \\t \\r instead of real control chars.
+    """Turn literal \\n \\t \\r \\\\ sequences into the characters they name.
 
-    When a model double-escapes inside a JSON tool argument (\\\\n instead of \\n),
-    json.loads produces the two-character sequence backslash-n. We detect this heuristic:
-    the string has no real newlines but does contain literal backslash-n sequences,
-    indicating the entire content is single-line with escaped line breaks.
-
-    We do a simple targeted replacement of the common escape sequences to avoid
-    corrupting multi-byte UTF-8 characters (accents, etc.) that unicode_escape would mangle.
+    Used only by `_load_tool_json`, and only after the argument already failed
+    to parse as JSON. It must never run over text a tool writes as given: a
+    single line of LaTeX or code is full of these sequences (`\\textbf`,
+    `\\renewcommand`, `\\newline`, `"a\\nb"`), and the file tools used to run it
+    over every single-line edit. In the saved tool calls of a real installation
+    it fired 26 times, every one of them on valid LaTeX (`\\textit` became a tab
+    and "extit"), and never on the double-escaped content it was written for.
     """
     if "\n" in s:
         return s
@@ -812,9 +813,11 @@ def read_file(path: str) -> str:
         )
 
     try:
-        return logical_text if logical_text is not None else _read_text_file(resolved)
+        text = logical_text if logical_text is not None else _read_text_file(resolved)
     except Exception as e:
         raise ValueError(f"Error reading {_preview(resolved)}: {e}")
+    _note_file_seen(resolved)
+    return text
 
 @opalatex_tool(name="analyze_image", is_safe=True, description="Analyzes an image file using computer vision and returns a text description. Use this when the user asks you to look at a chart, UI mockup, or any image file.")
 def analyze_image(file_path: str, prompt: str = "Describe this image in detail") -> str:
@@ -1088,7 +1091,7 @@ def write_file(path: str, content: str) -> str:
                 resolved, content, project_root=get_project_path()
             )
         else:
-            content = _decode_escape_sequences(content)
+            before = _text_before_write(resolved)
             with open(resolved, "w", encoding="utf-8", newline="") as f:
                 f.write(content)
         try:
@@ -1102,7 +1105,8 @@ def write_file(path: str, content: str) -> str:
                 f"Successfully wrote packaged JPT to {_preview(resolved)} "
                 f"with {result.assets} internal asset(s)."
             )
-        return f"Successfully wrote to {_preview(resolved)}."
+        _note_file_seen(resolved)
+        return f"Successfully wrote to {_preview(resolved)}." + _syntax_note(resolved, before)
     except Exception as e:
         raise ValueError(f"Error writing {_preview(resolved)}: {e}")
 
@@ -1162,7 +1166,7 @@ def create_docx_file(path: str, markdown: str, title: str = "") -> str:
         doc = Document()
         if title:
             doc.add_heading(title, level=1)
-        for raw_line in _decode_escape_sequences(markdown).splitlines():
+        for raw_line in markdown.splitlines():
             line = raw_line.strip()
             if not line:
                 continue
@@ -1733,39 +1737,138 @@ from .external_tools import environment_with_managed_tools
 from .subprocess_utils import utf8_text_kwargs
 
 _os_info = f"{platform.system()} ({platform.release()})"
-_run_cmd_desc = f"Execute a non-interactive shell command (e.g. ls, dir, mkdir, npm install). Runs inside the project directory. Returns stdout/stderr. Use search_code for project text searches. NEVER run servers or infinite processes. NEVER use echo/printf/cat to write file content — use write_file instead. NOTE: Host OS is {_os_info}. Use the appropriate shell commands."
+_run_cmd_desc = f"Execute a non-interactive shell command (e.g. ls, dir, mkdir, npm install, a test suite). Runs inside the project directory. Returns stdout/stderr and the exit code. It stops after timeout_seconds (default 120, up to 1800): raise it for a long build or test run. Long output keeps its start and end, and the full text is saved to a file whose path the result gives. Use search_code for project text searches. NEVER run servers or infinite processes. NEVER use echo/printf/cat to write file content — use write_file instead. NOTE: Host OS is {_os_info}. Use the appropriate shell commands."
+
+# Commands run in a session (POSIX) or process group (Windows) of their own, so
+# a timeout stops everything the command started: killing only the shell left
+# a hung test runner or build running, holding files and CPU, after the tool had
+# already reported the timeout.
+_COMMAND_TIMEOUT_DEFAULT = 120
+_COMMAND_TIMEOUT_MAX = 1800
+# Output past the limit keeps its start and, larger, its end -- where test
+# summaries, tracebacks and compiler errors are -- and the whole text is saved
+# under .opalatex/command_output/ for a paged read.
+_COMMAND_OUTPUT_LIMIT = 4000
+_COMMAND_OUTPUT_HEAD = 1500
+_COMMAND_OUTPUT_TAIL = 2500
+_COMMAND_OUTPUT_DIR = os.path.join(".opalatex", "command_output")
+_COMMAND_OUTPUT_KEEP = 20
+
+
+def _command_timeout(timeout_seconds) -> int:
+    try:
+        value = int(timeout_seconds)
+    except (TypeError, ValueError):
+        raise ValueError(f"timeout_seconds must be a whole number of seconds, not {timeout_seconds!r}.")
+    if value < 1:
+        raise ValueError("timeout_seconds must be at least 1.")
+    return min(value, _COMMAND_TIMEOUT_MAX)
+
+
+def _save_command_output(text: str, stream: str) -> str:
+    """Save *text* under the project's command-output folder; return its project-relative path."""
+    root = get_project_path()
+    folder = os.path.join(root, _COMMAND_OUTPUT_DIR)
+    os.makedirs(folder, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{int(time.time() * 1000) % 1000:03d}"
+    path = os.path.join(folder, f"{stamp}-{stream}.log")
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+    try:
+        saved = sorted(name for name in os.listdir(folder) if name.endswith(".log"))
+        for name in saved[:-_COMMAND_OUTPUT_KEEP]:
+            os.remove(os.path.join(folder, name))
+    except OSError:
+        pass
+    return os.path.relpath(path, root).replace(os.sep, "/")
+
+
+def _fit_command_output(text: str, stream: str) -> str:
+    text = (text or "").strip()
+    if len(text) <= _COMMAND_OUTPUT_LIMIT:
+        return text
+    try:
+        where = f"the full {stream} ({len(text)} characters) is in {_save_command_output(text, stream)}; page it with read_content_pos"
+    except OSError:
+        where = f"{len(text) - _COMMAND_OUTPUT_HEAD - _COMMAND_OUTPUT_TAIL} characters omitted"
+    return (
+        text[:_COMMAND_OUTPUT_HEAD]
+        + f"\n... [TRUNCATED: {where}] ...\n"
+        + text[-_COMMAND_OUTPUT_TAIL:]
+    )
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True, stdin=subprocess.DEVNULL, timeout=15,
+            )
+        else:
+            import signal
+
+            os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _run_captured(command: str, timeout_seconds) -> str:
+    """Run *command* in the project through the shell and report it as the command tools do."""
+    timeout = _command_timeout(timeout_seconds)
+    group = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        if os.name == "nt" else {"start_new_session": True}
+    )
+    proc = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        cwd=get_project_path(),
+        env=environment_with_managed_tools(),
+        **utf8_text_kwargs(),
+        **group,
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc)
+        try:
+            out, err = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            out, err = "", ""
+        partial = ""
+        if (out or "").strip():
+            partial += "\nstdout before the timeout:\n" + _fit_command_output(out, "stdout")
+        if (err or "").strip():
+            partial += "\nstderr before the timeout:\n" + _fit_command_output(err, "stderr")
+        raise ValueError(
+            f"Error: Command timed out after {timeout} seconds and was stopped, together with "
+            "every process it started. Pass a larger timeout_seconds (up to "
+            f"{_COMMAND_TIMEOUT_MAX}) for a long build or test run; start a server or watcher "
+            "with run_background_command instead." + partial
+        )
+    result = {
+        "stdout": _fit_command_output(out, "stdout"),
+        "stderr": _fit_command_output(err, "stderr"),
+        "exit_code": proc.returncode,
+    }
+    return json.dumps({"result": json.dumps(result, indent=2)})
+
 
 @opalatex_tool(name="run_command", is_safe=False, description=_run_cmd_desc)
-def run_command(command: str) -> str:
+def run_command(command: str, timeout_seconds: int = _COMMAND_TIMEOUT_DEFAULT) -> str:
     AGENT_PROGRESS.update("run_command", f"$ {_preview(command)}")
-    cwd = get_project_path()
     try:
-        res = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            **utf8_text_kwargs(),
-            stdin=subprocess.DEVNULL,
-            timeout=120,
-            cwd=cwd,
-            env=environment_with_managed_tools(),
-        )
-        out = res.stdout.strip()
-        err = res.stderr.strip()
-        # Truncate large outputs
-        if len(out) > 2000:
-            out = out[:1000] + "\n... [TRUNCATED] ...\n" + out[-500:]
-        if len(err) > 2000:
-            err = err[:1000] + "\n... [TRUNCATED] ...\n" + err[-500:]
-        import json
-        result = {
-            "stdout": out,
-            "stderr": err,
-            "exit_code": res.returncode
-        }
-        return json.dumps({"result": json.dumps(result, indent=2)})
-    except subprocess.TimeoutExpired:
-        raise ValueError("Error: Command timed out after 120 seconds.")
+        return _run_captured(command, timeout_seconds)
+    except ValueError:
+        raise
     except Exception as e:
         raise ValueError(f"Error running command: {e}")
 
@@ -1813,8 +1916,8 @@ async def run_background_command(command: str) -> str:
 
 
 
-@opalatex_tool(name="run_python_script", is_safe=False, description="Execute a Python script securely. It automatically uses the correct Python interpreter for the environment. Provide the script path and any optional arguments.")
-def run_python_script(script_path: str, args: str = "") -> str:
+@opalatex_tool(name="run_python_script", is_safe=False, description="Execute a Python script securely. It automatically uses the correct Python interpreter for the environment. Provide the script path and any optional arguments. It stops after timeout_seconds (default 120, up to 1800).")
+def run_python_script(script_path: str, args: str = "", timeout_seconds: int = _COMMAND_TIMEOUT_DEFAULT) -> str:
     try:
         resolved = _resolve_path(script_path)
     except Exception as e:
@@ -1822,34 +1925,10 @@ def run_python_script(script_path: str, args: str = "") -> str:
 
     cmd = f'"{sys.executable}" "{resolved}" {args}'.strip()
     AGENT_PROGRESS.update("run_python_script", f"$ {_preview(cmd)}")
-    cwd = get_project_path()
     try:
-        res = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            **utf8_text_kwargs(),
-            stdin=subprocess.DEVNULL,
-            timeout=120,
-            cwd=cwd,
-            env=environment_with_managed_tools(),
-        )
-        out = res.stdout.strip()
-        err = res.stderr.strip()
-        # Truncate large outputs
-        if len(out) > 2000:
-            out = out[:1000] + "\n... [TRUNCATED] ...\n" + out[-500:]
-        if len(err) > 2000:
-            err = err[:1000] + "\n... [TRUNCATED] ...\n" + err[-500:]
-        import json
-        result = {
-            "stdout": out,
-            "stderr": err,
-            "exit_code": res.returncode
-        }
-        return json.dumps({"result": json.dumps(result, indent=2)})
-    except subprocess.TimeoutExpired:
-        raise ValueError("Error: Command timed out after 120 seconds.")
+        return _run_captured(cmd, timeout_seconds)
+    except ValueError:
+        raise
     except Exception as e:
         raise ValueError(f"Error running script: {e}")
 
@@ -1943,6 +2022,7 @@ def search_code(
         flags = 0 if case_sensitive else re.IGNORECASE
         pattern = re.compile(query if use_regex else re.escape(query), flags)
         matches: list[str] = []
+        matches_seen_file = None
         searched = 0
         match_index = 0
         returned = 0
@@ -1959,6 +2039,10 @@ def search_code(
             lines = text.splitlines()
             for line_number, line in enumerate(lines, start=1):
                 if pattern.search(line):
+                    if not match_index or matches_seen_file != candidate:
+                        # Its line numbers are about to reach the model.
+                        _note_file_seen(str(candidate))
+                        matches_seen_file = candidate
                     match_index += 1
                     if match_index <= offset:
                         continue
@@ -2140,8 +2224,8 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
             "validated deck rewrite."
         )
 
+    _refuse_if_changed_since_seen(resolved)
     try:
-        content = _decode_escape_sequences(content)
         with open(resolved, "r", encoding="utf-8", newline="") as f:
             lines = f.readlines()
 
@@ -2150,6 +2234,7 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
         if content and not content.endswith('\n'):
             content += '\n'
             
+        before = "".join(lines)
         lines.insert(idx, content)
         
         with open(resolved, "w", encoding="utf-8", newline="") as f:
@@ -2160,7 +2245,8 @@ def write_content_pos(path: str, content: str, pos: int) -> str:
         except Exception:
             pass
             
-        return f"Successfully inserted content at line {pos} in {_preview(resolved)}."
+        _note_file_seen(resolved)
+        return f"Successfully inserted content at line {pos} in {_preview(resolved)}." + _syntax_note(resolved, before)
     except Exception as e:
         raise ValueError(f"Error writing to {_preview(resolved)}: {e}")
 
@@ -2210,6 +2296,7 @@ def replace_content_range(path: str, start_pos: int, end_pos: int, content: str)
         raise ValueError("start_pos and end_pos must be 1-indexed positive integers.")
     if end_pos < start_pos:
         raise ValueError("end_pos must be greater than or equal to start_pos.")
+    _refuse_if_changed_since_seen(resolved)
 
     try:
         with open(resolved, "r", encoding="utf-8", newline="") as f:
@@ -2220,13 +2307,14 @@ def replace_content_range(path: str, start_pos: int, end_pos: int, content: str)
 
         start_idx = start_pos - 1
         end_idx = min(end_pos, len(lines))
-        replacement = _decode_escape_sequences(content)
+        replacement = content
         replacement_lines = []
         if replacement:
             if not replacement.endswith("\n"):
                 replacement += "\n"
             replacement_lines = replacement.splitlines(keepends=True)
 
+        before = "".join(lines)
         lines[start_idx:end_idx] = replacement_lines
 
         with open(resolved, "w", encoding="utf-8", newline="") as f:
@@ -2237,12 +2325,407 @@ def replace_content_range(path: str, start_pos: int, end_pos: int, content: str)
         except Exception:
             pass
 
+        _note_file_seen(resolved)
         return (
             f"Successfully replaced lines {start_pos}-{end_pos} "
             f"in {_preview(resolved)}."
-        )
+        ) + _syntax_note(resolved, before)
     except Exception as e:
         raise ValueError(f"Error replacing content in {_preview(resolved)}: {e}")
+
+# ─── What the agent last saw of a file ────────────────────────────────────────
+# Line numbers are only as good as the read they came from. Each read or write
+# by a file tool records the file's (mtime, size); the line-position tools then
+# refuse to edit a file that changed by other means since -- the user saving it
+# in the editor, a command, a sync -- because the lines the model is about to
+# replace may no longer be the ones it read. A file never seen is not checked,
+# and edit_file needs no check: its passage is matched by text.
+_SEEN_FILES: dict[str, tuple[int, int]] = {}
+_SEEN_FILES_LOCK = threading.Lock()
+
+
+def _file_stamp(path: str) -> tuple[int, int] | None:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
+def _note_file_seen(path: str) -> None:
+    stamp = _file_stamp(path)
+    if stamp is None:
+        return
+    with _SEEN_FILES_LOCK:
+        _SEEN_FILES[os.path.normcase(os.path.abspath(path))] = stamp
+
+
+def _refuse_if_changed_since_seen(path: str) -> None:
+    key = os.path.normcase(os.path.abspath(path))
+    with _SEEN_FILES_LOCK:
+        seen = _SEEN_FILES.get(key)
+    if seen is None or _file_stamp(path) == seen:
+        return
+    raise ValueError(
+        f"Error: {_preview(path)} changed since you last read it (saved in the editor, "
+        "or changed by a command or a sync), so line numbers from that read may no longer "
+        "point at the same text. Nothing was written. Read the lines again with "
+        "read_content_pos, or use edit_file, which finds the passage by its text."
+    )
+
+
+# ─── Syntax check after a write ───────────────────────────────────────────────
+# A broken edit used to surface only when something later ran the file, often
+# turns later and after more edits stacked on it. The file tools now parse what
+# they wrote, offline and in milliseconds, and say so when the write introduced
+# a syntax error. Only a newly introduced error is reported: a file that did not
+# parse before the write is left to the model's own judgement, and so is a
+# format whose parse depends on project setup (JSX inside .js, YAML custom tags)
+# when there is no earlier version that parsed to compare with.
+
+def _syntax_python(text: str, suffix: str) -> str | None:
+    try:
+        compile(text, "<edited>", "exec", dont_inherit=True)
+    except SyntaxError as e:
+        return f"SyntaxError at line {e.lineno}: {e.msg}"
+    except ValueError as e:
+        return str(e)
+    return None
+
+
+def _syntax_json(text: str, suffix: str) -> str | None:
+    try:
+        json.loads(text)
+    except json.JSONDecodeError as e:
+        return f"invalid JSON at line {e.lineno}, column {e.colno}: {e.msg}"
+    return None
+
+
+def _syntax_toml(text: str, suffix: str) -> str | None:
+    import tomllib
+
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        return f"invalid TOML: {e}"
+    return None
+
+
+def _syntax_yaml(text: str, suffix: str) -> str | None:
+    try:
+        import yaml
+    except ImportError:
+        return None
+    try:
+        for _ in yaml.safe_load_all(text):
+            pass
+    except yaml.YAMLError as e:
+        mark = getattr(e, "problem_mark", None)
+        where = f" at line {mark.line + 1}" if mark is not None else ""
+        return f"invalid YAML{where}: {getattr(e, 'problem', None) or e}"
+    return None
+
+
+_ES_MODULE_RE = re.compile(r"^\s*(?:import\s*[\w{*'\"]|export\s)", re.MULTILINE)
+
+
+def _syntax_javascript(text: str, suffix: str) -> str | None:
+    import shutil
+    import tempfile
+
+    node = shutil.which("node")
+    if not node:
+        return None
+    # With module detection, `node --check` on a .js file passes a syntax error
+    # in a file that uses import/export (`export const a = ;` exits 0), so
+    # ES-module text is checked as .mjs, which forces the module parser.
+    if suffix == ".js" and _ES_MODULE_RE.search(text):
+        suffix = ".mjs"
+    fd, temp_path = tempfile.mkstemp(suffix=suffix)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        res = subprocess.run(
+            [node, "--check", temp_path], capture_output=True, timeout=10,
+            stdin=subprocess.DEVNULL, **utf8_text_kwargs(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+    if res.returncode == 0:
+        return None
+    # node prints "<file>:<line>", the source line, a caret, then the error.
+    lines = [line for line in (res.stderr or "").splitlines() if line.strip()]
+    message = next((line for line in lines if "Error" in line), lines[-1] if lines else "syntax error")
+    line_no = ""
+    if lines and lines[0].startswith(temp_path + ":"):
+        line_no = " at line " + lines[0][len(temp_path) + 1:].split(":")[0]
+    return f"{message.strip()}{line_no}"
+
+
+# suffix -> (language, checker, checked without an earlier version that parsed)
+_SYNTAX_CHECKERS = {
+    ".py": ("Python", _syntax_python, True),
+    ".pyw": ("Python", _syntax_python, True),
+    ".json": ("JSON", _syntax_json, True),
+    ".toml": ("TOML", _syntax_toml, True),
+    ".yaml": ("YAML", _syntax_yaml, False),
+    ".yml": ("YAML", _syntax_yaml, False),
+    ".js": ("JavaScript", _syntax_javascript, False),
+    ".mjs": ("JavaScript", _syntax_javascript, False),
+    ".cjs": ("JavaScript", _syntax_javascript, False),
+}
+
+
+def _text_before_write(path: str) -> str | None:
+    """The text of *path* before a write, or None when it does not exist or cannot be read."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        return _read_text_file(path)
+    except OSError:
+        return None
+
+
+def _syntax_note(path: str, before: str | None) -> str:
+    """A warning when the write left *path* unparseable and *before* parsed.
+
+    *before* is the file's text before the write, or None for a new file.
+    Returns "" when there is nothing to report or nothing could be checked.
+    """
+    suffix = Path(path).suffix.lower()
+    entry = _SYNTAX_CHECKERS.get(suffix)
+    if entry is None:
+        return ""
+    language, check, without_baseline = entry
+    if before is None and not without_baseline:
+        return ""
+    try:
+        after_problem = check(_read_text_file(path), suffix)
+        if not after_problem:
+            return ""
+        if before is not None and check(before.replace("\r\n", "\n"), suffix):
+            return ""
+    except Exception:
+        return ""
+    name = os.path.basename(path)
+    if before is None:
+        return f"\nSyntax check: {name} does not parse as {language} — {after_problem}. The file was written; correct it."
+    return (
+        f"\nSyntax check: {name} parsed as {language} before this edit and no longer does — "
+        f"{after_problem}. The change was written; correct it."
+    )
+
+# ─── Anchored edit ────────────────────────────────────────────────────────────
+# Line-number edits go wrong in a way the model cannot see: after one edit every
+# later line moves, and a range taken from an earlier read lands on the wrong
+# text. `edit_file` locates the passage by its own text, so the anchor is also
+# the check: if the file changed under the model, the passage either is still
+# there (and the edit is still right) or it is not (and the edit is refused).
+# The contract is the mobile app's `edit_file` (docs/specs/mobile_app.md).
+
+# Encodings tried in this order when decoding a file to edit, as the read tools
+# do, so the model matches against the text it was shown; the file is written
+# back in the encoding it was found in.
+_EDIT_ENCODINGS = ("utf-8", "cp1252", "latin-1")
+_EDIT_BOMS = (
+    (b"\xef\xbb\xbf", "utf-8"),
+    (b"\xff\xfe", "utf-16-le"),
+    (b"\xfe\xff", "utf-16-be"),
+)
+_EDIT_SNIPPET_CONTEXT = 3
+_EDIT_SNIPPET_MAX_LINES = 40
+
+
+def _decode_for_edit(data: bytes) -> tuple[str, str, bytes]:
+    """Return (text, encoding, bom) of a file's bytes, the way the read tools decode them."""
+    for bom, encoding in _EDIT_BOMS:
+        if data.startswith(bom):
+            return data[len(bom):].decode(encoding), encoding, bom
+    # latin-1 decodes any bytes at all, so a binary file has to be told apart
+    # before the fallbacks are tried.
+    if b"\x00" in data:
+        raise ValueError("it is a binary file")
+    for encoding in _EDIT_ENCODINGS:
+        try:
+            return data.decode(encoding), encoding, b""
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("the file is not text in a supported encoding")
+
+
+def _line_of(text: str, index: int) -> int:
+    return text.count("\n", 0, index) + 1
+
+
+def _numbered_lines(text: str, first: int, last: int) -> str:
+    lines = text.split("\n")
+    first = max(1, first)
+    last = min(len(lines), last)
+    width = len(str(last))
+    return "\n".join(f"{n:>{width}}\t{lines[n - 1].rstrip(chr(13))}" for n in range(first, last + 1))
+
+
+def _edit_snippet(text: str, start: int, length: int) -> str:
+    """The edited passage with a few lines around it, numbered as read_content_pos numbers them."""
+    first = _line_of(text, start)
+    last = _line_of(text, start + max(0, length - 1)) if length else first
+    lo, hi = first - _EDIT_SNIPPET_CONTEXT, last + _EDIT_SNIPPET_CONTEXT
+    if hi - lo + 1 <= _EDIT_SNIPPET_MAX_LINES:
+        return _numbered_lines(text, lo, hi)
+    half = _EDIT_SNIPPET_MAX_LINES // 2
+    return (
+        _numbered_lines(text, lo, lo + half - 1)
+        + f"\n… ({hi - lo + 1 - 2 * half} lines not shown) …\n"
+        + _numbered_lines(text, hi - half + 1, hi)
+    )
+
+
+def _whitespace_insensitive_lines(text: str, old: str) -> list[int]:
+    """Lines where *old* starts if indentation and runs of spaces are ignored.
+
+    Used only to say where the near-miss is when an exact match failed; the
+    edit itself never matches loosely.
+    """
+    wanted = [" ".join(line.split()) for line in old.split("\n")]
+    while wanted and not wanted[0]:
+        wanted.pop(0)
+    while wanted and not wanted[-1]:
+        wanted.pop()
+    if not wanted:
+        return []
+    lines = [" ".join(line.split()) for line in text.split("\n")]
+    hits = []
+    for i in range(len(lines) - len(wanted) + 1):
+        if lines[i:i + len(wanted)] == wanted:
+            hits.append(i + 1)
+            if len(hits) == 3:
+                break
+    return hits
+
+
+@opalatex_tool(
+    name="edit_file",
+    is_safe=False,
+    description=(
+        "Replace an exact passage of an existing text file. old_string must match the file's "
+        "text exactly, including indentation and whitespace, and occur exactly once; include "
+        "enough surrounding lines to make it unique, or set replace_all to true to change every "
+        "occurrence. No line numbers are involved, so earlier edits cannot shift where this one "
+        "lands. Pass an empty new_string to delete the passage. Returns the edited region with "
+        "line numbers. This tool does not create files (write_file does) and cannot edit "
+        "packaged .jpt files."
+    )
+)
+def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
+    try:
+        resolved = _resolve_path(path)
+    except Exception as e:
+        raise ValueError(f"Error resolving path: {e}")
+
+    AGENT_PROGRESS.update("edit_file", f"path={_preview(resolved)}")
+
+    try:
+        if os.path.isdir(resolved):
+            raise ValueError(f"Error: '{_preview(resolved)}' is a directory. Cannot edit a directory.")
+        if not os.path.exists(resolved):
+            candidates = _same_name_candidates(resolved)
+            where = (
+                " A file with this name exists at: " + ", ".join(candidates) + "."
+                if candidates else ""
+            )
+            raise ValueError(
+                f"Error: file not found: {_preview(resolved)}.{where} edit_file only edits a "
+                "file that already exists. To create a new file, call write_file with the full "
+                "content instead."
+            )
+    except OSError as e:
+        raise ValueError(f"Error: invalid path argument ({e.strerror}).")
+
+    if Path(resolved).suffix.lower() == ".jpt":
+        raise ValueError(
+            "Packaged .jpt files cannot be edited as text. Use edit_presentation, or "
+            "read_file followed by write_file for a full validated deck rewrite."
+        )
+    if not old_string:
+        raise ValueError(
+            "Error: old_string is empty. Pass the exact text to replace; to add text, include "
+            "a neighbouring passage in old_string and repeat it in new_string."
+        )
+    if old_string == new_string:
+        raise ValueError("Error: old_string and new_string are identical, so there is nothing to change.")
+
+    with open(resolved, "rb") as f:
+        data = f.read()
+    try:
+        text, encoding, bom = _decode_for_edit(data)
+    except (ValueError, UnicodeDecodeError) as e:
+        raise ValueError(f"Error: cannot edit {_preview(resolved)}: {e}.")
+
+    # The read tools show CRLF files with LF line breaks, so the passage the
+    # model copies has LF. In a CRLF file it is matched, and written, with the
+    # file's own line breaks.
+    old, new = old_string, new_string
+    count = text.count(old)
+    if count == 0 and "\r\n" in text and "\n" in old and "\r" not in old:
+        old = old.replace("\n", "\r\n")
+        new = new.replace("\r\n", "\n").replace("\n", "\r\n")
+        count = text.count(old)
+
+    if count == 0:
+        near = _whitespace_insensitive_lines(text.replace("\r\n", "\n"), old_string)
+        hint = (
+            " A passage that differs only in indentation or spacing starts at line "
+            + ", ".join(str(n) for n in near)
+            + "; read those lines with read_content_pos and copy the text exactly."
+            if near else
+            " Read the current text with read_content_pos (search_code finds the line) and "
+            "copy the passage exactly, including indentation."
+        )
+        raise ValueError(f"Error: old_string does not occur in {_preview(resolved)}.{hint}")
+    if count > 1 and not replace_all:
+        starts, at = [], -1
+        while len(starts) < 5:
+            at = text.find(old, at + 1)
+            if at < 0:
+                break
+            starts.append(str(_line_of(text, at)))
+        raise ValueError(
+            f"Error: old_string occurs {count} times in {_preview(resolved)} (starting at lines "
+            f"{', '.join(starts)}{', …' if count > len(starts) else ''}). Include more surrounding "
+            "lines to make it unique, or set replace_all to true to change every occurrence."
+        )
+
+    first_at = text.find(old)
+    updated = text.replace(old, new) if replace_all else text[:first_at] + new + text[first_at + len(old):]
+    try:
+        encoded = bom + updated.encode(encoding)
+    except UnicodeEncodeError as e:
+        raise ValueError(
+            f"Error: {_preview(resolved)} is encoded in {encoding}, which cannot hold "
+            f"{e.object[e.start:e.end]!r} from new_string. Use characters that encoding supports."
+        )
+
+    with open(resolved, "wb") as f:
+        f.write(encoded)
+    _note_file_seen(resolved)
+    try:
+        from .code_index import CODE_INDEX
+        CODE_INDEX.rebuild_file(resolved)
+    except Exception:
+        pass
+
+    what = f"Replaced {count} occurrences" if count > 1 else "Edited"
+    return (
+        f"{what} in {_preview(resolved)}. The edited region now reads:\n"
+        + _edit_snippet(updated, first_at, len(new))
+        + _syntax_note(resolved, text)
+    )
+
 
 @opalatex_tool(
     name="read_content_pos",
@@ -2281,6 +2764,7 @@ def read_content_pos(path: str, start_pos: int, end_pos: int) -> str:
 
     try:
         lines = _read_logical_text_file(resolved).splitlines(keepends=True)
+        _note_file_seen(resolved)
         total_lines = len(lines)
 
         start_idx = start_pos - 1
@@ -2557,6 +3041,156 @@ def read_document(path: str, offset: int = 0, limit: int = 10000) -> str:
                        "next_offset": end if end < len(content) else None}, ensure_ascii=False)
 
 
+# ─── Code navigation ──────────────────────────────────────────────────────────
+# Backed by opalatex/code_index.py: definitions found by name instead of by
+# grep, and an outline of a file or folder with line numbers. The index lives in
+# <project>/.opalatex/code_index.sqlite and is brought up to date by mtime before
+# every query, so files changed by any means -- the editor, a command, git --
+# are re-read; the first query of a project builds it (about 2 s for 450 files).
+
+_OUTLINE_MAX_FILES = 150
+_OUTLINE_SYMBOLS_PER_FILE = 12
+_INDEXED_LANGUAGES = (
+    "Python, JavaScript/TypeScript, Java, C/C++, C#, Go, Rust, Kotlin, Swift, PHP, Ruby "
+    "and other C-like languages (definitions by pattern), LaTeX (sections, frames, "
+    "labels, macros, environments, \\input files) and BibTeX (citation keys)"
+)
+
+
+def _ready_code_index():
+    from .code_index import CODE_INDEX
+
+    CODE_INDEX.set_project(get_project_path())
+    CODE_INDEX.build()
+    return CODE_INDEX
+
+
+def _index_rel_path(index, resolved: str) -> str:
+    rel = os.path.relpath(os.path.abspath(resolved), index.root)
+    if rel == os.curdir:
+        return ""
+    if rel.startswith(os.pardir):
+        raise ValueError(f"Error: {_preview(resolved)} is outside the project, which is all the index covers.")
+    return rel
+
+
+@opalatex_tool(
+    name="find_symbol",
+    is_safe=True,
+    description=(
+        "Find where a symbol is defined, by name: a function, class, method or constant "
+        "in code; a section, label, macro or environment in LaTeX; a citation key in "
+        "BibTeX. Returns each definition's file:line and signature and, for Python, the "
+        "functions that call it (matched by name). An exact "
+        "name is matched first; otherwise similar names are listed. Faster and more "
+        "precise than search_code for definitions; search_code still finds every textual "
+        "use, including LaTeX \\ref and \\cite."
+    )
+)
+def find_symbol(name: str, include_callers: bool = True) -> str:
+    query = str(name or "").strip()
+    if not query:
+        raise ValueError("Error: name is empty. Pass the symbol name to look up, e.g. 'load_config' or 'sec:intro'.")
+    AGENT_PROGRESS.update("find_symbol", f"name={_preview(query)}")
+    index = _ready_code_index()
+    # LaTeX macros are stored with their backslash; accept the name without it.
+    candidates = index.search(query, limit=30)
+    if not candidates and not query.startswith("\\"):
+        candidates = index.search("\\" + query, limit=30)
+    exact = [s for s in candidates if s.name.lower() in (query.lower(), "\\" + query.lower())]
+    if not exact:
+        if not candidates:
+            return (
+                f"No symbol named '{query}' is defined in the indexed files ({_INDEXED_LANGUAGES}). "
+                "search_code finds it as text if it exists anywhere else."
+            )
+        similar = ", ".join(f"{s.name} ({s.kind}, {s.file}:{s.line})" for s in candidates[:10])
+        return f"No symbol is named exactly '{query}'. Similar names: {similar}."
+
+    lines = [f"Definitions of '{query}':"]
+    for s in exact[:20]:
+        lines.append(f"- {s.kind} {s.name} — {s.file}:{s.line}")
+        if s.signature:
+            lines.append(f"    {s.signature}")
+    # The call graph is complete only where it comes from a parser: Python's
+    # `ast`. The pattern fallback of other languages sees the definition line
+    # alone, so an empty caller list there would be a false "nobody calls it".
+    python_defs = [d for d in exact if d.file.endswith((".py", ".pyw"))]
+    if include_callers and python_defs:
+        callers = [c for c in index.find_callers(python_defs[0].name, limit=40)
+                   if c.file.endswith((".py", ".pyw"))]
+        if callers:
+            lines.append(f"Called from ({len(callers)}{'+' if len(callers) == 40 else ''}):")
+            lines.extend(f"- {c.kind} {c.name} — {c.file}:{c.line}" for c in callers)
+        else:
+            lines.append("No indexed Python function calls it by name (module-level code is not covered).")
+    elif include_callers and exact[0].kind in {"function", "method", "class", "const"}:
+        lines.append("Callers are tracked for Python only; search_code finds the uses of this name.")
+    return _truncate_to_context_budget("\n".join(lines))
+
+
+@opalatex_tool(
+    name="code_outline",
+    is_safe=True,
+    description=(
+        "Outline of a file or folder with line numbers. For a file: every definition in "
+        "order (functions, classes and methods in code; sections, frames, labels and "
+        "macros in LaTeX; citation keys in BibTeX), so you can jump to one with "
+        "read_content_pos instead of reading the whole file. For a folder (default: the "
+        "project root): each indexed file with its main definitions -- a map of where "
+        "things live."
+    )
+)
+def code_outline(path: str = ".") -> str:
+    try:
+        resolved = _resolve_path(path or ".")
+    except Exception as e:
+        raise ValueError(f"Error resolving path: {e}")
+    AGENT_PROGRESS.update("code_outline", f"path={_preview(resolved)}")
+    if not os.path.exists(resolved):
+        raise ValueError(f"Error: path not found: {_preview(resolved)}.")
+    index = _ready_code_index()
+    rel = _index_rel_path(index, resolved)
+
+    if os.path.isfile(resolved):
+        from .code_index import _INDEXED_EXTS
+
+        if Path(resolved).suffix.lower() not in _INDEXED_EXTS:
+            return f"No outline for {rel}: its file type is not indexed. Indexed: {_INDEXED_LANGUAGES}."
+        symbols = index.symbols_in_file(rel)
+        _note_file_seen(resolved)
+        if not symbols:
+            return f"{rel}: no definitions found."
+        width = len(str(symbols[-1].line))
+        body = "\n".join(
+            f"{s.line:>{width}}  {s.kind:<11} {s.name}"
+            + (f"  — {s.signature}" if s.signature and s.kind in {"function", "method", "class"} else "")
+            for s in symbols
+        )
+        return _truncate_to_context_budget(f"{rel} ({len(symbols)} definitions):\n{body}")
+
+    files = index.indexed_files(rel)
+    if not files:
+        return f"No indexed files under {rel or 'the project root'}. Indexed: {_INDEXED_LANGUAGES}."
+    lines = [f"{len(files)} indexed files under {rel or 'the project root'}:"]
+    for file_rel in files[:_OUTLINE_MAX_FILES]:
+        symbols = [s for s in index.symbols_in_file(file_rel) if s.exported and s.kind not in {"label", "input"}]
+        if symbols:
+            names = ", ".join(f"{s.name}:{s.line}" for s in symbols[:_OUTLINE_SYMBOLS_PER_FILE])
+            more = f" (+{len(symbols) - _OUTLINE_SYMBOLS_PER_FILE} more)" if len(symbols) > _OUTLINE_SYMBOLS_PER_FILE else ""
+            lines.append(f"{file_rel}: {names}{more}")
+        else:
+            lines.append(file_rel)
+    if len(files) > _OUTLINE_MAX_FILES:
+        lines.append(f"… {len(files) - _OUTLINE_MAX_FILES} more files; outline a subfolder to see them.")
+    return _truncate_to_context_budget("\n".join(lines))
+
+
+def get_code_navigation_tools():
+    """Read-only code navigation, for orchestrators under every policy and for workers."""
+    return [find_symbol, code_outline]
+
+
 def get_diagnostic_tools():
     return [inspect_project, inspect_git, read_document, check_presentation]
 
@@ -2578,6 +3212,7 @@ def get_workspace_action_tools():
     """
     return [
         write_file,
+        edit_file,
         write_content_pos,
         replace_content_range,
         create_docx_file,
@@ -2602,6 +3237,7 @@ def get_available_tools():
         update_achievements_memory,
         get_project_overview,
         search_code,
+        *get_code_navigation_tools(),
         read_file,
         read_content_pos,
         diff_files,

@@ -618,7 +618,7 @@ def build_run_skill_tool(
             + f"{request_hint}"
             + "IMPORTANT: Write file content (HTML, JSON, code, Markdown, etc.) only through the file tools, "
             + "never by echoing it through run_command: write_file to create a file or replace a small one, "
-            + "replace_content_range or write_content_pos to change part of an existing file. "
+            + "edit_file (an exact passage, found by its text), replace_content_range or write_content_pos to change part of an existing file. "
             + worker_profile_spec["worker_recommendations"]()
             + worker_profile_spec["achievements_instructions"]()
             + f"{native_tool_instruction}"
@@ -1161,14 +1161,15 @@ def _chat_orchestrator_body(project_path: str, profile: str = "full", policy: st
             return meta["body"]
     if policy == "delegate":
         tools_rule = (
-            "3. You have NO file-writing tools: write_file, write_content_pos and replace_content_range exist only inside skill workers. "
-            "Use your read tools (search_code, read_file, read_content_pos, get_editor_state, get_project_overview, web_search, search_conversation_history) to locate the exact path and line range, then delegate every create/edit/rename/delete with run_skill. Never claim you edited a file yourself. "
+            "3. You have NO file-writing tools: write_file, edit_file, write_content_pos and replace_content_range exist only inside skill workers. "
+            "Use your read tools (search_code, find_symbol, code_outline, read_file, read_content_pos, get_editor_state, get_project_overview, web_search, search_conversation_history) to locate the exact path and line range, then delegate every create/edit/rename/delete with run_skill. Never claim you edited a file yourself. "
             "Compiling is also a worker's job: tell it to verify LaTeX with compile_latex (Tectonic), not pdflatex.\n"
         )
     else:
         tools_rule = (
-            "3. You CAN and SHOULD use your tools (like search_code, read_file, read_content_pos, get_editor_state, write_file, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly. "
-            "write_file is the only tool that creates a new file; write_content_pos and replace_content_range require the file to already exist. "
+            "3. You CAN and SHOULD use your tools (like search_code, find_symbol, code_outline, read_file, read_content_pos, get_editor_state, write_file, edit_file, replace_content_range, write_content_pos, web_search, get_project_overview, search_conversation_history) to investigate the user's request and handle precise text edits directly. "
+            "write_file is the only tool that creates a new file; edit_file, write_content_pos and replace_content_range require the file to already exist. "
+            "To change existing text, prefer edit_file: it finds the passage by its exact text, so an earlier edit cannot shift it the way line numbers shift. "
             "You also run commands yourself with run_command (non-interactive), run_python_script, run_interactive_command (commands that prompt the user) and run_background_command (servers and other long-running processes): build, test, rename and delete directly instead of delegating a single command to a worker. "
             "Compile LaTeX with compile_latex (Tectonic, the IDE's engine), never by looking for pdflatex in the shell.\n"
         )
@@ -1179,15 +1180,15 @@ def _chat_orchestrator_body(project_path: str, profile: str = "full", policy: st
         + tools_rule +
         "4. If the user asks about something you do not know, search for it with web_search instead of guessing or replying that you have no information about it - a term missing from your training data is a reason to search, not a reason to refuse. If the user asks for something in the project, use get_project_overview to explore the project structure and read_file to read files.\n"
         "5. Whenever the user asks a question involving dates, time, recent events, latest events, sports, news, public figures, APIs, niche terminology, or potentially anachronistic information, you must search the web for updated information. Search public/external knowledge only: workspace questions go to the project read tools, and anything depending on the user's preference goes to ask_question.\n"
-        "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', 'edit_file', or 'run_cmd'. "
+        "6. You can call run_skill to execute tasks. CRITICAL: You must ONLY delegate to skills explicitly listed under 'Available skills'. NEVER invent skill names like 'search_files', 'list_files', 'modify_file', or 'run_cmd'. "
         + (
             "To list, search or read directly, use get_project_overview, search_code, read_file or read_content_pos; every edit goes to a worker.\n"
             if policy == "delegate" else
-            "If you need to list, search, read, make a precise line edit, or run a command directly, use get_project_overview, search_code, read_file, read_content_pos, write_file, replace_content_range, write_content_pos, or run_command.\n"
+            "If you need to list, search, read, make a precise line edit, or run a command directly, use get_project_overview, search_code, read_file, read_content_pos, write_file, edit_file, replace_content_range, write_content_pos, or run_command.\n"
         ) +
         "7. AFTER the worker finishes, you will receive its summary. Use a <think> block to reflect on whether the task was fully resolved. If the worker changed files, verify the changed location with read_file/read_content_pos before reporting success. If it was NOT resolved or if the worker failed, you MAY call run_skill again with a revised plan unless a worker loop breaker tells you to stop. If the task IS complete, return a non-empty final result for the user.\n"
         "8. Every invocation of run_skill spawns a completely stateless, ephemeral sub-agent. The worker starts fresh with no memory of prior runs. You MUST NOT try to converse/coordinate with the worker across multiple turns or promise to provide details in a 'next step'. Provide all instructions and details in a single run_skill call.\n"
-        "9. If you need to edit or write a large file (more than ~100-200 lines), do NOT instruct the worker to use write_file with the entire content, as LLM output limits will truncate the tool call. Instead, instruct it to use search_code to locate markers, replace_content_range for specific line ranges, write_content_pos only for insertion before a specific line, or a small Python search-and-replace script executed with run_command for bulk transformations.\n"
+        "9. If you need to edit or write a large file (more than ~100-200 lines), do NOT instruct the worker to use write_file with the entire content, as LLM output limits will truncate the tool call. Instead, instruct it to use search_code to locate markers, edit_file for an exact passage, replace_content_range for specific line ranges, write_content_pos only for insertion before a specific line, or a small Python search-and-replace script executed with run_command for bulk transformations.\n"
         "10. When handling, inspecting, comparing, or processing large structured data or log files (.jsonl, .csv, .tsv, .log), check your active 'Available skills' list for a specialized data/log skill and delegate to it. If no specialized skill is active, never attempt whole-file read_file; inspect small samples using read_content_pos or run a quick streaming Python script via command-line.\n"
         "NEVER assume something didn't happen without first searching the web using the web_search tool.\n"
         "CRITICAL: If you use a <think> block to plan your actions, continue until you either make a native tool call or provide a non-empty final text response.\n\n"
@@ -1476,7 +1477,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
     enable_achievements = model_params.get("enable_achievements", True)
     
     from .agent_stdin import wrap_tool
-    from .tools import create_plan, ask_question, get_diagnostic_tools, get_ide_control_tools
+    from .tools import create_plan, ask_question, get_code_navigation_tools, get_diagnostic_tools, get_ide_control_tools
 
     # Read/answer tools the orchestrator keeps under every policy. The memory
     # tools write, but only to core memory -- never to the user's files -- so
@@ -1489,6 +1490,7 @@ def build_chat_orchestrator(project, store=None) -> MemGPTAgentBlock:
         wrap_tool(read_content_pos),
         wrap_tool(get_editor_state),
         wrap_tool(search_code),
+        *(wrap_tool(tool) for tool in get_code_navigation_tools()),
         wrap_tool(get_project_overview),
         wrap_tool(append_core_memory),
         wrap_tool(search_conversation_history),

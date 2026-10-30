@@ -106,3 +106,34 @@ test('the configured size is clamped to the supported range', () => {
   assert.equal(clampThoughtContextTokens(5_000_000), 1000000);
   assert.equal(clampThoughtContextTokens(64000), 64000);
 });
+
+// The live stream appends one chunk per token. Copying the kept window on every
+// append made a 30,000-token reasoning phase cost ~28 s of main-thread time.
+test('streaming a long reasoning phase chunk by chunk stays linear', () => {
+  const started = performance.now();
+  let state = createThoughtTail();
+  for (let i = 0; i < 120000; i += 1) state = appendThoughtChunk(state, `${i % 10} `, i + 1, 32000);
+  const elapsed = performance.now() - started;
+  assert.equal(thoughtTailText(state).length, 32000 * 2);
+  assert.equal(state.omittedTokens, 120000 - 32000);
+  assert.ok(elapsed < 2000, `streaming the tail took ${Math.round(elapsed)}ms`);
+});
+
+test('a state keeps its chunks after a newer state was built from it', () => {
+  const base = appendThoughtChunk(createThoughtTail(), 'a', 1, 100);
+  const left = appendThoughtChunk(base, 'b', 2, 100);
+  const right = appendThoughtChunk(base, 'c', 2, 100);
+  assert.equal(thoughtTailText(base), 'a');
+  assert.equal(thoughtTailText(left), 'ab');
+  assert.equal(thoughtTailText(right), 'ac');
+});
+
+test('compacting the shared window gives the same tail as building it at once', () => {
+  const items = Array.from({ length: 9000 }, (_, i) => ({ content: `c${i} `, tokens: (i + 1) * 3 }));
+  let state = createThoughtTail();
+  for (const item of items) state = appendThoughtChunk(state, item.content, item.tokens, 1500);
+  const batch = tailThoughtChunks(items, 1500);
+  assert.equal(thoughtTailText(state), thoughtTailText(batch));
+  assert.equal(state.omittedTokens, batch.omittedTokens);
+  assert.ok(state.items.length <= 2 * (state.count - state.first) + 1024);
+});

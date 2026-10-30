@@ -269,7 +269,7 @@ Ao cadastrar um modelo no catálogo você pode declarar capacidades:
   versão condensada (mesmas regras, menos prosa) que economiza tokens e latência.
 - **Escrita do orquestrador** (`direta` ou `delegada`) — se este modelo, **quando for o
   orquestrador**, pode mexer em arquivos. Em `direta` ele cria e edita por conta própria
-  com `write_file`, `write_content_pos` e `replace_content_range`. Em `delegada` ele
+  com `write_file`, `edit_file`, `write_content_pos` e `replace_content_range`. Em `delegada` ele
   apenas lê: toda criação, edição, renomeação ou remoção precisa passar por um worker via
   `run_skill`. Como worker, o modelo escreve normalmente — a opção não tem efeito nesse
   papel, porque um worker não tem para quem delegar.
@@ -441,7 +441,7 @@ Regras práticas para modelos pequenos:
 
 - ative duas ou três skills, não todas;
 - prefira edições cirúrgicas (`search_code` → `read_content_pos` →
-  `replace_content_range`) a pedir um arquivo inteiro reescrito — um JSON de chamada de
+  `edit_file` ou `replace_content_range`) a pedir um arquivo inteiro reescrito — um JSON de chamada de
   ferramenta muito longo é truncado pelo limite de saída;
 - se a mesma skill falhar duas vezes seguidas, pare e mude de abordagem; o OpalaTex
   detecta isso e orienta o assistente a parar de redelegar.
@@ -462,9 +462,10 @@ avançadas:
   interativa (`AskModal`) na interface, permitindo que você responda sem quebrar o fluxo.
 - **Confirmações de Segurança** — ações potencialmente destrutivas ou execuções de planos
   exigem confirmação explícita antes de prosseguir.
-- **Edição Cirúrgica de Texto** — `search_code`, `read_content_pos`,
-  `replace_content_range` e `write_content_pos` permitem localizar e editar linhas exatas
-  sem precisar ler nem reescrever arquivos imensos. Essas duas últimas só editam arquivo
+- **Edição Cirúrgica de Texto** — `search_code`, `read_content_pos`, `edit_file`,
+  `replace_content_range` e `write_content_pos` permitem localizar e editar trechos exatos
+  sem precisar ler nem reescrever arquivos imensos. O `edit_file` encontra o trecho pelo
+  texto exato, então edições anteriores não o deslocam. Essas três últimas só editam arquivo
   já existente; arquivo novo é sempre criado com `write_file`.
 - **Anexos e Entrada Multimodal** — arraste e solte imagens, PDFs, textos ou arquivos de
   dados no chat. O OpalaTex extrai o texto dos documentos ou repassa as imagens a modelos

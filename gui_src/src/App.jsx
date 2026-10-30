@@ -13,6 +13,7 @@ import { clearAnsweredRequest, confirmRequestDialog, dialogRequestKey, normalize
 import { readRunConflict, RUN_CONFLICT_TURN_STOPPING } from './utils/agentRunConflict';
 import { interruptedTurnContent } from './utils/turnMarkers.js';
 import { formatWaitDuration, providerWaitFromEvent } from './utils/providerWait.js';
+import { consumeLinesByFrame } from './utils/frameBatchedLines.js';
 import {
   appendThoughtChunk,
   clampThoughtContextTokens,
@@ -388,8 +389,8 @@ export default function App() {
 
   // ── Chat / agent ──────────────────────────────────────────────────────────
   const [chatMessages, setChatMessages] = useState([]);
-  const [chatThoughtStream, setChatThoughtStream] = useState('');
-  const chatThoughtStreamRef = useRef('');
+  const [chatThoughtTail, setChatThoughtTail] = useState(createThoughtTail);
+  const chatThoughtStream = useMemo(() => thoughtTailText(chatThoughtTail), [chatThoughtTail]);
   // The live reasoning on screen: the most recent chunks within the configured
   // size (editor settings). Everything is still stored by the backend.
   const chatThoughtTailRef = useRef(createThoughtTail());
@@ -1403,7 +1404,17 @@ export default function App() {
 
   useEffect(() => {
     if (!activeProject) return;
+    // Each refresh walks the project tree and runs `git status` under the
+    // server's exclusive-work lock, which every other request waits on. A
+    // hidden window shows neither, so it skips them and catches up when it is
+    // shown again. Coming back fires both `focus` and `visibilitychange`; the
+    // second one, a moment after the first, is the same refresh twice.
+    let lastRefresh = 0;
     const refreshWorkspace = () => {
+      if (document.hidden) return;
+      const now = Date.now();
+      if (now - lastRefresh < 1000) return;
+      lastRefresh = now;
       fetchFiles();
       fetchGitStatus();
       refreshSelectedFileFromDiskIfUnmodified();
@@ -3299,9 +3310,9 @@ export default function App() {
           Number(data.thought_tokens),
           chatThoughtPreviewTokensRef.current,
         );
-        const next = thoughtTailText(chatThoughtTailRef.current);
-        chatThoughtStreamRef.current = next;
-        setChatThoughtStream(next);
+        // The text is joined once per render (`chatThoughtStream` below), not
+        // once per chunk: a batch of a frame's chunks lands in one render.
+        setChatThoughtTail(chatThoughtTailRef.current);
         break;
       }
       case 'reflection':
@@ -3348,8 +3359,8 @@ export default function App() {
         // produce a second, longer account of one event — and the partial
         // answer would vanish from the screen in the meantime.
         const partialAnswer = chatResponseStreamRef.current;
-        chatThoughtStreamRef.current = ''; chatThoughtTailRef.current = createThoughtTail();
-        setChatThoughtStream('');
+        chatThoughtTailRef.current = createThoughtTail();
+        setChatThoughtTail(chatThoughtTailRef.current);
         chatResponseStreamRef.current = '';
         setChatResponseStream('');
         if (isRunOnScreen()) setChatMessages(prev => [...prev, {
@@ -3383,13 +3394,13 @@ export default function App() {
         break;
       case 'agent_response':
         addLog('info', t('app.responseReceived'));
-        const finalThoughtStream = chatThoughtStreamRef.current;
+        const finalThoughtStream = thoughtTailText(chatThoughtTailRef.current);
         const responseText = (data.response && data.response.trim() !== '')
           ? data.response
           : "⚠️ *O agente concluiu o processamento, mas não emitiu nenhuma resposta textual ou chamada de ferramenta. Isso geralmente acontece quando o modelo de IA sofre uma falha de geração (ex: esqueceu de usar o formato correto após pensar).*";
 
-        chatThoughtStreamRef.current = ''; chatThoughtTailRef.current = createThoughtTail();
-        setChatThoughtStream('');
+        chatThoughtTailRef.current = createThoughtTail();
+        setChatThoughtTail(chatThoughtTailRef.current);
         chatResponseStreamRef.current = '';
         setChatResponseStream('');
 
@@ -3875,26 +3886,14 @@ export default function App() {
       }
       // The turn was accepted, so the previous turn's partial output is safe to
       // drop: this one is about to produce its own. See the note above.
-      chatThoughtStreamRef.current = ''; chatThoughtTailRef.current = createThoughtTail();
-      setChatThoughtStream('');
+      chatThoughtTailRef.current = createThoughtTail();
+      setChatThoughtTail(chatThoughtTailRef.current);
       chatResponseStreamRef.current = '';
       setChatResponseStream('');
       if (!res.body) { addLog('error', t('app.streamUnsupportedBackend')); setIsAgentRunning(false); return; }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try { handleAgentEvent(JSON.parse(line)); } catch (e) { addLog('stdout', line); }
-        }
-      }
-      if (buffer.trim()) { try { handleAgentEvent(JSON.parse(buffer)); } catch (e) { addLog('stdout', buffer); } }
+      await consumeLinesByFrame(res.body.getReader(), (line) => {
+        try { handleAgentEvent(JSON.parse(line)); } catch (e) { addLog('stdout', line); }
+      });
     } catch (err) {
       addLog('error', t('app.executionFailed', { error: err.message }));
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);
@@ -4711,26 +4710,14 @@ export default function App() {
         reportRunConflict(runConflict);
         return;
       }
-      chatThoughtStreamRef.current = ''; chatThoughtTailRef.current = createThoughtTail();
-      setChatThoughtStream('');
+      chatThoughtTailRef.current = createThoughtTail();
+      setChatThoughtTail(chatThoughtTailRef.current);
       chatResponseStreamRef.current = '';
       setChatResponseStream('');
       if (!res.body) { addLog('error', t('app.streamUnsupportedBackend')); setIsAgentRunning(false); return; }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try { handleAgentEvent(JSON.parse(line)); } catch (e) { addLog('stdout', line); }
-        }
-      }
-      if (buffer.trim()) { try { handleAgentEvent(JSON.parse(buffer)); } catch (e) { addLog('stdout', buffer); } }
+      await consumeLinesByFrame(res.body.getReader(), (line) => {
+        try { handleAgentEvent(JSON.parse(line)); } catch (e) { addLog('stdout', line); }
+      });
     } catch (err) {
       addLog('error', t('app.executionFailed', { error: err.message }));
       setChatMessages(prev => [...prev, { role: 'assistant', content: `🔴 Falha na execução: ${err.message}`, is_error: true, timestamp: new Date().toISOString() }]);

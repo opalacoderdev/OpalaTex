@@ -12,6 +12,7 @@ from typing import Optional
 
 from .config import DEFAULT_DB_PATH, DEFAULT_MODEL, resolve_display_num_ctx, snap_confinement_hint
 from .api_keys import get_env_var_for_model
+from .atomic_file import write_text_atomic
 
 
 _LEGACY_CLOUD_MODEL_ALIASES = {"OpalaTexCloud", "OpalaTexCloudGemini35Flash"}
@@ -852,8 +853,8 @@ class ProjectStore:
             if worker_api_base:
                 upsert_env("WORKER_API_BASE", worker_api_base)
                 
-            with open(env_path, "w", encoding="utf-8") as f:
-                f.writelines(env_lines)
+            # The file holds provider API keys: readable by its owner only.
+            write_text_atomic(env_path, "".join(env_lines), mode=0o600)
 
             # 4. Add .opalatex/ to the project's own .gitignore so OpalaTex
             #    internal files don't appear in the user's git status.
@@ -885,9 +886,7 @@ class ProjectStore:
                 upsert_env(final_api_base_var or "OPENAI_API_BASE", api_base)
 
             try:
-                with open(env_path, "w", encoding="utf-8") as f:
-
-                    f.writelines(env_lines)
+                write_text_atomic(env_path, "".join(env_lines), mode=0o600)
             except Exception:
                 pass
 
@@ -1109,8 +1108,7 @@ class ProjectStore:
 
             try:
                 os.makedirs(project.project_path, exist_ok=True)
-                with open(env_path, "w", encoding="utf-8") as f:
-                    f.writelines(env_lines)
+                write_text_atomic(env_path, "".join(env_lines), mode=0o600)
             except Exception:
                 pass
 
@@ -1370,6 +1368,7 @@ class ProjectStore:
         *,
         truncate_events: tuple[str, ...] | None = None,
         exclude_events: tuple[str, ...] | None = None,
+        since: str = "",
     ) -> list[dict]:
         """Read activity chronologically; None as *limit* requests the full history.
 
@@ -1393,6 +1392,11 @@ class ProjectStore:
         if excluded:
             exclude_sql = f" AND event NOT IN ({','.join('?' * len(excluded))})"
             exclude_args = excluded
+        # *since* keeps rows stamped at or after it (ISO timestamps compare as
+        # text), so a caller that wants one turn does not read the whole chat.
+        if since:
+            exclude_sql += " AND timestamp >= ?"
+            exclude_args = (*exclude_args, str(since))
         with _conn(self.db_path) as conn:
             if truncate_events and safe_limit != -1:
                 placeholders = ",".join("?" * len(truncate_events))

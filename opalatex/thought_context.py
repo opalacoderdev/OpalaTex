@@ -77,7 +77,7 @@ def collect_interrupted_turn(store, project_name: str, chat_id: str, history: li
     if not started_at:
         return "", ""
 
-    activity = store.list_activity(project_name, chat_id, limit=None)
+    activity = store.list_activity(project_name, chat_id, limit=None, since=started_at)
     reasoning: list[str] = []
     visible: list[str] = []
     for item in activity:

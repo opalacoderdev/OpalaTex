@@ -59,3 +59,51 @@ async def test_file_delete_api(tmp_path):
     assert responses[0][0] == 403
     assert "error" in responses[0][1]
     assert test_file2.exists()
+
+
+async def _post(server, path, payload):
+    responses = []
+    server.send_response = lambda w, status, body, content_type="text/plain": responses.append(
+        (status, json.loads(body.decode("utf-8")))
+    )
+    await server.route_api("POST", path, {}, {}, json.dumps(payload).encode("utf-8"), AsyncMock())
+    return responses
+
+
+@pytest.mark.asyncio
+async def test_file_delete_refuses_the_project_root(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "main.tex").write_text("x")
+
+    for root_alias in (".", "./", "sub/.."):
+        responses = await _post(AsyncHTTPServer(), "/api/file/delete", {"projectPath": str(project), "filePath": root_alias})
+        assert responses[0][0] == 403
+    assert (project / "main.tex").exists()
+
+
+@pytest.mark.asyncio
+async def test_file_endpoints_refuse_a_sibling_sharing_the_project_prefix(tmp_path):
+    # "../projectX" resolves to a folder whose path starts with the project's,
+    # which a bare startswith() check accepted.
+    project = tmp_path / "project"
+    project.mkdir()
+    sibling = tmp_path / "projectX"
+    sibling.mkdir()
+    (sibling / "keep.txt").write_text("keep")
+    server = AsyncHTTPServer()
+
+    responses = await _post(server, "/api/file/delete", {"projectPath": str(project), "filePath": "../projectX"})
+    assert responses[0][0] == 403
+    responses = await _post(server, "/api/file/mkdir", {"projectPath": str(project), "dirPath": "../projectX/new"})
+    assert responses[0][0] == 403
+    responses = await _post(server, "/api/file/rename", {
+        "projectPath": str(project), "oldPath": "../projectX/keep.txt", "newPath": "moved.txt",
+    })
+    assert responses[0][0] == 403
+    responses = await _post(server, "/api/file/copy", {
+        "projectPath": str(project), "sourcePath": "../projectX/keep.txt", "targetPath": "copy.txt",
+    })
+    assert responses[0][0] == 403
+    assert (sibling / "keep.txt").read_text() == "keep"
+    assert not (sibling / "new").exists()

@@ -941,7 +941,7 @@
     "orchestratorPolicyLabel": "Orchestrator actions",
     "orchestratorPolicy": {
       "direct": "Direct",
-      "directHint": "The orchestrator acts on the project itself: it creates and edits files (write_file, write_content_pos, replace_content_range) and runs commands (run_command, run_python_script) with the same tools a skill worker has. Fewer round-trips; the file content passes through the orchestrator's context. Plan mode still blocks these tools and edit mode still asks you to confirm.",
+      "directHint": "The orchestrator acts on the project itself: it creates and edits files (write_file, edit_file, write_content_pos, replace_content_range) and runs commands (run_command, run_python_script) with the same tools a skill worker has. Fewer round-trips; the file content passes through the orchestrator's context. Plan mode still blocks these tools and edit mode still asks you to confirm.",
       "delegate": "Delegate",
       "delegateHint": "The orchestrator only reads, and every file change or command goes to a skill worker via run_skill. Keeps large write payloads out of the orchestrator's context. Requires at least one active skill to be usable."
     },

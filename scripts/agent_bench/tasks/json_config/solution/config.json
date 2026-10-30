@@ -1,0 +1,19 @@
+{
+  "server": {
+    "host": "localhost",
+    "port": 9090,
+    "timeouts": {
+      "read": 30,
+      "write": 30
+    }
+  },
+  "features": [
+    "search",
+    "export",
+    "sync"
+  ],
+  "log": {
+    "level": "debug",
+    "file": "logs/app.log"
+  }
+}

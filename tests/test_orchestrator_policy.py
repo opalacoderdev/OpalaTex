@@ -26,6 +26,7 @@ from opalatex.project import ProjectData
 
 WRITE_TOOLS = {
     "write_file",
+    "edit_file",
     "write_content_pos",
     "replace_content_range",
     "create_docx_file",
@@ -412,3 +413,10 @@ def test_fallback_body_is_policy_aware(monkeypatch):
     assert "write_file is the only tool that creates a new file" in direct
     assert "You have NO file-writing tools" in delegate
     assert "every edit goes to a worker" in delegate
+
+
+@pytest.mark.parametrize("policy", ["direct", "delegate"])
+def test_code_navigation_is_a_read_tool_under_every_policy(tmp_path, monkeypatch, policy):
+    """find_symbol and code_outline only read, so delegate keeps them too."""
+    project = _catalog(tmp_path, monkeypatch, "ollama/m", orchestrator_policy=policy)
+    assert {"find_symbol", "code_outline"} <= _tool_names(project)

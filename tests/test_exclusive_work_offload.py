@@ -183,3 +183,54 @@ async def test_file_tree_and_git_status_answer_as_before(tmp_path):
     status, payload = responses.pop()
     assert status == 200
     assert payload["files"] == []
+
+
+GIT_ENDPOINTS = [
+    ("GET", "/api/git/file-at-head", {"projectPath": ["P"], "filePath": ["a.tex"]}, {}),
+    ("POST", "/api/git/commit", {}, {"projectPath": "P"}),
+    ("GET", "/api/git/diff", {"projectPath": ["P"]}, {}),
+    ("GET", "/api/git/archive", {"projectPath": ["P"], "commit": ["abc"]}, {}),
+    ("POST", "/api/git/restore", {}, {"projectPath": "P", "commit": "abc"}),
+    ("GET", "/api/git/log", {"projectPath": ["P"]}, {}),
+    ("POST", "/api/git/stage", {}, {"projectPath": "P", "filePath": "a.tex"}),
+    ("POST", "/api/git/discard", {}, {"projectPath": "P", "filePath": "a.tex"}),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path,query,body", GIT_ENDPOINTS, ids=[e[1] for e in GIT_ENDPOINTS])
+async def test_git_endpoints_run_git_in_a_worker_thread(tmp_path, monkeypatch, method, path, query, body):
+    """A git call no longer holds the event loop: a diff makes up to a dozen
+    of them and a commit runs the repository's hooks."""
+    import opalatex.ide_server as ide_server
+
+    assert path in AsyncHTTPServer.EXCLUSIVE_WORK_PATHS
+    started = threading.Event()
+    release = threading.Event()
+    loop_thread = threading.get_ident()
+    threads = []
+
+    def blocking_git_context(*_args, **_kwargs):
+        threads.append(threading.get_ident())
+        started.set()
+        release.wait(5)
+        raise ide_server.GitContextError("no repository")
+
+    monkeypatch.setattr(ide_server, "_resolve_git_context", blocking_git_context)
+    query = {k: [str(tmp_path) if v == ["P"] else v[0]] for k, v in query.items()}
+    body = {k: (str(tmp_path) if v == "P" else v) for k, v in body.items()}
+    server = AsyncHTTPServer()
+    responses = []
+    server.send_response = lambda _w, status, payload, content_type="text/plain": responses.append(status)
+
+    request = asyncio.create_task(server.route_api(method, path, query, {}, json.dumps(body).encode(), AsyncMock()))
+    await _wait_until(started.is_set)
+    ticks = 0
+    for _ in range(3):
+        await asyncio.sleep(0.01)
+        ticks += 1
+    assert ticks == 3 and not request.done()
+    release.set()
+    await request
+    assert threads and threads[0] != loop_thread
+    assert len(responses) == 1

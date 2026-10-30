@@ -44,6 +44,7 @@ sys.stdout = _force_utf8_stream(sys.stdout)
 sys.stderr = _force_utf8_stream(sys.stderr)
 
 import asyncio
+import collections
 import os
 import json
 import urllib.parse
@@ -96,6 +97,10 @@ def _is_path_within(child: str, parent: str) -> bool:
     child_abs = os.path.normcase(os.path.abspath(child))
     parent_abs = os.path.normcase(os.path.abspath(parent))
     return child_abs == parent_abs or child_abs.startswith(parent_abs + os.sep)
+
+
+def _same_project_root(path: str, root: str) -> bool:
+    return os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(root))
 
 
 def _normalize_rel_path(path: str) -> str:
@@ -592,6 +597,12 @@ def _discard_git_path(git_ctx: dict, repo_file_path: str) -> None:
         if res.returncode != 0:
             raise RuntimeError(res.stderr or res.stdout or "Git restore failed")
         return
+    # Exit status 1 is the only answer that means "not tracked". Git exits 128
+    # when it cannot answer at all (dubious ownership, a corrupt index, a broken
+    # repository); taking that for "untracked" deleted a tracked file the user
+    # had asked to restore.
+    if ls.returncode != 1:
+        raise RuntimeError(ls.stderr or ls.stdout or f"git ls-files failed with exit status {ls.returncode}")
 
     full_path = os.path.abspath(os.path.join(git_ctx["repo_root"], repo_file_path))
     if not _is_path_within(full_path, git_ctx["repo_root"]):
@@ -834,6 +845,11 @@ class AsyncHTTPServer:
         from .local_auth import LocalSession
         self.local_session = LocalSession(host, port)
         self.active_queues = []
+        # The loop that serves requests and owns `active_queues`; set by start().
+        self.loop = None
+        # Events in publication order, from any thread, until the loop hands
+        # them to `active_queues` (see publish_event).
+        self._pending_events = collections.deque()
         self.active_terminal = None
         self.temp_terminals = {}
         self.active_agent_task = None
@@ -854,6 +870,17 @@ class AsyncHTTPServer:
         '/api/latex/compile-pdf-source',
         '/api/git/status',
         '/api/files',
+        # Every other Git endpoint runs git as well: a diff makes up to a dozen
+        # calls, a commit runs the repository's hooks, an archive zips a whole
+        # checkpoint. See `_respond_from_thread`.
+        '/api/git/file-at-head',
+        '/api/git/commit',
+        '/api/git/diff',
+        '/api/git/archive',
+        '/api/git/restore',
+        '/api/git/log',
+        '/api/git/stage',
+        '/api/git/discard',
     })
 
     def _exclusive_work_lock(self) -> asyncio.Lock:
@@ -878,6 +905,30 @@ class AsyncHTTPServer:
         async with lock:
             pass
         await handler()
+
+    async def _respond_from_thread(self, writer, work):
+        """Run ``work(respond)`` in a worker thread and send what it decided.
+
+        ``work`` is a request handler's blocking part. It calls ``respond`` with
+        the arguments of ``send_response`` (plus, optionally, the extra headers
+        of ``send_response_with_headers``) instead of writing to the stream,
+        which belongs to the event loop and must not be touched from a thread.
+        The first response wins, as the first write did before.
+        """
+        decided = []
+
+        def respond(status_code, body, content_type="text/plain", extra_headers=None):
+            if not decided:
+                decided.append((status_code, body, content_type, extra_headers))
+
+        await asyncio.to_thread(work, respond)
+        if not decided:
+            return
+        status_code, body, content_type, extra_headers = decided[0]
+        if extra_headers is None:
+            self.send_response(writer, status_code, body, content_type)
+        else:
+            self.send_response_with_headers(writer, status_code, body, content_type, extra_headers)
 
     @staticmethod
     def _is_project_terminal(term_id) -> bool:
@@ -966,7 +1017,46 @@ class AsyncHTTPServer:
         agent_task.cancel()
         return True
 
+    def publish_event(self, payload):
+        """Hand an agent event to every open run stream, from any thread.
+
+        Synchronous tools run in worker threads (`FunctionBlock` ->
+        `asyncio.to_thread`) and some of them publish events, such as
+        `latex_compiled`. `asyncio.Queue` is not thread-safe: a `put_nowait`
+        from a worker thread does not wake the loop, so the event could sit in
+        the queue until something else did. Off the loop's thread the delivery
+        is scheduled on the loop instead.
+
+        The event joins `_pending_events` at once, in either case, and the loop
+        delivers that deque in order. Scheduling the put itself was not enough:
+        the loop can resume the coroutine awaiting the tool before it runs a
+        callback the tool's thread scheduled earlier (measured on Python 3.14,
+        about 1 in 1,500), which let the `tool_result` that follows overtake the
+        tool's own event.
+        """
+        self._pending_events.append(payload)
+        loop = self.loop
+        if loop is not None and not loop.is_closed():
+            try:
+                on_loop = asyncio.get_running_loop() is loop
+            except RuntimeError:
+                on_loop = False
+            if not on_loop:
+                loop.call_soon_threadsafe(self._deliver_pending_events)
+                return
+        self._deliver_pending_events()
+
+    def _deliver_pending_events(self):
+        while True:
+            try:
+                payload = self._pending_events.popleft()
+            except IndexError:
+                return
+            for q in self.active_queues:
+                q.put_nowait(payload)
+
     async def start(self):
+        self.loop = asyncio.get_running_loop()
         self.server = await asyncio.start_server(self.handle_request, self.host, self.port)
         self.port = self.server.sockets[0].getsockname()[1]
         self.local_session.port = self.port
@@ -1189,7 +1279,7 @@ class AsyncHTTPServer:
             rel_path = 'index.html'
             
         full_path = os.path.abspath(os.path.join(self.static_dir, rel_path))
-        if not full_path.startswith(os.path.abspath(self.static_dir)):
+        if not _is_path_within(full_path, self.static_dir):
             self.send_response(writer, 403, b"Forbidden")
             return
             
@@ -1994,49 +2084,51 @@ class AsyncHTTPServer:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath are required"}', "application/json")
                 return
             
-            try:
-                import subprocess
-                git_ctx = _resolve_git_context(project_path, use_shadow, git_root_path)
-                norm_file_path = _project_path_to_repo_path(file_path, git_ctx)
-                command = git_ctx["git_cmd"] + ["show", f"HEAD:{norm_file_path}"]
-                if file_path.lower().endswith('.jpt'):
-                    result = subprocess.run(
-                        command, capture_output=True, cwd=git_ctx["cwd"]
-                    )
-                else:
-                    result = subprocess.run(
-                        command, capture_output=True, cwd=git_ctx["cwd"],
-                        **utf8_text_kwargs()
-                    )
-                source = git_ctx["source"]
-                    
-                if result.returncode == 0:
+            def _work(respond):
+                try:
+                    import subprocess
+                    git_ctx = _resolve_git_context(project_path, use_shadow, git_root_path)
+                    norm_file_path = _project_path_to_repo_path(file_path, git_ctx)
+                    command = git_ctx["git_cmd"] + ["show", f"HEAD:{norm_file_path}"]
                     if file_path.lower().endswith('.jpt'):
-                        from opalatex.jpt import read_jpt_bytes
-
-                        content = read_jpt_bytes(result.stdout).text
+                        result = subprocess.run(
+                            command, capture_output=True, cwd=git_ctx["cwd"]
+                        )
                     else:
-                        content = result.stdout
-                    self.send_response(writer, 200, json.dumps({"content": content, "source": source}).encode('utf-8'), "application/json")
+                        result = subprocess.run(
+                            command, capture_output=True, cwd=git_ctx["cwd"],
+                            **utf8_text_kwargs()
+                        )
+                    source = git_ctx["source"]
+                    
+                    if result.returncode == 0:
+                        if file_path.lower().endswith('.jpt'):
+                            from opalatex.jpt import read_jpt_bytes
+
+                            content = read_jpt_bytes(result.stdout).text
+                        else:
+                            content = result.stdout
+                        respond(200, json.dumps({"content": content, "source": source}).encode('utf-8'), "application/json")
+                        return
+                    else:
+                        respond(200, b'{"error":"Not found in git"}', "application/json")
+                        return
+                except GitContextError as e:
+                    respond(
+                        200,
+                        json.dumps({
+                            "content": "",
+                            "source": "none",
+                            "git_available": False,
+                            "error": str(e),
+                        }).encode('utf-8'),
+                        "application/json",
+                    )
                     return
-                else:
-                    self.send_response(writer, 200, b'{"error":"Not found in git"}', "application/json")
-                    return
-            except GitContextError as e:
-                self.send_response(
-                    writer,
-                    200,
-                    json.dumps({
-                        "content": "",
-                        "source": "none",
-                        "git_available": False,
-                        "error": str(e),
-                    }).encode('utf-8'),
-                    "application/json",
-                )
-                return
-            except Exception as e:
-                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                except Exception as e:
+                    respond(500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+            await self._respond_from_thread(writer, _work)
 
         # 3. Write File
         elif path == '/api/file/write' and method == 'POST':
@@ -2110,7 +2202,7 @@ class AsyncHTTPServer:
                 self.send_response(writer, 400, b'{"error":"projectPath and dirPath are required"}', "application/json")
                 return
             full_path = os.path.abspath(os.path.join(project_path, dir_path))
-            if not full_path.startswith(os.path.abspath(project_path)):
+            if not _is_path_within(full_path, project_path):
                 self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
                 return
             if exclusive and os.path.lexists(full_path):
@@ -2133,7 +2225,8 @@ class AsyncHTTPServer:
                 return
             full_source = os.path.abspath(os.path.join(project_path, source_path))
             full_target = os.path.abspath(os.path.join(project_path, target_path))
-            if not full_source.startswith(os.path.abspath(project_path)) or not full_target.startswith(os.path.abspath(project_path)):
+            if (not _is_path_within(full_source, project_path) or not _is_path_within(full_target, project_path)
+                    or _same_project_root(full_source, project_path)):
                 self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
                 return
             try:
@@ -2223,7 +2316,9 @@ class AsyncHTTPServer:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath are required"}', "application/json")
                 return
             full_path = os.path.abspath(os.path.join(project_path, file_path))
-            if not full_path.startswith(os.path.abspath(project_path)):
+            # The project root itself is not a deletable entry: "." used to pass
+            # the old prefix check and remove the whole project folder.
+            if not _is_path_within(full_path, project_path) or _same_project_root(full_path, project_path):
                 self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
                 return
             try:
@@ -2250,7 +2345,8 @@ class AsyncHTTPServer:
                 return
             full_old_path = os.path.abspath(os.path.join(project_path, old_path))
             full_new_path = os.path.abspath(os.path.join(project_path, new_path))
-            if not full_old_path.startswith(os.path.abspath(project_path)) or not full_new_path.startswith(os.path.abspath(project_path)):
+            if (not _is_path_within(full_old_path, project_path) or not _is_path_within(full_new_path, project_path)
+                    or _same_project_root(full_old_path, project_path)):
                 self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
                 return
             try:
@@ -2276,7 +2372,7 @@ class AsyncHTTPServer:
             target_path = project_path
             if file_path:
                 target_path = os.path.abspath(os.path.join(project_path, file_path))
-                if not target_path.startswith(os.path.abspath(project_path)):
+                if not _is_path_within(target_path, project_path):
                     self.send_response(writer, 403, b'{"error":"Forbidden: Path traversal detected"}', "application/json")
                     return
                 if not os.path.exists(target_path):
@@ -4122,25 +4218,28 @@ class AsyncHTTPServer:
             if not project_path:
                 self.send_response(writer, 400, b'{"error":"projectPath is required"}', "application/json")
                 return
-            import subprocess
-            try:
-                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
-                # Commit only what is already staged (no implicit git add .)
-                res = subprocess.run(
-                    git_ctx["git_cmd"] + ["commit", "-m", message],
-                    cwd=git_ctx["cwd"],
-                    capture_output=True,
-                    **utf8_text_kwargs(),
-                )
-                if res.returncode == 0:
-                    self.send_response(writer, 200, b'{"success":true}', "application/json")
-                elif "nothing to commit" in res.stdout or "nothing added to commit" in res.stdout:
-                    from opalatex.i18n import _
-                    self.send_response(writer, 400, json.dumps({"error": _("commit_nothing")}).encode('utf-8'), "application/json")
-                else:
-                    raise Exception(res.stderr or res.stdout or "Git commit failed")
-            except Exception as e:
-                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            def _work(respond):
+                import subprocess
+                try:
+                    git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                    # Commit only what is already staged (no implicit git add .)
+                    res = subprocess.run(
+                        git_ctx["git_cmd"] + ["commit", "-m", message],
+                        cwd=git_ctx["cwd"],
+                        capture_output=True,
+                        **utf8_text_kwargs(),
+                    )
+                    if res.returncode == 0:
+                        respond(200, b'{"success":true}', "application/json")
+                    elif "nothing to commit" in res.stdout or "nothing added to commit" in res.stdout:
+                        from opalatex.i18n import _
+                        respond(400, json.dumps({"error": _("commit_nothing")}).encode('utf-8'), "application/json")
+                    else:
+                        raise Exception(res.stderr or res.stdout or "Git commit failed")
+                except Exception as e:
+                    respond(500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+            await self._respond_from_thread(writer, _work)
         # 7g. Git diff (single file or full)
         elif path == '/api/git/diff':
             project_path = query.get('projectPath', [None])[0]
@@ -4151,116 +4250,99 @@ class AsyncHTTPServer:
             if not project_path or not os.path.exists(project_path):
                 self.send_response(writer, 400, b'{"error":"Invalid project path"}', "application/json")
                 return
-            import subprocess
-            try:
-                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
-                git_cmd = git_ctx["git_cmd"]
-                diff = ""
-                if file_path_param and file_path_param.lower().endswith('.jpt'):
-                    # Git sees the container as binary. Present the canonical
-                    # deck.json diff instead; asset hashes in that JSON still
-                    # make binary additions/replacements visible.
-                    import difflib
-                    from opalatex.jpt import read_jpt, read_jpt_bytes
+            def _work(respond):
+                import subprocess
+                try:
+                    git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                    git_cmd = git_ctx["git_cmd"]
+                    diff = ""
+                    if file_path_param and file_path_param.lower().endswith('.jpt'):
+                        # Git sees the container as binary. Present the canonical
+                        # deck.json diff instead; asset hashes in that JSON still
+                        # make binary additions/replacements visible.
+                        import difflib
+                        from opalatex.jpt import read_jpt, read_jpt_bytes
 
-                    repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
+                        repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
 
-                    def revision_text(revision):
-                        shown = subprocess.run(
-                            git_cmd + ["show", f"{revision}:{repo_file_path}"],
-                            cwd=git_ctx["cwd"], capture_output=True,
+                        def revision_text(revision):
+                            shown = subprocess.run(
+                                git_cmd + ["show", f"{revision}:{repo_file_path}"],
+                                cwd=git_ctx["cwd"], capture_output=True,
+                            )
+                            if shown.returncode != 0:
+                                return ""
+                            return read_jpt_bytes(shown.stdout).text
+
+                        if commit_hash:
+                            verify = subprocess.run(
+                                git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
+                                cwd=git_ctx["cwd"], capture_output=True,
+                                **utf8_text_kwargs(),
+                            )
+                            if verify.returncode != 0:
+                                respond(400, b'{"error":"Invalid commit"}', "application/json")
+                                return
+                            end_commit_hash = query.get('endCommit', [None])[0]
+                            if end_commit_hash:
+                                verify_end = subprocess.run(
+                                    git_cmd + ["rev-parse", "--verify", f"{end_commit_hash}^{{commit}}"],
+                                    cwd=git_ctx["cwd"], capture_output=True,
+                                    **utf8_text_kwargs(),
+                                )
+                                if verify_end.returncode != 0:
+                                    respond(400, b'{"error":"Invalid endCommit"}', "application/json")
+                                    return
+                                before = revision_text(commit_hash)
+                                after = revision_text(end_commit_hash)
+                            else:
+                                parent = subprocess.run(
+                                    git_cmd + ["rev-parse", "--verify", f"{commit_hash}^"],
+                                    cwd=git_ctx["cwd"], capture_output=True,
+                                    **utf8_text_kwargs(),
+                                )
+                                before = revision_text(f"{commit_hash}^") if parent.returncode == 0 else ""
+                                after = revision_text(commit_hash)
+                        else:
+                            before = revision_text("HEAD")
+                            full_path = os.path.join(project_path, file_path_param)
+                            after = read_jpt(full_path).text if os.path.isfile(full_path) else ""
+
+                        diff = "".join(difflib.unified_diff(
+                            before.splitlines(keepends=True),
+                            after.splitlines(keepends=True),
+                            fromfile=f"a/{file_path_param}::deck.json",
+                            tofile=f"b/{file_path_param}::deck.json",
+                        ))
+                        respond(
+                            200, json.dumps({"diff": diff}).encode('utf-8'),
+                            "application/json",
                         )
-                        if shown.returncode != 0:
-                            return ""
-                        return read_jpt_bytes(shown.stdout).text
-
+                        return
                     if commit_hash:
                         verify = subprocess.run(
                             git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
-                            cwd=git_ctx["cwd"], capture_output=True,
+                            cwd=git_ctx["cwd"],
+                            capture_output=True,
                             **utf8_text_kwargs(),
                         )
                         if verify.returncode != 0:
-                            self.send_response(writer, 400, b'{"error":"Invalid commit"}', "application/json")
+                            respond(400, b'{"error":"Invalid commit"}', "application/json")
                             return
                         end_commit_hash = query.get('endCommit', [None])[0]
                         if end_commit_hash:
+                            # Range diff: net change from commit (exclusive) to endCommit (inclusive).
+                            # Used to show the full diff of an agent turn (start → end).
                             verify_end = subprocess.run(
                                 git_cmd + ["rev-parse", "--verify", f"{end_commit_hash}^{{commit}}"],
-                                cwd=git_ctx["cwd"], capture_output=True,
+                                cwd=git_ctx["cwd"],
+                                capture_output=True,
                                 **utf8_text_kwargs(),
                             )
                             if verify_end.returncode != 0:
-                                self.send_response(writer, 400, b'{"error":"Invalid endCommit"}', "application/json")
+                                respond(400, b'{"error":"Invalid endCommit"}', "application/json")
                                 return
-                            before = revision_text(commit_hash)
-                            after = revision_text(end_commit_hash)
-                        else:
-                            parent = subprocess.run(
-                                git_cmd + ["rev-parse", "--verify", f"{commit_hash}^"],
-                                cwd=git_ctx["cwd"], capture_output=True,
-                                **utf8_text_kwargs(),
-                            )
-                            before = revision_text(f"{commit_hash}^") if parent.returncode == 0 else ""
-                            after = revision_text(commit_hash)
-                    else:
-                        before = revision_text("HEAD")
-                        full_path = os.path.join(project_path, file_path_param)
-                        after = read_jpt(full_path).text if os.path.isfile(full_path) else ""
-
-                    diff = "".join(difflib.unified_diff(
-                        before.splitlines(keepends=True),
-                        after.splitlines(keepends=True),
-                        fromfile=f"a/{file_path_param}::deck.json",
-                        tofile=f"b/{file_path_param}::deck.json",
-                    ))
-                    self.send_response(
-                        writer, 200, json.dumps({"diff": diff}).encode('utf-8'),
-                        "application/json",
-                    )
-                    return
-                if commit_hash:
-                    verify = subprocess.run(
-                        git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
-                        cwd=git_ctx["cwd"],
-                        capture_output=True,
-                        **utf8_text_kwargs(),
-                    )
-                    if verify.returncode != 0:
-                        self.send_response(writer, 400, b'{"error":"Invalid commit"}', "application/json")
-                        return
-                    end_commit_hash = query.get('endCommit', [None])[0]
-                    if end_commit_hash:
-                        # Range diff: net change from commit (exclusive) to endCommit (inclusive).
-                        # Used to show the full diff of an agent turn (start → end).
-                        verify_end = subprocess.run(
-                            git_cmd + ["rev-parse", "--verify", f"{end_commit_hash}^{{commit}}"],
-                            cwd=git_ctx["cwd"],
-                            capture_output=True,
-                            **utf8_text_kwargs(),
-                        )
-                        if verify_end.returncode != 0:
-                            self.send_response(writer, 400, b'{"error":"Invalid endCommit"}', "application/json")
-                            return
-                        diff_args = ["diff", commit_hash, end_commit_hash]
-                        if file_path_param:
-                            repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
-                            diff_args += ["--", repo_file_path]
-                        res = subprocess.run(
-                            git_cmd + diff_args,
-                            cwd=git_ctx["cwd"],
-                            capture_output=True,
-                            **utf8_text_kwargs(),
-                        )
-                    else:
-                        parent = subprocess.run(
-                            git_cmd + ["rev-parse", "--verify", f"{commit_hash}^"],
-                            cwd=git_ctx["cwd"],
-                            capture_output=True,
-                            **utf8_text_kwargs(),
-                        )
-                        if parent.returncode == 0:
-                            diff_args = ["diff", f"{commit_hash}^", commit_hash]
+                            diff_args = ["diff", commit_hash, end_commit_hash]
                             if file_path_param:
                                 repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
                                 diff_args += ["--", repo_file_path]
@@ -4271,46 +4353,66 @@ class AsyncHTTPServer:
                                 **utf8_text_kwargs(),
                             )
                         else:
-                            show_args = ["show", "--format=", "--find-renames", commit_hash]
-                            if file_path_param:
-                                repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
-                                show_args += ["--", repo_file_path]
-                            res = subprocess.run(
-                                git_cmd + show_args,
+                            parent = subprocess.run(
+                                git_cmd + ["rev-parse", "--verify", f"{commit_hash}^"],
                                 cwd=git_ctx["cwd"],
                                 capture_output=True,
                                 **utf8_text_kwargs(),
                             )
-                    diff = res.stdout
+                            if parent.returncode == 0:
+                                diff_args = ["diff", f"{commit_hash}^", commit_hash]
+                                if file_path_param:
+                                    repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
+                                    diff_args += ["--", repo_file_path]
+                                res = subprocess.run(
+                                    git_cmd + diff_args,
+                                    cwd=git_ctx["cwd"],
+                                    capture_output=True,
+                                    **utf8_text_kwargs(),
+                                )
+                            else:
+                                show_args = ["show", "--format=", "--find-renames", commit_hash]
+                                if file_path_param:
+                                    repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
+                                    show_args += ["--", repo_file_path]
+                                res = subprocess.run(
+                                    git_cmd + show_args,
+                                    cwd=git_ctx["cwd"],
+                                    capture_output=True,
+                                    **utf8_text_kwargs(),
+                                )
+                        diff = res.stdout
 
-                elif file_path_param:
-                    repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
-                    # Check if file is untracked
-                    ls = subprocess.run(
-                        git_cmd + ["ls-files", "--", repo_file_path],
-                        cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs()
-                    )
-                    full_path = os.path.join(project_path, file_path_param)
-                    if not ls.stdout.strip() and os.path.isfile(full_path):
-                        # Untracked file: show as new file diff
-                        res = subprocess.run(
-                            git_cmd + ["diff", "--no-index", "/dev/null", repo_file_path],
+                    elif file_path_param:
+                        repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
+                        # Check if file is untracked
+                        ls = subprocess.run(
+                            git_cmd + ["ls-files", "--", repo_file_path],
                             cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs()
                         )
-                        diff = res.stdout
-                    elif not ls.stdout.strip() and os.path.isdir(full_path):
-                        diff = f"(diretório não rastreado: {file_path_param})"
+                        full_path = os.path.join(project_path, file_path_param)
+                        if not ls.stdout.strip() and os.path.isfile(full_path):
+                            # Untracked file: show as new file diff
+                            res = subprocess.run(
+                                git_cmd + ["diff", "--no-index", "/dev/null", repo_file_path],
+                                cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs()
+                            )
+                            diff = res.stdout
+                        elif not ls.stdout.strip() and os.path.isdir(full_path):
+                            diff = f"(diretório não rastreado: {file_path_param})"
+                        else:
+                            res = subprocess.run(git_cmd + ["diff", "--", repo_file_path], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
+                            res_staged = subprocess.run(git_cmd + ["diff", "--cached", "--", repo_file_path], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
+                            diff = res.stdout + res_staged.stdout
                     else:
-                        res = subprocess.run(git_cmd + ["diff", "--", repo_file_path], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
-                        res_staged = subprocess.run(git_cmd + ["diff", "--cached", "--", repo_file_path], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
+                        res = subprocess.run(git_cmd + ["diff"], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
+                        res_staged = subprocess.run(git_cmd + ["diff", "--cached"], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
                         diff = res.stdout + res_staged.stdout
-                else:
-                    res = subprocess.run(git_cmd + ["diff"], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
-                    res_staged = subprocess.run(git_cmd + ["diff", "--cached"], cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs())
-                    diff = res.stdout + res_staged.stdout
-                self.send_response(writer, 200, json.dumps({"diff": diff}).encode('utf-8'), "application/json")
-            except Exception as e:
-                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                    respond(200, json.dumps({"diff": diff}).encode('utf-8'), "application/json")
+                except Exception as e:
+                    respond(500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+            await self._respond_from_thread(writer, _work)
 
         # 7g.0 Git checkpoint archive
         elif path == '/api/git/archive':
@@ -4324,49 +4426,51 @@ class AsyncHTTPServer:
             if not commit_hash:
                 self.send_response(writer, 400, b'{"error":"commit is required"}', "application/json")
                 return
-            import re
-            import subprocess
-            try:
-                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
-                git_cmd = git_ctx["git_cmd"]
-                verify = subprocess.run(
-                    git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
-                    cwd=git_ctx["cwd"],
-                    capture_output=True,
-                    **utf8_text_kwargs(),
-                )
-                if verify.returncode != 0:
-                    self.send_response(writer, 400, b'{"error":"Invalid commit"}', "application/json")
-                    return
-                full_commit = verify.stdout.strip()
-                archive = subprocess.run(
-                    git_cmd + ["archive", "--format=zip", full_commit],
-                    cwd=git_ctx["cwd"],
-                    capture_output=True,
-                )
-                if archive.returncode != 0:
-                    error_text = (archive.stderr or archive.stdout or b"Git archive failed")
-                    if isinstance(error_text, bytes):
-                        error_text = error_text.decode("utf-8", errors="replace")
-                    raise Exception(error_text)
-                project_name = re.sub(r"[^A-Za-z0-9._-]+", "-", os.path.basename(os.path.abspath(project_path))).strip("-")
-                if not project_name:
-                    project_name = "project"
-                filename = f"{project_name}-checkpoint-{full_commit[:12]}.zip"
-                self.send_response_with_headers(
-                    writer,
-                    200,
-                    archive.stdout,
-                    "application/zip",
-                    {
-                        "Content-Disposition": f'attachment; filename="{filename}"',
-                        "Cache-Control": "no-store",
-                    },
-                )
-            except GitContextError as e:
-                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
-            except Exception as e:
-                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            def _work(respond):
+                import re
+                import subprocess
+                try:
+                    git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                    git_cmd = git_ctx["git_cmd"]
+                    verify = subprocess.run(
+                        git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
+                        cwd=git_ctx["cwd"],
+                        capture_output=True,
+                        **utf8_text_kwargs(),
+                    )
+                    if verify.returncode != 0:
+                        respond(400, b'{"error":"Invalid commit"}', "application/json")
+                        return
+                    full_commit = verify.stdout.strip()
+                    archive = subprocess.run(
+                        git_cmd + ["archive", "--format=zip", full_commit],
+                        cwd=git_ctx["cwd"],
+                        capture_output=True,
+                    )
+                    if archive.returncode != 0:
+                        error_text = (archive.stderr or archive.stdout or b"Git archive failed")
+                        if isinstance(error_text, bytes):
+                            error_text = error_text.decode("utf-8", errors="replace")
+                        raise Exception(error_text)
+                    project_name = re.sub(r"[^A-Za-z0-9._-]+", "-", os.path.basename(os.path.abspath(project_path))).strip("-")
+                    if not project_name:
+                        project_name = "project"
+                    filename = f"{project_name}-checkpoint-{full_commit[:12]}.zip"
+                    respond(
+                        200,
+                        archive.stdout,
+                        "application/zip",
+                        {
+                            "Content-Disposition": f'attachment; filename="{filename}"',
+                            "Cache-Control": "no-store",
+                        },
+                    )
+                except GitContextError as e:
+                    respond(400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                except Exception as e:
+                    respond(500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+            await self._respond_from_thread(writer, _work)
 
         # 7g.1 Git restore checkpoint
         elif path == '/api/git/restore' and method == 'POST':
@@ -4380,74 +4484,80 @@ class AsyncHTTPServer:
             if not commit_hash:
                 self.send_response(writer, 400, b'{"error":"commit is required"}', "application/json")
                 return
-            import subprocess
-            try:
-                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
-                git_cmd = git_ctx["git_cmd"]
-                verify = subprocess.run(
-                    git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
-                    cwd=git_ctx["cwd"],
-                    capture_output=True,
-                    **utf8_text_kwargs(),
-                )
-                if verify.returncode != 0:
-                    self.send_response(writer, 400, b'{"error":"Invalid commit"}', "application/json")
-                    return
-                reset = subprocess.run(
-                    git_cmd + ["reset", "--hard", commit_hash],
-                    cwd=git_ctx["cwd"],
-                    capture_output=True,
-                    **utf8_text_kwargs(),
-                )
-                if reset.returncode != 0:
-                    raise Exception(reset.stderr or reset.stdout or "Git restore failed")
-                clean = subprocess.run(
-                    git_cmd + ["clean", "-fd"],
-                    cwd=git_ctx["cwd"],
-                    capture_output=True,
-                    **utf8_text_kwargs(),
-                )
-                if clean.returncode != 0:
-                    raise Exception(clean.stderr or clean.stdout or "Git clean failed")
-                self.send_response(writer, 200, b'{"success":true}', "application/json")
-            except Exception as e:
-                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            def _work(respond):
+                import subprocess
+                try:
+                    git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                    git_cmd = git_ctx["git_cmd"]
+                    verify = subprocess.run(
+                        git_cmd + ["rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
+                        cwd=git_ctx["cwd"],
+                        capture_output=True,
+                        **utf8_text_kwargs(),
+                    )
+                    if verify.returncode != 0:
+                        respond(400, b'{"error":"Invalid commit"}', "application/json")
+                        return
+                    reset = subprocess.run(
+                        git_cmd + ["reset", "--hard", commit_hash],
+                        cwd=git_ctx["cwd"],
+                        capture_output=True,
+                        **utf8_text_kwargs(),
+                    )
+                    if reset.returncode != 0:
+                        raise Exception(reset.stderr or reset.stdout or "Git restore failed")
+                    clean = subprocess.run(
+                        git_cmd + ["clean", "-fd"],
+                        cwd=git_ctx["cwd"],
+                        capture_output=True,
+                        **utf8_text_kwargs(),
+                    )
+                    if clean.returncode != 0:
+                        raise Exception(clean.stderr or clean.stdout or "Git clean failed")
+                    respond(200, b'{"success":true}', "application/json")
+                except Exception as e:
+                    respond(500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+            await self._respond_from_thread(writer, _work)
 
         # 7h. Git log
         elif path == '/api/git/log':
             project_path = query.get('projectPath', [None])[0]
-            try:
-                limit = max(1, min(200, int(query.get('limit', ['20'])[0])))
-                offset = max(0, int(query.get('offset', ['0'])[0]))
-            except (TypeError, ValueError):
-                self.send_response(writer, 400, b'{"error":"Invalid pagination parameters"}', "application/json")
-                return
-            is_shadow = query.get('shadow', ['false'])[0].lower() == 'true'
-            git_root_path = query.get('gitRootPath', [None])[0]
-            if not project_path or not os.path.exists(project_path):
-                self.send_response(writer, 400, b'{"error":"Invalid project path"}', "application/json")
-                return
-            import subprocess
-            try:
-                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
-                res = subprocess.run(
-                    git_ctx["git_cmd"] + ["log", f"--max-count={limit + 1}", f"--skip={offset}", "--pretty=format:%H|%h|%an|%ar|%s"],
-                    cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs()
-                )
-                commits = []
-                for line in res.stdout.splitlines():
-                    parts = line.split("|", 4)
-                    if len(parts) == 5:
-                        commits.append({"hash": parts[0], "short": parts[1], "author": parts[2], "date": parts[3], "message": parts[4]})
-                has_more = len(commits) > limit
-                self.send_response(writer, 200, json.dumps({
-                    "commits": commits[:limit],
-                    "limit": limit,
-                    "offset": offset,
-                    "has_more": has_more,
-                }).encode('utf-8'), "application/json")
-            except Exception as e:
-                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            def _work(respond):
+                try:
+                    limit = max(1, min(200, int(query.get('limit', ['20'])[0])))
+                    offset = max(0, int(query.get('offset', ['0'])[0]))
+                except (TypeError, ValueError):
+                    respond(400, b'{"error":"Invalid pagination parameters"}', "application/json")
+                    return
+                is_shadow = query.get('shadow', ['false'])[0].lower() == 'true'
+                git_root_path = query.get('gitRootPath', [None])[0]
+                if not project_path or not os.path.exists(project_path):
+                    respond(400, b'{"error":"Invalid project path"}', "application/json")
+                    return
+                import subprocess
+                try:
+                    git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                    res = subprocess.run(
+                        git_ctx["git_cmd"] + ["log", f"--max-count={limit + 1}", f"--skip={offset}", "--pretty=format:%H|%h|%an|%ar|%s"],
+                        cwd=git_ctx["cwd"], capture_output=True, **utf8_text_kwargs()
+                    )
+                    commits = []
+                    for line in res.stdout.splitlines():
+                        parts = line.split("|", 4)
+                        if len(parts) == 5:
+                            commits.append({"hash": parts[0], "short": parts[1], "author": parts[2], "date": parts[3], "message": parts[4]})
+                    has_more = len(commits) > limit
+                    respond(200, json.dumps({
+                        "commits": commits[:limit],
+                        "limit": limit,
+                        "offset": offset,
+                        "has_more": has_more,
+                    }).encode('utf-8'), "application/json")
+                except Exception as e:
+                    respond(500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+            await self._respond_from_thread(writer, _work)
 
         # 7h.1 Shadow-git blind spots
         #      A sub-directory with its own .git is stored by the shadow
@@ -4478,25 +4588,28 @@ class AsyncHTTPServer:
             if not project_path or not file_path_param:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath required"}', "application/json")
                 return
-            import subprocess
-            try:
-                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
-                git_cmd = git_ctx["git_cmd"]
-                if file_path_param == "__all__":
+            def _work(respond):
+                import subprocess
+                try:
+                    git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                    git_cmd = git_ctx["git_cmd"]
+                    if file_path_param == "__all__":
+                        if action == "stage":
+                            subprocess.run(git_cmd + ["add", "--all", "--", "."], cwd=git_ctx["cwd"], check=True)
+                        else:
+                            subprocess.run(git_cmd + ["restore", "--staged", "--", "."], cwd=git_ctx["cwd"], check=True)
+                        respond(200, b'{"success":true}', "application/json")
+                        return
+                    repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
                     if action == "stage":
-                        subprocess.run(git_cmd + ["add", "--all", "--", "."], cwd=git_ctx["cwd"], check=True)
+                        subprocess.run(git_cmd + ["add", "--", repo_file_path], cwd=git_ctx["cwd"], check=True)
                     else:
-                        subprocess.run(git_cmd + ["restore", "--staged", "--", "."], cwd=git_ctx["cwd"], check=True)
-                    self.send_response(writer, 200, b'{"success":true}', "application/json")
-                    return
-                repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
-                if action == "stage":
-                    subprocess.run(git_cmd + ["add", "--", repo_file_path], cwd=git_ctx["cwd"], check=True)
-                else:
-                    subprocess.run(git_cmd + ["restore", "--staged", "--", repo_file_path], cwd=git_ctx["cwd"], check=True)
-                self.send_response(writer, 200, b'{"success":true}', "application/json")
-            except Exception as e:
-                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                        subprocess.run(git_cmd + ["restore", "--staged", "--", repo_file_path], cwd=git_ctx["cwd"], check=True)
+                    respond(200, b'{"success":true}', "application/json")
+                except Exception as e:
+                    respond(500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+
+            await self._respond_from_thread(writer, _work)
 
         # 7j. Git discard changes
         elif path == '/api/git/discard' and method == 'POST':
@@ -4507,37 +4620,18 @@ class AsyncHTTPServer:
             if not project_path or not file_path_param:
                 self.send_response(writer, 400, b'{"error":"projectPath and filePath required"}', "application/json")
                 return
-            try:
-                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
-                repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
-                _discard_git_path(git_ctx, repo_file_path)
-                self.send_response(writer, 200, b'{"success":true}', "application/json")
-                return
-            except Exception as e:
-                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
-                return
-            import subprocess
-            try:
-                git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
-                git_cmd = git_ctx["git_cmd"]
-                repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
-                res = subprocess.run(
-                    git_cmd + ["ls-files", "--error-unmatch", "--", repo_file_path],
-                    cwd=git_ctx["cwd"], capture_output=True
-                )
-                if res.returncode != 0:
-                    # Untracked — delete file or directory
-                    import shutil
-                    full = os.path.join(project_path, file_path_param)
-                    if os.path.isdir(full):
-                        shutil.rmtree(full)
-                    elif os.path.exists(full):
-                        os.remove(full)
-                else:
-                    subprocess.run(git_cmd + ["restore", "--", repo_file_path], cwd=git_ctx["cwd"], check=True)
-                self.send_response(writer, 200, b'{"success":true}', "application/json")
-            except Exception as e:
-                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+            def _work(respond):
+                try:
+                    git_ctx = _resolve_git_context(project_path, is_shadow, git_root_path)
+                    repo_file_path = _project_path_to_repo_path(file_path_param, git_ctx)
+                    _discard_git_path(git_ctx, repo_file_path)
+                    respond(200, b'{"success":true}', "application/json")
+                    return
+                except Exception as e:
+                    respond(500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                    return
+
+            await self._respond_from_thread(writer, _work)
 
         # 7k. Install Optional Dependencies (Streaming)
         elif path == '/api/settings/install-dependencies' and method == 'POST':
@@ -6537,8 +6631,7 @@ def start_gui_server(host="127.0.0.1", port=3000):
                 import opalatex.agent_stdin as agent_stdin
 
                 def web_event_hook(payload):
-                    for q in server.active_queues:
-                        q.put_nowait(payload)
+                    server.publish_event(payload)
 
                 agent_stdin.event_hook = web_event_hook
                 import litellm

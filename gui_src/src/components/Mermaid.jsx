@@ -1,13 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
-import mermaid from 'mermaid';
 
-// Initialize mermaid configuration once
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'dark',
-  securityLevel: 'loose',
-  suppressErrorRendering: true,
-});
+// Loaded on the first diagram, not with the application: mermaid and the
+// libraries it pulls in were most of the JavaScript parsed at every launch,
+// for chats that rarely draw a diagram. Rendering was already asynchronous.
+let mermaidReady = null;
+const loadMermaid = () => {
+  if (!mermaidReady) {
+    mermaidReady = import('mermaid').then(({ default: mermaid }) => {
+      // Initialize mermaid configuration once
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        securityLevel: 'loose',
+        suppressErrorRendering: true,
+      });
+      return mermaid;
+    });
+    // A failed load is retried by the next diagram instead of failing them all.
+    mermaidReady.catch(() => { mermaidReady = null; });
+  }
+  return mermaidReady;
+};
 
 export default function Mermaid({ chart }) {
   const [svg, setSvg] = useState('');
@@ -25,6 +38,8 @@ export default function Mermaid({ chart }) {
           if (isMounted) setRenderFailed(true);
           return;
         }
+        const mermaid = await loadMermaid();
+        if (!isMounted) return;
         const { svg: renderedSvg } = await mermaid.render(uniqueId, cleanChart);
         if (isMounted) {
           setSvg(renderedSvg);

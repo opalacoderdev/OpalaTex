@@ -1,0 +1,5 @@
+{
+  "prompt": "Implement and export slugify(text) in src/strings.js so that the tests in test/strings.test.js pass: lower-case the text, remove accents, replace every run of characters that are not letters or digits with a single hyphen, and trim hyphens from both ends. Do not change the tests. Run them with `node --test` to confirm.",
+  "requires": ["node"],
+  "timeout": 600
+}

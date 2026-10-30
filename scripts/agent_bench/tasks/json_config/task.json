@@ -1,0 +1,4 @@
+{
+  "prompt": "In config.json, change the server port to 9090, add \"sync\" to the end of the features list and set log.level to \"debug\". Keep the file valid JSON and keep every other setting as it is.",
+  "timeout": 600
+}
