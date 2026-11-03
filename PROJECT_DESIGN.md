@@ -975,6 +975,7 @@ A monitor is a stored, deterministic watcher: *what* to check (`timer`, `http`, 
 - AI features run through local Ollama models or through third-party providers (Gemini, OpenAI, Anthropic, etc.) configured with the user's own API key.
 - The previously offered Opala Cloud AI proxy and paid token packages have been discontinued; OpalaTex has no paid application service.
 - Donations fund open-source maintenance and are not purchases of any token, credit, or application feature.
+- **0.2.32 is the final OpalaTex version.** Development continues in a separate project, GilzaBots (`https://github.com/gilzamir18/GilzaBots`), a general-purpose agent without the LaTeX focus; OpalaTex keeps working as it is. Every surface says so: the desktop window opens a notice at startup (after onboarding, never stacked on it) until the user picks "Don't show again", which is kept in the `sunsetNoticeDismissed` client preference, and the same text stays in Settings > About; the command-line REPL prints it under the banner (one-shot `-p` runs do not, so their output stays clean); the mobile app shows it on the project list and in Settings; the snap summary and the README carry it too. The successor's name and address are defined once per front-end (`opalatex/successor.py`, `gui_src/src/utils/successor.js`, `mobile/src/successor.js`).
 
 ## 5. Verification of Local Safety and Persistence
 

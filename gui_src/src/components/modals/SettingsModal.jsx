@@ -14,6 +14,7 @@ import i18n from '../../i18n/index.js';
 import { setPreference } from '../../utils/preferences';
 import { writeClipboard } from '../../utils/clipboard';
 import { openExternal } from '../../utils/openExternal';
+import { SUCCESSOR_NAME, SUCCESSOR_URL } from '../../utils/successor';
 
 // Target languages offered by the "Translate to" setting. The values are the
 // locale codes persisted by /api/settings/translation; "" follows the UI
@@ -98,7 +99,7 @@ export default function SettingsModal({
   const [dictationModels, setDictationModels] = React.useState([]);
   const [dictationBusy, setDictationBusy] = React.useState('');
   const [isRestarting, setIsRestarting] = React.useState(false);
-  const [runtimeInfo, setRuntimeInfo] = React.useState({ platform: '', running_in_snap: false, version: '0.2.31' });
+  const [runtimeInfo, setRuntimeInfo] = React.useState({ platform: '', running_in_snap: false, version: '0.2.32' });
   const [sandbox, setSandbox] = React.useState({
     enabled: false,
     image: 'python:3.12-slim',
@@ -1406,6 +1407,18 @@ export default function SettingsModal({
 
           {activeTab === 'about' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', color: 'var(--vscode-text-fg)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', padding: '14px', border: '1px solid var(--vscode-focusBorder)', borderRadius: '8px', backgroundColor: 'var(--vscode-sidebar-bg)' }}>
+                <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('sunsetNotice.title', { name: SUCCESSOR_NAME })}</span>
+                <span style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('sunsetNotice.body', { name: SUCCESSOR_NAME })}
+                </span>
+                <code style={{ fontSize: '11px', padding: '8px', overflowWrap: 'anywhere', backgroundColor: 'var(--vscode-input-bg)' }}>
+                  {SUCCESSOR_URL}
+                </code>
+                <button className="vscode-button" style={{ alignSelf: 'flex-start' }} onClick={() => openExternal(SUCCESSOR_URL)}>
+                  {t('sunsetNotice.open', { name: SUCCESSOR_NAME })}
+                </button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <span className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.version')}</span>
                 <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'var(--vscode-text-fg)' }}>{runtimeInfo.version}</span>

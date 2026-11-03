@@ -7,6 +7,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.table import Table
 from rich.rule import Rule
 from rich import print as rprint
+from rich.markup import escape
 from contextlib import contextmanager
 import os
 import re
@@ -63,6 +64,12 @@ def print_banner(version: str = "0.1.0", mode: str = "plan") -> None:
         f"  [dim]version {version}[/dim]  "
         f"[bold]mode:[/bold] [yellow]{mode}[/yellow]"
     )
+    console.print()
+
+
+def print_sunset_notice(message: str) -> None:
+    """Show that this is the final OpalaTex version, below the REPL banner."""
+    console.print(f"[bold yellow]  ⚠ {escape(message)}[/bold yellow]")
     console.print()
 
 

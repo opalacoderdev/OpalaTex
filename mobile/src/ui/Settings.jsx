@@ -4,6 +4,7 @@ import { ArrowLeft, Download, Plus, Trash2, X } from 'lucide-react';
 import { PROVIDER_PRESETS, listProviderModels } from '../agent/providers.js';
 import { getApiKey, setApiKey } from '../project/settings.js';
 import { newId } from '../project/keys.js';
+import SunsetNotice from './SunsetNotice.jsx';
 
 export default function Settings({ services, settings, onChange, onClose, onSignOut }) {
   const { t } = useTranslation();
@@ -33,6 +34,7 @@ export default function Settings({ services, settings, onChange, onClose, onSign
         <h1>{t('settings.title')}</h1>
       </header>
       <main className="scroll pad settings">
+        <SunsetNotice inset />
         <section>
           <h2>{t('settings.connections')}</h2>
           <p className="muted small">{t('settings.connectionsHint')}</p>

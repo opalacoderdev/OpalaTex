@@ -1,8 +1,11 @@
 name: opalatex
 title: OpalaTex
-version: "0.2.31"
-summary: AI-assisted LaTeX editor and project IDE
+version: "0.2.32"
+summary: AI-assisted LaTeX editor (final version; continues as GilzaBots)
 description: |
+  This is the final version of OpalaTex: it will not receive further updates.
+  Development continues in GilzaBots: https://github.com/gilzamir18/GilzaBots
+
   OpalaTex is a project-centric, AI-assisted LaTeX editor with a local
   Python backend, a React desktop interface, Git integration, and document
   export tools.

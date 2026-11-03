@@ -1,5 +1,7 @@
 # OpalaTex
 
+> **OpalaTex has reached its final version** and will not receive further updates. Development continues in **[GilzaBots](https://github.com/gilzamir18/GilzaBots)**, a free AI agent with the same features and no longer focused on LaTeX. The installers and releases below remain available for existing users.
+
 OpalaTex is a free, open-source LaTeX editor with an integrated AI assistant. It combines a source editor, local PDF preview, project tools, Git integration, and optional local or cloud AI models.
 
 LaTeX compilation is performed locally with Tectonic. All editor features work without any account; user-provided API keys for third-party AI providers are optional.

@@ -9,6 +9,11 @@
     "delete": "Delete",
     "close": "Close"
   },
+  "sunset": {
+    "title": "OpalaTex continues as {{name}}",
+    "body": "This is the final version of OpalaTex: it will not receive further updates or fixes. Development continues in {{name}}. Your projects stay where they are, and this version keeps working.",
+    "open": "Open the {{name}} page"
+  },
   "signIn": {
     "title": "Your OpalaTex projects, on the go",
     "body": "Connect the Google account your desktop OpalaTex mirrors projects to. The app sees only the folders OpalaTex created.",

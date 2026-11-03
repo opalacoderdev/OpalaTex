@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CloudDownload, Folder, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
+import SunsetNotice from './SunsetNotice.jsx';
 
 export default function ProjectList({ services, offlineProjects = {}, onOpen, onOpenSettings }) {
   const { t } = useTranslation();
@@ -48,6 +49,7 @@ export default function ProjectList({ services, offlineProjects = {}, onOpen, on
         </div>
       </header>
       <main className="scroll readable">
+        <SunsetNotice />
         {error && <p className="error banner" role="alert">{error}</p>}
         {projects === null && !error && <p className="muted pad">{t('app.loading')}</p>}
         {projects && projects.length === 0 && (

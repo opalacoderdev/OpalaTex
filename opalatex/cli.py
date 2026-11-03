@@ -19,6 +19,7 @@ import signal
 import sys
 
 from . import __version__
+from .successor import SUCCESSOR_NAME, SUCCESSOR_URL
 from .config import DEFAULT_MAX_RETRIES, DEFAULT_MODE, DEFAULT_DB_PATH, DEFAULT_LANG
 from .project import ProjectStore, ProjectData
 from . import terminal as T
@@ -838,6 +839,7 @@ def main() -> None:
         # After resolution, so the banner reports the mode this session will
         # actually run in rather than the configured default.
         T.print_banner(version=__version__, mode=project.mode)
+        T.print_sunset_notice(_("sunset_notice", name=SUCCESSOR_NAME, url=SUCCESSOR_URL))
         asyncio.run(repl_loop(project, store, args))
     except KeyboardInterrupt:
         T.warning(_("repl_interrupted"))

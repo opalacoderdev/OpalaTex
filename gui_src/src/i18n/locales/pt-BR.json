@@ -4,6 +4,13 @@
     "ok": "OK",
     "close": "Fechar mensagem"
   },
+  "sunsetNotice": {
+    "title": "O OpalaTex continua como {{name}}",
+    "body": "Esta é a última versão do OpalaTex: ela não vai mais receber atualizações nem correções. O desenvolvimento continua no {{name}}, um agente de IA livre com as mesmas funcionalidades e sem o foco em LaTeX. Seus projetos e configurações continuam onde estão, e esta versão segue funcionando.",
+    "open": "Abrir a página do {{name}}",
+    "later": "Lembrar depois",
+    "dontShowAgain": "Não mostrar novamente"
+  },
   "activityBar": {
     "chatBottomMode": "Alternar para chat com painel inferior",
     "documentMode": "Layout Documento: o arquivo aberto e sua pré-visualização",

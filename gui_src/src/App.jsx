@@ -78,6 +78,8 @@ import AssetStoreModal from './components/modals/AssetStoreModal';
 import CloudSyncModal from './components/modals/CloudSyncModal';
 import CloudDownloadModal from './components/modals/CloudDownloadModal';
 import OnboardingModal from './components/modals/OnboardingModal';
+import SunsetNoticeModal from './components/modals/SunsetNoticeModal';
+import { SUNSET_NOTICE_DISMISSED_PREF } from './utils/successor';
 import DirPickerModal from './components/modals/DirPickerModal';
 import DeleteProjectModal from './components/modals/DeleteProjectModal';
 import { useCustomDialog } from './components/modals/CustomDialogProvider';
@@ -654,6 +656,12 @@ export default function App() {
   const [webSearchConfig, setWebSearchConfig] = useState({ enabled: true, mcp_url: '', mcp_tool: 'web_search' });
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  // Final-version notice. Opened only once onboarding is out of the way, so the
+  // two dialogs never stack.
+  const [showSunsetNotice, setShowSunsetNotice] = useState(false);
+  const openSunsetNoticeUnlessDismissed = () => {
+    if (getPreference(SUNSET_NOTICE_DISMISSED_PREF) !== 'true') setShowSunsetNotice(true);
+  };
 
   // ── Global Models ─────────────────────────────────────────────────────────
   // The catalog lives in ModelCatalogProvider so every surface (chat toolbar,
@@ -897,17 +905,20 @@ export default function App() {
           setShowOnboarding(true);
         } else {
           fetchProjects();
+          openSunsetNoticeUnlessDismissed();
         }
       })
       .catch(() => {
         // Fallback if endpoint fails
         fetchProjects();
+        openSunsetNoticeUnlessDismissed();
       });
   }, []);
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
     fetchProjects();
+    openSunsetNoticeUnlessDismissed();
   };
 
   const handleGlobalModelSave = async (modelData) => {
@@ -5569,6 +5580,16 @@ export default function App() {
       )}
 
       {showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
+
+      {showSunsetNotice && !showOnboarding && (
+        <SunsetNoticeModal
+          onLater={() => setShowSunsetNotice(false)}
+          onDismiss={() => {
+            setPreference(SUNSET_NOTICE_DISMISSED_PREF, 'true');
+            setShowSunsetNotice(false);
+          }}
+        />
+      )}
 
       {confirmRequestDialog(confirmRequest) === 'interactive_terminal' ? (
         <InteractiveTerminalModal request={confirmRequest} onConfirm={sendConfirmResponse} activeProject={activeProject} uiScale={uiScale} />

@@ -9,6 +9,11 @@
     "delete": "Excluir",
     "close": "Fechar"
   },
+  "sunset": {
+    "title": "O OpalaTex continua como {{name}}",
+    "body": "Esta é a última versão do OpalaTex: ela não vai mais receber atualizações nem correções. O desenvolvimento continua no {{name}}. Seus projetos continuam onde estão, e esta versão segue funcionando.",
+    "open": "Abrir a página do {{name}}"
+  },
   "signIn": {
     "title": "Seus projetos do OpalaTex, em qualquer lugar",
     "body": "Conecte a conta Google para a qual o OpalaTex do computador espelha os projetos. O app vê apenas as pastas criadas pelo OpalaTex.",
