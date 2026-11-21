@@ -194,7 +194,9 @@ async def test_restart_endpoint_returns_500_when_the_relaunch_cannot_be_schedule
 
 
 @pytest.mark.asyncio
-async def test_environment_endpoint_reports_platform_and_version(monkeypatch):
+async def test_environment_endpoint_reports_snap_platform_and_version(monkeypatch):
+    monkeypatch.setenv("SNAP_NAME", "opalatex")
+    monkeypatch.setenv("SNAP", "/snap/opalatex/current")
     monkeypatch.setattr("platform.system", lambda: "Linux")
 
     server, responses = _server_with_capture()
@@ -202,7 +204,7 @@ async def test_environment_endpoint_reports_platform_and_version(monkeypatch):
 
     assert responses[-1] == (
         200,
-        {"platform": "Linux", "version": "0.2.44"},
+        {"platform": "Linux", "running_in_snap": True, "version": "0.2.44"},
         "application/json",
     )
 

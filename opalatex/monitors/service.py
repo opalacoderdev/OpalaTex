@@ -89,21 +89,26 @@ def daemon_argv() -> list[str]:
     return opalatex_command() + ["monitors", "daemon"]
 
 
+def _running_in_snap() -> bool:
+    return os.environ.get("SNAP_NAME") == "opalatex" and bool(os.environ.get("SNAP"))
+
+
 # ── Code fingerprint ────────────────────────────────────────────────────────
 
 def code_fingerprint() -> str:
     """What identifies the code this installation would run now.
 
-    The daemon is long-lived: an update installed while it runs (a
-    reinstall, a source checkout that changed) would otherwise keep
+    The daemon is long-lived: an update installed while it runs (a snap
+    refresh, a reinstall, a source checkout that changed) would otherwise keep
     the old code in memory for as long as any monitor is active -- which is how
     a monitor registered with a newer option was carried out by a daemon that
     did not know it. The daemon compares this with the value it started with and
     restarts itself on a difference (``daemon.MonitorDaemon``).
 
     Built from the version, the newest modification time and count of the
-    package's sources (a source or pip install), and the executable's
-    modification time (a frozen build).
+    package's sources (a source or pip install), the executable's modification
+    time (a frozen build), and the revision ``current`` points at (the snap,
+    whose running revision stays mounted after a refresh).
     """
     from opalatex import __version__
 
@@ -111,6 +116,12 @@ def code_fingerprint() -> str:
     if getattr(sys, "frozen", False):
         try:
             parts.append(f"exe:{os.stat(sys.executable).st_mtime_ns}")
+        except OSError:
+            pass
+    snap_name = os.environ.get("SNAP_NAME")
+    if snap_name and os.environ.get("SNAP"):
+        try:
+            parts.append("snap:" + os.path.basename(os.path.realpath(f"/snap/{snap_name}/current")))
         except OSError:
             pass
     package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -407,13 +418,19 @@ class SystemdUserAutostart(AutostartBackend):
 
 
 class XdgAutostart(AutostartBackend):
-    """A desktop-session autostart entry (GNOME, KDE, XFCE...)."""
+    """A desktop-session autostart entry (GNOME, KDE, XFCE...).
+
+    In the snap, ``$HOME`` is ``$SNAP_USER_DATA``, and snapd's session agent
+    starts the app whose ``autostart:`` names this file.
+    """
 
     name = "xdg-autostart"
 
-    def __init__(self, config_home: str | None = None):
+    def __init__(self, config_home: str | None = None, snap: bool | None = None):
+        self.snap = _running_in_snap() if snap is None else snap
         base = config_home or (
-            os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+            os.path.join(os.path.expanduser("~"), ".config") if self.snap
+            else os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
         )
         self.entry_path = os.path.join(base, "autostart", f"{SERVICE_NAME}.desktop")
 
@@ -421,9 +438,12 @@ class XdgAutostart(AutostartBackend):
         return True, ""
 
     def desktop_text(self) -> str:
-        env = " ".join(f"{key}={value}" for key, value in _home_environment().items())
-        command = subprocess.list2cmdline(daemon_argv())
-        exec_line = f"env {env} {command}" if env else command
+        if self.snap:
+            exec_line = "opalatex.monitors"
+        else:
+            env = " ".join(f"{key}={value}" for key, value in _home_environment().items())
+            command = subprocess.list2cmdline(daemon_argv())
+            exec_line = f"env {env} {command}" if env else command
         return (
             "[Desktop Entry]\n"
             "Type=Application\n"
@@ -578,10 +598,12 @@ def autostart_backend() -> AutostartBackend | None:
     if sys.platform == "darwin":
         return LaunchAgentAutostart()
     if sys.platform.startswith("linux"):
+        if _running_in_snap():
+            return XdgAutostart(snap=True)
         systemd = SystemdUserAutostart()
         if systemd.available()[0]:
             return systemd
-        return XdgAutostart()
+        return XdgAutostart(snap=False)
     return None
 
 

@@ -730,10 +730,18 @@ class TestService:
         assert "Restart=on-failure" in unit
 
     def test_xdg_autostart_entry_runs_the_daemon(self, tmp_path):
-        entry = service.XdgAutostart(config_home=str(tmp_path))
+        entry = service.XdgAutostart(config_home=str(tmp_path), snap=False)
         entry.install()
         assert entry.installed()
         assert "monitors daemon" in open(entry.entry_path).read()
+        entry.uninstall()
+        assert not entry.installed()
+
+    def test_snap_autostart_entry_names_the_snap_app(self, tmp_path):
+        entry = service.XdgAutostart(config_home=str(tmp_path), snap=True)
+        entry.install()
+        assert entry.installed()
+        assert "Exec=opalatex.monitors" in open(entry.entry_path).read()
         entry.uninstall()
         assert not entry.installed()
 
@@ -767,14 +775,14 @@ class TestService:
         with open(unit.unit_path, "w") as handle:
             handle.write('[Service]\nEnvironment="OPALATEX_HOME=/data/other place"\n')
         assert unit.owner() == "/data/other place"
-        entry = service.XdgAutostart(config_home=str(tmp_path))
+        entry = service.XdgAutostart(config_home=str(tmp_path), snap=False)
         os.makedirs(os.path.dirname(entry.entry_path))
         with open(entry.entry_path, "w") as handle:
             handle.write("Exec=env OPALATEX_HOME=/data/x /py main.py monitors daemon\n")
         assert entry.owner() == "/data/x"
 
     def test_set_autostart_reports_a_foreign_service(self, mstore, tmp_path, monkeypatch):
-        unit = service.XdgAutostart(config_home=str(tmp_path))
+        unit = service.XdgAutostart(config_home=str(tmp_path), snap=False)
         monkeypatch.setattr(service, "current_home", lambda: "/data/main")
         unit.install()
         monkeypatch.setattr(service, "current_home", lambda: "/data/scratch")
@@ -1393,9 +1401,10 @@ class TestApi:
 # ── Command line ────────────────────────────────────────────────────────────
 
 class TestCli:
-    def test_monitors_subcommand_is_the_first_argument(self):
+    def test_monitors_subcommand_is_found_after_the_snap_gui_flag(self):
         from opalatex.cli import _monitors_argv
 
+        assert _monitors_argv(["--gui", "monitors", "list"]) == ["list"]
         assert _monitors_argv(["monitors", "list"]) == ["list"]
         assert _monitors_argv(["monitors"]) == []
         assert _monitors_argv(["--cli"]) is None

@@ -70,6 +70,34 @@ def test_a_directory_that_only_looks_valid_is_rejected(tmp_path, monkeypatch):
     assert str(target) not in config._verified_data_dirs
 
 
+def test_snap_hint_names_the_confinement_rule_for_hidden_home_directories(monkeypatch):
+    monkeypatch.setenv("SNAP_NAME", "opalatex")
+    monkeypatch.setenv("SNAP_REAL_HOME", "/home/user")
+
+    hint = config.snap_confinement_hint("/home/user/.opalatex")
+
+    assert "hidden top-level" in hint
+    assert os.path.join("/home/user", "OpalaTex") in hint
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/home/user/OpalaTex", "/home/user/Docs/.opalatex", "/srv/.opalatex"],
+)
+def test_snap_hint_stays_quiet_for_paths_the_home_interface_allows(monkeypatch, path):
+    monkeypatch.setenv("SNAP_NAME", "opalatex")
+    monkeypatch.setenv("SNAP_REAL_HOME", "/home/user")
+
+    assert config.snap_confinement_hint(path) == ""
+
+
+def test_snap_hint_stays_quiet_outside_a_snap(monkeypatch):
+    monkeypatch.delenv("SNAP_NAME", raising=False)
+    monkeypatch.delenv("SNAP_REAL_HOME", raising=False)
+
+    assert config.snap_confinement_hint("/home/user/.opalatex") == ""
+
+
 def test_unusable_configured_home_falls_back_and_warns(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("OPALATEX_HOME", raising=False)
     monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda cls: tmp_path))
