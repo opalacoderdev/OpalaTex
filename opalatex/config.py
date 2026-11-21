@@ -1,8 +1,11 @@
 """Global configuration defaults for OpalaTex."""
 
+import hashlib
 import os
 import sys
 import tempfile
+import urllib.parse
+import uuid
 import yaml
 import pathlib
 from dotenv import load_dotenv
@@ -465,6 +468,69 @@ from typing import Union
 LOCAL_MODEL_CONTEXT_TOKENS = 8192
 SELF_HOSTED_OLLAMA_CONTEXT_TOKENS = 65536
 OLLAMA_CLOUD_API_BASE = "https://ollama.com"
+OPENCODE_SESSION_HEADER = "x-opencode-session"
+_OPENCODE_PROVIDER_PREFIXES = frozenset({"opencode", "opencode_go", "opencode-go"})
+
+
+def opalatex_user_agent() -> str:
+    """Return the application User-Agent string (``OpalaTex/<version>``).
+
+    Used for providers such as OpenCode Go that ask coding agents to identify
+    themselves explicitly rather than sending a generic SDK or HTTP-library
+    name (``https://opencode.ai/docs/console/go/#where-can-i-use-it``).
+    """
+    try:
+        from . import __version__ as _version
+    except Exception:
+        _version = ""
+    version = str(_version or "").strip() or "0.0.0"
+    return f"OpalaTex/{version}"
+
+
+def is_opencode_endpoint(model: str | None = "", api_base: str | None = "") -> bool:
+    """Return True when the request targets an OpenCode gateway (Go or Zen).
+
+    OpenCode Go requires ``x-opencode-session`` with a stable per-conversation
+    identifier on every completion request so the gateway can pin turns of one
+    conversation to the same backend for prompt caching (HTTP 400 without it).
+    Matching strictly on hostname (``opencode.ai`` or ``*.opencode.ai``) or an
+    explicit OpenCode LiteLLM provider prefix avoids sending the header to
+    unrelated providers.
+    """
+    model_id = str(model or "").strip().lower()
+    if "/" in model_id:
+        provider = model_id.split("/", 1)[0]
+        if provider in _OPENCODE_PROVIDER_PREFIXES:
+            return True
+
+    raw_base = str(api_base or "").strip()
+    if not raw_base:
+        return False
+    try:
+        host = (urllib.parse.urlparse(raw_base).hostname or "").strip().lower()
+    except ValueError:
+        return False
+    return host == "opencode.ai" or host.endswith(".opencode.ai")
+
+
+def resolve_conversation_session_id(session=None) -> str:
+    """Return an opaque, header-safe session ID for the active conversation.
+
+    Deterministic for a given ``(project, chat_id)`` so every turn, heartbeat,
+    compaction, and helper call within the same chat shares one stable session
+    across restarts without leaking local paths or project names in HTTP
+    headers. Falls back to a fresh unique ID for calls outside any chat.
+    """
+    chat_id = str(getattr(session, "current_chat_id", "") or "").strip() if session is not None else ""
+    if chat_id:
+        project_scope = (
+            str(getattr(session, "project_path", "") or "").strip()
+            or str(getattr(session, "name", "") or "").strip()
+        )
+        raw = f"{project_scope}\0{chat_id}" if project_scope else chat_id
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+        return f"ses_opalatex_{digest}"
+    return f"ses_opalatex_{uuid.uuid4().hex}"
 
 
 def is_ollama_cloud_model(model: str | None) -> bool:
@@ -813,9 +879,11 @@ def get_agent_llm_kwargs(
     if reasoning_effort_override is not None and store_supports_thinking:
         merged["reasoning_effort"] = reasoning_effort_override
 
+    active_session = None
     try:
         from .tools import _PROJECT_SESSION
         if _PROJECT_SESSION:
+            active_session = _PROJECT_SESSION
             if agent_name == "worker":
                 session_api_base = getattr(_PROJECT_SESSION, "worker_api_base", None)
                 session_api_key = getattr(_PROJECT_SESSION, "worker_api_key", None)
@@ -847,6 +915,14 @@ def get_agent_llm_kwargs(
         merged.setdefault("api_key", os.getenv("OLLAMA_API_KEY", ""))
         merged.setdefault("timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
         merged.setdefault("request_timeout", DEFAULT_LITELLM_TIMEOUT_SECONDS)
+
+    if is_opencode_endpoint(runtime_model, merged.get("api_base")):
+        headers = dict(merged.get("extra_headers") or {})
+        if not any(str(k).lower() == OPENCODE_SESSION_HEADER for k in headers):
+            headers[OPENCODE_SESSION_HEADER] = resolve_conversation_session_id(active_session)
+        if not any(str(k).lower() == "user-agent" for k in headers):
+            headers["User-Agent"] = opalatex_user_agent()
+        merged["extra_headers"] = headers
 
     for field in _NON_LITELLM_FIELDS | _INTERNAL_MODEL_PARAM_FIELDS:
         merged.pop(field, None)

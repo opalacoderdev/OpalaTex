@@ -56,16 +56,36 @@ _failed_at: Dict[str, float] = {}
 _lock = threading.Lock()
 
 
+def _build_json_request(
+    url: str,
+    *,
+    headers: Dict[str, str] | None = None,
+    body: Dict[str, Any] | None = None,
+) -> urllib.request.Request:
+    from .config import opalatex_user_agent
+
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    request_headers = {
+        "Accept": "application/json",
+        "User-Agent": opalatex_user_agent(),
+        **({"Content-Type": "application/json"} if data else {}),
+    }
+    for key, value in (headers or {}).items():
+        if key.lower() == "user-agent":
+            request_headers.pop("User-Agent", None)
+        request_headers[key] = value
+    return urllib.request.Request(
+        url,
+        data=data,
+        headers=request_headers,
+        method="POST" if data is not None else "GET",
+    )
+
+
 def _http_json(url: str, *, headers: Dict[str, str] | None = None,
                body: Dict[str, Any] | None = None,
                timeout: float = DISCOVERY_TIMEOUT_SECONDS) -> Any:
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    request = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Accept": "application/json", **({"Content-Type": "application/json"} if data else {}), **(headers or {})},
-        method="POST" if data is not None else "GET",
-    )
+    request = _build_json_request(url, headers=headers, body=body)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
