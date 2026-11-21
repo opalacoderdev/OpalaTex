@@ -35,7 +35,7 @@ const SLASH_COMMANDS = [
 (function installInertApi() {
   const real = window.fetch.bind(window);
   window.fetch = async (input, init) => {
-    if (String(input).startsWith('/api/gilzabots/slash-commands')) {
+    if (String(input).startsWith('/api/opalatex/slash-commands')) {
       return new Response(JSON.stringify({ commands: SLASH_COMMANDS }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
     if (String(input).startsWith('/api/')) {

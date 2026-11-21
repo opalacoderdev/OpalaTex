@@ -1,4 +1,4 @@
-"""Chat compaction in GilzaBots: `/compact` and automatic compaction during a turn.
+"""Chat compaction in OpalaTex: `/compact` and automatic compaction during a turn.
 
 The framework replaces the orchestrator's context with a summary
 (`tests/test_memgpt_compaction.py`). These tests pin what the application adds:
@@ -18,15 +18,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agenticblocks.blocks.llm.compaction import CONTINUATION_PREAMBLE, CompactionEvent
 from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
-from gilzabots import token_usage
-from gilzabots.compaction import (
+from opalatex import token_usage
+from opalatex.compaction import (
     COMPACTION_ACTIVITY_EVENT,
     COMPACTION_STREAM_EVENT,
     DEFAULT_AUTO_COMPACT_THRESHOLD,
     ChatBusyError,
     compact_chat,
 )
-from gilzabots.project import ProjectStore
+from opalatex.project import ProjectStore
 
 
 SUMMARY_REPLY = "<analysis>notes</analysis><summary>1. Primary Request and Intent: ship it.</summary>"
@@ -104,7 +104,7 @@ def test_compact_chat_saves_the_compacted_state_and_keeps_the_visible_history(tm
 
 
 def test_failed_compaction_changes_nothing(tmp_path):
-    from gilzabots.compaction import CompactionError
+    from opalatex.compaction import CompactionError
 
     store, project = _store_with_chat(tmp_path)
     agent = _agent(reply="")
@@ -118,7 +118,7 @@ def test_failed_compaction_changes_nothing(tmp_path):
 
 
 def test_compaction_refuses_a_chat_another_process_is_running(tmp_path):
-    from gilzabots.monitors.store import MonitorStore
+    from opalatex.monitors.store import MonitorStore
 
     store, project = _store_with_chat(tmp_path)
     agent = _agent()
@@ -131,7 +131,7 @@ def test_compaction_refuses_a_chat_another_process_is_running(tmp_path):
 
 
 def test_the_compact_command_reports_the_result_for_the_gui(tmp_path):
-    from gilzabots.cli_commands import REPLState, _registry
+    from opalatex.cli_commands import REPLState, _registry
 
     store, project = _store_with_chat(tmp_path)
     state = REPLState(project, store)
@@ -147,7 +147,7 @@ def test_the_compact_command_reports_the_result_for_the_gui(tmp_path):
 
 
 def test_the_orchestrator_auto_compacts_by_default_and_honours_the_project(tmp_path, monkeypatch):
-    from gilzabots import memgpt_runtime
+    from opalatex import memgpt_runtime
 
     store, project = _store_with_chat(tmp_path)
     monkeypatch.setattr(memgpt_runtime, "get_project_agent_params", lambda *_a, **_k: {})
@@ -165,14 +165,14 @@ def test_the_orchestrator_auto_compacts_by_default_and_honours_the_project(tmp_p
 
 
 def test_auto_compact_threshold_is_an_accepted_project_parameter():
-    from gilzabots.config import sanitize_model_params
+    from opalatex.config import sanitize_model_params
 
     assert sanitize_model_params({"auto_compact_threshold": 0.6}) == {"auto_compact_threshold": 0.6}
 
 
 @pytest.mark.asyncio
 async def test_a_turn_reports_and_records_an_automatic_compaction(tmp_path, monkeypatch):
-    import gilzabots.agent_stdin as stdin_mod
+    import opalatex.agent_stdin as stdin_mod
 
     store, project = _store_with_chat(tmp_path)
     events = []

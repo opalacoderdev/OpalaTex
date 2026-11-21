@@ -206,7 +206,7 @@ Do not dump memory into responses or skill contexts. Select only what matters.
 
 ## Native Commands
 
-GilzaBots commands must start with `/`.
+OpalaTex commands must start with `/`.
 
 Recognized commands:
 
@@ -241,15 +241,15 @@ Recognized commands:
 * `/removechk <id>`: remove a checkpoint from history
 * `/mode [auto|plan|edit]`: show or set how much the agent may do on its own
 * `/cost` or `/context`: show how much of the context window this chat occupies
-* `/hooks`: list the user's hooks, commands GilzaBots runs before and after a compaction (configured in `hooks.json` in the GilzaBots data folder)
+* `/hooks`: list the user's hooks, commands OpalaTex runs before and after a compaction (configured in `hooks.json` in the OpalaTex data folder)
 * `/compact [instructions]`: summarize this chat into a detailed summary the agent continues from, freeing the context window; every message stays in the chat, and turns also compact on their own when the window is nearly full
 * `/chat [list|new <name>|switch <name>]`: list, create, or switch chat *(command-line interface only)*
 * `/effort [default|low|medium|high|xhigh]`: show or set this chat's reasoning effort *(command-line interface only)*
 * `/resume` or `/continue`: continue the turn that was interrupted in this chat *(command-line interface only)*
 * `/thoughts [on|off]` / `/tools [on|off]`: show or hide reasoning and tool calls *(command-line interface only)*
 * `/compile [file.tex]`: compile the project with Tectonic *(command-line interface only)*
-* `/monitors [list|info|pause|resume|cancel|test]`: manage the background monitors, the same as `gilzabots monitors` *(command-line interface only)*
+* `/monitors [list|info|pause|resume|cancel|test]`: manage the background monitors, the same as `opalatex monitors` *(command-line interface only)*
 * `/connectors [list|add|add-stdio|connect|disconnect|tools|on|off|approval|remove]`: manage the MCP connectors, external services whose tools you can use; in the desktop app the same is done in the Connectors panel *(command-line interface only)*
-* `/exit` or `/quit`: exit GilzaBots
+* `/exit` or `/quit`: exit OpalaTex
 
 If the user types a command without `/`, guide them to use the slashed form in normal text instead of executing or guessing.

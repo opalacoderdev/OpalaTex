@@ -1,7 +1,7 @@
 """Tests for ProjectStore and ProjectData.
 
 Verifies:
-1. ProjectStore.create always includes 'gilzabots' in skills
+1. ProjectStore.create always includes 'opalatex' in skills
 2. ProjectStore.load round-trips all ProjectData fields correctly
 3. ProjectStore.rename fails if target name already exists
 4. ProjectData.context_header produces the expected format
@@ -15,7 +15,7 @@ import pytest
 import asyncio
 import uuid
 
-from gilzabots.project import ProjectData, ProjectStore
+from opalatex.project import ProjectData, ProjectStore
 
 
 @pytest.fixture
@@ -39,12 +39,12 @@ def _base_args(**overrides):
 
 
 def _tmp_store():
-    db_path = os.path.join(tempfile.gettempdir(), f"gilzabots-test-{uuid.uuid4().hex}.db")
+    db_path = os.path.join(tempfile.gettempdir(), f"opalatex-test-{uuid.uuid4().hex}.db")
     return ProjectStore(db_path=db_path)
 
 
 # ---------------------------------------------------------------------------
-# 1. create always adds 'gilzabots'
+# 1. create always adds 'opalatex'
 # ---------------------------------------------------------------------------
 
 
@@ -66,34 +66,34 @@ def test_load_enables_streaming_for_legacy_project_without_stream_setting(store)
     assert reloaded.model_params["stream"] is True
     assert reloaded.worker_model_params["stream"] is True
 
-def test_create_always_includes_gilzabots(store):
-    """Skills list must always contain 'gilzabots', even if not passed."""
+def test_create_always_includes_opalatex(store):
+    """Skills list must always contain 'opalatex', even if not passed."""
     p = store.create(**_base_args(skills=["react_vite"]))
-    assert "gilzabots" in p.skills
+    assert "opalatex" in p.skills
 
 
-def test_create_without_skills_defaults_to_gilzabots(store):
-    """When skills is None, result must still have 'gilzabots'."""
+def test_create_without_skills_defaults_to_opalatex(store):
+    """When skills is None, result must still have 'opalatex'."""
     p = store.create(**_base_args(skills=None))
-    assert p.skills == ["gilzabots"]
+    assert p.skills == ["opalatex"]
 
 
-def test_create_does_not_duplicate_gilzabots(store):
-    """If gilzabots is explicitly in the list, it must not appear twice."""
-    p = store.create(**_base_args(skills=["gilzabots", "html_css_js"]))
-    assert p.skills.count("gilzabots") == 1
+def test_create_does_not_duplicate_opalatex(store):
+    """If opalatex is explicitly in the list, it must not appear twice."""
+    p = store.create(**_base_args(skills=["opalatex", "html_css_js"]))
+    assert p.skills.count("opalatex") == 1
 
 
 def test_stale_cloud_project_model_loads_as_default_in_community(store, tmp_path):
     """Community mode must not surface stale Opala Cloud aliases from old projects."""
-    from gilzabots.config import DEFAULT_MODEL
+    from opalatex.config import DEFAULT_MODEL
 
     project_dir = tmp_path / "stale_cloud"
     store.create(
         **_base_args(
             name="stale_cloud",
-            model="GilzaBotsCloud",
-            worker_model="GilzaBotsCloudGemini35Flash",
+            model="OpalaTexCloud",
+            worker_model="OpalaTexCloudGemini35Flash",
             project_path=str(project_dir),
         )
     )
@@ -175,7 +175,7 @@ def test_load_roundtrips_all_fields(store):
     assert loaded.model == "fake/model"
     assert loaded.project_name == "My Project"
     assert loaded.project_path == os.path.abspath("/home/user/myproject")
-    assert "gilzabots" in loaded.skills
+    assert "opalatex" in loaded.skills
     assert "python_subprocess" in loaded.skills
     assert loaded.description == "A test project"
     assert loaded.compile_on_save_partial is True
@@ -308,15 +308,15 @@ def test_save_persists_git_root_path(store, tmp_path):
     assert listed[0]["git_root_path"] == str(git_root)
 
 
-def test_save_always_keeps_gilzabots_in_skills(store):
-    """Even if someone accidentally removes gilzabots before save, it must be restored."""
+def test_save_always_keeps_opalatex_in_skills(store):
+    """Even if someone accidentally removes opalatex before save, it must be restored."""
     store.create(**_base_args())
     p = store.load("myproj")
-    p.skills = ["html_css_js"]  # gilzabots removed
+    p.skills = ["html_css_js"]  # opalatex removed
     store.save(p)
 
     reloaded = store.load("myproj")
-    assert "gilzabots" in reloaded.skills
+    assert "opalatex" in reloaded.skills
 
 
 # ---------------------------------------------------------------------------
@@ -599,7 +599,7 @@ def test_restore_transient_project_mode_never_persists_auto(initial_mode):
     project = store.load("myproj")
     project.mode = "auto"
 
-    import gilzabots.agent_stdin as agent_stdin
+    import opalatex.agent_stdin as agent_stdin
 
     previous_project = agent_stdin.current_project
     previous_store = agent_stdin.current_store
@@ -628,8 +628,8 @@ def test_create_plan_temporary_auto_does_not_save_project_mode(monkeypatch):
     store.create(**_base_args(mode="plan"))
     project = store.load("myproj")
 
-    import gilzabots.tools as tools
-    import gilzabots.agent_stdin as agent_stdin
+    import opalatex.tools as tools
+    import opalatex.agent_stdin as agent_stdin
 
     async def run_approved_plan():
         raw_create_plan = getattr(tools.create_plan, "_func", None) or tools.create_plan
@@ -909,15 +909,15 @@ def test_create_initializes_shadow_git(store, tmp_path):
         project_path=str(proj_dir),
     )
     # Check that the internal shadow git directory exists.
-    git_dir = proj_dir / ".gilzabots" / ".shadowgit"
+    git_dir = proj_dir / ".opalatex" / ".shadowgit"
     assert git_dir.exists()
     assert git_dir.is_dir()
 
 
 def test_set_project_context_loads_env_and_propagates_keys(tmp_path):
     import os
-    from gilzabots.tools import set_project_context
-    from gilzabots.project import ProjectData
+    from opalatex.tools import set_project_context
+    from opalatex.project import ProjectData
     
     proj_dir = tmp_path / "my_env_project"
     proj_dir.mkdir()

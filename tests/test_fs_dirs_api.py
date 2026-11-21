@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from gilzabots.ide_server import AsyncHTTPServer
+from opalatex.ide_server import AsyncHTTPServer
 
 
 def _server_with_capture():

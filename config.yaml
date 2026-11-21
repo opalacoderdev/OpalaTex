@@ -1,4 +1,4 @@
-# GilzaBots — non-agent configuration
+# OpalaTex — non-agent configuration
 # Agent model/LLM settings live in agents.yaml
 
 git_strategy: auto

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "gilzabots"
+name = "opalatex"
 version = "0.2.44"
 description = "Autonomous coding agent with interactive planning and modular execution"
 readme = "README.md"
@@ -22,7 +22,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "networkx>=3.0",
     "tenacity>=8.0",
-    # MCP connectors (agenticblocks/tools/mcp_client.py, gilzabots/connectors/) use the
+    # MCP connectors (agenticblocks/tools/mcp_client.py, opalatex/connectors/) use the
     # 2.x client API (`mcp.Client`, `mcp_types`, the OAuth client provider), verified
     # against 2.3.0. 2.x depends on httpx2, which requires Python >= 3.11 -- the
     # reason `requires-python` is 3.11.
@@ -33,7 +33,7 @@ dependencies = [
     "instructor>=1.15.1",
     "litellm>=1.95.0",
     "chromadb>=0.4.0",
-    # Symbol extraction for search_code (gilzabots/code_index.py). Declared here
+    # Symbol extraction for search_code (opalatex/code_index.py). Declared here
     # and not only in requirements.txt: a pip install without it degraded to the
     # regex path silently.
     "tree-sitter>=0.25.0",
@@ -44,7 +44,7 @@ dependencies = [
     "python-pptx>=0.6.23",
     "openpyxl>=3.1.0",
     # Reads and writes PDF annotations for the standalone PDF viewer
-    # (gilzabots/pdf_annotations.py). Pinned explicitly rather than relied on
+    # (opalatex/pdf_annotations.py). Pinned explicitly rather than relied on
     # through pymupdf4llm: a user-facing feature should not hang off another
     # package's transitive dependency.
     "pymupdf>=1.24.0",
@@ -53,20 +53,20 @@ dependencies = [
     "pytest-asyncio>=0.23.0",
 ]
 
-# The base install is the command-line interface: `pip install gilzabots` (or
-# `uv tool install gilzabots`) gives a working agent -- projects, skills, tools,
+# The base install is the command-line interface: `pip install opalatex` (or
+# `uv tool install opalatex`) gives a working agent -- projects, skills, tools,
 # LaTeX compilation through a `tectonic` on PATH -- with no desktop stack.
 #
 # The desktop application needs the `gui` extra. Qt alone is several hundred MB
 # that the CLI never imports: every Qt and pywebview import in the package is
-# inside a function of `gilzabots/ide_server.py`, so requiring them of every
-# install only made the CLI expensive, never more capable. `gilzabots --gui`
-# without the extra fails with a diagnostic naming it (gilzabots/cli.py), rather
+# inside a function of `opalatex/ide_server.py`, so requiring them of every
+# install only made the CLI expensive, never more capable. `opalatex --gui`
+# without the extra fails with a diagnostic naming it (opalatex/cli.py), rather
 # than falling back to a different interface than the one that was asked for.
 [project.optional-dependencies]
 embeddings = ["sentence-transformers>=3.0.0"]
 
-# Local speech-to-text for the chat's dictation button (gilzabots/transcription.py).
+# Local speech-to-text for the chat's dictation button (opalatex/transcription.py).
 # MIT, CPU-only, and it brings ctranslate2 + av rather than torch. Models are
 # downloaded on demand, not bundled.
 speech = ["faster-whisper>=1.1.0"]
@@ -74,13 +74,13 @@ speech = ["faster-whisper>=1.1.0"]
 gui = [
     "pywebview>=4.0",
     "pywinpty>=2.0.0; sys_platform == 'win32'",
-    # The Windows window is WebView2 through WinForms (gilzabots/windows_webview.py),
+    # The Windows window is WebView2 through WinForms (opalatex/windows_webview.py),
     # and the monitors' tray icon is a WinForms NotifyIcon (monitors/tray_windows.py):
     # both import pythonnet. pywebview already requires it on Windows; it is
-    # declared because GilzaBots imports it itself.
+    # declared because OpalaTex imports it itself.
     "pythonnet>=3.0.0; sys_platform == 'win32'",
     # Qt is the window on macOS and Linux only; Windows has none (PROJECT_DESIGN.md
-    # 2.16.1). Oldest Qt verified to run GilzaBots; see requirements.txt (6.8: PDF
+    # 2.16.1). Oldest Qt verified to run OpalaTex; see requirements.txt (6.8: PDF
     # viewer breaks; 6.10.2: agent crashes). One shared ceiling keeps all four on
     # the same Qt minor: PyQt6-WebEngine does not constrain PyQt6-Qt6, and PyQt6
     # 6.12 alone broke a build.
@@ -94,18 +94,18 @@ gui = [
 
 # What the packaged desktop releases install.
 all = [
-    "gilzabots[gui,embeddings]",
+    "opalatex[gui,embeddings]",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/gilzamir18/GilzaBots"
-"Bug Tracker" = "https://github.com/gilzamir18/GilzaBots/issues"
+"Homepage" = "https://github.com/opalacoderdev/OpalaTex"
+"Bug Tracker" = "https://github.com/opalacoderdev/OpalaTex/issues"
 
 [project.scripts]
-gilzabots = "gilzabots.cli:main"
+opalatex = "opalatex.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["gilzabots", "agenticblocks"]
+packages = ["opalatex", "agenticblocks"]
 # The Google OAuth client is injected at build time and is .gitignore'd, and
 # hatchling drops VCS-ignored files by default — which shipped every installed
 # build without a client, so Cloud sync could only answer
@@ -113,9 +113,9 @@ packages = ["gilzabots", "agenticblocks"]
 # Cloud console. `artifacts` is the exception list for exactly this: generated
 # files that must be packaged. A missing file simply does not match, so a
 # checkout without credentials still builds.
-artifacts = ["gilzabots/cloud/providers/bundled_google_client.json"]
+artifacts = ["opalatex/cloud/providers/bundled_google_client.json"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"config.yaml" = "gilzabots/config.yaml"
-"skills" = "gilzabots/skills"
-"templates" = "gilzabots/assetstore/templates"
+"config.yaml" = "opalatex/config.yaml"
+"skills" = "opalatex/skills"
+"templates" = "opalatex/assetstore/templates"

@@ -9,7 +9,7 @@ argument-hint: What are you trying to do?
 
 Nobody remembers every skill, so ask.
 
-Before stating what a skill does, or recommending that a step be skipped, read that skill's `SKILL.md` (installed skills live under the project's `.gilzabots/skills/<name>/`; `/skills` lists them): the summaries here are for orientation only. If a skill you would recommend is not installed, say so: the user installs it from the Asset Store.
+Before stating what a skill does, or recommending that a step be skipped, read that skill's `SKILL.md` (installed skills live under the project's `.opalatex/skills/<name>/`; `/skills` lists them): the summaries here are for orientation only. If a skill you would recommend is not installed, say so: the user installs it from the Asset Store.
 
 A **flow** is a path through the skills. Most work travels one **main flow**, and a few **on-ramps** merge onto it. Everything else is standalone, or a vocabulary layer underneath.
 

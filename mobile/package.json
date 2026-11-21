@@ -1,9 +1,9 @@
 {
-  "name": "gilzabots-mobile",
+  "name": "opalatex-mobile",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "GilzaBots mobile companion: chats and project files mirrored through Google Drive.",
+  "description": "OpalaTex mobile companion: chats and project files mirrored through Google Drive.",
   "license": "MIT",
   "scripts": {
     "dev": "vite",

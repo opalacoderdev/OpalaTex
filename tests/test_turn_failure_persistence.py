@@ -11,7 +11,7 @@ dropped the partial answer that was on screen.
 
 import pytest
 
-import gilzabots.agent_stdin as stdin_mod
+import opalatex.agent_stdin as stdin_mod
 
 
 class FakeStore:

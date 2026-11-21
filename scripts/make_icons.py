@@ -1,4 +1,4 @@
-"""Generate the GilzaBots app icons from one geometric drawing.
+"""Generate the OpalaTex app icons from one geometric drawing.
 
 The icon is drawn with Pillow (no SVG toolchain is needed) at 4x the target
 size and downsampled, which gives clean anti-aliased edges at every size.
@@ -7,7 +7,7 @@ Run from the repository root:
 
     python scripts/make_icons.py
 
-It rewrites the desktop icons (icon.png, gilzabots/icon.png, AppIcons/*,
+It rewrites the desktop icons (icon.png, opalatex/icon.png, AppIcons/*,
 gui_src/public/splash-icon.png), the Windows .ico files, and the Android
 launcher icons and splash screens under mobile/.
 """
@@ -113,21 +113,21 @@ def _save(img: Image.Image, rel: str) -> None:
 
 def main() -> None:
     master = app_icon(1024)
-    for rel in ("icon.png", "gilzabots/icon.png", "AppIcons/GilzaBotsArt1024.png", "mobile/public/icon.png"):
+    for rel in ("icon.png", "opalatex/icon.png", "AppIcons/OpalaTexArt1024.png", "mobile/public/icon.png"):
         _save(master, rel)
-    _save(app_icon(2048), "AppIcons/GilzaBotsArt.png")
+    _save(app_icon(2048), "AppIcons/OpalaTexArt.png")
     _save(app_icon(192), "gui_src/public/splash-icon.png")
     for rel, size in (("AppIcons/Square150x150Logo.png", 150), ("AppIcons/Square44x44Logo.png", 44),
                       ("AppIcons/StoreLogo.png", 50)):
         _save(app_icon(size), rel)
 
     ico_sizes = [16, 24, 32, 48, 64, 128, 256]
-    app_icon(256).save(ROOT / "AppIcons/GilzaBots.ico", sizes=[(s, s) for s in ico_sizes],
+    app_icon(256).save(ROOT / "AppIcons/OpalaTex.ico", sizes=[(s, s) for s in ico_sizes],
                        append_images=[app_icon(s) for s in ico_sizes])
-    print("wrote AppIcons/GilzaBots.ico (multi-size)")
+    print("wrote AppIcons/OpalaTex.ico (multi-size)")
     for s in ico_sizes:
-        app_icon(s).save(ROOT / f"AppIcons/GilzaBots{s}.ico", sizes=[(s, s)])
-        print(f"wrote AppIcons/GilzaBots{s}.ico")
+        app_icon(s).save(ROOT / f"AppIcons/OpalaTex{s}.ico", sizes=[(s, s)])
+        print(f"wrote AppIcons/OpalaTex{s}.ico")
 
     res = "mobile/android/app/src/main/res"
     for density, launcher in (("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)):

@@ -6,7 +6,7 @@
 For each skill listed in assetstore_sources/skills/manifest.yaml it writes the
 skill's ATTRIBUTION.md (the credit and the upstream licence, which the MIT
 licence requires in every copy), then registers the directory with
-`assetstore.register_asset`, which writes gilzabots/assetstore/skills/<id>.zip
+`assetstore.register_asset`, which writes opalatex/assetstore/skills/<id>.zip
 and <id>.metadata. The metadata carries the skill's description and its
 `requires`, which the store installs together with it.
 
@@ -25,8 +25,8 @@ sys.path.insert(0, ROOT)
 
 import yaml  # noqa: E402
 
-from gilzabots.assetstore import register_asset, _store_dir  # noqa: E402
-from gilzabots.skills import parse_skill_md, skill_error  # noqa: E402
+from opalatex.assetstore import register_asset, _store_dir  # noqa: E402
+from opalatex.skills import parse_skill_md, skill_error  # noqa: E402
 
 SOURCES = os.path.join(ROOT, "assetstore_sources", "skills")
 MANIFEST = os.path.join(SOURCES, "manifest.yaml")
@@ -63,10 +63,10 @@ def attribution_text(manifest: dict, name: str) -> str:
     credits = f"\n{entry['credits']}\n" if entry.get("credits") else ""
     return (
         "# Attribution\n\n"
-        f"This skill is adapted for GilzaBots from {originals} in {upstream['name']} "
+        f"This skill is adapted for OpalaTex from {originals} in {upstream['name']} "
         f"({upstream['url']}, commit {upstream['commit'][:7]}), distributed under the "
         f"{upstream['license']} License. The adaptation rewrites the instructions for "
-        "GilzaBots' tools (load_skill, run_agent, ask_question, run_command, ...).\n"
+        "OpalaTex' tools (load_skill, run_agent, ask_question, run_command, ...).\n"
         f"{credits}\n"
         f"{upstream['copyright']}\n\n"
         f"{MIT_TEXT}"

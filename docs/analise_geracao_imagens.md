@@ -1,4 +1,4 @@
-# Image Generation in GilzaBots
+# Image Generation in OpalaTex
 
 Status: **implemented**. This file replaces the earlier analysis, which predated
 the feature and still referred to the discontinued Cloud proxy.
@@ -10,9 +10,9 @@ at a provider.
 ## Architecture in one line
 
 ```
-gilzabots/tools.py: generate_image        tool: prompt in, project file out
+opalatex/tools.py: generate_image        tool: prompt in, project file out
         ↓
-gilzabots/image_gen_config.py             which model, which route, where to save
+opalatex/image_gen_config.py             which model, which route, where to save
         ↓
 agenticblocks/blocks/image/              ImageGenerationBlock + adapter registry
         ├─ images_api        → litellm.aimage_generation  (/v1/images/generations)

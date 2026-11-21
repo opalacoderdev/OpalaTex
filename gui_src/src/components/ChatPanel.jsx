@@ -86,7 +86,7 @@ const numericMessageId = (message) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
 
-// Right-side chat panel for interacting with the GilzaBots agent.
+// Right-side chat panel for interacting with the OpalaTex agent.
 // Distance from the bottom (in px) still treated as "at the bottom".
 const BOTTOM_PIN_THRESHOLD_PX = 48;
 
@@ -861,7 +861,7 @@ export default function ChatPanel({
   useEffect(() => {
     if (!slashMenuOpen || slashCommands !== null) return undefined;
     let cancelled = false;
-    fetch(`/api/gilzabots/slash-commands?projectPath=${encodeURIComponent(slashProjectPath)}`)
+    fetch(`/api/opalatex/slash-commands?projectPath=${encodeURIComponent(slashProjectPath)}`)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -1303,9 +1303,9 @@ export default function ChatPanel({
 
   const handleExportMarkdown = () => {
     if (!chatMessages || chatMessages.length === 0) return;
-    let md = `# Chat Export - ${activeProject?.name || 'GilzaBots'}\n\n`;
+    let md = `# Chat Export - ${activeProject?.name || 'OpalaTex'}\n\n`;
     chatMessages.filter(msg => !isHiddenChatSystemMessage(msg)).forEach(msg => {
-      const role = msg.role === 'user' ? 'User' : 'GilzaBots';
+      const role = msg.role === 'user' ? 'User' : 'OpalaTex';
       md += `### ${role}\n\n${msg.content}\n\n---\n\n`;
     });
     const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
@@ -1502,7 +1502,7 @@ export default function ChatPanel({
   // for, so it is labelled as its own thing rather than as the provider number.
   const isDerivedContext = isMeasuredContext && chatContextUsage?.source === 'state';
   // 0 means the window is unknown: the model is on "Auto" and its provider did
-  // not report one, so GilzaBots applies no limit of its own. A measurement
+  // not report one, so OpalaTex applies no limit of its own. A measurement
   // carries the window it was taken against; without one the project's
   // resolved window is used. Never a guessed size -- a battery drawn against an
   // invented window reads as a real limit.
@@ -2687,7 +2687,7 @@ export default function ChatPanel({
                     className={`vscode-chat-msg-header ${isUser ? 'chat-header-user' : 'chat-header-agent'}`}
                     style={{ margin: 0 }}
                   >
-                    {isUser ? t('chatPanel.you') : t('chatPanel.gilzabots')}
+                    {isUser ? t('chatPanel.you') : t('chatPanel.opalatex')}
                   </span>
                   {msg.timestamp && (
                     <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground, #717171)' }}>
@@ -3028,7 +3028,7 @@ export default function ChatPanel({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="vscode-chat-msg-header chat-header-agent" style={{ margin: 0 }}>
-                {t('chatPanel.gilzabots')}
+                {t('chatPanel.opalatex')}
               </span>
               <span
                 className="chat-msg-badge chat-msg-badge-step-running"
@@ -3380,7 +3380,7 @@ export default function ChatPanel({
               !activeProject ? t('chatPanel.setProjectFirst') :
               isEvolvingPrompt ? t('chatPanel.evolving', 'Evolving...') :
               isAgentRunning ? t('chatPanel.sendWhileRunning', 'Send a message to the running agent...') :
-              t('chatPanel.askGilzaBots')
+              t('chatPanel.askOpalaTex')
             }
             className="vscode-chat-textarea"
           />

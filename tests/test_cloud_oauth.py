@@ -9,8 +9,8 @@ import urllib.request
 
 import pytest
 
-from gilzabots.cloud import oauth
-from gilzabots.cloud.base import CloudAuthError
+from opalatex.cloud import oauth
+from opalatex.cloud.base import CloudAuthError
 
 
 def test_pkce_challenge_is_the_sha256_of_the_verifier():

@@ -11,7 +11,7 @@ import subprocess
 
 import pytest
 
-from gilzabots.vcs import (
+from opalatex.vcs import (
     NESTED_REPO_SCAN_MAX_DEPTH,
     find_nested_git_repos,
 )
@@ -66,7 +66,7 @@ def test_repository_inside_a_repository_reports_only_the_outermost(tmp_path):
 
 
 def test_skipped_directories_are_not_scanned(tmp_path):
-    for skipped in ("node_modules", ".venv", "__pycache__", ".gilzabots"):
+    for skipped in ("node_modules", ".venv", "__pycache__", ".opalatex"):
         _mark_as_repo(tmp_path / skipped / "pkg")
     _mark_as_repo(tmp_path / "book")
 
@@ -102,7 +102,7 @@ def test_edits_inside_a_nested_repo_leave_no_turn_checkpoint(tmp_path):
     net diff, so both checkpoints are discarded and the Review UI shows nothing
     -- while `find_nested_git_repos` names the folder responsible.
     """
-    from gilzabots.vcs import begin_agent_turn_checkpoint, finalize_agent_turn_checkpoint
+    from opalatex.vcs import begin_agent_turn_checkpoint, finalize_agent_turn_checkpoint
 
     inner = tmp_path / "book"
     inner.mkdir()
@@ -122,7 +122,7 @@ def test_edits_inside_a_nested_repo_leave_no_turn_checkpoint(tmp_path):
     log = subprocess.run(
         [
             "git",
-            f"--git-dir={tmp_path / '.gilzabots' / '.shadowgit'}",
+            f"--git-dir={tmp_path / '.opalatex' / '.shadowgit'}",
             f"--work-tree={tmp_path}",
             "log",
             "--format=%s",
@@ -143,7 +143,7 @@ async def test_nested_repos_endpoint_lists_the_blind_spots(tmp_path):
     import json
     from unittest.mock import AsyncMock
 
-    from gilzabots.ide_server import AsyncHTTPServer
+    from opalatex.ide_server import AsyncHTTPServer
 
     _mark_as_repo(tmp_path / "book")
 
@@ -170,7 +170,7 @@ async def test_nested_repos_endpoint_rejects_an_invalid_project_path(tmp_path):
     import json
     from unittest.mock import AsyncMock
 
-    from gilzabots.ide_server import AsyncHTTPServer
+    from opalatex.ide_server import AsyncHTTPServer
 
     server = AsyncHTTPServer()
     responses = []

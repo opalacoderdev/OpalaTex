@@ -1,4 +1,4 @@
-"""Moving monitors and connectors between machines (`gilzabots/transfer.py`).
+"""Moving monitors and connectors between machines (`opalatex/transfer.py`).
 
 Each test exports from one data folder and imports into another, the way the
 bundle travels between two machines.
@@ -9,10 +9,10 @@ import os
 
 import pytest
 
-from gilzabots import transfer, transfer_api, transfer_cli
-from gilzabots.connectors import store as cstore
-from gilzabots.monitors import store as mst
-from gilzabots.project import ProjectStore
+from opalatex import transfer, transfer_api, transfer_cli
+from opalatex.connectors import store as cstore
+from opalatex.monitors import store as mst
+from opalatex.project import ProjectStore
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def machines(tmp_path, monkeypatch):
         home.mkdir()
 
     def use(name):
-        monkeypatch.setenv("GILZABOTS_HOME", str(homes[name]))
+        monkeypatch.setenv("OPALATEX_HOME", str(homes[name]))
         # The conftest pins one monitors.db for the whole test; each machine has its own.
         monkeypatch.setattr(mst, "default_db_path", lambda: str(homes[name] / "monitors.db"))
         return homes[name]
@@ -33,7 +33,7 @@ def machines(tmp_path, monkeypatch):
 
 
 def _sessions():
-    return ProjectStore(db_path=os.path.join(os.environ["GILZABOTS_HOME"], "sessions.db"))
+    return ProjectStore(db_path=os.path.join(os.environ["OPALATEX_HOME"], "sessions.db"))
 
 
 def _project(name, path, chats=()):
@@ -46,7 +46,7 @@ def _project(name, path, chats=()):
 
 
 def _monitor(**overrides):
-    from gilzabots.monitors.spec import normalize_spec
+    from opalatex.monitors.spec import normalize_spec
 
     raw = {"name": "Site up", "check": {"type": "http", "url": "https://example.com/health"},
            "condition": {"type": "contains", "value": "ok"}, "action": {"type": "notify", "message": "up"},
@@ -199,8 +199,8 @@ class TestImport:
         assert mst.MonitorStore().list_monitors()[0]["check"]["headers"] == {"Authorization": "Bearer new"}
 
     @pytest.mark.parametrize("bundle, message", [
-        ({"connectors": []}, "not a GilzaBots transfer bundle"),
-        ({"format": transfer.BUNDLE_FORMAT, "version": 99}, "newer GilzaBots"),
+        ({"connectors": []}, "not a OpalaTex transfer bundle"),
+        ({"format": transfer.BUNDLE_FORMAT, "version": 99}, "newer OpalaTex"),
         ({"format": transfer.BUNDLE_FORMAT, "version": 1, "monitors": "x"}, "'monitors' must be a list"),
     ])
     def test_an_unreadable_bundle_is_refused(self, machines, bundle, message):
@@ -236,4 +236,4 @@ class TestInterfaces:
             "/api/transfer/import", "POST", {"bundle": body["bundle"]}))
         assert status == 200 and report["imported"] == 1
         status, error = asyncio.run(transfer_api.handle("/api/transfer/import", "POST", {"bundle": {}}))
-        assert status == 400 and "not a GilzaBots transfer bundle" in error["error"]
+        assert status == 400 and "not a OpalaTex transfer bundle" in error["error"]

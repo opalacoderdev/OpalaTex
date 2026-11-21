@@ -1,7 +1,7 @@
 {
-  "client_id": "https://gilzamir18.github.io/GilzaBots/oauth/client-metadata.json",
-  "client_name": "GilzaBots",
-  "client_uri": "https://github.com/gilzamir18/GilzaBots",
+  "client_id": "https://opalacoderdev.github.io/OpalaTex/oauth/client-metadata.json",
+  "client_name": "OpalaTex",
+  "client_uri": "https://github.com/opalacoderdev/OpalaTex",
   "redirect_uris": [
     "http://127.0.0.1:47821/oauth/callback",
     "http://127.0.0.1:47822/oauth/callback",

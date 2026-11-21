@@ -14,7 +14,7 @@ import datetime
 
 import pytest
 
-from gilzabots import token_usage, tools
+from opalatex import token_usage, tools
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +34,7 @@ class _Session:
 
 
 def _read_file(path):
-    """Call read_file past the @gilzabots_tool FunctionBlock/permission wrapper."""
+    """Call read_file past the @opalatex_tool FunctionBlock/permission wrapper."""
     return asyncio.run(tools.read_file._func(path))
 
 
@@ -125,7 +125,7 @@ def test_a_document_with_no_extractable_text_says_so(tmp_path, monkeypatch):
     target.write_bytes(b"%PDF-fake")
     _prepare(monkeypatch, target)
     monkeypatch.setattr(
-        "gilzabots.attachments.extract_document_text_from_path",
+        "opalatex.attachments.extract_document_text_from_path",
         lambda path, max_chars=None: "   \n  ",
     )
 
@@ -305,7 +305,7 @@ def test_a_missing_file_tells_a_helper_where_it_may_write(tmp_path, monkeypatch)
     finally:
         tools.set_worker_context(False)
     message = str(excinfo.value)
-    assert "'.gilzabots/'" in message
+    assert "'.opalatex/'" in message
     assert "report" in message
     assert "run_skill" not in message
 
@@ -372,27 +372,27 @@ class _ModelSession:
 
 
 def test_the_worker_role_resolves_the_project_worker_model(monkeypatch):
-    from gilzabots import config
+    from opalatex import config
     monkeypatch.setattr(tools, "_PROJECT_SESSION",
                         _ModelSession(model="ollama/main", worker_model="ollama/worker"))
     assert config.resolve_agent_model("worker") == "ollama/worker"
 
 
 def test_the_worker_role_falls_back_to_the_project_model(monkeypatch):
-    from gilzabots import config
+    from opalatex import config
     monkeypatch.setattr(tools, "_PROJECT_SESSION", _ModelSession(model="ollama/main"))
     assert config.resolve_agent_model("worker") == "ollama/main"
 
 
 def test_with_no_session_the_configured_default_still_resolves(monkeypatch):
-    from gilzabots import config
+    from opalatex import config
     monkeypatch.setattr(tools, "_PROJECT_SESSION", None)
     assert config.resolve_agent_model("worker"), "must never resolve to an empty model"
 
 
 def test_kwargs_and_model_are_resolved_from_the_same_answer(monkeypatch):
     """Credentials must belong to the model that will actually run."""
-    from gilzabots import config
+    from opalatex import config
     seen = []
     real = config.resolve_agent_model
     monkeypatch.setattr(config, "resolve_agent_model",

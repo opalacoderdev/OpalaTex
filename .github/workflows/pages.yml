@@ -1,7 +1,7 @@
-# Publishes site/ to GitHub Pages (https://gilzamir18.github.io/GilzaBots/).
+# Publishes site/ to GitHub Pages (https://opalacoderdev.github.io/OpalaTex/).
 #
 # The site exists for one file: site/oauth/client-metadata.json, the OAuth Client
-# ID Metadata Document that identifies GilzaBots to the authorization servers of
+# ID Metadata Document that identifies OpalaTex to the authorization servers of
 # MCP connectors (PROJECT_DESIGN 2.25). Its URL is the client_id, so it must stay
 # where it is; tests/test_connectors.py checks it against the code.
 #
@@ -10,7 +10,7 @@ name: Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, master, edge_0_2_0]
     paths:
       - "site/**"
       - ".github/workflows/pages.yml"

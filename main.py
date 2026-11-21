@@ -1,4 +1,4 @@
-"""GilzaBots entry point — run with: python main.py [--mode auto|plan|edit] [--model ...]"""
+"""OpalaTex entry point — run with: python main.py [--mode auto|plan|edit] [--model ...]"""
 import sys
 import os
 import io
@@ -98,7 +98,7 @@ if sys.platform == "win32":
 
 
 
-from gilzabots.cli import main
+from opalatex.cli import main
 
 if __name__ == "__main__":
     main()

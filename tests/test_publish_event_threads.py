@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from gilzabots.ide_server import AsyncHTTPServer
+from opalatex.ide_server import AsyncHTTPServer
 
 
 @pytest.mark.asyncio

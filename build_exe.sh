@@ -2,7 +2,7 @@
 set -e
 
 echo "=========================================="
-echo "       GilzaBots - Build do Executavel       "
+echo "       OpalaTex - Build do Executavel       "
 echo "=========================================="
 
 echo -e "\n[1/4] Instalando dependencias e PyInstaller..."
@@ -86,20 +86,20 @@ fi
 chmod +x bin/pandoc
 
 echo -e "\n[3.7/4] Injetando o cliente OAuth do Google (opcional)..."
-# Com GILZABOTS_GDRIVE_CLIENT_ID definido, o build embute o cliente e a
+# Com OPALATEX_GDRIVE_CLIENT_ID definido, o build embute o cliente e a
 # sincronizacao na nuvem passa a conectar em um clique. Sem ele, o app continua
 # funcionando: o usuario cadastra o proprio cliente OAuth nas configuracoes.
 # Sem a variavel, um cliente ja injetado antes (o arquivo existe) e embutido,
-# como faz o GilzaBots.spec.
-GOOGLE_CLIENT_FILE="gilzabots/cloud/providers/bundled_google_client.json"
+# como faz o OpalaTex.spec.
+GOOGLE_CLIENT_FILE="opalatex/cloud/providers/bundled_google_client.json"
 GOOGLE_CLIENT_DATA=""
-if [ -n "$GILZABOTS_GDRIVE_CLIENT_ID" ]; then
+if [ -n "$OPALATEX_GDRIVE_CLIENT_ID" ]; then
     python scripts/embed_google_client.py --from-env || exit 1
 fi
 if [ -f "$GOOGLE_CLIENT_FILE" ]; then
-    GOOGLE_CLIENT_DATA="--add-data=$GOOGLE_CLIENT_FILE:gilzabots/cloud/providers"
+    GOOGLE_CLIENT_DATA="--add-data=$GOOGLE_CLIENT_FILE:opalatex/cloud/providers"
 else
-    echo "GILZABOTS_GDRIVE_CLIENT_ID nao definido e nenhum cliente injetado - build sem cliente OAuth embutido."
+    echo "OPALATEX_GDRIVE_CLIENT_ID nao definido e nenhum cliente injetado - build sem cliente OAuth embutido."
 fi
 
 echo -e "\n[4/4] Empacotando com PyInstaller..."
@@ -111,16 +111,16 @@ echo -e "\n[4/4] Empacotando com PyInstaller..."
 # links libQt6Qml/libQt6Quick (still bundled through that dependency), but the
 # QtQml hook would add every QML plugin and, through them, Quick3D,
 # QuickControls2, Multimedia and more. See PROJECT_DESIGN.md §2.16.1.
-pyinstaller --name "GilzaBots" \
+pyinstaller --name "OpalaTex" \
             $GOOGLE_CLIENT_DATA \
             --windowed \
-            --icon="AppIcons/GilzaBots.ico" \
-            --add-data="gilzabots/gui:gilzabots/gui" \
-            --add-data="gilzabots/icon.png:gilzabots" \
+            --icon="AppIcons/OpalaTex.ico" \
+            --add-data="opalatex/gui:opalatex/gui" \
+            --add-data="opalatex/icon.png:opalatex" \
             --add-data="icon.png:." \
-            --add-data="gilzabots/assetstore:gilzabots/assetstore" \
-            --add-data="gilzabots/templates:gilzabots/templates" \
-            --add-data="gilzabots/guides:gilzabots/guides" \
+            --add-data="opalatex/assetstore:opalatex/assetstore" \
+            --add-data="opalatex/templates:opalatex/templates" \
+            --add-data="opalatex/guides:opalatex/guides" \
             --add-data="bin:bin" \
             --add-data="config.yaml:." \
             --add-data="skills:skills" \
@@ -159,10 +159,10 @@ if [ "$OS_NAME" = "Linux" ]; then
     # PyInstaller only warns when a dependency is missing from this machine, and
     # the bundle then starts only where the user has it installed.
     echo -e "\n[4.5/4] Checking that the bundle carries the libraries the window needs..."
-    python scripts/check_bundle_libraries.py dist/GilzaBots
+    python scripts/check_bundle_libraries.py dist/OpalaTex
 fi
 
 echo -e "\n=========================================="
 echo "Build concluido com sucesso!"
-echo "O executavel pode ser encontrado em: ./dist/GilzaBots/GilzaBots"
+echo "O executavel pode ser encontrado em: ./dist/OpalaTex/OpalaTex"
 echo "=========================================="

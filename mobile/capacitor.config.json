@@ -1,6 +1,6 @@
 {
-  "appId": "io.github.gilzamir18.gilzabots",
-  "appName": "GilzaBots",
+  "appId": "com.opalacoder.opalatex",
+  "appName": "OpalaTex",
   "webDir": "dist",
   "android": {
     "allowMixedContent": false

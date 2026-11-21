@@ -20,7 +20,7 @@ The fixed point is whatever the user named: a commit SHA, a branch, a tag, `main
 
 Confirm it resolves and the diff is non-empty before going further, with `run_command`: `git rev-parse <fixed-point>`, then `git diff --stat <fixed-point>...HEAD` (three dots: against the merge-base). A bad ref or an empty diff fails here, not inside two subagents.
 
-Save the change where the subagents can read it, since their tools read files but run no commands: `git diff <fixed-point>...HEAD > .gilzabots/review/change.diff` and `git log <fixed-point>..HEAD --oneline > .gilzabots/review/commits.txt` (create the folder first). Uncommitted work belongs to the review only if the user says so; then diff against the working tree instead (`git diff <fixed-point>`).
+Save the change where the subagents can read it, since their tools read files but run no commands: `git diff <fixed-point>...HEAD > .opalatex/review/change.diff` and `git log <fixed-point>..HEAD --oneline > .opalatex/review/commits.txt` (create the folder first). Uncommitted work belongs to the review only if the user says so; then diff against the working tree instead (`git diff <fixed-point>`).
 
 ### 2. Identify the spec source
 
@@ -77,7 +77,7 @@ If there is no spec, start only the Standards subagent and note the skip in the 
 
 Present the two reports under `## Standards` and `## Spec`, verbatim or lightly cleaned. Do **not** merge or re-rank the findings: the two axes are separate on purpose.
 
-End with a one-line summary: the number of findings per axis and the worst issue _within each axis_. Don't pick a single winner across axes: that is the re-ranking the separation exists to prevent. Delete `.gilzabots/review/` afterwards.
+End with a one-line summary: the number of findings per axis and the worst issue _within each axis_. Don't pick a single winner across axes: that is the re-ranking the separation exists to prevent. Delete `.opalatex/review/` afterwards.
 
 ## Why two axes
 

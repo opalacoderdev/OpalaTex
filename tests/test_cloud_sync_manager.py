@@ -1,6 +1,6 @@
 """The background sync manager survives a pass that fails unexpectedly."""
 
-from gilzabots.cloud import service
+from opalatex.cloud import service
 
 
 def test_an_unexpected_failure_is_reported_and_the_next_pass_can_run(tmp_path, monkeypatch):

@@ -7,7 +7,7 @@ import sys
 import pytest
 from PIL import Image
 
-from gilzabots import ide_server, win_clipboard
+from opalatex import ide_server, win_clipboard
 
 
 def test_line_ends_are_converted_both_ways_like_qt_did():

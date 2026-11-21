@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock
 
-from gilzabots.ide_server import (
+from opalatex.ide_server import (
     AsyncHTTPServer,
     _desktop_open_command,
     _desktop_open_failure,

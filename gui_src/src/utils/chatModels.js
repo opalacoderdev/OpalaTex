@@ -1,5 +1,5 @@
 // The models one chat runs on, resolved the way the backend resolves them
-// (`resolve_chat_models` in gilzabots/project.py):
+// (`resolve_chat_models` in opalatex/project.py):
 //
 //   orchestrator: the chat's own model, else the project's default model
 //                 (`project.model`), else the catalog's global default;

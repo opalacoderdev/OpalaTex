@@ -7,7 +7,7 @@ import pytest
 
 winreg = pytest.importorskip("winreg", reason="the WebView2 registry check exists only on Windows")
 
-from gilzabots import windows_webview as wv  # noqa: E402
+from opalatex import windows_webview as wv  # noqa: E402
 
 NET_PATH = r"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
 RUNTIME = wv.WEBVIEW2_CLIENT_KEYS[0]

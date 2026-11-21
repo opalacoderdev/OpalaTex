@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Radar, ArrowLeftRight, Pause, Play, FlaskConical, Trash2, Plus, ChevronDown, ChevronRight, MessageSquare } from 'lucide-react';
 import TransferModal from './TransferModal';
 
-// Conditions that apply to each check type; mirrors gilzabots/monitors/spec.py
+// Conditions that apply to each check type; mirrors opalatex/monitors/spec.py
 // (_CONDITIONS_FOR_CHECK). The server validates again and its message is shown.
 const CONDITIONS_FOR_CHECK = {
   http: ['changed', 'delta', 'gt', 'ge', 'lt', 'le', 'equals', 'not_equals', 'contains', 'regex'],
@@ -228,7 +228,7 @@ export default function MonitorsModal({ onClose, activeProject, activeChatId, on
     setError(''); setNotice('');
     try {
       const result = await post('/api/monitors/notify-test', {
-        title: 'GilzaBots', body: t('monitors.testNotificationBody'),
+        title: 'OpalaTex', body: t('monitors.testNotificationBody'),
       });
       setNotice(t('monitors.testNotificationSent', { backend: result.backend }));
     } catch (err) {

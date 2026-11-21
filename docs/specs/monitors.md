@@ -1,6 +1,6 @@
 # Monitor agents — decisions and current state
 
-Status: implemented in [`gilzabots/monitors/`](../../gilzabots/monitors/). The
+Status: implemented in [`opalatex/monitors/`](../../opalatex/monitors/). The
 architecture is §2.24 of [PROJECT_DESIGN.md](../../PROJECT_DESIGN.md). Verified by
 `tests/test_monitors.py` and end to end on Ubuntu/GNOME (daemon, D-Bus
 notification, headless wake-up turn). **Not yet verified on Windows or macOS,
@@ -10,10 +10,10 @@ nor with a click on a GNOME notification** — see *Open items*.
 
 | Question | Decision |
 | --- | --- |
-| Where monitors run with every front-end closed | A per-user daemon, `gilzabots monitors daemon`, registered with the OS login service. Not a tray icon (it would change what closing the window means for everyone) and not only a detached process (it would not survive a logout or reboot). |
-| Showing that GilzaBots works in the background | A tray icon owned by the daemon, not by the window: a process of its own (`gilzabots monitors tray run`) the daemon supervises, there exactly while the daemon runs (which keeps its idle exit). Closing the window still closes it. Menu: open GilzaBots, the Monitors panel, pause/resume all, stop the service. On by default; a toggle in the panel and `gilzabots monitors tray on|off`. Focus: Ubuntu (StatusNotifierItem through the AppIndicator extension) and Windows 11 (notification area). *Superseded:* no icon at all. |
-| Login service per platform | `systemd --user` (Linux), a LaunchAgent (macOS), `HKCU\…\Run` (Windows). On by default; a toggle in the panel and `gilzabots monitors service`. |
-| How processes coordinate | One SQLite file, `<gilzabots home>/monitors.db`. No socket: nothing has to be running for another process to register, pause or cancel a monitor. |
+| Where monitors run with every front-end closed | A per-user daemon, `opalatex monitors daemon`, registered with the OS login service. Not a tray icon (it would change what closing the window means for everyone) and not only a detached process (it would not survive a logout or reboot). |
+| Showing that OpalaTex works in the background | A tray icon owned by the daemon, not by the window: a process of its own (`opalatex monitors tray run`) the daemon supervises, there exactly while the daemon runs (which keeps its idle exit). Closing the window still closes it. Menu: open OpalaTex, the Monitors panel, pause/resume all, stop the service. On by default; a toggle in the panel and `opalatex monitors tray on|off`. Focus: Ubuntu (StatusNotifierItem through the AppIndicator extension) and Windows 11 (notification area). *Superseded:* no icon at all. |
+| Login service per platform | `systemd --user` (Linux), a LaunchAgent (macOS), `HKCU\…\Run` (Windows). On by default; a toggle in the panel and `opalatex monitors service`. |
+| How processes coordinate | One SQLite file, `<opalatex home>/monitors.db`. No socket: nothing has to be running for another process to register, pause or cancel a monitor. |
 | Who runs a wake-up while the window is open | The window, for its open project, as an ordinary streamed turn. The daemon runs every other wake-up headless, in a child process. |
 | A monitor's turn needs a question or an approval | It does not ask outside its chat: the turn is unattended, every question tool refuses with a diagnostic, and the agent puts what it needs in its reply in the chat (new or origin, as configured), where the user answers. Nothing is approved for the user. *Superseded:* the first version stored the question, notified and waited; in use a vague instruction produced six question dialogs in a row outside the chat. |
 | Two turns in the same chat from different processes | Refused: every orchestrator turn holds a per-chat lease. |
@@ -80,7 +80,7 @@ it) `gdbus` parses untyped integer literals as `int32`.
 ## Open items
 
 - **Windows**: the toast, the AppUserModelID registration, the
-  `gilzabots-monitor:` scheme and the `Run` key are implemented but have not been
+  `opalatex-monitor:` scheme and the `Run` key are implemented but have not been
   run on Windows.
 - **macOS**: the LaunchAgent and `osascript` notifications are untested.
 - **GNOME click**: the `ActionInvoked` parsing is unit-tested and the

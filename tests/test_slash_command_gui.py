@@ -11,14 +11,14 @@ import asyncio
 
 import pytest
 
-import gilzabots.terminal as T
-from gilzabots import agent_stdin
-from gilzabots.agent_stdin import (
+import opalatex.terminal as T
+from opalatex import agent_stdin
+from opalatex.agent_stdin import (
     handle_slash_command,
     handle_slash_command_continue,
     list_slash_commands,
 )
-from gilzabots.cli_commands import _registry
+from opalatex.cli_commands import _registry
 
 
 @pytest.fixture

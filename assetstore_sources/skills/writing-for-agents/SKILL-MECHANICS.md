@@ -1,6 +1,6 @@
 # Skill mechanics
 
-The skill-specific branch of [writing-for-agents](SKILL.md): what changes when the document is a GilzaBots skill. Everything else about writing it is in `SKILL.md`.
+The skill-specific branch of [writing-for-agents](SKILL.md): what changes when the document is a OpalaTex skill. Everything else about writing it is in `SKILL.md`.
 
 ## The file
 
@@ -15,7 +15,7 @@ argument-hint: What should it work on?   # optional: shown after /my-skill
 ---
 ```
 
-GilzaBots adds `role: helper` (the skill runs as a helper agent through `run_skill` instead of being loaded by the main agent), `model` (which model a helper runs on) and `extends` (a parent skill whose body comes first). Files the body links to (`FORMAT.md`) sit in the skill's directory; `load_skill` and `/name` both report that directory, and the agent reads them there. `.py` files under `scripts/` are listed with their absolute paths.
+OpalaTex adds `role: helper` (the skill runs as a helper agent through `run_skill` instead of being loaded by the main agent), `model` (which model a helper runs on) and `extends` (a parent skill whose body comes first). Files the body links to (`FORMAT.md`) sit in the skill's directory; `load_skill` and `/name` both report that directory, and the agent reads them there. `.py` files under `scripts/` are listed with their absolute paths.
 
 `SKILL.light.md`, when present, replaces the body for models whose prompt profile is `light`. The frontmatter always comes from `SKILL.md`.
 

@@ -1,4 +1,4 @@
-"""The monitor daemon's tray icon (gilzabots/monitors/tray.py, PROJECT_DESIGN 2.24)."""
+"""The monitor daemon's tray icon (opalatex/monitors/tray.py, PROJECT_DESIGN 2.24)."""
 from __future__ import annotations
 
 import asyncio
@@ -9,10 +9,10 @@ import sys
 
 import pytest
 
-from gilzabots.monitors import service, tray
-from gilzabots.monitors import store as st
-from gilzabots.monitors.daemon import MonitorDaemon
-from gilzabots.monitors.spec import normalize_spec
+from opalatex.monitors import service, tray
+from opalatex.monitors import store as st
+from opalatex.monitors.daemon import MonitorDaemon
+from opalatex.monitors.spec import normalize_spec
 
 
 class Clock:
@@ -125,7 +125,7 @@ class TestActions:
 
     def test_tooltip_counts_active_monitors_and_new_events(self):
         text = tray.tooltip({"active": 2, "paused": 0, "unseen": 3, "running": 1})
-        assert text.splitlines()[0] == "GilzaBots"
+        assert text.splitlines()[0] == "OpalaTex"
         assert "2" in text and "3" in text and "1" in text
 
     def test_open_raises_the_window_or_starts_the_app(self, mstore, _isolated_monitors):
@@ -317,12 +317,12 @@ def test_the_icon_reports_a_desktop_without_a_tray(tmp_path):
     pytest.importorskip("PyQt6.QtWidgets")
     code = (
         "import sys\n"
-        "from gilzabots.monitors import service, tray\n"
+        "from opalatex.monitors import service, tray\n"
         f"service.monitors_dir = lambda: {str(tmp_path)!r}\n"
         "tray.TRAY_WAIT_SECONDS = 0\n"
         "sys.exit(tray.run_tray(1))\n"
     )
-    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "GILZABOTS_HOME": str(tmp_path / "home")}
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "OPALATEX_HOME": str(tmp_path / "home")}
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60,
                             env=env, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     assert result.returncode == tray.EXIT_NO_TRAY, result.stdout + result.stderr
@@ -342,7 +342,7 @@ def test_a_second_icon_does_not_start(tmp_path, monkeypatch):
 # ── Windows: the icon is WinForms, not Qt ───────────────────────────────────
 
 def test_the_toolkit_probe_follows_the_platform(monkeypatch):
-    from gilzabots.monitors import tray_windows
+    from opalatex.monitors import tray_windows
 
     monkeypatch.setattr(tray_windows, "toolkit_available", lambda: (False, "pythonnet is not installed"))
     monkeypatch.setattr(tray, "qt_available", lambda: (True, ""))
@@ -358,9 +358,9 @@ def test_the_supervisor_probes_the_platform_toolkit_by_default(mstore, tmp_path)
 
 
 def test_the_windows_tooltip_is_cut_to_what_notifyicon_accepts():
-    from gilzabots.monitors.tray_windows import NOTIFY_TEXT_LIMIT, notify_text
+    from opalatex.monitors.tray_windows import NOTIFY_TEXT_LIMIT, notify_text
 
-    assert notify_text("GilzaBots\n2 active") == "GilzaBots\n2 active"
+    assert notify_text("OpalaTex\n2 active") == "OpalaTex\n2 active"
     long = "x" * 200
     assert len(notify_text(long)) == NOTIFY_TEXT_LIMIT
     assert notify_text(long).endswith("…")
@@ -369,14 +369,14 @@ def test_the_windows_tooltip_is_cut_to_what_notifyicon_accepts():
 def _run_windows_icon(tmp_path, daemon_seconds: float) -> subprocess.CompletedProcess:
     code = (
         "import subprocess, sys\n"
-        "from gilzabots.monitors import service, tray\n"
+        "from opalatex.monitors import service, tray\n"
         f"service.monitors_dir = lambda: {str(tmp_path)!r}\n"
         f"daemon = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep({daemon_seconds})'])\n"
         "if not daemon_seconds_positive:\n"
         "    daemon.wait()\n"
         "sys.exit(tray.run_tray(daemon.pid))\n"
     ).replace("daemon_seconds_positive", str(daemon_seconds > 0))
-    env = {**os.environ, "GILZABOTS_HOME": str(tmp_path / "home")}
+    env = {**os.environ, "OPALATEX_HOME": str(tmp_path / "home")}
     return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=90,
                           env=env, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

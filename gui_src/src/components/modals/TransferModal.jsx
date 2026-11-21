@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeftRight, Download, Upload } from 'lucide-react';
 
-// Moving monitors and connectors to another machine (gilzabots/transfer.py).
+// Moving monitors and connectors to another machine (opalatex/transfer.py).
 // Export downloads a bundle without secrets. Import reads a bundle, checks it
 // with a dry run, lets the user supply the secrets the bundle left out and map
 // projects that do not exist here, then imports: connectors arrive disabled,
@@ -58,7 +58,7 @@ export default function TransferModal({ onClose, onImported }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `gilzabots-transfer-${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `opalatex-transfer-${new Date().toISOString().split('T')[0]}.json`;
       a.click();
       URL.revokeObjectURL(url);
       setNotes(data.notes || []);

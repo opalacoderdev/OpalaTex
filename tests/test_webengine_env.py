@@ -5,7 +5,7 @@ QtWebEngine tests use ``darwin`` as their platform (Linux has an extra default
 of its own, tested separately), the WebView2 ones ``win32``.
 """
 
-from gilzabots.webengine_env import (
+from opalatex.webengine_env import (
     CHROMIUM_FLAGS_VAR,
     DISABLE_GPU_FLAG,
     DISABLE_GPU_VAR,
@@ -32,7 +32,7 @@ WINDOWS = "win32"
 
 def test_hardware_acceleration_is_off_by_default():
     assert GPU_DEFAULT == GPU_OFF
-    from gilzabots.ui_settings import _DEFAULTS
+    from opalatex.ui_settings import _DEFAULTS
     assert _DEFAULTS["webengine_gpu"] == GPU_DEFAULT
 
 

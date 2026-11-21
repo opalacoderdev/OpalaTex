@@ -1,6 +1,6 @@
 """The engineering-workflow skill pack in the Asset Store (assetstore_sources/skills/).
 
-Adapted from Matt Pocock's skills (MIT) to GilzaBots in Claude Code's format:
+Adapted from Matt Pocock's skills (MIT) to OpalaTex in Claude Code's format:
 YAML frontmatter, `disable-model-invocation` for the skills the user runs with
 `/name`, skills that load each other with `load_skill`, and read-only
 subagents through `run_agent`. These tests hold the pack to what makes it
@@ -13,13 +13,13 @@ import re
 import pytest
 import yaml
 
-import gilzabots.agent_stdin as agent_stdin
-import gilzabots.memgpt_runtime as runtime
-import gilzabots.subagents as subagents
-from gilzabots.assetstore import find_assets, install_skill_with_requirements, skill_requirements
-from gilzabots.project import ProjectData
-from gilzabots.skill_invocation import resolve_skill_invocation
-from gilzabots.skills import parse_skill_md, skill_error
+import opalatex.agent_stdin as agent_stdin
+import opalatex.memgpt_runtime as runtime
+import opalatex.subagents as subagents
+from opalatex.assetstore import find_assets, install_skill_with_requirements, skill_requirements
+from opalatex.project import ProjectData
+from opalatex.skill_invocation import resolve_skill_invocation
+from opalatex.skills import parse_skill_md, skill_error
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCES = os.path.join(ROOT, "assetstore_sources", "skills")
@@ -128,7 +128,7 @@ def test_the_files_a_skill_links_to_exist(name):
 
 
 def test_no_skill_tells_the_user_to_clear():
-    """GilzaBots' /clear erases every chat of the project, not the context."""
+    """OpalaTex' /clear erases every chat of the project, not the context."""
     for name in PACK:
         for rel, text in _texts(name):
             assert "`/clear`" not in text and "/clear " not in text, rel
@@ -136,7 +136,7 @@ def test_no_skill_tells_the_user_to_clear():
 
 
 def test_the_tools_the_skills_name_exist(tmp_path, monkeypatch):
-    from gilzabots import models_store
+    from opalatex import models_store
 
     monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", tmp_path / "models_store.json")
     monkeypatch.setattr(agent_stdin, "print_event", lambda *_a, **_k: None)
@@ -181,7 +181,7 @@ def test_installing_a_skill_brings_what_it_loads_and_it_runs(tmp_path):
     names = [name for name, _ in installed]
     assert names == ["codebase-design", "grilling", "domain-modeling", "improve-codebase-architecture"]
     for name in names:
-        assert (tmp_path / ".gilzabots" / "skills" / name / "SKILL.md").is_file()
+        assert (tmp_path / ".opalatex" / "skills" / name / "SKILL.md").is_file()
 
     with open(tmp_path / "skills.yaml", "w", encoding="utf-8") as handle:
         yaml.safe_dump({"skills": names}, handle)
@@ -197,7 +197,7 @@ def test_installing_a_skill_brings_what_it_loads_and_it_runs(tmp_path):
 
 def test_a_requirement_the_project_already_has_is_left_alone(tmp_path):
     meta = find_assets("skill", "grill-me")[0]
-    own = tmp_path / ".gilzabots" / "skills" / "grilling"
+    own = tmp_path / ".opalatex" / "skills" / "grilling"
     own.mkdir(parents=True)
     (own / "SKILL.md").write_text("---\nname: grilling\ndescription: Mine.\n---\nMy own edits.\n", encoding="utf-8")
 
@@ -211,4 +211,4 @@ def test_a_missing_requirement_fails_before_anything_is_installed(tmp_path):
     meta =dict(find_assets("skill", "grill-me")[0], requires=["not-in-the-store"])
     with pytest.raises(ValueError, match="not-in-the-store"):
         install_skill_with_requirements(meta, str(tmp_path))
-    assert not (tmp_path / ".gilzabots").exists()
+    assert not (tmp_path / ".opalatex").exists()

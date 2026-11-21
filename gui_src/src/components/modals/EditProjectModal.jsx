@@ -357,7 +357,7 @@ export default function EditProjectModal({
                   style={{ width: '100%', padding: '8px' }}
                   onClick={async () => {
                     try {
-                      const res = await fetch('/api/gilzabots/load-contextual-skills', {
+                      const res = await fetch('/api/opalatex/load-contextual-skills', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ project_path: editingProject.project_path })

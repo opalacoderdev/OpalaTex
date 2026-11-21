@@ -1,4 +1,4 @@
-/* GilzaBots design system: indigo-violet palette on VS Code token names.
+/* OpalaTex design system: indigo-violet palette on VS Code token names.
    Dark is :root, light is .light-theme; every text pair is AA (>= 4.5:1). */
 :root {
   /* Tells the native webview renderer (WebKitGTK/QtWebEngine) which palette
@@ -167,7 +167,7 @@
 }
 
 /* ─── Light Theme ──────────────────────────────────────────────────────────
-   GilzaBots indigo-violet palette, light counterpart of the dark tokens.
+   OpalaTex indigo-violet palette, light counterpart of the dark tokens.
    Main surfaces:
      page bg        #f7f8fb
      sidebar        #eef0f6

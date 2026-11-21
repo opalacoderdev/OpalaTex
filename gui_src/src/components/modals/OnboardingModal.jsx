@@ -6,7 +6,7 @@ import OpenRouterOAuthButton from './OpenRouterOAuthButton';
 import ModelSelect from '../ModelSelect';
 import { useModelCatalog } from '../../contexts/ModelCatalogProvider.jsx';
 
-const PILOT_PROJECT_PATH = '~/GilzaBotsPilot';
+const PILOT_PROJECT_PATH = '~/OpalaTexPilot';
 
 export default function OnboardingModal({ onClose, onComplete }) {
   const { t, i18n } = useTranslation();
@@ -39,7 +39,7 @@ export default function OnboardingModal({ onClose, onComplete }) {
 
   const finishOnboarding = async (config) => {
     try {
-      await fetch('/api/gilzabots/create-project', {
+      await fetch('/api/opalatex/create-project', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)

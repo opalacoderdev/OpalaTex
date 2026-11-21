@@ -13,9 +13,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from gilzabots import models_store
-from gilzabots.ide_server import AsyncHTTPServer
-from gilzabots.project import ChatNotFoundError, ProjectStore, resolve_chat_models
+from opalatex import models_store
+from opalatex.ide_server import AsyncHTTPServer
+from opalatex.project import ChatNotFoundError, ProjectStore, resolve_chat_models
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def _flags(catalog):
 @pytest.fixture(autouse=True)
 def _no_leaked_session():
     yield
-    import gilzabots.tools as tools
+    import opalatex.tools as tools
 
     tools._PROJECT_SESSION = None
 
@@ -137,7 +137,7 @@ def test_the_free_openrouter_model_does_not_displace_an_existing_default(catalog
 
 
 def _fake_local_ollama(monkeypatch, names):
-    monkeypatch.setattr("gilzabots.ollama_manager.check_ollama_status", lambda: {"installed": True})
+    monkeypatch.setattr("opalatex.ollama_manager.check_ollama_status", lambda: {"installed": True})
     payload = json.dumps({"models": [{"name": n} for n in names]}).encode()
 
     class FakeResponse:
@@ -277,7 +277,7 @@ def test_a_branch_keeps_the_models_of_the_chat_it_came_from(store):
 
 
 def test_the_chat_orchestrator_is_built_on_the_resolved_model(store):
-    from gilzabots.memgpt_runtime import build_chat_orchestrator
+    from opalatex.memgpt_runtime import build_chat_orchestrator
 
     store.set_chat_model("p", "c1", "model", "ollama/chat")
 
@@ -289,7 +289,7 @@ def test_the_chat_orchestrator_is_built_on_the_resolved_model(store):
 
 
 def _run(monkeypatch, store, chat_id):
-    import gilzabots.agent_stdin as stdin_mod
+    import opalatex.agent_stdin as stdin_mod
 
     events = []
 
@@ -320,8 +320,8 @@ def test_a_turn_with_no_model_anywhere_fails_fast(store, catalog, monkeypatch):
 
 @pytest.fixture
 def api(store, monkeypatch):
-    monkeypatch.setattr("gilzabots.config.DEFAULT_DB_PATH", store.db_path)
-    monkeypatch.setattr("gilzabots.ollama_manager.pull_model_in_background", lambda *_a: None)
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", store.db_path)
+    monkeypatch.setattr("opalatex.ollama_manager.pull_model_in_background", lambda *_a: None)
     server = AsyncHTTPServer()
     responses = []
     server.send_response = lambda _w, status, body, ctype="text/plain": responses.append(

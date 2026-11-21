@@ -18,8 +18,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from gilzabots.ide_server import AsyncHTTPServer
-from gilzabots.project import (
+from opalatex.ide_server import AsyncHTTPServer
+from opalatex.project import (
     CHAT_REASONING_EFFORTS,
     NEW_CHAT_REASONING_EFFORT,
     ChatNotFoundError,
@@ -46,14 +46,14 @@ def store(tmp_path):
 @pytest.fixture(autouse=True)
 def _no_leaked_session():
     yield
-    import gilzabots.tools as tools
+    import opalatex.tools as tools
 
     tools._PROJECT_SESSION = None
 
 
 def _register(tmp_path, monkeypatch, model_id, provider="ollama", **fields):
     """Register *model_id* in an isolated model catalog."""
-    from gilzabots import models_store
+    from opalatex import models_store
 
     monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", tmp_path / "models_store.json")
     connection = f"c-{provider}"
@@ -156,7 +156,7 @@ def test_a_database_from_before_the_setting_gains_the_column(tmp_path):
 
 
 def _orchestrator_kwargs(store, chat_id):
-    from gilzabots.memgpt_runtime import build_chat_orchestrator
+    from opalatex.memgpt_runtime import build_chat_orchestrator
 
     return build_chat_orchestrator(store.load("myproj", chat_id=chat_id), store).model_kwargs
 
@@ -198,7 +198,7 @@ def _worker_kwargs(store, chat_id, monkeypatch, worker_model):
     """Delegate once from *chat_id* and return the model kwargs the worker got."""
     from types import SimpleNamespace
 
-    import gilzabots.memgpt_runtime as runtime
+    import opalatex.memgpt_runtime as runtime
 
     built = []
 
@@ -262,7 +262,7 @@ def test_a_worker_model_that_does_not_reason_is_sent_no_effort(store, tmp_path, 
 
 @pytest.fixture
 def api(store, monkeypatch):
-    monkeypatch.setattr("gilzabots.config.DEFAULT_DB_PATH", store.db_path)
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", store.db_path)
     server = AsyncHTTPServer()
     responses = []
     server.send_response = lambda _w, status, body, ctype="text/plain": responses.append(
@@ -303,7 +303,7 @@ def test_the_endpoint_stores_the_effort_and_the_chat_list_reports_it(store, api)
 
 
 def test_the_create_endpoint_reports_the_effort_a_new_chat_starts_with(store, monkeypatch):
-    monkeypatch.setattr("gilzabots.config.DEFAULT_DB_PATH", store.db_path)
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", store.db_path)
     server = AsyncHTTPServer()
     responses = []
     server.send_response = lambda _w, status, body, ctype="text/plain": responses.append(
@@ -356,15 +356,15 @@ def test_the_endpoint_refuses_what_it_cannot_store(store, api, payload, expected
 
 
 def _dispatch(state, *args):
-    from gilzabots.cli_commands import _registry
+    from opalatex.cli_commands import _registry
 
     return asyncio.run(_registry.dispatch(state, "/effort", list(args)))
 
 
 @pytest.fixture
 def cli(store, monkeypatch):
-    import gilzabots.terminal as T
-    from gilzabots.cli_commands import REPLState
+    import opalatex.terminal as T
+    from opalatex.cli_commands import REPLState
 
     said = []
     for level in ("info", "success", "warning", "error"):

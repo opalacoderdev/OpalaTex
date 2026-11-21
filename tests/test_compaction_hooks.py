@@ -1,7 +1,7 @@
 """Hooks and restored files around a compaction.
 
-`gilzabots/hooks.py` runs the user's commands from `<gilzabots home>/hooks.json`
-(Claude Code's format and exit-code contract); `gilzabots/compaction.py` runs the
+`opalatex/hooks.py` runs the user's commands from `<opalatex home>/hooks.json`
+(Claude Code's format and exit-code contract); `opalatex/compaction.py` runs the
 PreCompact/PostCompact hooks around a compaction and re-reads the files the
 conversation was working on into the new context. The hook tests run real
 commands through the system shell.
@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agenticblocks.blocks.llm.compaction import CompactionError
 from agenticblocks.blocks.llm.memgpt_agent import MemGPTAgentBlock
-from gilzabots import compaction, hooks
-from gilzabots.compaction import attach_compaction_extensions, compaction_payload, restore_recent_files
+from opalatex import compaction, hooks
+from opalatex.compaction import attach_compaction_extensions, compaction_payload, restore_recent_files
 
 
 SUMMARY_REPLY = "<summary>1. Primary Request and Intent: ship it.</summary>"
@@ -97,7 +97,7 @@ def test_a_hook_receives_the_event_and_its_output_is_returned(tmp_path, hooks_fi
     command = _script(tmp_path, "echo.py", (
         "import json, os, sys\n"
         "data = json.load(sys.stdin)\n"
-        "print(data['hook_event_name'], data['trigger'], os.environ['GILZABOTS_HOOK_EVENT'])\n"
+        "print(data['hook_event_name'], data['trigger'], os.environ['OPALATEX_HOOK_EVENT'])\n"
     ))
     hooks_file({"PreCompact": [{"matcher": "auto", "hooks": [{"command": command}]}]})
 
@@ -269,8 +269,8 @@ def test_a_broken_hooks_file_fails_the_compaction_with_its_reason(tmp_path, hook
 
 
 def test_the_hooks_command_lists_the_configuration(tmp_path, hooks_file, monkeypatch):
-    from gilzabots import terminal as T
-    from gilzabots.cli_commands import REPLState, _registry
+    from opalatex import terminal as T
+    from opalatex.cli_commands import REPLState, _registry
 
     lines = []
     monkeypatch.setattr(T, "info", lambda *a, **_k: lines.append(" ".join(map(str, a))))

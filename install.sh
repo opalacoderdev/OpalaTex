@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# GilzaBots Community installer for Linux and macOS.
+# OpalaTex Community installer for Linux and macOS.
 
 echo "=========================================="
-echo "      GilzaBots Installer (Community)      "
+echo "      OpalaTex Installer (Community)      "
 echo "=========================================="
 
-INSTALL_DIR="$HOME/.local/share/GilzaBots"
+INSTALL_DIR="$HOME/.local/share/OpalaTex"
 BIN_DIR="$HOME/.local/bin"
-REPO_OWNER="gilzamir18"
-REPO_NAME="GilzaBots"
+REPO_OWNER="opalacoderdev"
+REPO_NAME="OpalaTex"
 # `HEAD` lets raw.githubusercontent.com resolve the repository's default branch,
 # so this installer does not break every time the release branch is renamed.
 # A literal branch name here is what made the fallback fetch 404.
@@ -21,12 +21,12 @@ ARCH_NAME="$(uname -m)"
 
 case "$OS_NAME" in
     Linux)
-        ASSET_NAME="GilzaBots-linux-x64.tar.gz"
-        TEMP_FILE="/tmp/gilzabots_release.tar.gz"
+        ASSET_NAME="OpalaTex-linux-x64.tar.gz"
+        TEMP_FILE="/tmp/opalatex_release.tar.gz"
         ;;
     Darwin)
-        ASSET_NAME="GilzaBots-macos-arm64.zip"
-        TEMP_FILE="/tmp/gilzabots_release.zip"
+        ASSET_NAME="OpalaTex-macos-arm64.zip"
+        TEMP_FILE="/tmp/opalatex_release.zip"
         ;;
     *)
         echo "Unsupported operating system: $OS_NAME" >&2
@@ -50,12 +50,12 @@ case "$OS_NAME:$ARCH_NAME" in
 esac
 
 if ! command -v curl >/dev/null 2>&1; then
-    echo "curl is required to install GilzaBots." >&2
+    echo "curl is required to install OpalaTex." >&2
     exit 1
 fi
 
 if [[ "$ASSET_NAME" == *.zip ]] && ! command -v unzip >/dev/null 2>&1; then
-    echo "unzip is required to install GilzaBots on macOS." >&2
+    echo "unzip is required to install OpalaTex on macOS." >&2
     exit 1
 fi
 
@@ -69,7 +69,7 @@ download_with_retry() {
         rm -f "$output"
         if curl -fL --retry 2 --retry-delay 2 \
             -H "Accept: application/octet-stream" \
-            -H "User-Agent: GilzaBots-Installer" \
+            -H "User-Agent: OpalaTex-Installer" \
             "$url" -o "$output"; then
             if [[ -s "$output" ]]; then
                 return 0
@@ -77,7 +77,7 @@ download_with_retry() {
         fi
 
         if [[ "$attempt" -eq "$max_attempts" ]]; then
-            echo "Failed to download GilzaBots after $max_attempts attempts." >&2
+            echo "Failed to download OpalaTex after $max_attempts attempts." >&2
             return 1
         fi
 
@@ -87,12 +87,12 @@ download_with_retry() {
 }
 
 get_download_url() {
-    if [[ -n "${GILZABOTS_DOWNLOAD_URL:-}" ]]; then
-        if [[ "$GILZABOTS_DOWNLOAD_URL" == *"/actions/runs/"*"/artifacts/"* ]]; then
-            echo "GILZABOTS_DOWNLOAD_URL points to a GitHub Actions artifact. Use a GitHub Release asset URL instead." >&2
+    if [[ -n "${OPALATEX_DOWNLOAD_URL:-}" ]]; then
+        if [[ "$OPALATEX_DOWNLOAD_URL" == *"/actions/runs/"*"/artifacts/"* ]]; then
+            echo "OPALATEX_DOWNLOAD_URL points to a GitHub Actions artifact. Use a GitHub Release asset URL instead." >&2
             return 1
         fi
-        printf '%s\n' "$GILZABOTS_DOWNLOAD_URL"
+        printf '%s\n' "$OPALATEX_DOWNLOAD_URL"
         return 0
     fi
 
@@ -102,7 +102,7 @@ get_download_url() {
 
 DOWNLOAD_URL="$(get_download_url)"
 
-echo "Downloading GilzaBots from: $DOWNLOAD_URL"
+echo "Downloading OpalaTex from: $DOWNLOAD_URL"
 if ! download_with_retry "$DOWNLOAD_URL" "$TEMP_FILE"; then
     echo "The latest GitHub release must contain $ASSET_NAME before this installer can run." >&2
     exit 1
@@ -127,13 +127,13 @@ case "$TEMP_FILE" in
         ;;
 esac
 
-if [[ -d "$INSTALL_DIR/GilzaBots" && -f "$INSTALL_DIR/GilzaBots/GilzaBots" ]]; then
-    find "$INSTALL_DIR/GilzaBots" -mindepth 1 -maxdepth 1 -exec mv -f {} "$INSTALL_DIR/" \;
-    rmdir "$INSTALL_DIR/GilzaBots" 2>/dev/null || true
+if [[ -d "$INSTALL_DIR/OpalaTex" && -f "$INSTALL_DIR/OpalaTex/OpalaTex" ]]; then
+    find "$INSTALL_DIR/OpalaTex" -mindepth 1 -maxdepth 1 -exec mv -f {} "$INSTALL_DIR/" \;
+    rmdir "$INSTALL_DIR/OpalaTex" 2>/dev/null || true
 fi
 
-if [[ ! -f "$INSTALL_DIR/GilzaBots" ]]; then
-    echo "The downloaded package does not contain the GilzaBots executable." >&2
+if [[ ! -f "$INSTALL_DIR/OpalaTex" ]]; then
+    echo "The downloaded package does not contain the OpalaTex executable." >&2
     exit 1
 fi
 
@@ -155,7 +155,7 @@ find_bundled_file() {
 # The uninstaller is a convenience, not part of the application. A release that
 # predates it, or a branch that does not carry it yet, must not abort an
 # installation whose payload is already unpacked: warn and continue, and only
-# publish the `gilzabots-uninstall` entry point when the script is really there.
+# publish the `opalatex-uninstall` entry point when the script is really there.
 UNINSTALLER_PATH="$(find_bundled_file uninstall.sh || true)"
 if [[ -z "$UNINSTALLER_PATH" ]]; then
     echo "This release predates the bundled uninstaller; downloading it separately..."
@@ -165,18 +165,18 @@ if [[ -z "$UNINSTALLER_PATH" ]]; then
         UNINSTALLER_PATH="$INSTALL_DIR/uninstall.sh"
     else
         rm -f "$INSTALL_DIR/uninstall.sh"
-        echo "Could not fetch the GilzaBots uninstaller; continuing without it." >&2
-        echo "To remove GilzaBots later, delete $INSTALL_DIR and $BIN_DIR/gilzabots." >&2
+        echo "Could not fetch the OpalaTex uninstaller; continuing without it." >&2
+        echo "To remove OpalaTex later, delete $INSTALL_DIR and $BIN_DIR/opalatex." >&2
     fi
 fi
 
 echo "Creating command symlink in $BIN_DIR..."
 mkdir -p "$BIN_DIR"
-ln -sfn "$INSTALL_DIR/GilzaBots" "$BIN_DIR/gilzabots"
-chmod +x "$INSTALL_DIR/GilzaBots" "$BIN_DIR/gilzabots" 2>/dev/null || true
+ln -sfn "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex"
+chmod +x "$INSTALL_DIR/OpalaTex" "$BIN_DIR/opalatex" 2>/dev/null || true
 if [[ -n "$UNINSTALLER_PATH" ]]; then
-    ln -sfn "$UNINSTALLER_PATH" "$BIN_DIR/gilzabots-uninstall"
-    chmod +x "$UNINSTALLER_PATH" "$BIN_DIR/gilzabots-uninstall" 2>/dev/null || true
+    ln -sfn "$UNINSTALLER_PATH" "$BIN_DIR/opalatex-uninstall"
+    chmod +x "$UNINSTALLER_PATH" "$BIN_DIR/opalatex-uninstall" 2>/dev/null || true
 fi
 
 DESKTOP_DIR="$HOME/.local/share/applications"
@@ -191,19 +191,19 @@ else
     echo "The downloaded package does not contain icon.png; the launcher entry will have no icon." >&2
 fi
 
-cat > "$DESKTOP_DIR/gilzabots.desktop" << EOF
+cat > "$DESKTOP_DIR/opalatex.desktop" << EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=GilzaBots
-Comment=GilzaBots: free, open-source AI agent for your projects
-Exec=$INSTALL_DIR/GilzaBots
+Name=OpalaTex
+Comment=OpalaTex: free, open-source AI agent for your projects
+Exec=$INSTALL_DIR/OpalaTex
 $ICON_LINE
 Terminal=false
 Categories=Utility;Development;TextEditor;
 EOF
 
-chmod +x "$DESKTOP_DIR/gilzabots.desktop"
+chmod +x "$DESKTOP_DIR/opalatex.desktop"
 
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
@@ -212,10 +212,10 @@ fi
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo "Adding $BIN_DIR to PATH..."
     if [[ -f "$HOME/.bashrc" ]] && ! grep -q "$BIN_DIR" "$HOME/.bashrc"; then
-        printf '\n# GilzaBots PATH\nexport PATH="%s:$PATH"\n' "$BIN_DIR" >> "$HOME/.bashrc"
+        printf '\n# OpalaTex PATH\nexport PATH="%s:$PATH"\n' "$BIN_DIR" >> "$HOME/.bashrc"
     fi
     if [[ -f "$HOME/.zshrc" ]] && ! grep -q "$BIN_DIR" "$HOME/.zshrc"; then
-        printf '\n# GilzaBots PATH\nexport PATH="%s:$PATH"\n' "$BIN_DIR" >> "$HOME/.zshrc"
+        printf '\n# OpalaTex PATH\nexport PATH="%s:$PATH"\n' "$BIN_DIR" >> "$HOME/.zshrc"
     fi
 fi
 
@@ -223,10 +223,10 @@ rm -f "$TEMP_FILE"
 
 echo ""
 echo "=========================================="
-echo "   GilzaBots installed successfully!       "
+echo "   OpalaTex installed successfully!       "
 echo "=========================================="
-echo "Terminal command: gilzabots"
+echo "Terminal command: opalatex"
 echo "Application launcher created."
 if [[ -n "$UNINSTALLER_PATH" ]]; then
-    echo "To uninstall: gilzabots-uninstall"
+    echo "To uninstall: opalatex-uninstall"
 fi

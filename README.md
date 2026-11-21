@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="icon.png" width="120" alt="GilzaBots logo">
+  <img src="icon.png" width="120" alt="OpalaTex logo">
 </p>
 
-<h1 align="center">GilzaBots</h1>
+<h1 align="center">OpalaTex</h1>
 
 <p align="center">
   <strong>A free, open-source AI agent that works inside your projects.</strong><br>
@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/workspace-studio.png" alt="GilzaBots Studio layout: a Markdown file in the editor with its live preview, the agent chat and the integrated terminal" width="100%">
+  <img src="docs/images/workspace-studio.png" alt="OpalaTex Studio layout: a Markdown file in the editor with its live preview, the agent chat and the integrated terminal" width="100%">
   <br>
   <sub>The <b>Studio</b> layout: editor and live preview on top, the agent chat and the integrated terminal below.</sub>
 </p>
@@ -103,7 +103,7 @@
   <tr>
     <td valign="top">
       <h3>🔑 OpenRouter sign-in (OAuth)</h3>
-      Connect <a href="https://openrouter.ai">OpenRouter</a> with your browser instead of pasting a key. GilzaBots creates the key through OAuth (PKCE) and adds a free model to start with.
+      Connect <a href="https://openrouter.ai">OpenRouter</a> with your browser instead of pasting a key. OpalaTex creates the key through OAuth (PKCE) and adds a free model to start with.
     </td>
     <td valign="top">
       <h3>🔌 Connectors (MCP)</h3>
@@ -116,7 +116,7 @@
 
 ## 🧭 How it works
 
-GilzaBots has **two front-ends and one agent engine**. The desktop window and the command-line interface drive the same agent. The agent works on your project folder and talks only to the model provider you configured.
+OpalaTex has **two front-ends and one agent engine**. The desktop window and the command-line interface drive the same agent. The agent works on your project folder and talks only to the model provider you configured.
 
 ```mermaid
 flowchart TB
@@ -145,21 +145,21 @@ The architecture and design decisions are documented in [PROJECT_DESIGN.md](PROJ
 | 🐧 Ubuntu        | 24.04 and 26.04 (x86_64/amd64) |
 | 🪟 Windows       | Windows 11 |
 
-The installer downloads the current GilzaBots Community release from GitHub Releases, extracts it into your user profile and creates shortcuts. It does **not** require administrator privileges.
+The installer downloads the current OpalaTex Community release from GitHub Releases, extracts it into your user profile and creates shortcuts. It does **not** require administrator privileges.
 
 ### Ubuntu
 
 Open a terminal and run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gilzamir18/GilzaBots/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/opalacoderdev/OpalaTex/main/install.sh | bash
 ```
 
 <details>
 <summary>Prefer to inspect the script first?</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gilzamir18/GilzaBots/main/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/opalacoderdev/OpalaTex/main/install.sh -o install.sh
 less install.sh
 bash install.sh
 ```
@@ -168,40 +168,40 @@ bash install.sh
 
 | What                | Where |
 |---------------------|-------|
-| Application         | `~/.local/share/GilzaBots` |
-| Command             | `~/.local/bin/gilzabots` (symlink) |
-| Desktop launcher    | `~/.local/share/applications/gilzabots.desktop` |
+| Application         | `~/.local/share/OpalaTex` |
+| Command             | `~/.local/bin/opalatex` (symlink) |
+| Desktop launcher    | `~/.local/share/applications/opalatex.desktop` |
 
 ### Windows
 
 Open PowerShell and run:
 
 ```powershell
-irm https://raw.githubusercontent.com/gilzamir18/GilzaBots/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/opalacoderdev/OpalaTex/main/install.ps1 | iex
 ```
 
 <details>
 <summary>Prefer to inspect the script first?</summary>
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/gilzamir18/GilzaBots/main/install.ps1 -OutFile install.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/opalacoderdev/OpalaTex/main/install.ps1 -OutFile install.ps1
 Get-Content .\install.ps1
 .\install.ps1
 ```
 
 </details>
 
-The application is installed under `%LOCALAPPDATA%\GilzaBots`. The installer adds its executable directory to the user `PATH` and creates shortcuts on the Desktop and in the Start menu.
+The application is installed under `%LOCALAPPDATA%\OpalaTex`. The installer adds its executable directory to the user `PATH` and creates shortcuts on the Desktop and in the Start menu.
 
 ### Command line only
 
 To install the agent without the desktop window:
 
 ```bash
-uv tool install gilzabots     # or: pip install gilzabots
+uv tool install opalatex     # or: pip install opalatex
 ```
 
-The desktop application needs the `gui` extra: `pip install "gilzabots[gui]"`. LaTeX compilation uses a `tectonic` found on your `PATH`.
+The desktop application needs the `gui` extra: `pip install "opalatex[gui]"`. LaTeX compilation uses a `tectonic` found on your `PATH`.
 
 ---
 
@@ -215,7 +215,7 @@ flowchart LR
 1. **Open or create a project.** A project is a folder on your disk. Use the **+** (new project) or the folder (import) button in the explorer.
 2. **Connect a model.** Open **Connections and models** in the left activity bar.
    - **Ollama:** click **Load from Local Ollama** to add the models your Ollama server already has.
-   - **OpenRouter, without copying a key:** click **Sign in with OpenRouter**. Your browser opens OpenRouter's authorization page; once you approve, GilzaBots receives a key of your own through OAuth (PKCE, on a `127.0.0.1` callback) and adds the free model `openrouter/free`, ready to use.
+   - **OpenRouter, without copying a key:** click **Sign in with OpenRouter**. Your browser opens OpenRouter's authorization page; once you approve, OpalaTex receives a key of your own through OAuth (PKCE, on a `127.0.0.1` callback) and adds the free model `openrouter/free`, ready to use.
    - **Another hosted provider:** use **Manage Connections…** to add the provider and your API key, then **Add Model**.
 3. **Choose it for the project** in the **Orchestrator** selector at the top of the chat.
 4. **Ask.** For example: *"Add unit tests for `src/clean.py` and run them"*, *"Summarise the changes since the last commit"* or *"Fix the compilation errors in chapter 3"*.
@@ -241,7 +241,7 @@ The buttons at the top of the activity bar switch between layouts, so you can gi
 | **Review** | The changed files next to the editor, to stage, discard or restore an agent checkpoint |
 
 <p align="center">
-  <img src="docs/images/layout-chat.png" alt="GilzaBots Chat layout: chat history and project explorer on the left, the chat with model selectors on the right" width="100%">
+  <img src="docs/images/layout-chat.png" alt="OpalaTex Chat layout: chat history and project explorer on the left, the chat with model selectors on the right" width="100%">
   <br>
   <sub>The <b>Chat</b> layout, with the orchestrator model and web search toggle at the top of the conversation.</sub>
 </p>
@@ -261,13 +261,13 @@ These editor features belong to the window and have no terminal equivalent.
 
 A monitor is a background watcher. You define **what** to check (a timer, a web page, a command, a file, or a question for the model), **when** to check it, and **what to do** when the condition holds: show a system notification, wake the chat that asked for it, or both.
 
-Ask for one in the chat, for example *"tell me whenever the dollar moves 10 cents"*, or create one in the **Monitors** panel. Monitors run in a service of their own, so they keep working while GilzaBots is closed. That service can start at login.
+Ask for one in the chat, for example *"tell me whenever the dollar moves 10 cents"*, or create one in the **Monitors** panel. Monitors run in a service of their own, so they keep working while OpalaTex is closed. That service can start at login.
 
 <p align="center">
   <img src="docs/images/monitors.png" alt="The Monitors panel, showing the monitor service status, a start-at-login option and the list of monitors" width="85%">
 </p>
 
-From a terminal, `gilzabots monitors` (or `/monitors` inside the CLI) lists and manages them.
+From a terminal, `opalatex monitors` (or `/monitors` inside the CLI) lists and manages them.
 
 ---
 
@@ -279,14 +279,14 @@ Connectors let the assistant use external services through [MCP](https://modelco
 
 - **From the catalog**: pick an entry and fill in what it asks for. OAuth services (Notion, Linear, Sentry) open your browser to sign in as soon as you save. Services that need a token (GitHub, X read-only) ask for it. Open ones (X developer docs, Hugging Face, DeepWiki, Context7) need nothing. Local ones (a folder of your files, web fetching) need Node.js or uv.
 - **By hand**, for any other server:
-  - **Remote or local URL**: the server's `https://…/mcp` address (plain `http://` only for `localhost`), with OAuth, a bearer token or no authentication. For OAuth, GilzaBots registers itself automatically when the server allows it. Otherwise enter the client id of an app you registered with the service, and optionally the scopes to request.
+  - **Remote or local URL**: the server's `https://…/mcp` address (plain `http://` only for `localhost`), with OAuth, a bearer token or no authentication. For OAuth, OpalaTex registers itself automatically when the server allows it. Otherwise enter the client id of an app you registered with the service, and optionally the scopes to request.
   - **Local command (stdio)**: the command that starts the server and its arguments, one per line, plus any environment variables it needs.
 
 Then click **Connect** and choose, under **Tools the agent may use**, which of the server's tools the assistant may hold.
 
 **Approval.** By default every call shows an approval prompt with its exact arguments, even in auto mode (**Always ask**). **Follow the chat mode** makes calls behave like the built-in tools.
 
-**Your X account.** X only accepts sign-in through an app you register with it, and bills API usage to that app's owner, so GilzaBots does not ship one. To let the assistant read and post on your account:
+**Your X account.** X only accepts sign-in through an app you register with it, and bills API usage to that app's owner, so OpalaTex does not ship one. To let the assistant read and post on your account:
 
 1. At [developer.x.com](https://developer.x.com), create a project and an app, and set a spending limit (usage is billed to you).
 2. Under *User authentication settings*, configure:
@@ -295,7 +295,7 @@ Then click **Connect** and choose, under **Tools the agent may use**, which of t
    - permissions **Read and write**;
    - callback URLs `http://127.0.0.1:47821/oauth/callback`, `http://127.0.0.1:47822/oauth/callback` and `http://127.0.0.1:47823/oauth/callback`.
 3. Copy the app's **OAuth 2.0 Client ID**. A Native App has no secret.
-4. In GilzaBots, add a connector by hand:
+4. In OpalaTex, add a connector by hand:
    - URL `https://api.x.com/mcp`;
    - authentication **OAuth**;
    - your client id;
@@ -318,12 +318,12 @@ The same agent, projects and skills, in a terminal instead of a window.
 
 ```bash
 cd my-thesis
-gilzabots --cli                       # interactive session for the project in this folder
-gilzabots --cli --here                # register this folder as a new project first
-gilzabots --cli --project my-thesis   # pick a project by name
+opalatex --cli                       # interactive session for the project in this folder
+opalatex --cli --here                # register this folder as a new project first
+opalatex --cli --project my-thesis   # pick a project by name
 
-gilzabots -p "fix the compilation errors in chapter 3"   # one turn, then exit
-echo "summarise the changes" | gilzabots -p -            # prompt from standard input
+opalatex -p "fix the compilation errors in chapter 3"   # one turn, then exit
+echo "summarise the changes" | opalatex -p -            # prompt from standard input
 ```
 
 | While a session runs | |
@@ -363,8 +363,8 @@ flowchart LR
 Any of these also runs as a one-shot, so a machine can be set up from a script:
 
 ```bash
-gilzabots -p '/providers add label="Ollama Gil" provider=ollama api_base=http://192.168.0.10:11434/v1'
-gilzabots -p '/models add name=gemma4:26b connection=ollama-gil num_ctx=65000'
+opalatex -p '/providers add label="Ollama Gil" provider=ollama api_base=http://192.168.0.10:11434/v1'
+opalatex -p '/models add name=gemma4:26b connection=ollama-gil num_ctx=65000'
 ```
 
 > [!TIP]
@@ -378,8 +378,8 @@ Uninstalling keeps your settings, chats, caches, credentials and project directo
 
 | Installation | How to uninstall |
 |--------------|------------------|
-| Ubuntu | `gilzabots-uninstall`. Add `--purge` to also remove the global GilzaBots data directory. |
-| Windows | **Settings › Apps › Installed apps › GilzaBots**, or **Uninstall GilzaBots** in the Start menu. The PowerShell `-Purge` switch removes global application data after confirmation. |
+| Ubuntu | `opalatex-uninstall`. Add `--purge` to also remove the global OpalaTex data directory. |
+| Windows | **Settings › Apps › Installed apps › OpalaTex**, or **Uninstall OpalaTex** in the Start menu. The PowerShell `-Purge` switch removes global application data after confirmation. |
 
 <details>
 <summary>Older installations without an uninstall command</summary>
@@ -387,13 +387,13 @@ Uninstalling keeps your settings, chats, caches, credentials and project directo
 Ubuntu:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gilzamir18/GilzaBots/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/opalacoderdev/OpalaTex/main/uninstall.sh | bash
 ```
 
 Windows:
 
 ```powershell
-irm https://raw.githubusercontent.com/gilzamir18/GilzaBots/main/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/opalacoderdev/OpalaTex/main/uninstall.ps1 | iex
 ```
 
 </details>
@@ -402,8 +402,8 @@ irm https://raw.githubusercontent.com/gilzamir18/GilzaBots/main/uninstall.ps1 | 
 
 ## 💬 Feedback and bug reports
 
-- **Suggestions, criticism and feature ideas:** use the [GilzaBots feedback form](https://forms.gle/MsfYN4Yx9Cy8QNAR6), also available inside GilzaBots under **Settings › About › Send feedback (form)**.
-- **Bugs:** use **Settings › About › Send feedback on GitHub**. The application opens a pre-filled issue at the [GilzaBots issue tracker](https://github.com/gilzamir18/GilzaBots/issues) with version and runtime information. Nothing is submitted automatically, so review the issue and remove private information before publishing it.
+- **Suggestions, criticism and feature ideas:** use the [OpalaTex feedback form](https://forms.gle/MsfYN4Yx9Cy8QNAR6), also available inside OpalaTex under **Settings › About › Send feedback (form)**.
+- **Bugs:** use **Settings › About › Send feedback on GitHub**. The application opens a pre-filled issue at the [OpalaTex issue tracker](https://github.com/opalacoderdev/OpalaTex/issues) with version and runtime information. Nothing is submitted automatically, so review the issue and remove private information before publishing it.
 
 ---
 
@@ -415,8 +415,8 @@ Requirements: **Python 3.11 or newer**, **Node.js/npm** and **Git**.
 <summary><b>Bash (Ubuntu)</b></summary>
 
 ```bash
-git clone https://github.com/gilzamir18/GilzaBots.git
-cd GilzaBots
+git clone https://github.com/opalacoderdev/OpalaTex.git
+cd OpalaTex
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -432,8 +432,8 @@ python main.py
 <summary><b>PowerShell (Windows)</b></summary>
 
 ```powershell
-git clone https://github.com/gilzamir18/GilzaBots.git
-cd GilzaBots
+git clone https://github.com/opalacoderdev/OpalaTex.git
+cd OpalaTex
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -451,7 +451,7 @@ If script execution is disabled for the current PowerShell process, run `Set-Exe
 
 | Path | What lives there |
 |------|------------------|
-| [`gilzabots/`](gilzabots/) | Python backend: local server, agent engine, tools, CLI, monitors |
+| [`opalatex/`](opalatex/) | Python backend: local server, agent engine, tools, CLI, monitors |
 | [`agenticblocks/`](agenticblocks/) | The AgenticBlocks agent framework, first-party source in this repository |
 | [`gui_src/`](gui_src/) | React/Vite desktop interface |
 | [`skills/`](skills/) | Built-in agent skills |
@@ -474,9 +474,9 @@ The build scripts install the build dependencies, build the React/Vite interface
 
 The `binpacking.ps1` and `binpacking.sh` scripts package an existing build and upload it over SSH. They intentionally contain no server address, username, credential or private server path. Maintainers must provide:
 
-- `GILZABOTS_RELEASE_HOST`
-- `GILZABOTS_RELEASE_USER`
-- `GILZABOTS_RELEASE_DIR`
+- `OPALATEX_RELEASE_HOST`
+- `OPALATEX_RELEASE_USER`
+- `OPALATEX_RELEASE_DIR`
 
 Authentication is handled by the local SSH client, preferably with an SSH key or agent. Credentials must never be committed to the repository.
 
@@ -495,14 +495,14 @@ Authentication is handled by the local SSH client, preferably with an SSH key or
 
 ## 🤝 Contributing
 
-GilzaBots is open source under the MIT License, but the repository does **not** accept pull requests or code contributions from third parties.
+OpalaTex is open source under the MIT License, but the repository does **not** accept pull requests or code contributions from third parties.
 
-To request a feature or report a bug, please **[open an issue](https://github.com/gilzamir18/GilzaBots/issues)** describing what you would like to see. The maintainer will review and prioritise requests.
+To request a feature or report a bug, please **[open an issue](https://github.com/opalacoderdev/OpalaTex/issues)** describing what you would like to see. The maintainer will review and prioritise requests.
 
 ---
 
 ## 📜 License
 
-GilzaBots is available under the [MIT License](LICENSE).
+OpalaTex is available under the [MIT License](LICENSE).
 
 If you would like to support its maintenance, **Settings › About** has a donation link. Donations are voluntary and do not unlock any feature.

@@ -201,10 +201,10 @@ async def test_stdio_server_with_legacy_positional_arguments(tmp_path):
 
 @pytest.mark.asyncio
 async def test_missing_command_fails_with_a_diagnostic():
-    bridge = MCPClientBridge("gilzabots-no-such-mcp-server-binary")
+    bridge = MCPClientBridge("opalatex-no-such-mcp-server-binary")
     with pytest.raises(MCPConnectionError) as info:
         await bridge.connect()
-    assert "gilzabots-no-such-mcp-server-binary" in str(info.value)
+    assert "opalatex-no-such-mcp-server-binary" in str(info.value)
     assert not bridge.connected
 
 

@@ -2,7 +2,7 @@
 
 The server is the SDK's `MCPServer` with an in-memory authorization server that
 supports dynamic client registration; the "browser" follows the consent redirect
-to GilzaBots' loopback listener, as a user clicking Allow would.
+to OpalaTex' loopback listener, as a user clicking Allow would.
 """
 
 import json
@@ -15,8 +15,8 @@ import urllib.request
 
 import pytest
 
-from gilzabots.connectors import credentials, oauth, store
-from gilzabots.connectors.manager import ConnectorUnavailable, get_manager
+from opalatex.connectors import credentials, oauth, store
+from opalatex.connectors.manager import ConnectorUnavailable, get_manager
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
@@ -195,8 +195,8 @@ def x_like_server():
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("GILZABOTS_HOME", str(tmp_path / "home"))
-    # Test ports, so a GilzaBots running on this machine cannot collide.
+    monkeypatch.setenv("OPALATEX_HOME", str(tmp_path / "home"))
+    # Test ports, so a OpalaTex running on this machine cannot collide.
     monkeypatch.setattr(oauth, "LOOPBACK_PORTS", (_free_port(), _free_port()))
     # The authorization server of the test does not fetch client metadata documents.
     monkeypatch.setenv(oauth.CLIENT_METADATA_URL_ENV, "")

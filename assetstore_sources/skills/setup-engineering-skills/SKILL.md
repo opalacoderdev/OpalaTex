@@ -21,7 +21,7 @@ This is a conversation, not a script: explore, present what you found, confirm w
 Look at the project's starting state. Read what exists; don't assume:
 
 - `git remote -v` (through `run_command`): is this a GitHub or GitLab repo? Which one?
-- `AGENTS.md` at the project root: does it exist, and does it already have an `## Agent skills` section? GilzaBots puts this file in the main agent's prompt every turn, so it is where the configuration's pointers go.
+- `AGENTS.md` at the project root: does it exist, and does it already have an `## Agent skills` section? OpalaTex puts this file in the main agent's prompt every turn, so it is where the configuration's pointers go.
 - `GLOSSARY.md` and `GLOSSARY-MAP.md` at the root, and the older names `CONTEXT.md` / `CONTEXT-MAP.md`. If an older name exists, offer to rename it (`git mv`) to its `GLOSSARY` name.
 - `docs/adr/` and any `src/*/docs/adr/`.
 - `docs/agents/`: does this skill's earlier output already exist?

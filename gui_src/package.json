@@ -1,7 +1,7 @@
 {
-  "name": "gilzabots-web-ide",
+  "name": "opalatex-web-ide",
   "version": "1.0.0",
-  "description": "Custom Web IDE for GilzaBots",
+  "description": "Custom Web IDE for OpalaTex",
   "main": "server.js",
   "type": "module",
   "scripts": {

@@ -8,7 +8,7 @@ are listed with the later insert first.
 """
 import pytest
 
-from gilzabots.project import ProjectStore, _conn
+from opalatex.project import ProjectStore, _conn
 
 
 @pytest.fixture()

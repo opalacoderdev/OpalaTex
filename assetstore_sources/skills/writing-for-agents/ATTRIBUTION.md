@@ -1,6 +1,6 @@
 # Attribution
 
-This skill is adapted for GilzaBots from `skills/productivity/writing-for-agents` in Matt Pocock's skills (https://github.com/mattpocock/skills, commit 4ae2317), distributed under the MIT License. The adaptation rewrites the instructions for GilzaBots' tools (load_skill, run_agent, ask_question, run_command, ...).
+This skill is adapted for OpalaTex from `skills/productivity/writing-for-agents` in Matt Pocock's skills (https://github.com/mattpocock/skills, commit 4ae2317), distributed under the MIT License. The adaptation rewrites the instructions for OpalaTex' tools (load_skill, run_agent, ask_question, run_command, ...).
 
 Copyright (c) 2026 Matt Pocock
 

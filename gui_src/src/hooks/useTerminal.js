@@ -214,7 +214,7 @@ export function useTerminal({ activeProject, terminalRef, terminalInstanceRef, f
     };
 
     evs.onerror = () => {
-      term.write(`\r\n\x1b[31m[GilzaBots] ${tRef.current('bottomPanel.terminalConnectionLost', 'Terminal connection lost. Reconnecting...')}\x1b[0m\r\n`);
+      term.write(`\r\n\x1b[31m[OpalaTex] ${tRef.current('bottomPanel.terminalConnectionLost', 'Terminal connection lost. Reconnecting...')}\x1b[0m\r\n`);
     };
 
     // Forward keystrokes to the backend.

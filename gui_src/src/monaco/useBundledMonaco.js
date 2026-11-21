@@ -28,7 +28,7 @@ export function useBundledMonaco() {
     loadBundledMonaco().then(
       () => { if (!cancelled) setState({ status: 'ready', error: null }); },
       (error) => {
-        console.error('[GilzaBots] The bundled code editor failed to load:', error);
+        console.error('[OpalaTex] The bundled code editor failed to load:', error);
         if (!cancelled) setState({ status: 'error', error });
       },
     );

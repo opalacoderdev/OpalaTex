@@ -2,7 +2,7 @@
 #
 # Each entry is a skill directory next to this file. `requires` lists the skills
 # it loads with load_skill and cannot work without: the Asset Store installs and
-# activates them together (gilzabots/assetstore.py: skill_requirements).
+# activates them together (opalatex/assetstore.py: skill_requirements).
 # `original` is the skill of the upstream pack it was adapted from.
 pack: engineering-workflow
 upstream:

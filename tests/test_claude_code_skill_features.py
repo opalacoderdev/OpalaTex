@@ -15,18 +15,18 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-import gilzabots.agent_stdin as agent_stdin
-import gilzabots.memgpt_runtime as runtime
-import gilzabots.subagents as subagents
-import gilzabots.tools as tools
-from gilzabots.project import ProjectData, ProjectStore
-from gilzabots.skill_invocation import (
+import opalatex.agent_stdin as agent_stdin
+import opalatex.memgpt_runtime as runtime
+import opalatex.subagents as subagents
+import opalatex.tools as tools
+from opalatex.project import ProjectData, ProjectStore
+from opalatex.skill_invocation import (
     SkillInvocationError,
     invocable_skills,
     parse_invocation,
     resolve_skill_invocation,
 )
-from gilzabots.skills import is_model_invocable, parse_skill_md, skill_error
+from opalatex.skills import is_model_invocable, parse_skill_md, skill_error
 
 
 def _write_skill(project_path, name, front: str, body="Do the thing."):
@@ -44,7 +44,7 @@ def _activate(project_path, *names):
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
-    from gilzabots import models_store
+    from opalatex import models_store
 
     monkeypatch.setattr(models_store, "_MODELS_STORE_PATH", tmp_path / "models_store.json")
     monkeypatch.setattr(agent_stdin, "print_event", lambda *_a, **_k: None)
@@ -107,7 +107,7 @@ disable-model-invocation: sometimes
 
 
 def test_every_skill_shipped_today_still_parses_cleanly():
-    from gilzabots.skills import discover_skills
+    from opalatex.skills import discover_skills
 
     for skill in discover_skills(""):
         assert skill_error(skill) == "", (skill["name"], skill_error(skill))
@@ -298,7 +298,7 @@ async def test_a_skill_that_cannot_run_fails_the_turn_with_the_reason(monkeypatc
 
 
 def test_the_terminal_runs_a_skill_line_as_a_turn(project):
-    from gilzabots.cli import _classify_skill_line
+    from opalatex.cli import _classify_skill_line
 
     _write_skill(project.project_path, "handoff", "name: handoff\ndescription: Write a handoff.")
     _activate(project.project_path, "handoff")
@@ -360,8 +360,8 @@ class _FakeAgent:
 def fake_subagent(monkeypatch):
     _FakeAgent.instances = []
     monkeypatch.setattr(subagents, "LLMAgentBlock", _FakeAgent)
-    import gilzabots.litellm_compat as compat
-    import gilzabots.token_usage as usage
+    import opalatex.litellm_compat as compat
+    import opalatex.token_usage as usage
     monkeypatch.setattr(compat, "wrap_agent_litellm_compat", lambda agent: agent)
     monkeypatch.setattr(usage, "attach_usage_tracking", lambda agent: agent)
     return _FakeAgent

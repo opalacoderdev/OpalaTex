@@ -31,7 +31,7 @@ const TRANSLATE_LANGUAGES = [
 ];
 
 const TRANSLATE_CUSTOM = '__custom__';
-const FEEDBACK_ISSUE_URL = 'https://github.com/gilzamir18/GilzaBots/issues/new';
+const FEEDBACK_ISSUE_URL = 'https://github.com/opalacoderdev/OpalaTex/issues/new';
 // The short feedback form (suggestions, criticism, feature ideas). It needs no
 // GitHub account, so it is the primary channel; the issue stays for bug reports.
 const FEEDBACK_FORM_URL = 'https://forms.gle/MsfYN4Yx9Cy8QNAR6';
@@ -69,8 +69,8 @@ export default function SettingsModal({
   const { t } = useTranslation();
   const { showAlert, showConfirm } = useCustomDialog();
   const [selectedLang, setSelectedLang] = React.useState('');
-  const [gilzabotsHome, setGilzaBotsHome] = React.useState('');
-  const [gilzabotsHomeError, setGilzaBotsHomeError] = React.useState('');
+  const [opalatexHome, setOpalaTexHome] = React.useState('');
+  const [opalatexHomeError, setOpalaTexHomeError] = React.useState('');
   const [draftSynctexEnabled, setDraftSynctexEnabled] = React.useState(false);
   const [webengineGpu, setWebengineGpu] = React.useState('off');
   // 'webview2' on Windows, 'qtwebengine' elsewhere: the two put the graphics
@@ -123,15 +123,15 @@ export default function SettingsModal({
       .then(cfg => { if (cfg?.lang !== undefined) setSelectedLang(cfg.lang); })
       .catch(() => { });
 
-    fetch('/api/settings/gilzabotshome')
+    fetch('/api/settings/opalatexhome')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data) return;
         // A configured directory the backend could not open is reported here
         // rather than silently replaced by the fallback it is actually using.
-        setGilzaBotsHomeError(data.error || '');
+        setOpalaTexHomeError(data.error || '');
         const shown = data.error ? (data.configured_path || data.path) : data.path;
-        if (shown) setGilzaBotsHome(shown);
+        if (shown) setOpalaTexHome(shown);
       })
       .catch(() => { });
 
@@ -270,10 +270,10 @@ export default function SettingsModal({
     if (!body?.requiresRestart) return;
 
     const shouldRestart = await showConfirm(
-      t('settingsModal.graphicsRestartConfirm', 'This setting only applies to a new app window. Restart GilzaBots now?')
+      t('settingsModal.graphicsRestartConfirm', 'This setting only applies to a new app window. Restart OpalaTex now?')
     );
     if (!shouldRestart) {
-      await showAlert(t('settingsModal.graphicsRestartAlert', 'The setting was saved and will apply the next time GilzaBots starts.'));
+      await showAlert(t('settingsModal.graphicsRestartAlert', 'The setting was saved and will apply the next time OpalaTex starts.'));
       return;
     }
     await performRestart();
@@ -444,27 +444,27 @@ export default function SettingsModal({
     }
   };
 
-  // Saving GILZABOTS_HOME only takes effect on the next launch, so the user is
+  // Saving OPALATEX_HOME only takes effect on the next launch, so the user is
   // asked right away whether to restart; declining leaves the saved value in
   // place with a reminder that it is still pending.
-  const saveGilzaBotsHome = async () => {
+  const saveOpalaTexHome = async () => {
     let data;
     try {
-      const res = await fetch('/api/settings/gilzabotshome', {
+      const res = await fetch('/api/settings/opalatexhome', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: gilzabotsHome })
+        body: JSON.stringify({ path: opalatexHome })
       });
       data = await res.json().catch(() => ({}));
       if (!res.ok || data?.error) {
         const message = data?.error || String(res.status);
-        setGilzaBotsHomeError(message);
+        setOpalaTexHomeError(message);
         await showAlert(t('settingsModal.globalDataDirError') + message);
         return;
       }
-      setGilzaBotsHomeError('');
+      setOpalaTexHomeError('');
     } catch (err) {
-      setGilzaBotsHomeError(String(err));
+      setOpalaTexHomeError(String(err));
       await showAlert(t('settingsModal.globalDataDirError') + err);
       return;
     }
@@ -1003,7 +1003,7 @@ export default function SettingsModal({
               </div>
 
               {/* Graphics mode for the app window itself. QtWebEngine (macOS,
-                  Linux) loads the graphics driver into the GilzaBots process, so
+                  Linux) loads the graphics driver into the OpalaTex process, so
                   a driver fault closes the whole application with no message;
                   this is the recovery for a machine where that happens. WebView2
                   (Windows) keeps the driver in a process of its own. */}
@@ -1020,8 +1020,8 @@ export default function SettingsModal({
                 </label>
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
                   {browserEngine === 'webview2'
-                    ? t('settingsModal.graphicsHintWebview2', 'The app window (Microsoft Edge WebView2) runs the graphics driver in a separate process, so a driver fault does not close GilzaBots. Turn this off if the window shows rendering glitches or goes blank. Takes effect after a restart.')
-                    : t('settingsModal.graphicsHint', 'The app window renders through the graphics driver, which runs inside the GilzaBots process: if the driver faults, the window closes with no error message. Turn this off if GilzaBots closes by itself. Takes effect after a restart.')}
+                    ? t('settingsModal.graphicsHintWebview2', 'The app window (Microsoft Edge WebView2) runs the graphics driver in a separate process, so a driver fault does not close OpalaTex. Turn this off if the window shows rendering glitches or goes blank. Takes effect after a restart.')
+                    : t('settingsModal.graphicsHint', 'The app window renders through the graphics driver, which runs inside the OpalaTex process: if the driver faults, the window closes with no error message. Turn this off if OpalaTex closes by itself. Takes effect after a restart.')}
                 </span>
               </div>
 
@@ -1254,22 +1254,22 @@ export default function SettingsModal({
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
-                    value={gilzabotsHome}
-                    onChange={(e) => setGilzaBotsHome(e.target.value)}
+                    value={opalatexHome}
+                    onChange={(e) => setOpalaTexHome(e.target.value)}
                     className="vscode-settings-input"
                     style={{ flex: 1 }}
                     placeholder={t('settingsModal.globalDataDirPlaceholder')}
                   />
                   <button
-                    onClick={saveGilzaBotsHome}
+                    onClick={saveOpalaTexHome}
                     disabled={isRestarting}
                     className="vscode-button"
                   >
                     {isRestarting ? t('settingsModal.restarting') : t('settingsModal.save')}
                   </button>
                 </div>
-                {gilzabotsHomeError && (
-                  <span style={{ fontSize: '11px', color: 'var(--vscode-errorForeground)' }}>{gilzabotsHomeError}</span>
+                {opalatexHomeError && (
+                  <span style={{ fontSize: '11px', color: 'var(--vscode-errorForeground)' }}>{opalatexHomeError}</span>
                 )}
                 <span style={{ fontSize: '11px', color: 'var(--vscode-text-muted)' }}>{t('settingsModal.globalDataDirHint')}</span>
               </div>
@@ -1469,7 +1469,7 @@ export default function SettingsModal({
                   <button
                     className="vscode-button"
                     style={{ alignSelf: 'flex-start' }}
-                    onClick={() => openExternal('https://www.paypal.com/donate/?business=DKWJSCLDJG6XY&no_recurring=0&item_name=Manuten%C3%A7%C3%A3o+do+Software+Open+Source+GilzaBots&currency_code=BRL')}
+                    onClick={() => openExternal('https://www.paypal.com/donate/?business=DKWJSCLDJG6XY&no_recurring=0&item_name=Manuten%C3%A7%C3%A3o+do+Software+Open+Source+OpalaTex&currency_code=BRL')}
                   >
                     {t('settingsModal.donationButton')}
                   </button>

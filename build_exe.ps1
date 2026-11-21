@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 Write-Host "=========================================="
-Write-Host "       GilzaBots - Build do Executavel       "
+Write-Host "       OpalaTex - Build do Executavel       "
 Write-Host "=========================================="
 
 $VenvScripts = "$PSScriptRoot\.venv\Scripts"
@@ -58,22 +58,22 @@ Remove-Item -Force $pandocZip
 Remove-Item -Recurse -Force $pandocExtractDir
 
 Write-Host "`n[3.7/4] Injetando o cliente OAuth do Google (opcional)..."
-# Com GILZABOTS_GDRIVE_CLIENT_ID definido, o build embute o cliente e a
+# Com OPALATEX_GDRIVE_CLIENT_ID definido, o build embute o cliente e a
 # sincronizacao na nuvem passa a conectar em um clique. Sem ele, o app continua
 # funcionando: o usuario cadastra o proprio cliente OAuth nas configuracoes.
 # O array vazio some no splat, entao nenhum argumento vazio chega ao PyInstaller.
 # Sem a variavel, um cliente ja injetado antes (o arquivo existe) e embutido,
-# como faz o GilzaBots.spec.
-$googleClientFile = "gilzabots/cloud/providers/bundled_google_client.json"
+# como faz o OpalaTex.spec.
+$googleClientFile = "opalatex/cloud/providers/bundled_google_client.json"
 $googleClientArgs = @()
-if ($env:GILZABOTS_GDRIVE_CLIENT_ID) {
+if ($env:OPALATEX_GDRIVE_CLIENT_ID) {
     python scripts/embed_google_client.py --from-env
     if ($LASTEXITCODE -ne 0) { throw "embed_google_client.py failed" }
 }
 if (Test-Path $googleClientFile) {
-    $googleClientArgs = @("--add-data=$googleClientFile;gilzabots/cloud/providers")
+    $googleClientArgs = @("--add-data=$googleClientFile;opalatex/cloud/providers")
 } else {
-    Write-Host "GILZABOTS_GDRIVE_CLIENT_ID nao definido e nenhum cliente injetado - build sem cliente OAuth embutido."
+    Write-Host "OPALATEX_GDRIVE_CLIENT_ID nao definido e nenhum cliente injetado - build sem cliente OAuth embutido."
 }
 
 Write-Host "`n[4/4] Empacotando com PyInstaller..."
@@ -87,16 +87,16 @@ $winptyAgentPath = python -c "import winpty, os; print(os.path.join(os.path.dirn
 # also collects webview.platforms.qt, whose imports would pull in PyQt6 and its
 # Chromium (~440 MB) from any environment that still has it installed, so Qt is
 # excluded explicitly. See PROJECT_DESIGN.md §2.16.1.
-pyinstaller --name "GilzaBots" `
+pyinstaller --name "OpalaTex" `
             @googleClientArgs `
             --windowed `
-            --icon="AppIcons/GilzaBots.ico" `
-            --add-data="gilzabots/gui;gilzabots/gui" `
-            --add-data="gilzabots/icon.png;gilzabots" `
+            --icon="AppIcons/OpalaTex.ico" `
+            --add-data="opalatex/gui;opalatex/gui" `
+            --add-data="opalatex/icon.png;opalatex" `
             --add-data="icon.png;." `
-            --add-data="gilzabots/assetstore;gilzabots/assetstore" `
-            --add-data="gilzabots/templates;gilzabots/templates" `
-            --add-data="gilzabots/guides;gilzabots/guides" `
+            --add-data="opalatex/assetstore;opalatex/assetstore" `
+            --add-data="opalatex/templates;opalatex/templates" `
+            --add-data="opalatex/guides;opalatex/guides" `
             --add-data="bin;bin" `
             --add-data="config.yaml;." `
             --add-data="skills;skills" `
@@ -137,5 +137,5 @@ pyinstaller --name "GilzaBots" `
 
 Write-Host "`n=========================================="
 Write-Host "Build concluido com sucesso!"
-Write-Host "O executavel pode ser encontrado em: .\dist\GilzaBots\GilzaBots.exe"
+Write-Host "O executavel pode ser encontrado em: .\dist\OpalaTex\OpalaTex.exe"
 Write-Host "=========================================="

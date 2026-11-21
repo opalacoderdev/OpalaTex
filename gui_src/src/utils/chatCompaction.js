@@ -3,7 +3,7 @@
 // Compaction replaces only what the model receives; every message stays in the
 // chat. The point where it happened is shown as a divider carrying the summary
 // the agent continues from. The backend stores it as a `compaction` activity
-// row (gilzabots/compaction.py) -- the summary as the row's content, the counts
+// row (opalatex/compaction.py) -- the summary as the row's content, the counts
 // in its payload -- so the divider comes back after a reload, merged into the
 // transcript by timestamp like the stored error bubbles.
 

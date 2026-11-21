@@ -1,5 +1,5 @@
 # AgenticBlocks is vendored in ./agenticblocks. Its runtime dependencies are
-# declared here explicitly so a clean GilzaBots installation remains complete.
+# declared here explicitly so a clean OpalaTex installation remains complete.
 pyyaml>=6.0
 pydantic>=2.0.0
 networkx>=3.0

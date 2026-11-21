@@ -189,7 +189,7 @@ def test_llm_agent_block_answers_an_unknown_tool_with_the_catalog():
 # ── 3. The orchestrator's final text ─────────────────────────────────────────
 
 def test_detector_catches_the_observed_bare_arguments(schemas):
-    from gilzabots.agent_stdin import _has_unfenced_tool_call_payload
+    from opalatex.agent_stdin import _has_unfenced_tool_call_payload
 
     assert _has_unfenced_tool_call_payload(OBSERVED_ARGUMENTS, schemas)
     assert _has_unfenced_tool_call_payload("Let me ask you:\n" + OBSERVED_ARGUMENTS, schemas)
@@ -197,7 +197,7 @@ def test_detector_catches_the_observed_bare_arguments(schemas):
 
 def test_detector_needs_the_schemas_to_see_bare_arguments():
     """Without the offered tools there is nothing to fit, so the old behaviour holds."""
-    from gilzabots.agent_stdin import _has_unfenced_tool_call_payload
+    from opalatex.agent_stdin import _has_unfenced_tool_call_payload
 
     assert not _has_unfenced_tool_call_payload(OBSERVED_ARGUMENTS)
 
@@ -209,7 +209,7 @@ def test_detector_needs_the_schemas_to_see_bare_arguments():
     "I read the file and fixed the citation.",
 ])
 def test_detector_leaves_legitimate_answers_alone(schemas, response):
-    from gilzabots.agent_stdin import _has_unfenced_tool_call_payload
+    from opalatex.agent_stdin import _has_unfenced_tool_call_payload
 
     assert not _has_unfenced_tool_call_payload(response, schemas)
 
@@ -229,7 +229,7 @@ class _FakeOrchestrator:
 
 
 def _correct(first, rest, monkeypatch):
-    import gilzabots.agent_stdin as stdin_mod
+    import opalatex.agent_stdin as stdin_mod
 
     monkeypatch.setattr(stdin_mod, "print_event", lambda *a, **k: None)
     monkeypatch.setattr(stdin_mod, "apply_meta_params", lambda *a, **k: contextlib.nullcontext())
@@ -253,7 +253,7 @@ def test_bare_arguments_that_never_go_away_fail_loudly(monkeypatch):
 
 
 def test_unknown_tool_is_reported_in_problems_only(monkeypatch):
-    import gilzabots.agent_stdin as stdin_mod
+    import opalatex.agent_stdin as stdin_mod
 
     events = []
     monkeypatch.setattr(stdin_mod, "print_event", lambda event, data: events.append((event, data)))
@@ -286,8 +286,8 @@ def test_include_optional_only_keeps_the_required_rule(schemas):
 
 
 def test_detector_catches_the_observed_optional_only_answer():
-    from gilzabots.agent_stdin import _has_unfenced_tool_call_payload, wrap_tool
-    from gilzabots.tools import get_project_overview
+    from opalatex.agent_stdin import _has_unfenced_tool_call_payload, wrap_tool
+    from opalatex.tools import get_project_overview
 
     real = [block_to_tool_schema(wrap_tool(get_project_overview))]
 
@@ -303,7 +303,7 @@ def test_detector_catches_the_observed_optional_only_answer():
     '{"retries": 3}',                            # fits no tool
 ])
 def test_optional_only_fit_needs_the_whole_unfenced_answer(schemas, response):
-    from gilzabots.agent_stdin import _has_unfenced_tool_call_payload
+    from opalatex.agent_stdin import _has_unfenced_tool_call_payload
 
     assert not _has_unfenced_tool_call_payload(response, schemas)
 

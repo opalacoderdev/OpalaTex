@@ -3,7 +3,7 @@ name: writing-for-agents
 description: Reference for writing documents agents consume. Use when creating or editing a skill (SKILL.md) or AGENTS.md, or any doc an agent is pointed at.
 ---
 
-Reference for writing any document an agent consumes: a skill, the project's `AGENTS.md` (GilzaBots puts it in the main agent's prompt every turn), a doc reached by a pointer. The packaging differs; the writing does not. The same levers make each one predictable, because the agent takes the same _process_ every run rather than producing the same output.
+Reference for writing any document an agent consumes: a skill, the project's `AGENTS.md` (OpalaTex puts it in the main agent's prompt every turn), a doc reached by a pointer. The packaging differs; the writing does not. The same levers make each one predictable, because the agent takes the same _process_ every run rather than producing the same output.
 
 When the document is a skill, also read [SKILL-MECHANICS.md](SKILL-MECHANICS.md) (in this skill's directory) for frontmatter, the invocation choice and router skills.
 

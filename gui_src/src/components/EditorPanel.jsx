@@ -1106,7 +1106,7 @@ export default function EditorPanel({
     if (isBlock && lineContent.trim() !== '') {
       text = '\n' + text;
     }
-    ed.executeEdits('gilzabots-snippet', [{
+    ed.executeEdits('opalatex-snippet', [{
       range: {
         startLineNumber: position.lineNumber,
         startColumn: position.column,
@@ -1310,7 +1310,7 @@ export default function EditorPanel({
     // ── Paste via Ctrl+V keybinding (navigator.clipboard.readText may fail
     //    while context menu is open; using backend clipboard read instead).
     actualEditor.addAction({
-      id: 'gilzabots.paste',
+      id: 'opalatex.paste',
       label: 'Paste',
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV],
       precondition: 'editorTextFocus',

@@ -1,4 +1,4 @@
-from gilzabots.latex_compiler import find_pdf_source_tex
+from opalatex.latex_compiler import find_pdf_source_tex
 
 
 ROOT_DOCUMENT = "\\documentclass{article}\n\\begin{document}\nHi\n\\end{document}\n"

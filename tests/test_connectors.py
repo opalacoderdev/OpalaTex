@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from gilzabots.connectors import agent_tools, api, credentials, oauth, store
-from gilzabots.connectors.manager import ConnectorUnavailable, get_manager
+from opalatex.connectors import agent_tools, api, credentials, oauth, store
+from opalatex.connectors.manager import ConnectorUnavailable, get_manager
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -40,10 +40,10 @@ _STDIO_SERVER = textwrap.dedent(
 
 
 @pytest.fixture(autouse=True)
-def gilzabots_home(tmp_path, monkeypatch):
+def opalatex_home(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setenv("GILZABOTS_HOME", str(home))
+    monkeypatch.setenv("OPALATEX_HOME", str(home))
     return home
 
 
@@ -96,7 +96,7 @@ def test_secrets_never_leave_through_the_public_view():
     assert store.public_view(connector)["headers"] == [{"name": "X-Key", "set": True}]
 
 
-def test_registry_file_is_owner_only(gilzabots_home):
+def test_registry_file_is_owner_only(opalatex_home):
     store.create_connector({"id": "a", "name": "A", "url": "https://a.example/mcp"})
     mode = stat.S_IMODE(os.stat(store.connectors_path()).st_mode)
     if os.name == "posix":
@@ -182,8 +182,8 @@ class _Session:
 @pytest.fixture
 def gate(monkeypatch):
     """Patch the session mode, the user's answer and the connection manager."""
-    import gilzabots.agent_stdin as agent_stdin
-    import gilzabots.tools as tools_module
+    import opalatex.agent_stdin as agent_stdin
+    import opalatex.tools as tools_module
 
     record = {"asked": [], "calls": [], "answer": "yes"}
 
@@ -202,7 +202,7 @@ def gate(monkeypatch):
 
     monkeypatch.setattr(agent_stdin, "request_user_input", fake_request_user_input)
     monkeypatch.setattr(agent_stdin, "unattended_turn", lambda: None)
-    monkeypatch.setattr("gilzabots.connectors.manager.get_manager", lambda: _FakeManager())
+    monkeypatch.setattr("opalatex.connectors.manager.get_manager", lambda: _FakeManager())
     tools_module._DENIED_TOOLS.clear()
     record["set_mode"] = set_mode
     yield record
@@ -268,7 +268,7 @@ async def test_always_answer_is_remembered_for_that_tool(gate):
 
 @pytest.mark.asyncio
 async def test_an_unattended_turn_is_refused_without_asking(gate, monkeypatch):
-    import gilzabots.agent_stdin as agent_stdin
+    import opalatex.agent_stdin as agent_stdin
 
     _catalog_connector()
     gate["set_mode"]("auto")
@@ -308,7 +308,7 @@ async def test_a_call_opens_the_connection_on_demand(stdio_server):
 
 @pytest.mark.asyncio
 async def test_agent_tool_end_to_end_with_a_server_error(stdio_server, monkeypatch):
-    import gilzabots.tools as tools_module
+    import opalatex.tools as tools_module
     from agenticblocks.tools.mcp_client import MCPToolError
 
     _stdio_connector(stdio_server, approval="mode")
@@ -334,11 +334,11 @@ async def test_a_turned_off_connector_refuses_calls(stdio_server):
 @pytest.mark.asyncio
 async def test_a_server_that_does_not_start_reports_why():
     store.create_connector({"id": "ghost", "name": "Ghost", "transport": "stdio",
-                            "command": "gilzabots-no-such-server"})
+                            "command": "opalatex-no-such-server"})
     manager = get_manager()
     with pytest.raises(ConnectorUnavailable) as info:
         await manager.connect("ghost", interactive=True)
-    assert "gilzabots-no-such-server" in str(info.value)
+    assert "opalatex-no-such-server" in str(info.value)
     assert manager.state("ghost")["status"] == "error"
 
 
@@ -397,7 +397,7 @@ def test_registration_metadata_lists_every_callback_port_first_the_bound_one():
 
 
 def test_cli_parsers():
-    from gilzabots.cli_connectors import _parse_add, _parse_add_stdio
+    from opalatex.cli_connectors import _parse_add, _parse_add_stdio
 
     data = _parse_add(["x", "https://x.example/mcp", "--oauth", "--name", "X", "--header", "A=b"])
     assert data["auth"] == "oauth" and data["name"] == "X" and data["headers"] == [{"name": "A", "value": "b"}]
@@ -423,8 +423,8 @@ def test_forgetting_credentials_removes_the_file():
 # ─── The chat orchestrator ───────────────────────────────────────────────────
 
 def test_the_orchestrator_holds_the_connector_tools_and_their_prompt(tmp_path):
-    from gilzabots.memgpt_runtime import build_chat_orchestrator
-    from gilzabots.project import ProjectStore
+    from opalatex.memgpt_runtime import build_chat_orchestrator
+    from opalatex.project import ProjectStore
 
     _catalog_connector()
     project_store = ProjectStore(db_path=str(tmp_path / "s.db"))
@@ -452,7 +452,7 @@ def _dummy_values(preset):
 
 
 def test_every_preset_becomes_a_valid_connector(tmp_path):
-    from gilzabots.connectors import presets
+    from opalatex.connectors import presets
 
     keys = [p.key for p in presets.PRESETS]
     assert len(keys) == len(set(keys))
@@ -468,7 +468,7 @@ def test_every_preset_becomes_a_valid_connector(tmp_path):
 
 
 def test_missing_preset_inputs_are_named():
-    from gilzabots.connectors import presets
+    from opalatex.connectors import presets
 
     assert presets.missing_inputs("x-readonly", {}) == ["bearer"]
     assert presets.missing_inputs("github", {}) == ["bearer"]
@@ -480,7 +480,7 @@ def test_missing_preset_inputs_are_named():
 def test_the_requested_scope_replaces_the_advertised_one():
     from urllib.parse import parse_qs, urlsplit
 
-    from gilzabots.connectors.oauth import with_scope
+    from opalatex.connectors.oauth import with_scope
 
     url = ("https://x.com/i/oauth2/authorize?response_type=code&client_id=c&state=s"
            "&code_challenge=cc&scope=tweet.read+dm.write+developer.billing.write&resource=r")
@@ -493,7 +493,7 @@ def test_the_requested_scope_replaces_the_advertised_one():
 
 
 def test_every_preset_is_translated():
-    from gilzabots.connectors import presets
+    from opalatex.connectors import presets
 
     pt = json.loads((ROOT / "gui_src" / "src" / "i18n" / "locales" / "pt-BR.json").read_text(encoding="utf-8"))
     translated = pt["connectors"]["presets"]
@@ -520,7 +520,7 @@ async def test_api_lists_the_presets():
 
 
 def test_cli_add_preset_parser():
-    from gilzabots.cli_connectors import _parse_add_preset
+    from opalatex.cli_connectors import _parse_add_preset
 
     data, key = _parse_add_preset(["github", "--bearer", "tok"])
     assert key == "github" and data["bearer_token"] == "tok" and data["preset"] == "github"
