@@ -102,6 +102,8 @@ MANIFEST
 *.cer
 *.crt
 *.token
+snapcraft-login
+snapcraft-login*
 license.dat
 id_rsa
 id_rsa.*
@@ -151,6 +153,8 @@ venv.bak/
 *.db
 .omnime/
 
+# --- Snap packages (build artifacts) ---
+/*.snap
 .opalatex/
 
 # --- OAuth client injected at build time (see scripts/embed_google_client.py) ---
