@@ -3903,7 +3903,7 @@ def _truncate_to_context_budget(text: str, reserve_pct: int = 50) -> str:
     )
 
 
-_WEB_SEARCH_TIMEOUT_S = 30.0
+_WEB_SEARCH_TIMEOUT_S = 60.0
 
 
 @opalatex_tool(

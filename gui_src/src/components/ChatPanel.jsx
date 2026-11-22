@@ -562,12 +562,12 @@ export default function ChatPanel({
   // set from outside (history, a staged prompt) carries no caret, so the end
   // of the input stands for it; -1 means a selection, which opens nothing.
   const [chatCaret, setChatCaret] = useState({ value: '', pos: null });
-  // MCP config panel state
+  // Web search provider / MCP config panel state
   const [showMcpPanel, setShowMcpPanel] = useState(false);
   const [mcpUrlDraft, setMcpUrlDraft] = useState('');
   const [mcpToolDraft, setMcpToolDraft] = useState('web_search');
   const [mcpApiKeyDraft, setMcpApiKeyDraft] = useState('');
-  const [useMcpDraft, setUseMcpDraft] = useState(false);
+  const [searchProviderDraft, setSearchProviderDraft] = useState('duckduckgo');
   const [chatZoom, setChatZoom] = useState(() => {
     const saved = getPreference('chatZoom');
     const parsed = saved !== null ? Number(saved) : NaN;
@@ -785,8 +785,8 @@ export default function ChatPanel({
     setMcpToolDraft(webSearchConfig?.mcp_tool || 'web_search');
     setMcpApiKeyDraft(webSearchConfig?.mcp_api_key || '');
     const provider = webSearchConfig?.provider;
-    const isMcp = provider ? (provider === 'mcp') : !!(webSearchConfig?.mcp_url);
-    setUseMcpDraft(isMcp);
+    const resolvedProvider = provider || (webSearchConfig?.mcp_url ? 'mcp' : 'duckduckgo');
+    setSearchProviderDraft(resolvedProvider);
     setMcpTestStatus('');
     setShowMcpPanel(p => !p);
   };
@@ -797,7 +797,7 @@ export default function ChatPanel({
       mcp_url: mcpUrlDraft.trim(),
       mcp_tool: mcpToolDraft.trim() || 'web_search',
       mcp_api_key: mcpApiKeyDraft.trim(),
-      provider: useMcpDraft ? 'mcp' : 'duckduckgo',
+      provider: searchProviderDraft,
     };
     setWebSearchConfig(updated);
     try {
@@ -1010,6 +1010,8 @@ export default function ChatPanel({
   };
 
   const hasMcp = webSearchConfig?.provider === 'mcp' && !!(webSearchConfig?.mcp_url);
+  const isLlmRag = webSearchConfig?.provider === 'llm_rag';
+  const isMcpDraft = searchProviderDraft === 'mcp';
 
   // A local model runs on the user's own machine with a small context window,
   // and every attachment competes with the conversation for it. Cloud models
@@ -2277,6 +2279,9 @@ export default function ChatPanel({
             {hasMcp && searchEnabled && (
               <span style={{ marginLeft: '4px', fontSize: '11px', color: 'var(--vscode-text-muted)' }}>{t('chatPanel.mcpIndicator')}</span>
             )}
+            {isLlmRag && searchEnabled && (
+              <span style={{ marginLeft: '4px', fontSize: '11px', color: 'var(--vscode-text-muted)' }}>{t('chatPanel.llmRagIndicator')}</span>
+            )}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -2349,80 +2354,96 @@ export default function ChatPanel({
             gap: '6px',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-            <input
-              id="use-mcp-checkbox"
-              type="checkbox"
-              checked={useMcpDraft}
-              onChange={e => setUseMcpDraft(e.target.checked)}
-              style={{ cursor: 'pointer' }}
-            />
-            <label htmlFor="use-mcp-checkbox" style={{ fontSize: '11px', color: 'var(--vscode-text-fg)', cursor: 'pointer', userSelect: 'none' }}>
-              {t('chatPanel.useMcpServer')}
-            </label>
-          </div>
-
-          <label style={{ fontSize: '11px', color: useMcpDraft ? 'var(--vscode-text-fg)' : 'var(--vscode-text-muted)' }}>{t('chatPanel.serverUrl')}</label>
-          <input
-            id="mcp-url-input"
-            type="text"
-            value={mcpUrlDraft}
-            disabled={!useMcpDraft}
-            onChange={e => { setMcpUrlDraft(e.target.value); setMcpTestStatus(''); }}
-            placeholder={t('chatPanel.mcpUrlPlaceholder')}
+          <label htmlFor="web-search-provider-select" style={{ fontSize: '11px', color: 'var(--vscode-text-fg)', userSelect: 'none' }}>
+            {t('chatPanel.searchProvider')}
+          </label>
+          <select
+            id="web-search-provider-select"
+            value={searchProviderDraft}
+            onChange={e => { setSearchProviderDraft(e.target.value); setMcpTestStatus(''); }}
             className="vscode-settings-input"
             style={{
               fontSize: '11px',
               padding: '3px 6px',
             }}
-          />
+          >
+            <option value="duckduckgo">{t('chatPanel.providerDuckDuckGo')}</option>
+            <option value="llm_rag">{t('chatPanel.providerLlmRag')}</option>
+            <option value="mcp">{t('chatPanel.providerMcp')}</option>
+          </select>
 
-          <label style={{ fontSize: '11px', color: useMcpDraft ? 'var(--vscode-text-fg)' : 'var(--vscode-text-muted)' }}>{t('chatPanel.toolName')}</label>
-          <input
-            id="mcp-tool-input"
-            type="text"
-            value={mcpToolDraft}
-            disabled={!useMcpDraft}
-            onChange={e => { setMcpToolDraft(e.target.value); setMcpTestStatus(''); }}
-            placeholder={t('chatPanel.mcpToolPlaceholder')}
-            className="vscode-settings-input"
-            style={{
-              fontSize: '11px',
-              padding: '3px 6px',
-            }}
-          />
+          {!isMcpDraft && (
+            <div style={{ fontSize: '10px', color: 'var(--vscode-text-muted)', lineHeight: 1.35 }}>
+              {searchProviderDraft === 'llm_rag'
+                ? t('chatPanel.providerLlmRagHint')
+                : t('chatPanel.providerDuckDuckGoHint')}
+            </div>
+          )}
 
-          <label style={{ fontSize: '11px', color: useMcpDraft ? 'var(--vscode-text-fg)' : 'var(--vscode-text-muted)' }}>{t('chatPanel.apiKeyOptional')}</label>
-          <input
-            id="mcp-api-key-input"
-            type="password"
-            value={mcpApiKeyDraft}
-            disabled={!useMcpDraft}
-            onChange={e => { setMcpApiKeyDraft(e.target.value); setMcpTestStatus(''); }}
-            placeholder={t('chatPanel.mcpApiKeyPlaceholder')}
-            className="vscode-settings-input"
-            style={{
-              fontSize: '11px',
-              padding: '3px 6px',
-            }}
-          />
+          {isMcpDraft && (
+            <>
+              <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('chatPanel.serverUrl')}</label>
+              <input
+                id="mcp-url-input"
+                type="text"
+                value={mcpUrlDraft}
+                onChange={e => { setMcpUrlDraft(e.target.value); setMcpTestStatus(''); }}
+                placeholder={t('chatPanel.mcpUrlPlaceholder')}
+                className="vscode-settings-input"
+                style={{
+                  fontSize: '11px',
+                  padding: '3px 6px',
+                }}
+              />
+
+              <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('chatPanel.toolName')}</label>
+              <input
+                id="mcp-tool-input"
+                type="text"
+                value={mcpToolDraft}
+                onChange={e => { setMcpToolDraft(e.target.value); setMcpTestStatus(''); }}
+                placeholder={t('chatPanel.mcpToolPlaceholder')}
+                className="vscode-settings-input"
+                style={{
+                  fontSize: '11px',
+                  padding: '3px 6px',
+                }}
+              />
+
+              <label style={{ fontSize: '11px', color: 'var(--vscode-text-fg)' }}>{t('chatPanel.apiKeyOptional')}</label>
+              <input
+                id="mcp-api-key-input"
+                type="password"
+                value={mcpApiKeyDraft}
+                onChange={e => { setMcpApiKeyDraft(e.target.value); setMcpTestStatus(''); }}
+                placeholder={t('chatPanel.mcpApiKeyPlaceholder')}
+                className="vscode-settings-input"
+                style={{
+                  fontSize: '11px',
+                  padding: '3px 6px',
+                }}
+              />
+            </>
+          )}
 
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
-            <button
-              id="mcp-test-btn"
-              onClick={handleTestMcp}
-              disabled={!useMcpDraft || !mcpUrlDraft.trim() || mcpTestStatus === 'testing'}
-              className="vscode-button"
-              style={{
-                fontSize: '11px',
-                padding: '3px 8px',
-                background: 'transparent',
-                border: '1px solid var(--vscode-border)',
-                color: 'var(--vscode-text-fg)',
-              }}
-            >
-              {mcpTestStatus === 'testing' ? '...' : t('chatPanel.test')}
-            </button>
+            {isMcpDraft && (
+              <button
+                id="mcp-test-btn"
+                onClick={handleTestMcp}
+                disabled={!mcpUrlDraft.trim() || mcpTestStatus === 'testing'}
+                className="vscode-button"
+                style={{
+                  fontSize: '11px',
+                  padding: '3px 8px',
+                  background: 'transparent',
+                  border: '1px solid var(--vscode-border)',
+                  color: 'var(--vscode-text-fg)',
+                }}
+              >
+                {mcpTestStatus === 'testing' ? '...' : t('chatPanel.test')}
+              </button>
+            )}
             <button
               id="mcp-save-btn"
               onClick={handleSaveMcp}

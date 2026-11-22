@@ -302,10 +302,19 @@ async def test_mcp(mcp_url: str, mcp_tool: str, mcp_api_key: str = "") -> dict[s
 
 # ─── Public search dispatcher ─────────────────────────────────────────────────
 
-async def do_search(query: str, max_results: int = 5) -> str:
-    """Dispatch a search using the active backend (MCP if configured, else ddgs).
+def _is_ddg_failure(result: str) -> bool:
+    """Return True when _ddg_search returned a rate-limit, timeout, error, or empty-throttled diagnostic."""
+    return str(result or "").startswith("[web_search]")
 
-    This is the single entry point called by the `web_search` tool in tools.py.
+
+async def do_search(query: str, max_results: int = 5) -> str:
+    """Dispatch a search using the active backend, with automatic llm_rag fallback.
+
+    Backends:
+    - ``"mcp"`` (when ``mcp_url`` is set): calls the configured MCP server (no silent fallback).
+    - ``"llm_rag"``: uses the built-in LLM + local global RAG search engine directly.
+    - ``"duckduckgo"`` (default): uses ``ddgs`` metasearch and automatically falls back
+      to ``llm_rag`` if ``ddgs`` fails (rate limit, timeout, throttling, or missing package).
     """
     cfg = load_config()
     provider = cfg.get("provider", "duckduckgo")
@@ -315,5 +324,13 @@ async def do_search(query: str, max_results: int = 5) -> str:
 
     if provider == "mcp" and mcp_url:
         return await _mcp_search(mcp_url, mcp_tool, query, max_results, mcp_api_key)
-    else:
-        return _ddg_search(query, max_results)
+
+    if provider == "llm_rag":
+        from .llm_web_search import llm_web_search
+        return await llm_web_search(query, max_results)
+
+    ddg_result = _ddg_search(query, max_results)
+    if _is_ddg_failure(ddg_result):
+        from .llm_web_search import llm_web_search
+        return await llm_web_search(query, max_results)
+    return ddg_result

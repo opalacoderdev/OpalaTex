@@ -628,7 +628,7 @@ export default function App() {
   const [cloudStatus, setCloudStatus] = useState(null);
   // rel path -> synced | pending | syncing | conflict, for the tree badges.
   const [cloudFileStates, setCloudFileStates] = useState(null);
-  const [webSearchConfig, setWebSearchConfig] = useState({ enabled: true, mcp_url: '', mcp_tool: 'web_search' });
+  const [webSearchConfig, setWebSearchConfig] = useState({ enabled: true, provider: 'duckduckgo', mcp_url: '', mcp_tool: 'web_search' });
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
