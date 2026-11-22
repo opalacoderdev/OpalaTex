@@ -255,5 +255,19 @@ jobs:
         run: |
           # Refuse to create a partial release; attach only to an existing one so
           # build.yml remains the sole owner of release creation and tar/zip assets.
-          gh release view "$TARGET_TAG" --repo "${{ github.repository }}" >/dev/null
+          # When triggered alongside a tag push, build.yml may still be finishing
+          # Windows/macOS builds, so wait up to 20 minutes for the release to appear.
+          ready=0
+          for attempt in $(seq 1 40); do
+            if gh release view "$TARGET_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            echo "Release $TARGET_TAG not published yet (attempt $attempt/40); waiting 30s..."
+            sleep 30
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::GitHub Release $TARGET_TAG does not exist after waiting 20 minutes."
+            exit 1
+          fi
           gh release upload "$TARGET_TAG" deb-out/*.deb --clobber --repo "${{ github.repository }}"
