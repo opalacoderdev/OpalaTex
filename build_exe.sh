@@ -102,6 +102,9 @@ else
     echo "OPALATEX_GDRIVE_CLIENT_ID nao definido e nenhum cliente injetado - build sem cliente OAuth embutido."
 fi
 
+echo -e "\n[3.8/4] Atualizando o indice inicial de seeds do LLM Web Search..."
+python scripts/build_web_rag_seeds.py
+
 echo -e "\n[4/4] Empacotando com PyInstaller..."
 # A sintaxe de --add-data no Linux/macOS usa dois pontos (:)
 # Qt is collected by PyInstaller's own PyQt6 hooks, which take only the modules
@@ -117,6 +120,7 @@ pyinstaller --name "OpalaTex" \
             --icon="AppIcons/OpalaTex.ico" \
             --add-data="opalatex/gui:opalatex/gui" \
             --add-data="opalatex/icon.png:opalatex" \
+            --add-data="opalatex/web_rag_seeds.json:opalatex" \
             --add-data="icon.png:." \
             --add-data="opalatex/assetstore:opalatex/assetstore" \
             --add-data="opalatex/templates:opalatex/templates" \

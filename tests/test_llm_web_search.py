@@ -379,5 +379,103 @@ class TestCompactSourceReferences(unittest.TestCase):
         self.assertIn("source reference", text.lower())
 
 
+class TestBundledSeedIndex(unittest.TestCase):
+    def test_build_seed_index_includes_major_sites_and_enforces_size_cap(self):
+        import tempfile
+        from scripts.build_web_rag_seeds import MAX_SEED_INDEX_BYTES, build_seed_index
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "web_rag_seeds.json"
+            payload = build_seed_index(output_path=out_path, fetch_live=False)
+            self.assertTrue(out_path.is_file())
+            self.assertLessEqual(out_path.stat().st_size, MAX_SEED_INDEX_BYTES)
+            urls = {entry["url"] for entry in payload["entries"]}
+            self.assertTrue(any("wikipedia.org" in u for u in urls))
+            self.assertTrue(any("arxiv.org" in u for u in urls))
+            self.assertTrue(any("bbc.com" in u for u in urls))
+            self.assertGreaterEqual(len(urls), 20)
+
+            # Verify strict cap enforcement even with a very small byte limit that forces trimming
+            tiny_path = Path(tmpdir) / "tiny_seeds.json"
+            build_seed_index(output_path=tiny_path, fetch_live=False, max_bytes=5000)
+            self.assertLessEqual(tiny_path.stat().st_size, 5000)
+
+    def test_sync_bundled_seeds_ingests_once_and_updates_on_new_version(self):
+        import tempfile
+        from opalatex.llm_web_search import WebRagStore
+
+        col = _FakeCollection()
+        store = WebRagStore(collection=col)
+
+        # User already indexed a custom page before sync
+        store.index_page(
+            url="https://custom.user.org/notes",
+            title="User Notes",
+            text="Custom user indexed page that must survive seed updates.",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            seed_file = Path(tmpdir) / "web_rag_seeds.json"
+            state_file = Path(tmpdir) / "seed_state.json"
+
+            v1 = {
+                "schema_version": 1,
+                "app_version": "0.2.45",
+                "generated_at": "2026-11-22T12:00:00+00:00",
+                "content_hash": "hash_v1",
+                "entries": [
+                    {
+                        "url": "https://arxiv.org/",
+                        "title": "arXiv.org e-Print archive",
+                        "source": "arXiv",
+                        "category": "science",
+                        "ttl_seconds": 86400,
+                        "summary": "Open-access archive for physics, mathematics, computer science preprints.",
+                    }
+                ],
+            }
+            seed_file.write_text(json.dumps(v1), encoding="utf-8")
+
+            # First sync ingests the bundled seed
+            synced1 = store.sync_bundled_seeds(seed_file=seed_file, state_file=state_file)
+            self.assertEqual(synced1, 1)
+            seeds = store.search_seeds("computer science preprints", top_k=5)
+            self.assertTrue(any("arxiv.org" in s["url"] for s in seeds))
+
+            # Second sync with same version/hash is a no-op
+            synced2 = store.sync_bundled_seeds(seed_file=seed_file, state_file=state_file)
+            self.assertEqual(synced2, 0)
+
+            # New app version updates the bundled seeds while preserving user-indexed pages
+            v2 = dict(v1, app_version="0.2.46", content_hash="hash_v2", entries=[
+                *v1["entries"],
+                {
+                    "url": "https://www.bbc.com/news",
+                    "title": "BBC News",
+                    "source": "BBC News",
+                    "category": "news",
+                    "ttl_seconds": 3600,
+                    "summary": "Breaking world news and international journalism from BBC.",
+                },
+            ])
+            seed_file.write_text(json.dumps(v2), encoding="utf-8")
+            synced3 = store.sync_bundled_seeds(seed_file=seed_file, state_file=state_file)
+            self.assertEqual(synced3, 2)
+
+            news_seeds = store.search_seeds("breaking world news BBC", top_k=5)
+            self.assertTrue(any("bbc.com" in s["url"] for s in news_seeds))
+            user_seeds = store.search_seeds("custom user indexed page", top_k=5)
+            self.assertTrue(any("custom.user.org" in s["url"] for s in user_seeds))
+
+    def test_bundled_seed_artifact_exists_and_is_under_size_limit(self):
+        from scripts.build_web_rag_seeds import MAX_SEED_INDEX_BYTES
+
+        artifact = Path(__file__).resolve().parent.parent / "opalatex" / "web_rag_seeds.json"
+        self.assertTrue(artifact.is_file(), "opalatex/web_rag_seeds.json must be generated and bundled")
+        self.assertLessEqual(artifact.stat().st_size, MAX_SEED_INDEX_BYTES)
+        data = json.loads(artifact.read_text(encoding="utf-8"))
+        self.assertGreaterEqual(len(data.get("entries", [])), 20)
+
+
 if __name__ == "__main__":
     unittest.main()

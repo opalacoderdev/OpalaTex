@@ -213,6 +213,8 @@ parts:
 
       test -f opalatex/gui/index.html
 
+      python3 scripts/build_web_rag_seeds.py
+
       python3 -m venv --copies "$CRAFT_PART_INSTALL"
       "$CRAFT_PART_INSTALL/bin/python" -m pip install --upgrade pip setuptools wheel
       "$CRAFT_PART_INSTALL/bin/python" -m pip install ".[gui]"
@@ -220,6 +222,7 @@ parts:
       # verified floor or mixing Qt releases, as the release builds do.
       "$CRAFT_PART_INSTALL/bin/python" scripts/check_qt_runtime.py
       "$CRAFT_PART_INSTALL/bin/python" -c "from opalatex.assetstore import list_assets; assets = list_assets('template'); assert len(assets) > 0, 'No templates found in assetstore'"
+      "$CRAFT_PART_INSTALL/bin/python" -c "import os, opalatex; f = os.path.join(os.path.dirname(opalatex.__file__), 'web_rag_seeds.json'); assert os.path.isfile(f), 'Missing bundled web_rag_seeds.json'"
 
       # The Google OAuth client is .gitignore'd, so a packaging rule that drops
       # VCS-ignored files removes it without a word and the snap ships with Cloud

@@ -31,6 +31,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any
 
 DEFAULT_TTL_SECONDS = 86400  # 24 hours
@@ -43,6 +44,7 @@ _CHUNK_SIZE_CHARS = 1200
 _CHUNK_OVERLAP_CHARS = 150
 _MAX_CHUNKS_PER_PAGE = 20
 _WEB_RAG_COLLECTION = "opalatex_web_rag"
+_BUNDLED_SEEDS_PATH = Path(__file__).resolve().parent / "web_rag_seeds.json"
 
 
 def canonicalize_url(url: str) -> str:
@@ -203,6 +205,9 @@ class WebRagStore:
         text: str,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
         fetched_at: float | None = None,
+        source: str = "",
+        category: str = "",
+        is_seed: bool = False,
     ) -> int:
         """Chunk and upsert a fetched page into the global RAG collection."""
         canonical = canonicalize_url(url)
@@ -227,6 +232,9 @@ class WebRagStore:
             {
                 "url": canonical,
                 "title": str(title or canonical)[:300],
+                "source": str(source or "")[:80],
+                "category": str(category or "")[:40],
+                "is_seed": bool(is_seed),
                 "domain": domain,
                 "fetched_at": iso_ts,
                 "fetched_ts": ts,
@@ -237,6 +245,97 @@ class WebRagStore:
         ]
         col.upsert(ids=ids, documents=chunks, metadatas=metadatas)
         return len(chunks)
+
+    def sync_bundled_seeds(
+        self,
+        seed_file: Path | None = None,
+        state_file: Path | None = None,
+    ) -> int:
+        """Ingest or refresh bundled authoritative seed sites when the app version updates.
+
+        Preserves any user-indexed pages already present in the global RAG.
+        Returns the number of bundled seed entries ingested (0 if already up to date).
+        """
+        src_path = Path(seed_file) if seed_file is not None else _BUNDLED_SEEDS_PATH
+        if not src_path.is_file():
+            return 0
+
+        try:
+            payload = json.loads(src_path.read_text(encoding="utf-8"))
+        except Exception:
+            return 0
+
+        entries = payload.get("entries") or []
+        if not entries:
+            return 0
+
+        app_version = str(payload.get("app_version") or "")
+        content_hash = str(payload.get("content_hash") or "")
+        generated_at_raw = str(payload.get("generated_at") or "")
+        try:
+            generated_ts = datetime.fromisoformat(generated_at_raw).timestamp() if generated_at_raw else time.time()
+        except ValueError:
+            generated_ts = time.time()
+
+        if state_file is None:
+            from .config import get_opalatex_home
+            marker_path = Path(get_opalatex_home()) / "web_rag_seed_state.json"
+        else:
+            marker_path = Path(state_file)
+
+        try:
+            col = self._get_collection()
+            existing_count = col.count()
+        except Exception:
+            return 0
+
+        if existing_count > 0 and marker_path.is_file():
+            try:
+                prev = json.loads(marker_path.read_text(encoding="utf-8"))
+                if prev.get("app_version") == app_version and prev.get("content_hash") == content_hash:
+                    return 0
+            except Exception:
+                pass
+
+        synced = 0
+        for entry in entries:
+            url = str(entry.get("url") or "").strip()
+            summary = str(entry.get("summary") or "").strip()
+            if not url or not summary:
+                continue
+            title = str(entry.get("title") or url).strip()
+            source = str(entry.get("source") or "").strip()
+            category = str(entry.get("category") or "").strip()
+            ttl_seconds = int(entry.get("ttl_seconds") or DEFAULT_TTL_SECONDS)
+            doc_text = f"{title}. Source: {source or url}. Category: {category}. {summary}"
+            if self.index_page(
+                url=url,
+                title=title,
+                text=doc_text,
+                ttl_seconds=ttl_seconds,
+                fetched_at=generated_ts,
+                source=source,
+                category=category,
+                is_seed=True,
+            ) > 0:
+                synced += 1
+
+        try:
+            marker_path.parent.mkdir(parents=True, exist_ok=True)
+            marker_path.write_text(
+                json.dumps(
+                    {
+                        "app_version": app_version,
+                        "content_hash": content_hash,
+                        "synced_entries": synced,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+        return synced
 
     def search_seeds(
         self,
@@ -288,6 +387,7 @@ class WebRagStore:
                 by_url[url] = {
                     "url": url,
                     "title": str(meta.get("title") or url),
+                    "source": str(meta.get("source") or ""),
                     "snippet": str(doc or "")[:500].strip(),
                     "relevance": round(relevance, 4),
                     "fetched_at": str(meta.get("fetched_at") or ""),
@@ -560,6 +660,10 @@ async def llm_web_search(
     from .litellm_compat import wrap_agent_litellm_compat
 
     rag_store = store or WebRagStore()
+    try:
+        rag_store.sync_bundled_seeds()
+    except Exception:
+        pass
     seeds = rag_store.search_seeds(query, top_k=max(8, max_results * 2))
     session = WebSearchSession(store=rag_store, max_pages=max_pages)
 
