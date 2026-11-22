@@ -172,6 +172,14 @@ bash install.sh
 | Command             | `~/.local/bin/opalatex` (symlink) |
 | Desktop launcher    | `~/.local/share/applications/opalatex.desktop` |
 
+### Debian / Ubuntu 22.04+ / Linux Mint 21+ (`.deb`)
+
+Download `opalatex_<version>_amd64.deb` from [GitHub Releases](https://github.com/opalacoderdev/OpalaTex/releases/latest) and install it with:
+
+```bash
+sudo apt install ./opalatex_*_amd64.deb
+```
+
 ### Windows
 
 Open PowerShell and run:
@@ -378,7 +386,8 @@ Uninstalling keeps your settings, chats, caches, credentials and project directo
 
 | Installation | How to uninstall |
 |--------------|------------------|
-| Ubuntu | `opalatex-uninstall`. Add `--purge` to also remove the global OpalaTex data directory. |
+| Ubuntu (`install.sh`) | `opalatex-uninstall`. Add `--purge` to also remove the global OpalaTex data directory. |
+| Debian / Ubuntu / Mint (`.deb`) | `sudo apt remove opalatex` |
 | Windows | **Settings › Apps › Installed apps › OpalaTex**, or **Uninstall OpalaTex** in the Start menu. The PowerShell `-Purge` switch removes global application data after confirmation. |
 
 <details>
