@@ -385,7 +385,11 @@ def _current_date_instruction(now: datetime | None = None) -> str:
         "checking the web.\n"
         "Scope: search public/external knowledge only. Questions about this workspace go to "
         "the project read tools, and anything that depends on the user's preference goes to "
-        "ask_question. Stop at the first results good enough to answer."
+        "ask_question. Stop at the first results good enough to answer.\n"
+        "Citations: when listing news or presenting facts retrieved via web_search, include "
+        "a concise, uncluttered source reference for each item using a compact inline Markdown "
+        "link with the outlet or domain name (e.g., `([Reuters](https://...))` or "
+        "`([g1.globo.com](https://...))`) rather than pasting raw bare URLs or verbose metadata."
     )
 
 

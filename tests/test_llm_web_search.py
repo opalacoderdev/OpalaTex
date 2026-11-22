@@ -321,5 +321,63 @@ class TestWebSearchConfigFallbackAndProvider(unittest.TestCase):
         self.assertIn("https://direct.example", result)
 
 
+class TestCompactSourceReferences(unittest.TestCase):
+    def test_llm_search_formats_compact_markdown_source_reference(self):
+        from opalatex.llm_web_search import _format_results
+
+        out = _format_results(
+            "latest tech news",
+            [
+                {
+                    "title": "New Python Release",
+                    "url": "https://www.reuters.com/technology/python-release-2026/?utm_source=feed",
+                    "source": "Reuters",
+                    "relevance": 0.91,
+                    "snippet": "Python announces a new release with performance gains.",
+                },
+                {
+                    "title": "AI Chips Update",
+                    "url": "https://www.g1.globo.com/tecnologia/noticia/ai-chips.ghtml",
+                    "relevance": 0.84,
+                    "snippet": "Summary of the latest AI chip announcements.",
+                },
+            ],
+            max_results=5,
+        )
+
+        # Compact inline reference with outlet or clean domain (no www.)
+        self.assertIn("**New Python Release** — [Reuters](https://www.reuters.com/technology/python-release-2026/?utm_source=feed) (relevance: 0.91)", out)
+        self.assertIn("**AI Chips Update** — [g1.globo.com](https://www.g1.globo.com/tecnologia/noticia/ai-chips.ghtml) (relevance: 0.84)", out)
+        # Must not pollute the output with standalone raw URL lines
+        for line in out.splitlines():
+            self.assertFalse(line.strip().startswith("http://") or line.strip().startswith("https://"), f"Bare URL line found: {line}")
+
+    def test_ddg_search_formats_compact_markdown_source_reference(self):
+        from opalatex import web_search_config as wsc
+
+        fake_ddgs = MagicMock()
+        fake_ddgs.return_value.text.return_value = [
+            {
+                "title": "Headline One",
+                "href": "https://www.bbc.com/news/world-12345",
+                "body": "Short news summary.",
+            }
+        ]
+        with patch.object(wsc, "_ddgs_class", return_value=fake_ddgs), \
+             patch.object(wsc, "_DDGS_MIN_INTERVAL_S", 0.0), \
+             patch.object(wsc, "_ddgs_state", {"cls": None, "client": None, "last_finished": 0.0}):
+            out = wsc._ddg_search("world news", max_results=1)
+
+        self.assertIn("**Headline One** — [bbc.com](https://www.bbc.com/news/world-12345)", out)
+        for line in out.splitlines():
+            self.assertFalse(line.strip().startswith("https://"), f"Bare URL line found: {line}")
+
+    def test_web_search_policy_instructs_compact_citations(self):
+        runtime_src = Path(__file__).resolve().parent.parent / "opalatex" / "memgpt_runtime.py"
+        text = runtime_src.read_text(encoding="utf-8")
+        self.assertIn("Citations:", text)
+        self.assertIn("source reference", text.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

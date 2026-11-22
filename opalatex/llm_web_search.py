@@ -56,6 +56,17 @@ def canonicalize_url(url: str) -> str:
     return urllib.parse.urlunsplit((scheme, netloc, path, parsed.query, ""))
 
 
+def source_label_for_url(url: str, source: str = "") -> str:
+    """Return a short, human-readable source label (outlet name or clean domain)."""
+    explicit = " ".join(str(source or "").split()).strip()
+    if explicit:
+        return explicit[:40]
+    host = (urllib.parse.urlsplit(str(url or "").strip()).hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host or "source"
+
+
 def _validate_http_url(url: str) -> str:
     """Validate and canonicalize an HTTP(S) URL; raise ValueError otherwise."""
     raw = str(url or "").strip()
@@ -468,7 +479,8 @@ def _build_search_prompt(query: str, max_results: int, seeds: list[dict[str, Any
         "outgoing links. Never call fetch_page on the same URL twice.\n"
         "4. Return ONLY a JSON array of up to "
         f"{max_results} result objects sorted by relevance descending, each with keys: "
-        '"title" (string), "url" (string), "relevance" (float 0.0-1.0), and "snippet" (string).'
+        '"title" (string), "source" (short outlet or site name, e.g. "Reuters" or "g1.globo.com"), '
+        '"url" (string), "relevance" (float 0.0-1.0), and "snippet" (string).'
     )
 
 
@@ -499,6 +511,7 @@ def _parse_json_results(raw_text: str) -> list[dict[str, Any]]:
         if not url:
             continue
         title = str(item.get("title") or url).strip()
+        source = str(item.get("source") or "").strip()
         snippet = str(item.get("snippet") or "").strip()
         try:
             rel = max(0.0, min(1.0, float(item.get("relevance", 0.5))))
@@ -506,6 +519,7 @@ def _parse_json_results(raw_text: str) -> list[dict[str, Any]]:
             rel = 0.5
         cleaned.append({
             "title": title,
+            "source": source,
             "url": url,
             "relevance": rel,
             "snippet": snippet,
@@ -514,7 +528,7 @@ def _parse_json_results(raw_text: str) -> list[dict[str, Any]]:
 
 
 def _format_results(query: str, items: list[dict[str, Any]], max_results: int) -> str:
-    """Format search results with title, URL, relevance, and snippet."""
+    """Format search results with title, compact source link, relevance, and snippet."""
     if not items:
         return f"[web_search] No results found via LLM web search for: {query}"
     ordered = sorted(items, key=lambda x: float(x.get("relevance", 0.0)), reverse=True)[:max_results]
@@ -522,9 +536,14 @@ def _format_results(query: str, items: list[dict[str, Any]], max_results: int) -
     for item in ordered:
         rel = float(item.get("relevance", 0.0))
         title = item.get("title") or item.get("url")
-        url = item.get("url", "")
+        url = str(item.get("url") or "").strip()
         snippet = item.get("snippet", "")
-        blocks.append(f"**{title}** (relevance: {rel:.2f})\n{url}\n{snippet}")
+        if url:
+            label = source_label_for_url(url, item.get("source", ""))
+            header = f"**{title}** — [{label}]({url}) (relevance: {rel:.2f})"
+        else:
+            header = f"**{title}** (relevance: {rel:.2f})"
+        blocks.append(f"{header}\n{snippet}" if snippet else header)
     return f"Web search results for: {query}\n\n" + "\n\n---\n\n".join(blocks)
 
 

@@ -177,12 +177,18 @@ def _ddg_search(query: str, max_results: int) -> str:
     finally:
         _DDGS_LOCK.release()
 
+    from .llm_web_search import source_label_for_url
+
     results = []
     for r in (raw or []):
         title = r.get("title", "")
-        href = r.get("href", "")
+        href = (r.get("href", "") or "").strip()
         body = r.get("body", "")
-        results.append(f"**{title}**\n{href}\n{body}")
+        if href:
+            label = source_label_for_url(href)
+            results.append(f"**{title}** — [{label}]({href})\n{body}")
+        else:
+            results.append(f"**{title}**\n{body}")
     if not results:
         return _ddgs_no_results_message(query)
     header = f"Web search results for: {query}\n\n"
