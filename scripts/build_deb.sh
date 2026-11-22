@@ -222,7 +222,7 @@ Architecture: ${ARCH}
 Maintainer: Gilzamir Gomes <opalacoderdev@users.noreply.github.com>
 Homepage: https://github.com/opalacoderdev/OpalaTex
 Installed-Size: ${INSTALLED_SIZE}
-Depends: libc6 (>= ${MAX_GLIBC}), libgl1, libegl1, libopengl0, libdrm2, libgbm1, libx11-6, libxcb1, libxcomposite1, libxdamage1, libxfixes3, libxi6, libxrandr2, libxrender1, libxshmfence1, libxtst6, libxkbcommon0, libxkbfile1, libnss3, libnspr4, libdbus-1-3, libexpat1, libfontconfig1, libasound2 | libasound2t64, libatk1.0-0 | libatk1.0-0t64, libatk-bridge2.0-0 | libatk-bridge2.0-0t64, libcups2 | libcups2t64
+Depends: libc6 (>= ${MAX_GLIBC}), libstdc++6, libgcc-s1, zlib1g, libffi8, libgmp10, libgraphite2-3, libssl3 | libssl3t64, libgl1, libegl1, libopengl0, libdrm2, libgbm1, libx11-6, libx11-xcb1, libxcb1, libxcb-dri3-0, libxcb-glx0, libxcomposite1, libxdamage1, libxfixes3, libxi6, libxrandr2, libxrender1, libxshmfence1, libxtst6, libxkbcommon0, libxkbfile1, libwayland-client0, libnss3, libnspr4, libdbus-1-3, libexpat1, libfontconfig1, libfreetype6, libasound2 | libasound2t64, libatk1.0-0 | libatk1.0-0t64, libatk-bridge2.0-0 | libatk-bridge2.0-0t64, libcups2 | libcups2t64
 Recommends: espeak-ng, libespeak-ng1, git, xdg-utils, libglib2.0-bin
 Description: Free, open-source AI agent workspace for your projects
  OpalaTex is a free, open-source AI agent workspace with a desktop editor,

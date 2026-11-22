@@ -81,6 +81,9 @@ def test_build_deb_produces_valid_package_layout(tmp_path):
     assert "Version: 0.2.45" in info
     assert "Architecture: amd64" in info
     assert "libc6 (>= 2.35)" in info
+    assert "libgraphite2-3" in info
+    assert "libssl3 | libssl3t64" in info
+    assert "libgmp10" in info
     assert "libasound2 | libasound2t64" in info
     assert "espeak-ng" in info
 
