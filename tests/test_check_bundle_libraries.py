@@ -168,3 +168,85 @@ def test_the_linux_build_runs_the_gate_after_pyinstaller():
     assert script.index("pyinstaller --name") < script.index(
         "python scripts/check_bundle_libraries.py dist/OpalaTex"
     )
+
+
+def test_parse_required_glibc_versions_reads_verneed_and_ignores_verdef():
+    readelf_output = (
+        "Version definition section '.gnu.version_d' contains 2 entries:\n"
+        "  0x0000: Rev: 1  Flags: none  Index: 2  Cnt: 1  Name: GLIBC_2.43\n"
+        "\n"
+        "Version needs section '.gnu.version_r' contains 2 entries:\n"
+        " Addr: 0x0000000000001000  Offset: 0x001000  Link: 6 (.dynstr)\n"
+        "  000000: Version: 1  File: libc.so.6  Cnt: 3\n"
+        "  0x0010:   Name: GLIBC_2.42  Flags: none  Version: 4\n"
+        "  0x0020:   Name: GLIBC_2.39  Flags: none  Version: 3\n"
+        "  0x0030:   Name: GLIBC_2.2.5  Flags: none  Version: 2\n"
+        "  0x0040: Version: 1  File: libstdc++.so.6  Cnt: 1\n"
+        "  0x0050:   Name: GLIBCXX_3.4.35  Flags: none  Version: 5\n"
+    )
+
+    assert gate.parse_required_glibc_versions(readelf_output) == {
+        (2, 2, 5),
+        (2, 39),
+        (2, 42),
+    }
+
+
+def test_glibc_problems_refuses_binaries_requiring_newer_glibc(tmp_path):
+    bundle, internal = _bundle(tmp_path, "libglib-2.0.so.0", "libok.so.1")
+    (internal / "readme.txt").write_text("not an elf", encoding="utf-8")
+    (internal / "libglib-link.so").symlink_to(internal / "libglib-2.0.so.0")
+
+    outputs = {
+        internal / "libglib-2.0.so.0": (
+            "Version needs section '.gnu.version_r' contains 1 entry:\n"
+            "  0x0010:   Name: GLIBC_2.43  Flags: none  Version: 3\n"
+            "  0x0020:   Name: GLIBC_2.39  Flags: none  Version: 2\n"
+        ),
+        internal / "libok.so.1": (
+            "Version needs section '.gnu.version_r' contains 1 entry:\n"
+            "  0x0010:   Name: GLIBC_2.39  Flags: none  Version: 2\n"
+            "  0x0020:   Name: GLIBC_2.2.5  Flags: none  Version: 1\n"
+        ),
+    }
+
+    problems = gate.glibc_problems(bundle, readelf=lambda path: outputs[path])
+
+    assert len(problems) == 1
+    assert "libglib-2.0.so.0" in problems[0]
+    assert "GLIBC_2.43" in problems[0]
+    assert "GLIBC_2.39" in problems[0]
+
+
+@pytest.mark.skipif(platform.system() != "Linux" or not shutil.which("readelf"), reason="needs Linux readelf")
+def test_real_readelf_enforces_glibc_ceiling(tmp_path):
+    binary = Path(shutil.which("readelf"))
+    bundle, internal = _bundle(tmp_path)
+    internal.mkdir(parents=True, exist_ok=True)
+    target = internal / "sample-elf"
+    shutil.copy(binary, target)
+
+    # An impossibly low ceiling must reject the real host ELF; a high one accepts it.
+    assert gate.glibc_problems(bundle, max_glibc=(2, 0))
+    assert gate.glibc_problems(bundle, max_glibc=(2, 99)) == []
+
+
+def test_the_release_runner_is_pinned_to_ubuntu_24_04():
+    """Floating on ubuntu-latest moved builds onto Ubuntu 26.04 (glibc 2.43)."""
+    import yaml
+
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
+    )
+    build_job = workflow["jobs"]["build"]
+    runners = build_job["strategy"]["matrix"]["os"]
+
+    assert "ubuntu-24.04" in runners
+    assert "ubuntu-latest" not in runners
+    linux_steps = [
+        step for step in build_job["steps"]
+        if "ubuntu" in str(step.get("if", ""))
+    ]
+    assert linux_steps
+    for step in linux_steps:
+        assert "ubuntu-latest" not in step["if"]

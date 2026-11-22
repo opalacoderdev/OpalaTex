@@ -19,9 +19,16 @@ PyInstaller excludes on purpose (glibc, the GL/EGL/DRM driver stack,
 and are allowed to come from the system; the gate asks PyInstaller itself which
 those are rather than keeping a copy of its list.
 
+It also checks the ELF ``.gnu.version_r`` section of every binary in the bundle
+via ``readelf -V`` against ``MAX_GLIBC_VERSION`` (2.39, Ubuntu 24.04 / Linux
+Mint 22). A bundle built on a newer distro (such as Ubuntu 26.04 with glibc
+2.43) passes ``ldd`` on the build host yet fails to load PyQt6 on Ubuntu 24.04
+because bundled copies of ``libglib-2.0.so.0`` and ``libasound.so.2`` require
+``GLIBC_2.43``.
+
     python scripts/check_bundle_libraries.py dist/OpalaTex
 
-Exit codes: 0 when every dependency is bundled or host-provided, 1 otherwise.
+Exit codes: 0 when every check passes, 1 otherwise.
 """
 
 from __future__ import annotations
@@ -32,6 +39,10 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Callable, Iterable
+
+# Oldest supported Linux release is Ubuntu 24.04 (and Linux Mint 22), which
+# ships glibc 2.39 (PROJECT_DESIGN.md §2.3.1).
+MAX_GLIBC_VERSION: tuple[int, int] = (2, 39)
 
 # Relative to the bundle's contents directory (`_internal`). Globs, because the
 # Python version is part of the library name.
@@ -46,6 +57,8 @@ ROOTS = (
 )
 
 _LDD_LINE = re.compile(r"^\s*(\S+)\s+=>\s+(not found|\S+)")
+_GLIBC_NEED = re.compile(r"Name:\s+GLIBC_(\d+(?:\.\d+)+)\b")
+_ELF_MAGIC = b"\x7fELF"
 
 
 def contents_dir(bundle: Path) -> Path:
@@ -138,6 +151,94 @@ def bundle_problems(
     return problems
 
 
+def _version_key(version: tuple[int, ...]) -> tuple[int, int, int]:
+    padded = list(version[:3]) + [0, 0, 0]
+    return (padded[0], padded[1], padded[2])
+
+
+def _format_glibc(version: tuple[int, ...]) -> str:
+    return "GLIBC_" + ".".join(str(part) for part in version)
+
+
+def parse_required_glibc_versions(readelf_output: str) -> set[tuple[int, ...]]:
+    """Return every ``GLIBC_*`` version required in ``.gnu.version_r``.
+
+    Only the ``Version needs section '.gnu.version_r'`` block is inspected so
+    versions a library *defines* (``.gnu.version_d``) are never mistaken for
+    runtime requirements.
+    """
+    marker = "Version needs section '.gnu.version_r'"
+    start = readelf_output.find(marker)
+    if start == -1:
+        return set()
+    section = readelf_output[start:]
+    next_section = section.find("\nVersion ", len(marker))
+    if next_section != -1:
+        section = section[:next_section]
+    return {
+        tuple(int(part) for part in match.group(1).split("."))
+        for match in _GLIBC_NEED.finditer(section)
+    }
+
+
+def run_readelf(binary: Path) -> str:
+    env = {**os.environ, "LC_ALL": "C"}
+    result = subprocess.run(
+        ["readelf", "-V", str(binary)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"readelf -V {binary} failed: {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return result.stdout
+
+
+def iter_elf_files(bundle: Path) -> list[Path]:
+    """Return all regular (non-symlink) ELF files inside ``bundle``."""
+    elfs = []
+    for path in sorted(bundle.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            with path.open("rb") as handle:
+                if handle.read(4) == _ELF_MAGIC:
+                    elfs.append(path)
+        except OSError:
+            continue
+    return elfs
+
+
+def glibc_problems(
+    bundle: Path,
+    *,
+    max_glibc: tuple[int, ...] = MAX_GLIBC_VERSION,
+    readelf: Callable[[Path], str] = run_readelf,
+) -> list[str]:
+    """Refuse any bundled ELF requiring a glibc newer than ``max_glibc``."""
+    ceiling = _version_key(max_glibc)
+    ceiling_label = _format_glibc(max_glibc)
+    problems = []
+    for elf in iter_elf_files(bundle):
+        required = parse_required_glibc_versions(readelf(elf))
+        too_new = sorted(
+            (ver for ver in required if _version_key(ver) > ceiling),
+            key=_version_key,
+        )
+        if too_new:
+            rel = elf.relative_to(bundle)
+            tags = ", ".join(_format_glibc(ver) for ver in too_new)
+            problems.append(
+                f"{rel} requires {tags}, above the supported ceiling {ceiling_label} "
+                "(Ubuntu 24.04 / Linux Mint 22); build on ubuntu-24.04 so bundled "
+                "libraries stay compatible with every supported Linux release"
+            )
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 1:
@@ -149,18 +250,31 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     problems = bundle_problems(bundle)
-    if not problems:
-        print(f"Every library the window needs is bundled or host-provided ({bundle}).")
+    glibc_errs = glibc_problems(bundle)
+    all_problems = problems + glibc_errs
+    if not all_problems:
+        print(
+            f"Every library the window needs is bundled or host-provided and within "
+            f"{_format_glibc(MAX_GLIBC_VERSION)} ({bundle})."
+        )
         return 0
 
     annotate = os.environ.get("GITHUB_ACTIONS") == "true"
-    for problem in problems:
+    for problem in all_problems:
         print(f"::error::{problem}" if annotate else f"ERROR: {problem}", file=sys.stderr)
-    print(
-        "Install the package that provides each library on the build machine before running "
-        "PyInstaller (build.yml lists them for the release runner), so it is copied into the bundle.",
-        file=sys.stderr,
-    )
+    if problems:
+        print(
+            "Install the package that provides each missing library on the build machine before "
+            "running PyInstaller (build.yml lists them for the release runner), so it is copied "
+            "into the bundle.",
+            file=sys.stderr,
+        )
+    if glibc_errs:
+        print(
+            f"Build Linux releases on Ubuntu 24.04 so no bundled binary requires symbols newer "
+            f"than {_format_glibc(MAX_GLIBC_VERSION)}.",
+            file=sys.stderr,
+        )
     return 1
 
 

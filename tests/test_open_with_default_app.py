@@ -16,6 +16,7 @@ from opalatex.ide_server import (
     AsyncHTTPServer,
     _desktop_open_command,
     _desktop_open_failure,
+    _open_url_in_browser,
     _running_in_snap,
 )
 
@@ -262,4 +263,50 @@ async def test_wsl_falls_back_when_explorer_not_on_path(
 
     assert responses == [(200, {"success": True})]
     assert launched["args"] == ["xdg-open", str(project)]
+
+
+def test_open_url_in_browser_strips_pyinstaller_ld_library_path_on_linux(monkeypatch):
+    """Browser launches must not leak PyInstaller's _internal into xdg-open/bash/awk."""
+    import shutil
+
+    _leave_snap(monkeypatch)
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/bin/xdg-open" if cmd == "xdg-open" else None)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/home/u/.local/share/OpalaTex/_internal")
+    monkeypatch.delenv("LD_LIBRARY_PATH_ORIG", raising=False)
+
+    launched = {}
+
+    def fake_popen(args, env=None, **kwargs):
+        launched["args"] = args
+        launched["env"] = env
+        return _FakeProc(0)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    assert _open_url_in_browser("http://127.0.0.1:3002") is True
+    assert launched["args"] == ["xdg-open", "http://127.0.0.1:3002"]
+    assert "LD_LIBRARY_PATH" not in launched["env"]
+
+
+def test_open_url_in_browser_restores_ld_library_path_orig_on_linux(monkeypatch):
+    import shutil
+
+    _leave_snap(monkeypatch)
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/bin/xdg-open" if cmd == "xdg-open" else None)
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/home/u/.local/share/OpalaTex/_internal")
+    monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", "/opt/custom/lib")
+
+    launched = {}
+
+    def fake_popen(args, env=None, **kwargs):
+        launched["args"] = args
+        launched["env"] = env
+        return _FakeProc(0)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    assert _open_url_in_browser("http://127.0.0.1:3002") is True
+    assert launched["env"]["LD_LIBRARY_PATH"] == "/opt/custom/lib"
 

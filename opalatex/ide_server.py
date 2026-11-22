@@ -100,6 +100,37 @@ def _desktop_open_command(target_path: str) -> list[str]:
     return ["xdg-open", target_path]
 
 
+def _external_app_env() -> dict[str, str]:
+    """Return an environment safe for launching external host applications.
+
+    Strip PyInstaller's LD_LIBRARY_PATH so system apps (xdg-open, browsers,
+    file managers, bash/awk helpers) do not load libraries from `_internal/`.
+    A snap's LD_LIBRARY_PATH is its own runtime rather than a frozen loader's,
+    and dropping it would break the helpers the snap itself ships.
+    """
+    env = os.environ.copy()
+    if 'LD_LIBRARY_PATH_ORIG' in env:
+        env['LD_LIBRARY_PATH'] = env['LD_LIBRARY_PATH_ORIG']
+    elif 'LD_LIBRARY_PATH' in env and not _running_in_snap():
+        del env['LD_LIBRARY_PATH']
+    return env
+
+
+def _open_url_in_browser(url: str) -> bool:
+    """Open ``url`` in the user's default browser without leaking PyInstaller's loader path."""
+    import platform
+    import shutil
+    import subprocess
+    import webbrowser
+
+    if platform.system() == "Linux":
+        cmd = _desktop_open_command(url)
+        if os.path.isabs(cmd[0]) or shutil.which(cmd[0]):
+            subprocess.Popen(cmd, env=_external_app_env())
+            return True
+    return bool(webbrowser.open(url, new=1, autoraise=True))
+
+
 # How long to watch a launcher before calling it a success. A desktop launcher
 # hands the path over and exits within milliseconds, so this only has to outlast
 # process startup.
@@ -2273,14 +2304,7 @@ class AsyncHTTPServer:
                 import subprocess, platform
                 system = platform.system()
 
-                # Strip PyInstaller's LD_LIBRARY_PATH so system apps (like nautilus or image viewers) don't crash.
-                # A snap's LD_LIBRARY_PATH is its own runtime rather than a frozen loader's, and dropping it would
-                # only break the helpers the snap itself ships.
-                env = os.environ.copy()
-                if 'LD_LIBRARY_PATH_ORIG' in env:
-                    env['LD_LIBRARY_PATH'] = env['LD_LIBRARY_PATH_ORIG']
-                elif 'LD_LIBRARY_PATH' in env and not _running_in_snap():
-                    del env['LD_LIBRARY_PATH']
+                env = _external_app_env()
 
                 proc = None
                 accept_codes = (0,)
@@ -5644,7 +5668,6 @@ class AsyncHTTPServer:
         # a `target="_blank"` link does nothing at all — so an authorization URL
         # the user is asked to follow has to be opened from here.
         elif path == '/api/system/open-url' and method == 'POST':
-            import webbrowser
             from urllib.parse import urlparse
             url = str(data.get('url', '') or '').strip()
             scheme = urlparse(url).scheme.lower() if url else ""
@@ -5658,7 +5681,7 @@ class AsyncHTTPServer:
             try:
                 # Launching a browser can block while the desktop portal answers.
                 opened = await asyncio.get_running_loop().run_in_executor(
-                    None, lambda: bool(webbrowser.open(url, new=1, autoraise=True))
+                    None, lambda: _open_url_in_browser(url)
                 )
                 self.send_response(writer, 200, json.dumps({"opened": opened}).encode('utf-8'), "application/json")
             except Exception as e:
@@ -7030,17 +7053,32 @@ def start_gui_server(host="127.0.0.1", port=3000):
         )
 
     except (ImportError, Exception) as e:
+        import sys as _err_sys
         import traceback
+        qt_detail = None
+        if _err_sys.platform != "win32":
+            # qtpy swallows the underlying ImportError (such as a missing GLIBC
+            # version or shared library) and raises QtBindingsNotFoundError;
+            # probe PyQt6 directly so the real cause is logged and printed.
+            try:
+                import PyQt6.QtCore  # noqa: F401
+                import PyQt6.QtWebEngineWidgets  # noqa: F401
+            except Exception as qt_exc:
+                qt_detail = f"{type(qt_exc).__name__}: {qt_exc}"
+
         with open("pywebview_error.log", "w", encoding="utf-8") as f:
             f.write(f"Error type: {type(e).__name__}\n")
             f.write(f"Error msg: {e}\n")
+            if qt_detail:
+                f.write(f"Qt import detail: {qt_detail}\n")
             f.write(traceback.format_exc())
 
         # Graceful fallback: open in the default web browser
-        import webbrowser
+        if qt_detail:
+            print(f"[OpalaTex] Qt import detail: {qt_detail}")
         print(f"[OpalaTex] pywebview failed to launch ({type(e).__name__}: {e}) — opening browser at {url}")
         backend_thread = _start_backend()
-        webbrowser.open(url)
+        _open_url_in_browser(url)
         # Keep the server alive
         try:
             backend_thread.join()
