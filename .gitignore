@@ -104,6 +104,9 @@ MANIFEST
 *.token
 snapcraft-login
 snapcraft-login*
+snapcraft.login
+snapcraft.login*
+*.login
 license.dat
 id_rsa
 id_rsa.*
