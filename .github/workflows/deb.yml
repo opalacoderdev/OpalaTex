@@ -235,9 +235,64 @@ jobs:
 
           echo "Clean Ubuntu 22.04 / Linux Mint 21 smoke test passed."
 
+  test-deb-2404:
+    name: Smoke test .deb on clean Ubuntu 24.04 (Mint 22)
+    needs: build-deb
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:24.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - name: Download .deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: OpalaTex-linux-mint21-deb
+          path: deb-out
+
+      - name: Install .deb and verify no Mesa/GVFS library shadowing on Ubuntu 24.04
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libgl1-mesa-dri libglx-mesa0 libegl-mesa0
+          cp deb-out/*.deb /tmp/
+          chmod 0644 /tmp/opalatex_*.deb
+          apt-get install -y --no-install-recommends /tmp/opalatex_*.deb
+
+          opalatex --version
+          opalatex --help
+
+          if [ -x /opt/opalatex/_internal/bin/tectonic ]; then
+            /opt/opalatex/_internal/bin/tectonic --version
+          fi
+          if [ -x /opt/opalatex/_internal/bin/pandoc ]; then
+            /opt/opalatex/_internal/bin/pandoc --version | head -n 2
+          fi
+
+          # Verify host Mesa GLX/EGL drivers and Qt plugins link cleanly under
+          # PyInstaller's LD_LIBRARY_PATH (regression check for bundled
+          # libstdc++.so.6 breaking host LLVM GLIBCXX_3.4.32 / GLX).
+          bad="$(
+            LD_LIBRARY_PATH=/opt/opalatex/_internal ldd -r \
+              /usr/lib/x86_64-linux-gnu/libGLX_mesa.so.0 \
+              /usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0 \
+              /opt/opalatex/_internal/PyQt6/Qt6/plugins/platforms/libqxcb.so \
+              /opt/opalatex/_internal/PyQt6/Qt6/plugins/xcbglintegrations/libqxcb-glx-integration.so \
+              /opt/opalatex/_internal/PyQt6/Qt6/plugins/xcbglintegrations/libqxcb-egl-integration.so \
+              /opt/opalatex/_internal/PyQt6/Qt6/libexec/QtWebEngineProcess \
+              2>&1 | grep -E 'not found|undefined symbol' || true
+          )"
+          if [ -n "$bad" ]; then
+            echo "::error::Library resolution or symbol conflict on Ubuntu 24.04:"
+            echo "$bad"
+            exit 1
+          fi
+
+          echo "Clean Ubuntu 24.04 / Linux Mint 22 smoke test passed."
+
   publish-deb:
     name: Attach .deb to existing GitHub Release
-    needs: [build-deb, test-deb]
+    needs: [build-deb, test-deb, test-deb-2404]
     if: ${{ inputs.attach_to_release && inputs.tag != '' }}
     runs-on: ubuntu-24.04
 

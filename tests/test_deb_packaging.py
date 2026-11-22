@@ -37,6 +37,20 @@ def _make_fake_bundle(tmp_path: Path) -> Path:
     exe.chmod(0o755)
     (internal / "uninstall.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     (internal / "data.txt").write_text("payload", encoding="utf-8")
+    # Simulate host-copied core libraries that PyInstaller bundles from the
+    # build container; shipping Ubuntu 22.04 copies of these breaks Mesa/LLVM
+    # (GLIBCXX_3.4.32) and host GVFS modules (g_task_set_static_name) on
+    # Linux Mint 22 / Ubuntu 24.04+.
+    for shadowing_lib in (
+        "libstdc++.so.6",
+        "libgcc_s.so.1",
+        "libmvec.so.1",
+        "libgbm.so.1",
+        "libglib-2.0.so.0",
+        "libgio-2.0.so.0",
+        "libgobject-2.0.so.0",
+    ):
+        (internal / shadowing_lib).write_text("fake-so", encoding="utf-8")
     return bundle
 
 
@@ -84,6 +98,8 @@ def test_build_deb_produces_valid_package_layout(tmp_path):
     assert "libgraphite2-3" in info
     assert "libssl3 | libssl3t64" in info
     assert "libgmp10" in info
+    assert "libglib2.0-0 | libglib2.0-0t64" in info
+    assert "libzstd1" in info
     assert "libasound2 | libasound2t64" in info
     assert "espeak-ng" in info
 
@@ -98,6 +114,16 @@ def test_build_deb_produces_valid_package_layout(tmp_path):
     assert "./usr/share/applications/opalatex.desktop" in contents
     assert "./usr/share/pixmaps/opalatex.png" in contents
     assert "uninstall.sh" not in contents
+    for forbidden in (
+        "libstdc++.so.6",
+        "libgcc_s.so.1",
+        "libmvec.so.1",
+        "libgbm.so.1",
+        "libglib-2.0.so.0",
+        "libgio-2.0.so.0",
+        "libgobject-2.0.so.0",
+    ):
+        assert forbidden not in contents
 
     extracted = tmp_path / "extracted"
     subprocess.run(["dpkg-deb", "-R", str(deb_path), str(extracted)], check=True)
@@ -163,6 +189,11 @@ def test_deb_workflow_is_manual_only_and_targets_ubuntu_22_04():
     assert test_job["runs-on"] == "ubuntu-24.04"
     assert test_job["container"]["image"] == "ubuntu:22.04"
     assert test_job["needs"] == "build-deb"
+
+    test_2404_job = workflow["jobs"]["test-deb-2404"]
+    assert test_2404_job["runs-on"] == "ubuntu-24.04"
+    assert test_2404_job["container"]["image"] == "ubuntu:24.04"
+    assert test_2404_job["needs"] == "build-deb"
 
     publish_job = workflow["jobs"]["publish-deb"]
     assert "attach_to_release" in str(publish_job["if"])

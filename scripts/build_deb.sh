@@ -153,6 +153,40 @@ chmod 0755 "$APP_DIR/OpalaTex"
 # managed exclusively by dpkg/apt.
 rm -f "$APP_DIR/uninstall.sh" "$APP_DIR/_internal/uninstall.sh"
 
+# Strip core host system libraries that PyInstaller copies from Ubuntu 22.04.
+# Because PyInstaller prepends `_internal` to LD_LIBRARY_PATH, shipping Ubuntu
+# 22.04's libstdc++.so.6 (max GLIBCXX_3.4.30) shadows Ubuntu 24.04 / Linux Mint
+# 22's GCC 14 libstdc++, breaking host Mesa/LLVM (which needs GLIBCXX_3.4.32)
+# and aborting Qt with "Could not initialize GLX". Similarly, bundling GLib 2.72
+# shadows Mint 22's GLib 2.80 and breaks host GVFS modules
+# (`g_task_set_static_name`). Every library removed here is backward-compatible
+# and declared in DEBIAN/control's Depends so apt guarantees it on Mint 21+.
+for host_lib in \
+    libstdc++.so.6 \
+    libgcc_s.so.1 \
+    libmvec.so.1 \
+    libgbm.so.1 \
+    libglib-2.0.so.0 \
+    libgio-2.0.so.0 \
+    libgobject-2.0.so.0 \
+    libgmodule-2.0.so.0 \
+    libgthread-2.0.so.0 \
+    libexpat.so.1 \
+    libffi.so.8 \
+    libz.so.1 \
+    libzstd.so.1 \
+    liblzma.so.5 \
+    libpcre2-8.so.0 \
+    libmount.so.1 \
+    libblkid.so.1 \
+    libselinux.so.1 \
+    libuuid.so.1 \
+    libsystemd.so.0 \
+    libudev.so.1 \
+    libdbus-1.so.3; do
+    rm -f "$APP_DIR/$host_lib" "$APP_DIR/_internal/$host_lib"
+done
+
 ln -s /opt/opalatex/OpalaTex "$STAGE_DIR/usr/bin/opalatex"
 
 ICON_SRC=""
@@ -222,7 +256,7 @@ Architecture: ${ARCH}
 Maintainer: Gilzamir Gomes <opalacoderdev@users.noreply.github.com>
 Homepage: https://github.com/opalacoderdev/OpalaTex
 Installed-Size: ${INSTALLED_SIZE}
-Depends: libc6 (>= ${MAX_GLIBC}), libstdc++6, libgcc-s1, zlib1g, libffi8, libgmp10, libgraphite2-3, libssl3 | libssl3t64, libgl1, libegl1, libopengl0, libdrm2, libgbm1, libx11-6, libx11-xcb1, libxcb1, libxcb-dri3-0, libxcb-glx0, libxcomposite1, libxdamage1, libxfixes3, libxi6, libxrandr2, libxrender1, libxshmfence1, libxtst6, libxkbcommon0, libxkbfile1, libwayland-client0, libnss3, libnspr4, libdbus-1-3, libexpat1, libfontconfig1, libfreetype6, libasound2 | libasound2t64, libatk1.0-0 | libatk1.0-0t64, libatk-bridge2.0-0 | libatk-bridge2.0-0t64, libcups2 | libcups2t64
+Depends: libc6 (>= ${MAX_GLIBC}), libstdc++6, libgcc-s1, zlib1g, libzstd1, liblzma5, libpcre2-8-0, libmount1, libblkid1, libselinux1, libuuid1, libsystemd0, libudev1, libffi8, libgmp10, libgraphite2-3, libssl3 | libssl3t64, libglib2.0-0 | libglib2.0-0t64, libgl1, libegl1, libopengl0, libdrm2, libgbm1, libx11-6, libx11-xcb1, libxcb1, libxcb-dri3-0, libxcb-glx0, libxcomposite1, libxdamage1, libxfixes3, libxi6, libxrandr2, libxrender1, libxshmfence1, libxtst6, libxkbcommon0, libxkbfile1, libwayland-client0, libnss3, libnspr4, libdbus-1-3, libexpat1, libfontconfig1, libfreetype6, libasound2 | libasound2t64, libatk1.0-0 | libatk1.0-0t64, libatk-bridge2.0-0 | libatk-bridge2.0-0t64, libcups2 | libcups2t64
 Recommends: espeak-ng, libespeak-ng1, git, xdg-utils, libglib2.0-bin
 Description: Free, open-source AI agent workspace for your projects
  OpalaTex is a free, open-source AI agent workspace with a desktop editor,
