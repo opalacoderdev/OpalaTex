@@ -1,0 +1,259 @@
+name: Build Linux Mint 21 (.deb) Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Optional Git tag to check out and build (e.g. v0.2.45). Leave empty to build the selected branch.'
+        required: false
+        default: ''
+      attach_to_release:
+        description: 'Attach the built .deb to the existing GitHub Release for the specified tag (requires tag and OAuth secrets).'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-deb:
+    name: Build .deb (Ubuntu 22.04 / Linux Mint 21)
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - name: Validate release publication inputs and secrets
+        if: ${{ inputs.attach_to_release }}
+        shell: bash
+        env:
+          OPALATEX_GDRIVE_CLIENT_ID: ${{ secrets.OPALATEX_GDRIVE_CLIENT_ID }}
+          OPALATEX_GDRIVE_CLIENT_SECRET: ${{ secrets.OPALATEX_GDRIVE_CLIENT_SECRET }}
+        run: |
+          if [ -z "${{ inputs.tag }}" ]; then
+            echo "::error::attach_to_release requires a non-empty tag input (e.g. v0.2.45)."
+            exit 1
+          fi
+          missing=""
+          [ -z "$OPALATEX_GDRIVE_CLIENT_ID" ] && missing="OPALATEX_GDRIVE_CLIENT_ID"
+          [ -z "$OPALATEX_GDRIVE_CLIENT_SECRET" ] && missing="$missing OPALATEX_GDRIVE_CLIENT_SECRET"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing. Publishing a .deb without them ships an app whose Cloud sync cannot connect."
+            exit 1
+          fi
+
+      # Build inside Ubuntu 22.04 (glibc 2.35) so every system library copied by
+      # PyInstaller stays compatible with Linux Mint 21 as well as newer releases.
+      - name: Install Ubuntu 22.04 build toolchain, Python 3.11, and Qt runtime libraries
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            binutils \
+            build-essential \
+            ca-certificates \
+            curl \
+            dpkg-dev \
+            git \
+            gnupg \
+            libasound2 \
+            libatk-bridge2.0-0 \
+            libatk1.0-0 \
+            libcups2 \
+            libdbus-1-3 \
+            libdrm2 \
+            libegl1 \
+            libexpat1 \
+            libfontconfig1 \
+            libfreetype6 \
+            libgbm1 \
+            libgl1 \
+            libgssapi-krb5-2 \
+            libgtk-3-0 \
+            libnspr4 \
+            libnss3 \
+            libopengl0 \
+            libpci3 \
+            libpulse0 \
+            libwayland-client0 \
+            libwayland-cursor0 \
+            libwayland-egl1 \
+            libx11-6 \
+            libx11-xcb1 \
+            libxcb-cursor0 \
+            libxcb-glx0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-render0 \
+            libxcb-shape0 \
+            libxcb-shm0 \
+            libxcb-sync1 \
+            libxcb-util1 \
+            libxcb-xfixes0 \
+            libxcb-xinerama0 \
+            libxcb-xinput0 \
+            libxcb-xkb1 \
+            libxcb1 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxi6 \
+            libxkbcommon-x11-0 \
+            libxkbcommon0 \
+            libxkbfile1 \
+            libxrandr2 \
+            libxrender1 \
+            libxshmfence1 \
+            libxtst6 \
+            software-properties-common \
+            xz-utils
+
+          add-apt-repository -y ppa:deadsnakes/ppa
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3.11 \
+            python3.11-dev \
+            python3.11-venv
+
+          python3.11 -m venv /opt/build-venv
+          echo "/opt/build-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verify build environment
+        run: |
+          cat /etc/os-release
+          ldd --version | head -n 2
+          python --version
+          node --version
+          npm --version
+
+      - name: Build Linux bundle via build_exe.sh
+        env:
+          OPALATEX_GDRIVE_CLIENT_ID: ${{ secrets.OPALATEX_GDRIVE_CLIENT_ID }}
+          OPALATEX_GDRIVE_CLIENT_SECRET: ${{ secrets.OPALATEX_GDRIVE_CLIENT_SECRET }}
+        run: |
+          chmod +x build_exe.sh
+          ./build_exe.sh
+
+      - name: Verify the packaged app carries the OAuth client when publishing
+        if: ${{ inputs.attach_to_release }}
+        run: |
+          found=$(find dist -name bundled_google_client.json | head -1)
+          if [ -z "$found" ]; then
+            echo "::error::The packaged app has no bundled_google_client.json. Cloud sync would ship unable to connect."
+            exit 1
+          fi
+          echo "OAuth client packaged at $found"
+
+      - name: Package .deb and enforce GLIBC 2.35 ceiling
+        run: |
+          rm -rf build
+          chmod +x scripts/build_deb.sh
+          scripts/build_deb.sh \
+            --bundle-dir dist/OpalaTex \
+            --output-dir deb-out \
+            --max-glibc 2.35
+          ls -lh deb-out/*.deb
+          dpkg-deb --info deb-out/*.deb
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpalaTex-linux-mint21-deb
+          path: deb-out/*.deb
+          if-no-files-found: error
+
+  test-deb:
+    name: Smoke test .deb on clean Ubuntu 22.04
+    needs: build-deb
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - name: Download .deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: OpalaTex-linux-mint21-deb
+          path: deb-out
+
+      - name: Install .deb via apt and verify runtime dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends xvfb
+          cp deb-out/*.deb /tmp/
+          chmod 0644 /tmp/opalatex_*.deb
+          apt-get install -y --no-install-recommends /tmp/opalatex_*.deb
+
+          test -x /usr/bin/opalatex
+          test -f /usr/share/applications/opalatex.desktop
+          test -f /usr/share/pixmaps/opalatex.png
+          test ! -e /opt/opalatex/uninstall.sh
+          test ! -e /opt/opalatex/_internal/uninstall.sh
+
+          opalatex --version
+          opalatex --help
+
+          if [ -x /opt/opalatex/_internal/bin/tectonic ]; then
+            /opt/opalatex/_internal/bin/tectonic --version
+          fi
+          if [ -x /opt/opalatex/_internal/bin/pandoc ]; then
+            /opt/opalatex/_internal/bin/pandoc --version | head -n 2
+          fi
+
+          # Verify Qt xcb plugin, GL integrations, and QtWebEngineProcess resolve
+          # all shared libraries on a stock Ubuntu 22.04 / Linux Mint 21 install.
+          missing="$(
+            LD_LIBRARY_PATH=/opt/opalatex/_internal ldd \
+              /opt/opalatex/_internal/PyQt6/Qt6/plugins/platforms/libqxcb.so \
+              /opt/opalatex/_internal/PyQt6/Qt6/plugins/xcbglintegrations/libqxcb-glx-integration.so \
+              /opt/opalatex/_internal/PyQt6/Qt6/plugins/xcbglintegrations/libqxcb-egl-integration.so \
+              /opt/opalatex/_internal/PyQt6/Qt6/libexec/QtWebEngineProcess \
+              | grep 'not found' || true
+          )"
+          if [ -n "$missing" ]; then
+            echo "::error::Unresolved shared libraries on clean Ubuntu 22.04:"
+            echo "$missing"
+            exit 1
+          fi
+
+          echo "Clean Ubuntu 22.04 / Linux Mint 21 smoke test passed."
+
+  publish-deb:
+    name: Attach .deb to existing GitHub Release
+    needs: [build-deb, test-deb]
+    if: ${{ inputs.attach_to_release && inputs.tag != '' }}
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download .deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: OpalaTex-linux-mint21-deb
+          path: deb-out
+
+      - name: Upload .deb to existing GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_TAG: ${{ inputs.tag }}
+        run: |
+          # Refuse to create a partial release; attach only to an existing one so
+          # build.yml remains the sole owner of release creation and tar/zip assets.
+          gh release view "$TARGET_TAG" --repo "${{ github.repository }}" >/dev/null
+          gh release upload "$TARGET_TAG" deb-out/*.deb --clobber --repo "${{ github.repository }}"
