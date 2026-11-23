@@ -440,3 +440,217 @@ async def test_the_endpoint_refuses_a_folder_name_that_is_a_path(
     status, payload = responses[-1]
     assert status == 400
     assert "single folder name" in payload["error"]
+
+
+# ─── Background downloads (non-blocking UI flow) ─────────────────────────────
+
+async def call_get(server, path, query=None):
+    await server.route_api("GET", path, query or {}, {}, b"", AsyncMock())
+
+
+@pytest.mark.asyncio
+async def test_background_clone_returns_202_and_completes_without_blocking_server(
+    tmp_path, remote_base, monkeypatch
+):
+    import asyncio
+    import threading
+
+    source_machine(tmp_path, remote_base, monkeypatch)
+
+    db_path = str(tmp_path / "machine-b" / "sessions.db")
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(chats, "_default_db_path", lambda: db_path)
+    parent = tmp_path / "machine-b" / "projects"
+    parent.mkdir(parents=True)
+
+    entered = threading.Event()
+    release = threading.Event()
+    original_download = LocalFolderProvider.download
+
+    def gated_download(self, *args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=5.0), "test timed out waiting to release download"
+        return original_download(self, *args, **kwargs)
+
+    monkeypatch.setattr(LocalFolderProvider, "download", gated_download)
+
+    read_calls = []
+    original_read_export = chats.read_export
+
+    def counting_read_export(path):
+        read_calls.append(path)
+        return original_read_export(path)
+
+    monkeypatch.setattr(chats, "read_export", counting_read_export)
+
+    server, responses = make_server()
+
+    await call(server, "/api/cloud/clone", {
+        "provider": "local_folder",
+        "config": {"base_dir": remote_base},
+        "name": "thesis",
+        "parentPath": str(parent),
+        "folderName": "thesis",
+        "background": True,
+    })
+
+    status, payload = responses[-1]
+    assert status == 202, payload
+    job_id = payload["job"]["id"]
+    assert payload["job"]["status"] == "running"
+
+    # Wait until the worker thread is actively inside a file transfer.
+    for _ in range(100):
+        if entered.is_set():
+            break
+        await asyncio.sleep(0.02)
+    assert entered.is_set()
+
+    # The server stays responsive while the download is blocked in its worker:
+    # job status reports running, remote-projects marks it as downloading,
+    # duplicate clones are refused with 409, and active jobs cannot be dismissed.
+    await call_get(server, "/api/cloud/clone/jobs")
+    status, jobs_payload = responses[-1]
+    assert status == 200
+    assert len(jobs_payload["jobs"]) == 1
+    assert jobs_payload["jobs"][0]["id"] == job_id
+    assert jobs_payload["jobs"][0]["status"] == "running"
+
+    await call(server, "/api/cloud/remote-projects", {
+        "provider": "local_folder",
+        "config": {"base_dir": remote_base},
+    })
+    status, remote_payload = responses[-1]
+    assert status == 200
+    assert remote_payload["projects"][0]["downloading"] is True
+
+    await call(server, "/api/cloud/clone", {
+        "provider": "local_folder",
+        "config": {"base_dir": remote_base},
+        "name": "thesis",
+        "parentPath": str(parent),
+        "folderName": "thesis-copy",
+        "background": True,
+    })
+    assert responses[-1][0] == 409
+
+    await call(server, "/api/cloud/clone/dismiss", {"id": job_id})
+    assert responses[-1][0] == 400
+
+    # Let the transfer finish and await the background task.
+    release.set()
+    task = server._clone_tasks.get(job_id)
+    if task is not None:
+        await task
+
+    await call_get(server, "/api/cloud/clone/jobs")
+    status, jobs_payload = responses[-1]
+    assert status == 200
+    finished = jobs_payload["jobs"][0]
+    assert finished["status"] == "completed", finished
+    assert finished["project"]["project_name"] == "thesis"
+    assert read(finished["project"]["project_path"], "main.tex") == "\\section{Intro}"
+
+    # Conversations and settings arrived, and chats.json was parsed only once.
+    store = ProjectStore(db_path)
+    loaded = store.load(finished["project"]["name"])
+    assert any(m["content"] == "a question I asked on machine A" for m in loaded.history)
+    assert loaded.description == "written on machine A"
+    assert len(read_calls) == 1
+
+    # Once finished, the job entry can be dismissed.
+    await call(server, "/api/cloud/clone/dismiss", {"id": job_id})
+    assert responses[-1] == (200, {"dismissed": True})
+    await call_get(server, "/api/cloud/clone/jobs")
+    assert responses[-1] == (200, {"jobs": []})
+
+
+@pytest.mark.asyncio
+async def test_background_clone_can_be_cancelled_and_cleans_up(
+    tmp_path, remote_base, monkeypatch
+):
+    import asyncio
+    import threading
+
+    seed_remote(remote_base, "thesis", {
+        f"file{i:02d}.tex": f"content {i}" for i in range(4)
+    })
+    db_path = str(tmp_path / "machine-b.db")
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
+    parent = tmp_path / "projects"
+    parent.mkdir()
+    destination = str(parent / "thesis")
+
+    first_started = threading.Event()
+    release_first = threading.Event()
+    original_download = LocalFolderProvider.download
+    calls = []
+
+    def gated_download(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            first_started.set()
+            assert release_first.wait(timeout=5.0)
+        return original_download(self, *args, **kwargs)
+
+    monkeypatch.setattr(LocalFolderProvider, "download", gated_download)
+    server, responses = make_server()
+
+    await call(server, "/api/cloud/clone", {
+        "provider": "local_folder",
+        "config": {"base_dir": remote_base},
+        "name": "thesis",
+        "parentPath": str(parent),
+        "folderName": "thesis",
+        "background": True,
+    })
+    assert responses[-1][0] == 202
+    job_id = responses[-1][1]["job"]["id"]
+
+    for _ in range(100):
+        if first_started.is_set():
+            break
+        await asyncio.sleep(0.02)
+    assert first_started.is_set()
+
+    await call(server, "/api/cloud/cancel", {"projectPath": destination})
+    assert responses[-1] == (200, {"cancel_requested": True})
+
+    release_first.set()
+    task = server._clone_tasks.get(job_id)
+    if task is not None:
+        await task
+
+    await call_get(server, "/api/cloud/clone/jobs")
+    finished = responses[-1][1]["jobs"][0]
+    assert finished["status"] == "cancelled"
+    assert finished["partial_copy_removed"] is True
+    assert not os.path.exists(destination)
+    assert ProjectStore(db_path).find_by_path(destination) is None
+
+
+@pytest.mark.asyncio
+async def test_background_clone_validates_synchronously_before_queuing(
+    tmp_path, remote_base, monkeypatch
+):
+    seed_remote(remote_base, "thesis", {"main.tex": "body"})
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", str(tmp_path / "machine-b.db"))
+    non_empty = tmp_path / "projects" / "thesis"
+    non_empty.mkdir(parents=True)
+    write(str(non_empty), "existing.tex", "already here")
+    server, responses = make_server()
+
+    await call(server, "/api/cloud/clone", {
+        "provider": "local_folder",
+        "config": {"base_dir": remote_base},
+        "name": "thesis",
+        "parentPath": str(tmp_path / "projects"),
+        "folderName": "thesis",
+        "background": True,
+    })
+
+    assert responses[-1][0] == 400
+    assert "not empty" in responses[-1][1]["error"]
+    await call_get(server, "/api/cloud/clone/jobs")
+    assert responses[-1] == (200, {"jobs": []})

@@ -110,7 +110,17 @@
     "cloudConflicts": "{{count}} conflict(s)",
     "cloudTooltipCurrent": "Now: {{action}} {{path}}",
     "cloudTooltipMoved": "Last pass moved: {{summary}}",
-    "cloudTooltipConflicts": "{{count}} file(s) need a decision — click to resolve"
+    "cloudTooltipConflicts": "{{count}} file(s) need a decision — click to resolve",
+    "cloudDownloading": "Downloading {{name}}…",
+    "cloudDownloadingCount": "Downloading {{name}} ({{counter}})",
+    "cloudDownloadFinalizing": "Finalizing {{name}}…",
+    "cloudDownloadCancelling": "Cancelling {{name}}…",
+    "cloudDownloadMore": "+{{count}}",
+    "cloudDownloadDone": "Downloaded {{name}} — Open",
+    "cloudDownloadFailed": "Download failed: {{name}}",
+    "cloudDownloadTooltipRunning": "Downloading {{name}} in the background. Click to view progress or cancel.",
+    "cloudDownloadTooltipDone": "{{name}} finished downloading. Click to open this project.",
+    "cloudDownloadTooltipFailed": "Download of {{name}} failed. Click to view details."
   },
   "topBar": {
     "actionsGroup": "Actions",
@@ -1644,7 +1654,16 @@
     "envNotice": "The project .env is not mirrored, so API keys stay on the computer they were entered on. Add yours in the project settings after downloading.",
     "cancel": "Cancel download",
     "cancelling": "Cancelling — finishing the file in progress…",
-    "cancelled": "Download cancelled. The partial copy was removed; nothing was added to your projects."
+    "cancelled": "Download cancelled. The partial copy was removed; nothing was added to your projects.",
+    "downloadingTag": "downloading…",
+    "continueInBackground": "Continue in background",
+    "activeDownloads": "Downloads",
+    "finalizing": "Finishing setup and importing chats…",
+    "completedSummary": "Downloaded ({{count}} file(s))",
+    "openProject": "Open project",
+    "dismiss": "Dismiss",
+    "cancelledLog": "Download of {{name}} was cancelled.",
+    "failedLog": "Download of {{name}} failed: {{error}}"
   },
   "explorer": {
     "cloudSynced": "Synced to the cloud",

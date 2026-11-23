@@ -110,7 +110,17 @@
     "cloudConflicts": "{{count}} conflito(s)",
     "cloudTooltipCurrent": "Agora: {{action}} {{path}}",
     "cloudTooltipMoved": "A última passagem moveu: {{summary}}",
-    "cloudTooltipConflicts": "{{count}} arquivo(s) precisam de uma decisão — clique para resolver"
+    "cloudTooltipConflicts": "{{count}} arquivo(s) precisam de uma decisão — clique para resolver",
+    "cloudDownloading": "Baixando {{name}}…",
+    "cloudDownloadingCount": "Baixando {{name}} ({{counter}})",
+    "cloudDownloadFinalizing": "Finalizando {{name}}…",
+    "cloudDownloadCancelling": "Cancelando {{name}}…",
+    "cloudDownloadMore": "+{{count}}",
+    "cloudDownloadDone": "{{name}} baixado — Abrir",
+    "cloudDownloadFailed": "Falha no download: {{name}}",
+    "cloudDownloadTooltipRunning": "Baixando {{name}} em segundo plano. Clique para ver o progresso ou cancelar.",
+    "cloudDownloadTooltipDone": "O download de {{name}} terminou. Clique para abrir este projeto.",
+    "cloudDownloadTooltipFailed": "O download de {{name}} falhou. Clique para ver os detalhes."
   },
   "topBar": {
     "actionsGroup": "Ações",
@@ -1644,7 +1654,16 @@
     "envNotice": "O .env do projeto não é espelhado, então as chaves de API ficam no computador em que foram digitadas. Informe as suas nas configurações do projeto depois de baixar.",
     "cancel": "Cancelar download",
     "cancelling": "Cancelando — terminando o arquivo em andamento…",
-    "cancelled": "Download cancelado. A cópia parcial foi removida; nada foi adicionado aos seus projetos."
+    "cancelled": "Download cancelado. A cópia parcial foi removida; nada foi adicionado aos seus projetos.",
+    "downloadingTag": "baixando…",
+    "continueInBackground": "Continuar em segundo plano",
+    "activeDownloads": "Downloads",
+    "finalizing": "Finalizando configuração e importando conversas…",
+    "completedSummary": "Baixado ({{count}} arquivo(s))",
+    "openProject": "Abrir projeto",
+    "dismiss": "Dispensar",
+    "cancelledLog": "O download de {{name}} foi cancelado.",
+    "failedLog": "Falha ao baixar {{name}}: {{error}}"
   },
   "explorer": {
     "cloudSynced": "Sincronizado com a nuvem",

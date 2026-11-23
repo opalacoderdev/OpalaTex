@@ -160,7 +160,8 @@ Explorer header beside New and Import.
 | Direction | Pull-only. The remote is the only copy that means anything yet, and nothing local should be published before the user has opened it. |
 | What comes with it | Everything the mirror holds: files, build output, and the conversations, which are merged into this machine's `sessions.db` after the project is registered. |
 | What does not | `.env`, because it is not mirrored in the first place. The API keys stay on the machine they were typed on, and the panel says so. |
-| Already-downloaded projects | Listed but not selectable, annotated with the local path. Two working copies of one remote folder would fight over it. |
+| Already-downloaded projects | Listed but not selectable, annotated with the local path. Two working copies of one remote folder would fight over it. Projects currently downloading in the background are likewise marked and not selectable again. |
+| Background execution | The UI starts clones with `background: true` (`202 Accepted`), polls `/api/cloud/clone/jobs` while active, and allows closing the modal (*Continue in background*) so the user can keep using the editor and chat. Progress and completion (*Open*) appear in the status bar; completion does not switch away from the user's current project unless they stayed in the modal waiting for it. Post-download registration and `chats.json` merge run off the event loop in a worker thread. |
 
 ### Why the destination has to be empty
 

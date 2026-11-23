@@ -568,7 +568,7 @@ def clone_project(
     return outcome
 
 
-def _discard_partial_clone(project_path: str, *, remove_directory: bool) -> bool:
+def discard_partial_clone(project_path: str, *, remove_directory: bool) -> bool:
     """Undo a cancelled clone: empty the destination, and remove it if it is new.
 
     Only called after `prepare_destination` confirmed the folder was empty when
@@ -586,6 +586,9 @@ def _discard_partial_clone(project_path: str, *, remove_directory: bool) -> bool
     except OSError:
         return False
     return True
+
+
+_discard_partial_clone = discard_partial_clone
 
 
 # ─── Deleting a project's cloud copy ──────────────────────────────────────────

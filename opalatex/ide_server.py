@@ -48,6 +48,7 @@ import collections
 import os
 import json
 import urllib.parse
+import uuid
 import mimetypes
 import subprocess
 from email.parser import BytesParser
@@ -892,6 +893,10 @@ class AsyncHTTPServer:
         self.active_agent_event_queue = None
         self.active_prompt_evolution_task = None
         self._exclusive_work = None
+        # Background cloud project downloads keyed by job id so users can keep
+        # working (and chatting) while large projects are pulled from the cloud.
+        self._clone_jobs = {}
+        self._clone_tasks = {}
 
     # Requests whose slow, blocking part (a Tectonic run, `git status`, a walk of
     # the project tree) runs in a worker thread instead of on the event loop.
@@ -1135,6 +1140,271 @@ class AsyncHTTPServer:
             except:
                 pass
         self.temp_terminals.clear()
+        # Cancel any background cloud project downloads on shutdown.
+        try:
+            from opalatex.cloud.service import request_cancel
+            for job in list(self._clone_jobs.values()):
+                if job.get("status") in ("running", "finalizing"):
+                    job["cancel_requested"] = True
+                    request_cancel(job["project_path"])
+        except Exception:
+            pass
+        for task in list(self._clone_tasks.values()):
+            try:
+                task.cancel()
+            except Exception:
+                pass
+        self._clone_tasks.clear()
+
+    def _clone_job_snapshot(self, job: dict) -> dict:
+        """Public JSON-serializable view of one background cloud clone job."""
+        from opalatex.cloud.service import progress_for
+        active = job.get("status") in ("running", "finalizing")
+        progress = progress_for(job["project_path"]) if active else job.get("progress")
+        cancel_requested = bool(
+            job.get("cancel_requested") or (progress and progress.get("cancel_requested"))
+        )
+        return {
+            "id": job["id"],
+            "provider": job["provider"],
+            "remote_name": job["remote_name"],
+            "folder_name": job["folder_name"],
+            "project_path": job["project_path"],
+            "status": job["status"],
+            "started_at": job["started_at"],
+            "finished_at": job["finished_at"],
+            "cancel_requested": cancel_requested,
+            "progress": progress,
+            "project": job.get("project"),
+            "error": job.get("error", ""),
+            "partial_copy_removed": bool(job.get("partial_copy_removed", False)),
+            "report": job.get("report"),
+        }
+
+    def _prune_finished_clone_jobs(self, limit: int = 20) -> None:
+        finished = [
+            job for job in self._clone_jobs.values()
+            if job.get("status") not in ("running", "finalizing")
+        ]
+        if len(finished) <= limit:
+            return
+        finished.sort(key=lambda item: item.get("finished_at") or item.get("started_at") or 0.0)
+        for stale in finished[:-limit]:
+            self._clone_jobs.pop(stale["id"], None)
+
+    def _find_active_clone_conflict(
+        self, provider_id: str, remote_name: str, destination: str
+    ) -> str:
+        norm_dest = os.path.abspath(destination)
+        for job in self._clone_jobs.values():
+            if job.get("status") not in ("running", "finalizing"):
+                continue
+            if os.path.abspath(job["project_path"]) == norm_dest:
+                return "A download into this folder is already in progress."
+            if job["provider"] == provider_id and job["remote_name"] == remote_name:
+                return f"'{remote_name}' is already being downloaded."
+        return ""
+
+    @staticmethod
+    def _format_clone_failure(outcome) -> tuple[str, dict | None]:
+        report = outcome.report.to_dict() if outcome.report else None
+        message = outcome.error or (outcome.report.aborted if outcome.report else "")
+        if not message and outcome.report and outcome.report.errors:
+            message = outcome.report.errors[0][1]
+        message = message or "The download did not complete."
+        if outcome.report is not None and not outcome.cancelled:
+            message += (
+                f" A partial copy is in {outcome.project_path}; remove that "
+                f"folder or choose another name before trying again."
+            )
+        return message, report
+
+    @staticmethod
+    def _register_cloned_project_blocking(
+        destination: str, folder_name: str, db_path: str
+    ):
+        """Register a downloaded project and import its conversations off the event loop.
+
+        Reads the conversation export once (instead of parsing it twice) so large
+        histories do not stall concurrent chat streams or editor requests.
+        """
+        from opalatex.cloud import chats as cloud_chats
+        from opalatex.project import ProjectStore
+
+        store = ProjectStore(db_path=db_path)
+
+        # The project's own skill set travelled with its files; the row has
+        # to agree with the skills.yaml that was just downloaded.
+        skills = ["opalatex"]
+        try:
+            from opalatex.skills import read_skills_yaml
+            found_skills = read_skills_yaml(destination)
+            if found_skills:
+                skills = found_skills if "opalatex" in found_skills else ["opalatex"] + found_skills
+        except Exception:
+            pass
+
+        # Reuse the internal name the project has on the machine it came
+        # from when it is free here. Reserved chat ids are derived from it
+        # (`tutorial_<name>`), so under an arbitrary new key the tutorial
+        # button would open a second tutorial beside the imported one.
+        export = cloud_chats.read_export(destination)
+        preferred = str((export or {}).get("project", "") or "").strip()
+        db_key = preferred if preferred and not store.exists(preferred) else ""
+        if not db_key:
+            db_key = folder_name.replace(" ", "_").lower()
+            original_db_key = db_key
+            counter = 1
+            while store.exists(db_key):
+                db_key = f"{original_db_key}_{counter}"
+                counter += 1
+
+        project = store.create(
+            name=db_key,
+            mode="auto",
+            model="",
+            project_name=folder_name,
+            project_path=destination,
+            skills=skills,
+            description="",
+            preserve_existing_skills=True,
+        )
+
+        # The conversations arrived as a file; this folds them into the
+        # local database. `adopt_settings` is right here and nowhere else:
+        # the row was created seconds ago, so last-writer-wins would always
+        # prefer the empty local settings over the ones that were synced.
+        merge = None
+        try:
+            merge = cloud_chats.MergeStats()
+            if export is not None:
+                merge.absorb(
+                    cloud_chats.merge_into_database(db_key, export, adopt_settings=True)
+                )
+            # Conversations held only in another device's journal (the
+            # mobile app) that no computer has folded into the export yet.
+            merge.absorb(cloud_chats.apply_device_journals(db_key, destination))
+        except Exception as e:
+            print(f"[cloud] Failed to import the project's conversations: {e}")
+
+        reloaded = store.load(db_key) or project
+        return reloaded, merge
+
+    @staticmethod
+    def _activate_cloned_project(reloaded, outcome, merge) -> dict:
+        from opalatex.cloud.service import MANAGER
+
+        MANAGER.activate(reloaded.name, reloaded.project_path)
+
+        # The model came from the other machine's settings, so this is the
+        # same "the project's model changed" moment create-project handles:
+        # without the pre-fetch the first message fails on a model that was
+        # never downloaded here. The helper skips models Ollama already has.
+        if reloaded.model and reloaded.model.startswith("ollama/"):
+            from opalatex.config import is_local_model
+            if is_local_model(reloaded.model, reloaded.api_base):
+                from opalatex.ollama_manager import pull_model_in_background
+                pull_model_in_background(reloaded.model.split("ollama/", 1)[1])
+
+        return {
+            "name": reloaded.name,
+            "project_name": reloaded.project_name,
+            "project_path": reloaded.project_path,
+            "skills": reloaded.skills,
+            "model": reloaded.model,
+            "report": outcome.report.to_dict() if outcome.report else None,
+            "merge": merge.to_dict() if merge else None,
+        }
+
+    async def _run_background_clone_job(
+        self,
+        job: dict,
+        *,
+        provider_id: str,
+        remote_name: str,
+        destination: str,
+        folder_name: str,
+        provider_config: dict,
+        remote_root: str,
+        settings_overrides: dict,
+        destination_is_new: bool,
+        db_path: str,
+    ) -> None:
+        from opalatex.cloud.service import clone_project, discard_partial_clone, progress_for
+
+        loop = asyncio.get_running_loop()
+        try:
+            if job.get("cancel_requested"):
+                removed = await loop.run_in_executor(
+                    None,
+                    lambda: discard_partial_clone(
+                        destination, remove_directory=destination_is_new
+                    ),
+                )
+                job["status"] = "cancelled"
+                job["partial_copy_removed"] = removed
+                if not removed:
+                    job["error"] = (
+                        f"Download cancelled, but the partial copy in {destination} could "
+                        f"not be removed. Delete that folder before downloading again."
+                    )
+                job["finished_at"] = time.time()
+                return
+
+            outcome = await loop.run_in_executor(
+                None,
+                lambda: clone_project(
+                    provider_id,
+                    remote_name,
+                    destination,
+                    provider_config=provider_config,
+                    remote_root=remote_root,
+                    settings_overrides=settings_overrides,
+                    destination_is_new=destination_is_new,
+                ),
+            )
+            job["progress"] = progress_for(destination)
+
+            if outcome.cancelled and not outcome.error:
+                job["status"] = "cancelled"
+                job["partial_copy_removed"] = outcome.partial_copy_removed
+                job["finished_at"] = time.time()
+                return
+
+            if not outcome.ok:
+                message, report = self._format_clone_failure(outcome)
+                job["status"] = "failed"
+                job["error"] = message
+                job["report"] = report
+                job["finished_at"] = time.time()
+                return
+
+            job["status"] = "finalizing"
+            reloaded, merge = await loop.run_in_executor(
+                None,
+                lambda: self._register_cloned_project_blocking(
+                    destination, folder_name, db_path
+                ),
+            )
+            payload = self._activate_cloned_project(reloaded, outcome, merge)
+            job["project"] = payload
+            job["report"] = payload.get("report")
+            job["status"] = "completed"
+            job["finished_at"] = time.time()
+        except asyncio.CancelledError:
+            if job.get("status") in ("running", "finalizing"):
+                job["status"] = "cancelled"
+                job["finished_at"] = time.time()
+            raise
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            job["status"] = "failed"
+            job["error"] = str(e)
+            job["finished_at"] = time.time()
+        finally:
+            self._clone_tasks.pop(job["id"], None)
+            self._prune_finished_clone_jobs()
 
     async def handle_request(self, reader, writer):
         import os, sys, subprocess, platform, socket
@@ -5388,6 +5658,11 @@ class AsyncHTTPServer:
                 return
             try:
                 requested = request_cancel(project_path)
+                norm_target = os.path.abspath(os.path.expanduser(str(project_path)))
+                for job in self._clone_jobs.values():
+                    if job.get("status") == "running" and os.path.abspath(job["project_path"]) == norm_target:
+                        job["cancel_requested"] = True
+                        requested = True
                 self.send_response(writer, 200, json.dumps({
                     "cancel_requested": requested,
                 }).encode('utf-8'), "application/json")
@@ -5471,12 +5746,20 @@ class AsyncHTTPServer:
                         "project_path": local_path,
                     }
 
+                downloading_names = {
+                    job["remote_name"]
+                    for job in self._clone_jobs.values()
+                    if job.get("provider") == provider_id
+                    and job.get("status") in ("running", "finalizing")
+                }
+
                 payload = [
                     {
                         "name": project.name,
                         "root": project.root,
                         "modified_at": project.modified_at,
                         "local": mirrored.get(project.name),
+                        "downloading": project.name in downloading_names,
                     }
                     for project in remote_projects
                 ]
@@ -5488,10 +5771,11 @@ class AsyncHTTPServer:
 
         # 7i13. Cloud sync — download a mirrored project onto this machine and
         # register it, so the same project can be continued from here.
+        # Pass `background: true` to return immediately (202) and track progress
+        # through `GET /api/cloud/clone/jobs` without blocking the UI.
         elif path == '/api/cloud/clone' and method == 'POST':
-            from opalatex.cloud import chats as cloud_chats
             from opalatex.cloud.base import CloudError
-            from opalatex.cloud.service import MANAGER, clone_project, prepare_destination
+            from opalatex.cloud.service import clone_project, prepare_destination
             from opalatex.config import DEFAULT_DB_PATH
             from opalatex.project import ProjectStore
 
@@ -5499,6 +5783,7 @@ class AsyncHTTPServer:
             remote_name = str(data.get('name', '') or '').strip()
             parent_path = str(data.get('parentPath', '') or '').strip()
             folder_name = str(data.get('folderName', '') or '').strip() or remote_name
+            background = bool(data.get('background', False))
             if not provider_id or not remote_name or not parent_path:
                 self.send_response(writer, 400, json.dumps({
                     "error": "provider, name and parentPath are required"
@@ -5523,6 +5808,12 @@ class AsyncHTTPServer:
                 err_msg = get_translation("project_exists_in_folder", name=existing_project_name)
                 self.send_response(writer, 400, json.dumps({"error": err_msg}).encode('utf-8'), "application/json")
                 return
+
+            conflict_msg = self._find_active_clone_conflict(provider_id, remote_name, destination)
+            if conflict_msg:
+                self.send_response(writer, 409, json.dumps({"error": conflict_msg}).encode('utf-8'), "application/json")
+                return
+
             # Recorded before validation creates the folder, so a cancelled
             # download removes a folder it created and keeps one the user made.
             destination_is_new = not os.path.exists(destination)
@@ -5532,16 +5823,60 @@ class AsyncHTTPServer:
                 self.send_response(writer, 400, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
                 return
 
+            provider_config = data.get('config') or {}
+            remote_root = str(data.get('root', '') or '')
+            settings_overrides = data.get('settings') or {}
+
+            if background:
+                import uuid
+                job = {
+                    "id": uuid.uuid4().hex,
+                    "provider": provider_id,
+                    "remote_name": remote_name,
+                    "folder_name": folder_name,
+                    "project_path": destination,
+                    "status": "running",
+                    "started_at": time.time(),
+                    "finished_at": 0.0,
+                    "cancel_requested": False,
+                    "progress": None,
+                    "project": None,
+                    "error": "",
+                    "partial_copy_removed": False,
+                    "report": None,
+                }
+                self._clone_jobs[job["id"]] = job
+                task = asyncio.get_running_loop().create_task(
+                    self._run_background_clone_job(
+                        job,
+                        provider_id=provider_id,
+                        remote_name=remote_name,
+                        destination=destination,
+                        folder_name=folder_name,
+                        provider_config=provider_config,
+                        remote_root=remote_root,
+                        settings_overrides=settings_overrides,
+                        destination_is_new=destination_is_new,
+                        db_path=DEFAULT_DB_PATH,
+                    )
+                )
+                self._clone_tasks[job["id"]] = task
+                self.send_response(writer, 202, json.dumps({
+                    "job": self._clone_job_snapshot(job),
+                }).encode('utf-8'), "application/json")
+                return
+
+            loop = asyncio.get_running_loop()
             try:
-                outcome = await asyncio.get_running_loop().run_in_executor(
+                outcome = await loop.run_in_executor(
                     None,
                     lambda: clone_project(
                         provider_id,
                         remote_name,
                         destination,
-                        provider_config=data.get('config') or {},
-                        remote_root=str(data.get('root', '') or ''),
-                        settings_overrides=data.get('settings') or {},
+                        provider_config=provider_config,
+                        remote_root=remote_root,
+                        settings_overrides=settings_overrides,
                         destination_is_new=destination_is_new,
                     ),
                 )
@@ -5567,16 +5902,7 @@ class AsyncHTTPServer:
                 # which does mean the folder is no longer empty — so the message
                 # says where a retry has to go instead of letting the user hit
                 # "not empty" on the second attempt without knowing why.
-                report = outcome.report.to_dict() if outcome.report else None
-                message = outcome.error or (outcome.report.aborted if outcome.report else "")
-                if not message and outcome.report and outcome.report.errors:
-                    message = outcome.report.errors[0][1]
-                message = message or "The download did not complete."
-                if outcome.report is not None and not outcome.cancelled:
-                    message += (
-                        f" A partial copy is in {outcome.project_path}; remove that "
-                        f"folder or choose another name before trying again."
-                    )
+                message, report = self._format_clone_failure(outcome)
                 self.send_response(writer, 400, json.dumps({
                     "error": message,
                     "project_path": outcome.project_path,
@@ -5584,42 +5910,12 @@ class AsyncHTTPServer:
                 }).encode('utf-8'), "application/json")
                 return
 
-            # The project's own skill set travelled with its files; the row has
-            # to agree with the skills.yaml that was just downloaded.
-            skills = ["opalatex"]
             try:
-                from opalatex.skills import read_skills_yaml
-                found_skills = read_skills_yaml(destination)
-                if found_skills:
-                    skills = found_skills if "opalatex" in found_skills else ["opalatex"] + found_skills
-            except Exception:
-                pass
-
-            # Reuse the internal name the project has on the machine it came
-            # from when it is free here. Reserved chat ids are derived from it
-            # (`tutorial_<name>`), so under an arbitrary new key the tutorial
-            # button would open a second tutorial beside the imported one.
-            export = cloud_chats.read_export(destination) or {}
-            preferred = str(export.get("project", "") or "").strip()
-            db_key = preferred if preferred and not store.exists(preferred) else ""
-            if not db_key:
-                db_key = folder_name.replace(" ", "_").lower()
-                original_db_key = db_key
-                counter = 1
-                while store.exists(db_key):
-                    db_key = f"{original_db_key}_{counter}"
-                    counter += 1
-
-            try:
-                project = store.create(
-                    name=db_key,
-                    mode="auto",
-                    model="",
-                    project_name=folder_name,
-                    project_path=destination,
-                    skills=skills,
-                    description="",
-                    preserve_existing_skills=True,
+                reloaded, merge = await loop.run_in_executor(
+                    None,
+                    lambda: self._register_cloned_project_blocking(
+                        destination, folder_name, DEFAULT_DB_PATH
+                    ),
                 )
             except Exception as e:
                 import traceback
@@ -5627,41 +5923,37 @@ class AsyncHTTPServer:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
                 return
 
-            # The conversations arrived as a file; this folds them into the
-            # local database. `adopt_settings` is right here and nowhere else:
-            # the row was created seconds ago, so last-writer-wins would always
-            # prefer the empty local settings over the ones that were synced.
-            merge = None
-            try:
-                merge = cloud_chats.apply_export(db_key, destination, adopt_settings=True)
-                # Conversations held only in another device's journal (the
-                # mobile app) that no computer has folded into the export yet.
-                merge.absorb(cloud_chats.apply_device_journals(db_key, destination))
-            except Exception as e:
-                print(f"[cloud] Failed to import the project's conversations: {e}")
+            payload = self._activate_cloned_project(reloaded, outcome, merge)
+            self.send_response(writer, 200, json.dumps(payload).encode('utf-8'), "application/json")
 
-            MANAGER.activate(db_key, destination)
-
-            reloaded = store.load(db_key) or project
-            # The model came from the other machine's settings, so this is the
-            # same "the project's model changed" moment create-project handles:
-            # without the pre-fetch the first message fails on a model that was
-            # never downloaded here. The helper skips models Ollama already has.
-            if reloaded.model and reloaded.model.startswith("ollama/"):
-                from opalatex.config import is_local_model
-                if is_local_model(reloaded.model, reloaded.api_base):
-                    from opalatex.ollama_manager import pull_model_in_background
-                    pull_model_in_background(reloaded.model.split("ollama/", 1)[1])
-
+        # 7i13b. Cloud sync — list active and recently finished background clones
+        elif path == '/api/cloud/clone/jobs' and method == 'GET':
+            jobs = sorted(
+                self._clone_jobs.values(),
+                key=lambda item: item.get("started_at") or 0.0,
+                reverse=True,
+            )
             self.send_response(writer, 200, json.dumps({
-                "name": reloaded.name,
-                "project_name": reloaded.project_name,
-                "project_path": reloaded.project_path,
-                "skills": reloaded.skills,
-                "model": reloaded.model,
-                "report": outcome.report.to_dict() if outcome.report else None,
-                "merge": merge.to_dict() if merge else None,
+                "jobs": [self._clone_job_snapshot(job) for job in jobs],
             }).encode('utf-8'), "application/json")
+
+        # 7i13c. Cloud sync — dismiss a finished background clone entry
+        elif path == '/api/cloud/clone/dismiss' and method == 'POST':
+            job_id = str(data.get('id', '') or '').strip()
+            if not job_id:
+                self.send_response(writer, 400, b'{"error":"id is required"}', "application/json")
+                return
+            job = self._clone_jobs.get(job_id)
+            if job is None:
+                self.send_response(writer, 200, b'{"dismissed":false}', "application/json")
+                return
+            if job.get("status") in ("running", "finalizing"):
+                self.send_response(writer, 400, json.dumps({
+                    "error": "Cannot dismiss a download that is still in progress."
+                }).encode('utf-8'), "application/json")
+                return
+            self._clone_jobs.pop(job_id, None)
+            self.send_response(writer, 200, b'{"dismissed":true}', "application/json")
 
         # 7i14. Open a URL in the desktop's default browser.
         # The UI runs in a pywebview window with no createWindow handler, where

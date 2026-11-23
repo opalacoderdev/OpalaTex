@@ -623,6 +623,10 @@ export default function App() {
   // Folder the downloaded project is created in, chosen with the directory
   // picker, which lives here because the picker is a sibling modal.
   const [cloudDownloadParent, setCloudDownloadParent] = useState('');
+  // Background cloud project downloads tracked across modal closes and reloads.
+  const [cloudDownloads, setCloudDownloads] = useState([]);
+  const watchingCloneJobIdRef = useRef(null);
+  const handledCloneJobsRef = useRef(new Set());
   // Mirrors the project's cloud status so the activity bar and status bar can
   // show it without either of them polling the backend on its own.
   const [cloudStatus, setCloudStatus] = useState(null);
@@ -2000,6 +2004,83 @@ export default function App() {
     return () => clearInterval(timer);
   }, [cloudStatus?.settings?.enabled, cloudPassRunning, refreshCloudStatus, refreshCloudFileStates]);
 
+  const refreshCloudDownloads = useCallback(async ({ initial = false } = {}) => {
+    try {
+      const res = await fetch('/api/cloud/clone/jobs');
+      if (!res.ok) return;
+      const payload = await res.json();
+      const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+      if (initial) {
+        for (const job of jobs) {
+          if (job.status !== 'running' && job.status !== 'finalizing') {
+            handledCloneJobsRef.current.add(job.id);
+          }
+        }
+      }
+      setCloudDownloads(jobs);
+    } catch (_) { /* best-effort status poll */ }
+  }, []);
+
+  useEffect(() => {
+    refreshCloudDownloads({ initial: true });
+  }, [refreshCloudDownloads]);
+
+  const hasActiveCloudDownload = cloudDownloads.some(
+    (job) => job.status === 'running' || job.status === 'finalizing'
+  );
+
+  useEffect(() => {
+    if (!hasActiveCloudDownload) return undefined;
+    const timer = setInterval(() => { refreshCloudDownloads(); }, 1000);
+    return () => clearInterval(timer);
+  }, [hasActiveCloudDownload, refreshCloudDownloads]);
+
+  useEffect(() => {
+    for (const job of cloudDownloads) {
+      if (job.status === 'running' || job.status === 'finalizing') continue;
+      if (handledCloneJobsRef.current.has(job.id)) continue;
+      handledCloneJobsRef.current.add(job.id);
+
+      const jobName = job.project?.project_name || job.folder_name || job.remote_name;
+      if (job.status === 'completed' && job.project) {
+        const downloaded = (job.project?.report?.downloaded || job.report?.downloaded || []).length;
+        addLog('info', t('app.projectDownloaded', {
+          name: jobName,
+          count: downloaded,
+          defaultValue: '{{name}} downloaded from the cloud ({{count}} file(s)).',
+        }));
+        if (isCloudDownloadOpen && watchingCloneJobIdRef.current === job.id) {
+          // The user kept the download modal open waiting for this project:
+          // open it immediately and close the modal, matching the classic flow.
+          watchingCloneJobIdRef.current = null;
+          setIsCloudDownloadOpen(false);
+          fetch('/api/cloud/clone/dismiss', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: job.id }),
+          }).catch(() => { });
+          setCloudDownloads((prev) => prev.filter((item) => item.id !== job.id));
+          fetchProjects(job.project.name);
+        } else {
+          // The download completed in the background: refresh the project list
+          // without pulling the user out of their current chat or editor.
+          fetchProjects();
+        }
+      } else if (job.status === 'cancelled') {
+        addLog('info', t('cloudDownload.cancelledLog', {
+          name: jobName,
+          defaultValue: 'Download of {{name}} was cancelled.',
+        }));
+      } else if (job.status === 'failed') {
+        addLog('error', t('cloudDownload.failedLog', {
+          name: jobName,
+          error: job.error || '',
+          defaultValue: 'Download of {{name}} failed: {{error}}',
+        }));
+      }
+    }
+  }, [cloudDownloads, isCloudDownloadOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const rememberLastActiveProject = (projectName) => {
     fetch('/api/settings/last-project', {
       method: 'POST',
@@ -3106,6 +3187,7 @@ export default function App() {
   // so the common case is "press Download", not "go find the home directory".
   const openCloudDownload = async () => {
     setIsCloudDownloadOpen(true);
+    refreshCloudDownloads();
     if (cloudDownloadParent) return;
     try {
       const res = await fetch('/api/fs/dirs', {
@@ -3117,15 +3199,52 @@ export default function App() {
     } catch (e) { /* the user can still pick a folder by hand */ }
   };
 
-  const handleProjectDownloaded = (project) => {
+  const handleCloudDownloadStarted = (job) => {
+    if (!job?.id) return;
+    watchingCloneJobIdRef.current = job.id;
+    setCloudDownloads((prev) => [job, ...prev.filter((item) => item.id !== job.id)]);
+  };
+
+  const handleCloseCloudDownload = () => {
+    watchingCloneJobIdRef.current = null;
     setIsCloudDownloadOpen(false);
-    const downloaded = (project?.report?.downloaded || []).length;
-    addLog('info', t('app.projectDownloaded', {
-      name: project.project_name || project.name,
-      count: downloaded,
-      defaultValue: '{{name}} downloaded from the cloud ({{count}} file(s)).',
-    }));
-    fetchProjects(project.name);
+  };
+
+  const handleCancelCloudDownload = async (projectPath) => {
+    if (!projectPath) return '';
+    try {
+      const res = await fetch('/api/cloud/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath }),
+      });
+      const payload = await res.json();
+      if (payload.error) return payload.error;
+      refreshCloudDownloads();
+      return '';
+    } catch (err) {
+      return String(err);
+    }
+  };
+
+  const handleDismissCloudDownload = async (jobId) => {
+    if (!jobId) return;
+    setCloudDownloads((prev) => prev.filter((item) => item.id !== jobId));
+    try {
+      await fetch('/api/cloud/clone/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: jobId }),
+      });
+    } catch (_) { /* best effort */ }
+  };
+
+  const handleOpenDownloadedProject = (job) => {
+    if (!job?.project?.name) return;
+    watchingCloneJobIdRef.current = null;
+    setIsCloudDownloadOpen(false);
+    handleDismissCloudDownload(job.id);
+    fetchProjects(job.project.name);
   };
 
   const confirmDirPicker = async () => {
@@ -5555,6 +5674,10 @@ export default function App() {
         textStats={editorTextStats}
         cloudStatus={cloudStatus}
         onOpenCloudSync={() => setIsCloudSyncOpen(true)}
+        cloudDownloads={cloudDownloads}
+        onOpenCloudDownload={openCloudDownload}
+        onOpenDownloadedProject={handleOpenDownloadedProject}
+        onDismissCloudDownload={handleDismissCloudDownload}
       />
 
       {/* ── Overlays / Modals ── */}
@@ -5691,8 +5814,12 @@ export default function App() {
         <CloudDownloadModal
           parentPath={cloudDownloadParent}
           onPickParentPath={() => openDirPicker('cloud-download', cloudDownloadParent || '~')}
-          onClose={() => setIsCloudDownloadOpen(false)}
-          onDownloaded={handleProjectDownloaded}
+          onClose={handleCloseCloudDownload}
+          downloads={cloudDownloads}
+          onDownloadStarted={handleCloudDownloadStarted}
+          onCancelDownload={handleCancelCloudDownload}
+          onDismissDownload={handleDismissCloudDownload}
+          onOpenDownloadedProject={handleOpenDownloadedProject}
         />
       )}
 
