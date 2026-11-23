@@ -11,6 +11,7 @@ if (Test-Path "$VenvScripts\python.exe") {
 }
 
 Write-Host "`n[1/4] Instalando PyInstaller e dependencias..."
+python -m pip install --upgrade pip
 pip install pyinstaller wheel setuptools
 pip install ".[gui]"
 

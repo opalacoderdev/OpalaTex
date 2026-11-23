@@ -6,6 +6,7 @@ echo "       OpalaTex - Build do Executavel       "
 echo "=========================================="
 
 echo -e "\n[1/4] Instalando dependencias e PyInstaller..."
+pip install --upgrade pip
 pip install pyinstaller wheel setuptools
 pip install ".[gui]"
 

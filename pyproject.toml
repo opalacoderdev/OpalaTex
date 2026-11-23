@@ -32,6 +32,7 @@ dependencies = [
     "numpy>=1.21.0",
     "instructor>=1.15.1",
     "litellm>=1.95.0",
+    "tiktoken>=0.8.0",
     "chromadb>=0.4.0",
     # Symbol extraction for search_code (opalatex/code_index.py). Declared here
     # and not only in requirements.txt: a pip install without it degraded to the

@@ -121,6 +121,8 @@ jobs:
             python3.11-venv
 
           python3.11 -m venv /opt/build-venv
+          /opt/build-venv/bin/pip install --upgrade pip
+          /opt/build-venv/bin/pip install "tiktoken>=0.8.0"
           echo "/opt/build-venv/bin" >> "$GITHUB_PATH"
 
       - name: Checkout repository
