@@ -113,12 +113,20 @@ jobs:
             software-properties-common \
             xz-utils
 
-          add-apt-repository -y ppa:deadsnakes/ppa
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            python3.11 \
-            python3.11-dev \
-            python3.11-venv
+          for attempt in 1 2 3 4 5; do
+            add-apt-repository -y -n ppa:deadsnakes/ppa && \
+            apt-get update -o Acquire::Retries=5 && \
+            apt-get install -y --no-install-recommends -o Acquire::Retries=5 \
+              python3.11 \
+              python3.11-dev \
+              python3.11-venv && break
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::Failed to install Python 3.11 from deadsnakes PPA after 5 attempts."
+              exit 1
+            fi
+            echo "deadsnakes PPA install failed (attempt $attempt/5); retrying in 15s..."
+            sleep 15
+          done
 
           python3.11 -m venv /opt/build-venv
           /opt/build-venv/bin/pip install --upgrade pip
