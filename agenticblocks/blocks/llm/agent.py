@@ -586,8 +586,12 @@ class LLMAgentBlock(AgentBlock[AgentInput, AgentOutput]):
         )
         if _has_images and effective_model.startswith("ollama_chat/"):
             effective_model = "ollama/" + effective_model[len("ollama_chat/"):]
-        from agenticblocks.utils.messages import match_tool_result_ids_to_route
+        from agenticblocks.utils.messages import (
+            match_tool_result_ids_to_route,
+            strip_tool_message_names,
+        )
         messages = match_tool_result_ids_to_route(effective_model, messages)
+        messages = strip_tool_message_names(messages)
 
         started = time.monotonic()
         agent_name = getattr(self, "name", "") or type(self).__name__

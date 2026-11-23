@@ -63,7 +63,9 @@ async def test_ollama_chat_results_lose_the_id_their_calls_lost(agent_class, mon
 async def test_routes_that_keep_call_ids_keep_result_ids(agent_class, model, monkeypatch):
     history = _history()
     _, sent = await _sent(agent_class, model, history, monkeypatch)
-    assert sent[2:] == _history()[2:]
+    assert sent[2] == history[2]
+    assert [m.get('tool_call_id') for m in sent if m['role'] == 'tool'] == ['call-a', 'call-b']
+    assert [m['content'] for m in sent if m['role'] == 'tool'] == ['12:00', '21:00']
 
 
 @pytest.mark.asyncio

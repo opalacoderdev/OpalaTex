@@ -106,6 +106,30 @@ def match_tool_result_ids_to_route(model: str, messages: List[Dict[str, Any]]) -
     return result
 
 
+def strip_tool_message_names(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return a request copy with the non-standard ``name`` key removed from ``tool`` messages.
+
+    OpenAI's Chat Completions ``tool`` message schema defines only ``role``,
+    ``tool_call_id``, and ``content`` — tool results are paired with their
+    calls by ``tool_call_id``, not by ``name`` (a holdover from the legacy
+    ``function`` role). Agent blocks keep ``name`` on stored history entries
+    for diagnostics, compaction transcripts, and validation-error tracking, so
+    this removes it only on the outgoing request copy without mutating the
+    caller's list or stored history.
+
+    Forwarding ``name`` on ``tool`` messages causes strict OpenAI-compatible
+    gateways backed by Anthropic Messages to reject the request with
+    ``messages[i].name: anthropic-messages cannot preserve named conversation
+    participants``. Non-tool messages are left untouched.
+    """
+    result = []
+    for message in messages:
+        if isinstance(message, dict) and message.get("role") == "tool" and "name" in message:
+            message = {key: value for key, value in message.items() if key != "name"}
+        result.append(message)
+    return result
+
+
 def prepend_user_prompt(messages: List[Dict[str, Any]], prefix: str) -> List[Dict[str, Any]]:
     """Apply fixed user instructions to a request copy, never to stored history."""
     if not prefix:
