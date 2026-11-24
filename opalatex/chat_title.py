@@ -1,10 +1,10 @@
-"""Automatic chat title generation on first leave.
+"""Automatic chat title generation.
 
-When a user creates a chat without changing its default placeholder name, has a
-conversation in it, and leaves that chat for the first time (switches to another
-chat, opens a new chat, closes the chat panel, switches project, or exits), this
-module generates a short, descriptive title from the conversation transcript and
-renames the chat once.
+Supports two triggers:
+1. Automatic: right after the user's first question in a chat that still carries
+   its default placeholder name (``auto_title_pending = 1``).
+2. On demand (``force=True``): from the "Auto-rename" button available on every
+   chat, which generates a fresh title from the full conversation so far.
 
 The generation runs through an ephemeral AgenticBlocks ``LLMAgentBlock`` that
 answers in **plain text** (same rationale as ``opalatex.translation`` and prompt
@@ -233,22 +233,27 @@ async def auto_title_chat(
     chat_id: str,
     *,
     model: str | None = None,
+    force: bool = False,
 ) -> dict:
-    """Rename *chat_id* from its conversation subject if eligible on first leave.
+    """Rename *chat_id* from its conversation subject.
+
+    When *force* is ``False``, only renames once if the chat still holds its
+    default name (``auto_title_pending``). When *force* is ``True``, renames
+    any chat that has at least one visible user message.
 
     Returns a structured status dict:
     ``{"renamed": bool, "reason": str, "chat_id": str, "name": str | None, "auto_title_pending": bool}``.
     """
     from opalatex.project import resolve_chat_models
 
-    original_name, reason = store.claim_auto_title(project_name, chat_id)
+    original_name, reason = store.claim_auto_title(project_name, chat_id, force=force)
     if original_name is None:
         return {
             "renamed": False,
             "reason": reason,
             "chat_id": chat_id,
             "name": None,
-            "auto_title_pending": reason == "no_messages",
+            "auto_title_pending": store.is_auto_title_pending(project_name, chat_id),
         }
 
     project = store.load(project_name, chat_id=chat_id)

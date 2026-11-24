@@ -474,6 +474,24 @@ async def run_turn(
             import traceback
 
             traceback.print_exception(type(error), error, error.__traceback__)
+
+    # Auto-rename a default-named chat right after the user's first question.
+    current_chat_id = getattr(state.project, "current_chat_id", "")
+    if (
+        not resume_interrupted
+        and current_chat_id
+        and state.store.is_auto_title_pending(state.project.name, current_chat_id)
+    ):
+        try:
+            from .chat_title import auto_title_chat
+
+            res = await auto_title_chat(state.store, state.project.name, current_chat_id)
+            if res.get("renamed"):
+                reloaded = state.store.load(state.project.name, chat_id=current_chat_id)
+                if reloaded is not None:
+                    state.project = reloaded
+        except Exception:
+            pass
     return True
 
 
@@ -620,14 +638,6 @@ async def repl_loop(project: ProjectData, store: ProjectStore, args) -> None:
 
             traceback.print_exc()
             T.error(_("unexpected_error", err=e))
-
-    current_chat_id = getattr(state.project, "current_chat_id", "")
-    if current_chat_id and state.store.is_auto_title_pending(state.project.name, current_chat_id):
-        try:
-            from .chat_title import auto_title_chat
-            await auto_title_chat(state.store, state.project.name, current_chat_id)
-        except Exception:
-            pass
 
     _save_readline_history()
     cli_render.uninstall()

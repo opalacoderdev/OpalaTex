@@ -188,8 +188,11 @@ export default function ChatPanel({
   // first message creates the chat with them (App: `createChatForTask`).
   pendingChatModels = null,
   onPendingChatModelChange,
+  onAutoRenameChat,
+  autoRenamingChatIds = [],
 }) {
   const { t, i18n } = useTranslation();
+  const isAutoRenamingActiveChat = Boolean(activeChatId && autoRenamingChatIds.includes(activeChatId));
   const { showPrompt, showAlert, showConfirm } = useCustomDialog();
   // The models this chat runs on: its own choice, else the project's default,
   // else the catalog's global default (backend: `resolve_chat_models`).
@@ -2092,6 +2095,25 @@ export default function ChatPanel({
                     {isCompact && <Check size={14} />}
                   </button>
                 )}
+                {activeChatId && onAutoRenameChat && (
+                  <button
+                    type="button"
+                    className="vscode-overflow-menu-item"
+                    disabled={isAutoRenamingActiveChat}
+                    onClick={() => {
+                      setShowChatActionsMenu(false);
+                      onAutoRenameChat(activeChatId);
+                    }}
+                    role="menuitem"
+                  >
+                    <Sparkles size={14} className={isAutoRenamingActiveChat ? 'spin-slow' : undefined} />
+                    <span>
+                      {isAutoRenamingActiveChat
+                        ? t('chatSidebar.autoRenamingChat', 'Auto-renaming chat...')
+                        : t('chatSidebar.autoRenameChat', 'Auto-rename chat')}
+                    </span>
+                  </button>
+                )}
                 <button
                   type="button"
                   className="vscode-overflow-menu-item"
@@ -2188,9 +2210,31 @@ export default function ChatPanel({
             <button onClick={() => setShowSearchModal(true)} title={t('chat.searchChats', 'Search Chats')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-fg)', display: 'flex', alignItems: 'center', padding: '2px' }}>
               <Search size={14} />
             </button>
-            <button onClick={handleCreateChatClick} title={t('chatSidebar.newChat', 'Novo Chat')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-fg-teal)', display: 'flex', alignItems: 'center', padding: '2px' }}>
+            <button onClick={handleCreateChatClick} title={t('chatSidebar.newChat', 'New Chat')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-fg-teal)', display: 'flex', alignItems: 'center', padding: '2px' }}>
               <Plus size={14} />
             </button>
+            {activeChatId && onAutoRenameChat && (
+              <button
+                onClick={() => { if (!isAutoRenamingActiveChat) onAutoRenameChat(activeChatId); }}
+                disabled={isAutoRenamingActiveChat}
+                title={isAutoRenamingActiveChat
+                  ? t('chatSidebar.autoRenamingChat', 'Auto-renaming chat...')
+                  : t('chatSidebar.autoRenameChat', 'Auto-rename chat')}
+                aria-label={t('chatSidebar.autoRenameChat', 'Auto-rename chat')}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: isAutoRenamingActiveChat ? 'wait' : 'pointer',
+                  color: isAutoRenamingActiveChat ? 'var(--vscode-accent)' : 'var(--vscode-text-fg)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '2px',
+                  opacity: isAutoRenamingActiveChat ? 0.75 : 1,
+                }}
+              >
+                <Sparkles size={14} className={isAutoRenamingActiveChat ? 'spin-slow' : undefined} />
+              </button>
+            )}
             {activeChatId && (
               <button onClick={(e) => handleDeleteChatClick(activeChatId, e)} title={t('chatPanel.deleteCurrentChat', 'Deletar Chat Atual')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-fg-danger)', display: 'flex', alignItems: 'center', padding: '2px' }}>
                 <Trash2 size={14} />

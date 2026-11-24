@@ -570,7 +570,11 @@
     "chatHistory": "Histórico de Chats",
     "removeChat": "Remover Chat",
     "renameChat": "Renomear Chat",
-    "renamePrompt": "Novo nome do chat:"
+    "renamePrompt": "Novo nome do chat:",
+    "autoRenameChat": "Renomear automaticamente",
+    "autoRenamingChat": "Renomeando chat...",
+    "autoRenameEmpty": "Envie pelo menos uma mensagem antes de renomear este chat automaticamente.",
+    "autoRenameFailed": "Não foi possível renomear o chat automaticamente: {{error}}"
   },
   "bottomPanel": {
     "outputTab": "OUTPUT",

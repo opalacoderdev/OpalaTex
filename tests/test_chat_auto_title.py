@@ -1,15 +1,17 @@
-"""Tests for automatic chat titling on first leave.
+"""Tests for automatic and on-demand chat titling.
 
 Covers:
-- ProjectStore persistence, migration, atomic claiming, manual-rename race
-  protection, empty-chat preservation, and tutorial chat exclusion.
+- ProjectStore persistence, migration, atomic claiming (automatic and forced),
+  manual-rename race protection, empty-chat preservation, and tutorial chat
+  exclusion for automatic renaming.
 - ``opalatex.chat_title`` transcript formatting, title cleaning, ephemeral
   ``LLMAgentBlock`` invocation (plain text, low reasoning effort, no
-  ``user_prompt_prefix``), and end-to-end ``auto_title_chat``.
+  ``user_prompt_prefix``), and end-to-end ``auto_title_chat`` (both automatic
+  and ``force=True``).
 - HTTP endpoints ``/api/chat/create``, ``/api/chat/list``, ``/api/chat/rename``
-  and ``/api/chat/auto-title``.
-- CLI ``/chat switch`` and ``/chat new`` triggering auto-titling on the left
-  chat.
+  and ``/api/chat/auto-title`` (automatic and ``force=True``).
+- CLI ``run_turn`` auto-titling right after the user's first question and
+  ``/chat auto-rename`` on demand.
 - Cloud sync keeping ``auto_title_pending`` machine-local.
 """
 
@@ -24,7 +26,6 @@ import pytest
 
 from opalatex.chat_title import (
     CHAT_TITLE_REASONING_EFFORT,
-    MAX_TITLE_CHARS,
     auto_title_chat,
     build_chat_title_system_prompt,
     clean_generated_title,
@@ -143,7 +144,7 @@ def test_legacy_db_migration_defaults_existing_chats_to_not_pending(tmp_path):
     assert store.claim_auto_title("legacy", "old-chat") == (None, "not_eligible")
 
 
-def test_store_auto_title_lifecycle_and_guards(tmp_path):
+def test_store_auto_title_lifecycle_and_forced_claim(tmp_path):
     _, store = _make_project(tmp_path)
 
     # Default-named chat starts pending; custom-named chat does not.
@@ -157,22 +158,29 @@ def test_store_auto_title_lifecycle_and_guards(tmp_path):
     assert store.is_auto_title_pending("myproj", tut_id) is False
     assert store.list_chat_auto_title_pending("myproj") == {"c-default": True}
 
-    # Leaving an empty chat does not consume auto_title_pending.
+    # Empty chat does not consume auto_title_pending (neither automatic nor forced).
     assert store.claim_auto_title("myproj", "c-default") == (None, "no_messages")
+    assert store.claim_auto_title("myproj", "c-default", force=True) == (None, "no_messages")
     assert store.is_auto_title_pending("myproj", "c-default") is True
 
-    # Once a user message exists, claiming succeeds exactly once.
+    # Once a user message exists, automatic claim succeeds exactly once.
     proj = store.load("myproj", chat_id="c-default")
     store.append_message(proj, "user", "How do I configure BibLaTeX?")
     assert store.claim_auto_title("myproj", "c-default") == ("Chat 1", "claimed")
     assert store.is_auto_title_pending("myproj", "c-default") is False
     assert store.claim_auto_title("myproj", "c-default") == (None, "not_eligible")
 
-    # Applying the title succeeds when the name is still the original default.
     assert store.apply_auto_title("myproj", "c-default", "Chat 1", "BibLaTeX Configuration") is True
     loaded = store.load("myproj", chat_id="c-default")
     chat_names = {c["id"]: c["name"] for c in loaded.chats}
     assert chat_names["c-default"] == "BibLaTeX Configuration"
+
+    # Forced claim works on custom-named or already-renamed chats with messages.
+    proj_custom = store.load("myproj", chat_id="c-custom")
+    store.append_message(proj_custom, "user", "Explain Beamer overlays.")
+    assert store.claim_auto_title("myproj", "c-custom", force=False) == (None, "not_eligible")
+    assert store.claim_auto_title("myproj", "c-custom", force=True) == ("My Custom Title", "claimed")
+    assert store.apply_auto_title("myproj", "c-custom", "My Custom Title", "Beamer Overlays") is True
 
 
 def test_manual_rename_clears_pending_and_blocks_in_flight_overwrite(tmp_path):
@@ -181,12 +189,12 @@ def test_manual_rename_clears_pending_and_blocks_in_flight_overwrite(tmp_path):
     proj = store.load("myproj", chat_id="c1")
     store.append_message(proj, "user", "Explain quantum entanglement.")
 
-    # Manual rename before leave cancels pending auto-title.
+    # Manual rename before auto-title cancels pending flag.
     store.rename_chat("myproj", "c1", "Physics Notes")
     assert store.is_auto_title_pending("myproj", "c1") is False
     assert store.claim_auto_title("myproj", "c1") == (None, "not_eligible")
 
-    # Manual rename while an auto-title call is already in flight wins over the late apply.
+    # Manual rename while an auto-title call is already in flight wins over late apply.
     store.create_chat("myproj", "c2", "Chat 2", auto_title_pending=True)
     proj2 = store.load("myproj", chat_id="c2")
     store.append_message(proj2, "user", "Fix Makefile target.")
@@ -215,7 +223,6 @@ def test_format_conversation_for_title_filters_and_bounds_long_chats():
     assert "User: Help me debug my Beamer slides layout." in text
     assert "Assistant: Sure, let's inspect the frame margins." in text
 
-    # Very long conversation stays within max_chars and retains opening + recent turns.
     long_msgs = [
         {"role": "user" if i % 2 == 0 else "assistant", "content": f"Turn {i}: " + ("word " * 80)}
         for i in range(20)
@@ -267,10 +274,11 @@ async def test_generate_chat_title_uses_plain_text_agent_without_prompt_prefix(m
 
 
 @pytest.mark.asyncio
-async def test_auto_title_chat_renames_once_and_skips_second_leave(tmp_path, monkeypatch):
+async def test_auto_title_chat_automatic_once_and_forced_on_demand(tmp_path, monkeypatch):
     _, store = _make_project(tmp_path)
     store.create_chat("myproj", "c1", "Chat 1", auto_title_pending=True)
-    captured = _stub_llm_agent(monkeypatch, "Configuração de Tabelas LaTeX")
+    titles = iter(["Tabelas Longas no LaTeX", "Tabelas e Bibliografia no LaTeX"])
+    captured = _stub_llm_agent(monkeypatch, lambda _prompt: next(titles))
     monkeypatch.setattr("opalatex.config.resolve_model_route", lambda model, kwargs: model)
 
     # Empty chat -> skipped, still pending, LLM not called.
@@ -280,37 +288,52 @@ async def test_auto_title_chat_renames_once_and_skips_second_leave(tmp_path, mon
     assert first_empty["auto_title_pending"] is True
     assert captured["calls"] == 0
 
-    # Add messages, leave for the first time -> renamed once.
+    # After first user question -> automatic rename runs once.
     proj = store.load("myproj", chat_id="c1")
     store.append_message(proj, "user", "Como alinhar tabelas longas no LaTeX?")
-    store.append_message(proj, "assistant", "Use o pacote longtable com colunas p{...}.")
 
-    first_leave = await auto_title_chat(store, "myproj", "c1")
-    assert first_leave == {
+    first_auto = await auto_title_chat(store, "myproj", "c1")
+    assert first_auto == {
         "renamed": True,
         "reason": "renamed",
         "chat_id": "c1",
-        "name": "Configuração de Tabelas LaTeX",
+        "name": "Tabelas Longas no LaTeX",
         "auto_title_pending": False,
     }
     assert captured["calls"] == 1
 
-    # Second leave -> does not rename again or call the LLM.
-    second_leave = await auto_title_chat(store, "myproj", "c1")
-    assert second_leave["renamed"] is False
-    assert second_leave["reason"] == "not_eligible"
-    assert second_leave["auto_title_pending"] is False
+    # Second automatic trigger -> skipped.
+    second_auto = await auto_title_chat(store, "myproj", "c1")
+    assert second_auto["renamed"] is False
+    assert second_auto["reason"] == "not_eligible"
     assert captured["calls"] == 1
+
+    # Conversation evolves, user clicks "Auto-rename" (force=True) -> regenerates title.
+    proj = store.load("myproj", chat_id="c1")
+    store.append_message(proj, "assistant", "Use o pacote longtable.")
+    store.append_message(proj, "user", "Agora configure a bibliografia ABNT também.")
+
+    forced = await auto_title_chat(store, "myproj", "c1", force=True)
+    assert forced == {
+        "renamed": True,
+        "reason": "renamed",
+        "chat_id": "c1",
+        "name": "Tabelas e Bibliografia no LaTeX",
+        "auto_title_pending": False,
+    }
+    assert captured["calls"] == 2
+    assert "bibliografia ABNT" in captured["prompt"]
 
 
 # ─── HTTP API endpoints ───────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_chat_api_create_list_and_auto_title_endpoints(tmp_path, monkeypatch):
+async def test_chat_api_create_list_auto_and_forced_rename(tmp_path, monkeypatch):
     db_path, store = _make_project(tmp_path)
     monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
-    captured = _stub_llm_agent(monkeypatch, "TikZ Flowchart Diagram")
+    titles = iter(["TikZ Flowchart Diagram", "Custom Topic Summary"])
+    captured = _stub_llm_agent(monkeypatch, lambda _prompt: next(titles))
     monkeypatch.setattr("opalatex.config.resolve_model_route", lambda model, kwargs: model)
 
     server, responses = _server_with_capture()
@@ -343,19 +366,7 @@ async def test_chat_api_create_list_and_auto_title_endpoints(tmp_path, monkeypat
     assert by_id[default_chat["id"]]["auto_title_pending"] is True
     assert by_id[custom_chat["id"]]["auto_title_pending"] is False
 
-    # 3. Leaving default chat while empty keeps it pending.
-    await server.route_api(
-        "POST", "/api/chat/auto-title", {}, {},
-        json.dumps({"project_name": "myproj", "chat_id": default_chat["id"]}).encode(),
-        writer,
-    )
-    status, body, _ = responses.pop()
-    assert status == 200
-    assert body["renamed"] is False
-    assert body["reason"] == "no_messages"
-    assert body["auto_title_pending"] is True
-
-    # 4. After conversation, first leave renames the default chat.
+    # 3. After first user message, automatic call renames the default chat.
     proj = store.load("myproj", chat_id=default_chat["id"])
     store.append_message(proj, "user", "Draw a TikZ flowchart for my methodology.")
     await server.route_api(
@@ -370,12 +381,12 @@ async def test_chat_api_create_list_and_auto_title_endpoints(tmp_path, monkeypat
     assert body["auto_title_pending"] is False
     assert captured["calls"] == 1
 
-    # 5. Custom-named chat with messages is never auto-renamed.
+    # 4. Custom-named chat is NOT auto-renamed when force is False...
     proj_custom = store.load("myproj", chat_id=custom_chat["id"])
-    store.append_message(proj_custom, "user", "Another conversation topic.")
+    store.append_message(proj_custom, "user", "Summarize the project architecture.")
     await server.route_api(
         "POST", "/api/chat/auto-title", {}, {},
-        json.dumps({"project_name": "myproj", "chat_id": custom_chat["id"]}).encode(),
+        json.dumps({"project_name": "myproj", "chat_id": custom_chat["id"], "force": False}).encode(),
         writer,
     )
     status, body, _ = responses.pop()
@@ -383,6 +394,18 @@ async def test_chat_api_create_list_and_auto_title_endpoints(tmp_path, monkeypat
     assert body["renamed"] is False
     assert body["reason"] == "not_eligible"
     assert captured["calls"] == 1
+
+    # 5. ...but clicking "Auto-rename" (force=True) renames it from its conversation.
+    await server.route_api(
+        "POST", "/api/chat/auto-title", {}, {},
+        json.dumps({"project_name": "myproj", "chat_id": custom_chat["id"], "force": True}).encode(),
+        writer,
+    )
+    status, body, _ = responses.pop()
+    assert status == 200
+    assert body["renamed"] is True
+    assert body["name"] == "Custom Topic Summary"
+    assert captured["calls"] == 2
 
 
 @pytest.mark.asyncio
@@ -392,11 +415,9 @@ async def test_chat_auto_title_endpoint_validation_and_error_handling(tmp_path, 
     server, responses = _server_with_capture()
     writer = AsyncMock()
 
-    # Missing params -> 400.
     await server.route_api("POST", "/api/chat/auto-title", {}, {}, b"{}", writer)
     assert responses.pop()[0] == 400
 
-    # Unknown project -> 404.
     await server.route_api(
         "POST", "/api/chat/auto-title", {}, {},
         json.dumps({"project_name": "ghost", "chat_id": "c1"}).encode(),
@@ -404,7 +425,6 @@ async def test_chat_auto_title_endpoint_validation_and_error_handling(tmp_path, 
     )
     assert responses.pop()[0] == 404
 
-    # Provider error is handled gracefully without failing the caller's chat switch.
     store.create_chat("myproj", "c-err", "Chat 1", auto_title_pending=True)
     proj = store.load("myproj", chat_id="c-err")
     store.append_message(proj, "user", "Hello")
@@ -424,31 +444,42 @@ async def test_chat_auto_title_endpoint_validation_and_error_handling(tmp_path, 
     assert store.is_auto_title_pending("myproj", "c-err") is False
 
 
-# ─── CLI /chat switch integration ─────────────────────────────────────────────
+# ─── CLI integration ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_cli_chat_switch_auto_titles_left_default_chat(tmp_path, monkeypatch):
-    _, store = _make_project(tmp_path)
-    store.create_chat("myproj", "c-first", "New Chat", auto_title_pending=True)
-    store.create_chat("myproj", "c-second", "Second Chat", auto_title_pending=False)
-    proj = store.load("myproj", chat_id="c-first")
-    store.append_message(proj, "user", "Write unit tests for parser.py")
-    proj = store.load("myproj", chat_id="c-first")
+async def test_cli_run_turn_auto_titles_first_question_and_chat_auto_rename(tmp_path, monkeypatch):
+    db_path, store = _make_project(tmp_path)
+    proj = store.load("myproj")
 
-    _stub_llm_agent(monkeypatch, "Parser Unit Tests")
+    titles = iter(["Parser Unit Tests", "Parser and CLI Tests"])
+    _stub_llm_agent(monkeypatch, lambda _prompt: next(titles))
     monkeypatch.setattr("opalatex.config.resolve_model_route", lambda model, kwargs: model)
 
-    from opalatex.cli import REPLState
+    async def fake_handle_run(data):
+        loaded = store.load(data["project_name"], chat_id=data["chat_id"])
+        store.append_message(loaded, "user", data["prompt"])
+        store.append_message(loaded, "assistant", "Done.")
+
+    monkeypatch.setattr("opalatex.agent_stdin.handle_run", fake_handle_run)
+
+    from opalatex.cli import REPLState, run_turn
     from opalatex.cli_commands import cmd_chat
 
     state = REPLState(proj, store)
-    result = await cmd_chat(state, ["switch", "Second Chat"])
-    assert result == "continue"
-    assert state.project.current_chat_id == "c-second"
+    ok = await run_turn(state, "Write unit tests for parser.py", db_path=db_path)
+    assert ok is True
+    chat_id = state.project.current_chat_id
     names = {c["id"]: c["name"] for c in state.project.chats}
-    assert names["c-first"] == "Parser Unit Tests"
-    assert store.is_auto_title_pending("myproj", "c-first") is False
+    assert names[chat_id] == "Parser Unit Tests"
+    assert store.is_auto_title_pending("myproj", chat_id) is False
+
+    # On-demand /chat auto-rename regenerates the title even after automatic rename.
+    store.append_message(state.project, "user", "Also cover the CLI commands.")
+    res = await cmd_chat(state, ["auto-rename"])
+    assert res == "continue"
+    names = {c["id"]: c["name"] for c in state.project.chats}
+    assert names[chat_id] == "Parser and CLI Tests"
 
 
 # ─── Cloud sync isolation ─────────────────────────────────────────────────────
@@ -462,7 +493,6 @@ def test_cloud_export_keeps_auto_title_pending_machine_local(tmp_path):
     assert len(exported["chats"]) == 1
     assert "auto_title_pending" not in exported["chats"][0]
 
-    # Importing a crafted payload with auto_title_pending does not set the flag on target.
     db_path2 = str(tmp_path / "target.db")
     store2 = ProjectStore(db_path=db_path2)
     store2.create(name="myproj", mode="plan", model="fake/model", project_path=str(tmp_path / "p2"))

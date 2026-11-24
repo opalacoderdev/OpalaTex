@@ -999,9 +999,9 @@ async def cmd_mode(state: REPLState, args: list[str]) -> str | None:
     return "continue"
 
 
-@_registry.register("/chat", usage="[list | new <name> | switch <name>]",
-                    description="List, create, or switch the chat this project is talking in",
-                    cli_only=True, details='Examples:\n  /chat                                    list this project\'s chats\n  /chat new "Chapter 3 review"             create one and switch to it\n  /chat switch "Chapter 3"                 switch by name (a prefix is enough)\n  /chat switch 7ac7a997-6a13-435f-8ad1     switch by id\n\nEach chat keeps its own history and working context. To empty the current\none use /clear_chat; /clear wipes every chat in the project.')
+@_registry.register("/chat", usage="[list | new <name> | switch <name> | auto-rename]",
+                    description="List, create, switch, or auto-rename the chat this project is talking in",
+                    cli_only=True, details='Examples:\n  /chat                                    list this project\'s chats\n  /chat new "Chapter 3 review"             create one and switch to it\n  /chat switch "Chapter 3"                 switch by name (a prefix is enough)\n  /chat switch 7ac7a997-6a13-435f-8ad1     switch by id\n  /chat auto-rename                        rename the current chat from its conversation\n\nEach chat keeps its own history and working context. To empty the current\none use /clear_chat; /clear wipes every chat in the project.')
 async def cmd_chat(state: REPLState, args: list[str]) -> str | None:
     import uuid
 
@@ -1021,6 +1021,29 @@ async def cmd_chat(state: REPLState, args: list[str]) -> str | None:
             mark = "[green]*[/green]" if chat["id"] == state.project.current_chat_id else " "
             T.console.print(f"  {mark} [cyan]{_escape(chat['name'])}[/cyan]  [dim]{chat['id']}[/dim]")
         T.console.print()
+        return "continue"
+
+    if action == "auto-rename":
+        chat_id = state.project.current_chat_id
+        if not chat_id:
+            T.info(_("cli_no_chats"))
+            return "continue"
+        from .chat_title import auto_title_chat
+        try:
+            res = await auto_title_chat(state.store, state.project.name, chat_id, force=True)
+        except Exception as exc:
+            T.error(f"Could not auto-rename chat: {exc}")
+            return "continue"
+        if res.get("renamed") and res.get("name"):
+            loaded = state.store.load(state.project.name, chat_id=chat_id)
+            if loaded is not None:
+                state.project = loaded
+                set_project_context(state.project, state.store)
+            T.success(f"Chat renamed to '{res['name']}'.")
+        elif res.get("reason") == "no_messages":
+            T.info("Send at least one message before auto-renaming this chat.")
+        else:
+            T.info("Chat was not renamed.")
         return "continue"
 
     if action == "new":
@@ -1046,14 +1069,6 @@ async def cmd_chat(state: REPLState, args: list[str]) -> str | None:
     else:
         T.error(_("cli_usage_chat"))
         return "continue"
-
-    prev_chat_id = state.project.current_chat_id
-    if prev_chat_id and prev_chat_id != target and state.store.is_auto_title_pending(state.project.name, prev_chat_id):
-        try:
-            from .chat_title import auto_title_chat
-            await auto_title_chat(state.store, state.project.name, prev_chat_id)
-        except Exception:
-            pass
 
     loaded = state.store.load(state.project.name, chat_id=target)
     if loaded is None:

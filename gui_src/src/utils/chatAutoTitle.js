@@ -1,28 +1,10 @@
-// Helpers for automatic first-leave chat titling.
+// Helpers for automatic and on-demand chat titling.
 //
-// When a chat is created without changing its default placeholder name, the
-// backend marks it `auto_title_pending: true`. The first time the user leaves
-// that chat (switches chats, creates another chat, hides the chat panel,
-// switches projects, or closes the window), the front-end asks the backend to
-// summarize the conversation into a concise title.
-
-/**
- * Return true when the active chat surface is currently visible on screen.
- * Mirrors the ChatPanel mount conditions in App.jsx across all layouts.
- */
-export function isChatSurfaceVisible({
-  layoutMode,
-  isChatVisible,
-  isEditorMaximized = false,
-  isBottomMaximized = false,
-}) {
-  if (layoutMode === 'chat') return !isEditorMaximized;
-  if (layoutMode === 'chat-bottom') return !isBottomMaximized;
-  if (layoutMode === 'ide' || layoutMode === 'studio') {
-    return Boolean(isChatVisible) && !isEditorMaximized;
-  }
-  return false;
-}
+// Two triggers share the same backend endpoint (`POST /api/chat/auto-title`):
+// 1. Automatic: right after the user's first question in a chat that still
+//    carries its default placeholder name (`auto_title_pending: true`).
+// 2. On demand (`force: true`): when the user clicks the "Auto-rename" button
+//    available on every chat to regenerate its title from the conversation.
 
 /**
  * Return true when the user kept the suggested default name untouched.
@@ -34,44 +16,13 @@ export function isDefaultNewChatName(submittedName, suggestedDefaultName) {
 }
 
 /**
- * Detect whether transitioning from `prev` to `next` means the user just left
- * `prev.chatId`.
- *
- * Each snapshot has shape:
- * `{ projectName: string, chatId: string, isChatShown: boolean, autoTitlePending: boolean }`.
- *
- * `prevChatStillExistsInSameProject` guards against firing an auto-title
- * request when the user deleted the active chat (in which case `chatId` changed
- * only because `prev.chatId` was removed).
+ * Return true when saving a user message in `chatId` should trigger automatic
+ * title generation (the chat still carries its initial default name).
  */
-export function detectLeftChat(prev, next, { prevChatStillExistsInSameProject = true } = {}) {
-  if (!prev || !prev.projectName || !prev.chatId || !prev.autoTitlePending) {
-    return null;
-  }
-  const nextProject = next?.projectName || '';
-  const nextChat = next?.chatId || '';
-
-  // 1. Switched to another project or closed the active project.
-  if (prev.projectName !== nextProject) {
-    return { projectName: prev.projectName, chatId: prev.chatId };
-  }
-
-  // Within the same project, a deleted chat has nothing left to rename.
-  if (!prevChatStillExistsInSameProject) {
-    return null;
-  }
-
-  // 2. Switched to another chat (including creating a new chat, branching, or opening tutorial).
-  if (prev.chatId !== nextChat) {
-    return { projectName: prev.projectName, chatId: prev.chatId };
-  }
-
-  // 3. Closed or hid the chat surface while remaining on the same project and chat.
-  if (prev.isChatShown && !next?.isChatShown) {
-    return { projectName: prev.projectName, chatId: prev.chatId };
-  }
-
-  return null;
+export function shouldAutoTitleAfterUserMessage(chats, chatId) {
+  if (!Array.isArray(chats) || !chatId) return false;
+  const chat = chats.find((c) => c.id === chatId);
+  return Boolean(chat?.auto_title_pending);
 }
 
 /**

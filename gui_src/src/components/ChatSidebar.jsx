@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Plus, MessageSquare, Trash2, Pencil } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, Pencil, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { isDefaultNewChatName } from '../utils/chatAutoTitle.js';
@@ -11,7 +11,9 @@ export default function ChatSidebar({
   setChats,
   activeProject,
   setChatMessages,
-  onSwitchChat
+  onSwitchChat,
+  onAutoRenameChat,
+  autoRenamingChatIds = [],
 }) {
   const { t } = useTranslation();
   const { showPrompt } = useCustomDialog();
@@ -172,6 +174,7 @@ export default function ChatSidebar({
         <div>
           {chats.map(c => {
             const isActive = activeChatId === c.id;
+            const isAutoRenaming = autoRenamingChatIds.includes(c.id);
             return (
               <div
                 key={c.id}
@@ -184,17 +187,40 @@ export default function ChatSidebar({
                   {c.name}
                 </div>
                 <div style={{ display: 'flex', gap: '4px' }}>
+                  {onAutoRenameChat && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!isAutoRenaming) onAutoRenameChat(c.id);
+                      }}
+                      disabled={isAutoRenaming}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: isAutoRenaming ? 'wait' : 'pointer',
+                        color: isAutoRenaming ? 'var(--vscode-accent)' : 'var(--vscode-text-subtle)',
+                        padding: '2px 4px',
+                        opacity: isAutoRenaming ? 0.75 : 1,
+                      }}
+                      title={isAutoRenaming
+                        ? t('chatSidebar.autoRenamingChat', 'Auto-renaming chat...')
+                        : t('chatSidebar.autoRenameChat', 'Auto-rename chat')}
+                      aria-label={t('chatSidebar.autoRenameChat', 'Auto-rename chat')}
+                    >
+                      <Sparkles size={12} className={isAutoRenaming ? 'spin-slow' : undefined} />
+                    </button>
+                  )}
                   <button
                     onClick={(e) => handleRenameChatClick(c.id, c.name, e)}
                     style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)', padding: '2px 4px' }}
-                    title={t('chatSidebar.renameChat', 'Renomear Chat')}
+                    title={t('chatSidebar.renameChat', 'Rename Chat')}
                   >
                     <Pencil size={12} />
                   </button>
                   <button
                     onClick={(e) => handleDeleteChatClick(c.id, e)}
                     style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--vscode-text-subtle)', padding: '2px 4px' }}
-                    title={t('chatSidebar.removeChat', 'Remover Chat')}
+                    title={t('chatSidebar.removeChat', 'Remove Chat')}
                   >
                     <Trash2 size={12} />
                   </button>

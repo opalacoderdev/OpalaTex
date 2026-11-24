@@ -2139,26 +2139,38 @@ class ProjectStore:
             ).fetchone()
         return bool(row and row["auto_title_pending"])
 
-    def claim_auto_title(self, name: str, chat_id: str) -> tuple[str | None, str]:
-        """Atomically claim the one-time auto-title slot for *chat_id*.
+    def claim_auto_title(
+        self, name: str, chat_id: str, *, force: bool = False
+    ) -> tuple[str | None, str]:
+        """Atomically claim the auto-title slot for *chat_id*.
 
-        Returns ``(original_name, "claimed")`` when *chat_id* still holds its
-        default name, is not the tutorial chat, and has at least one visible
-        user message. Clears ``auto_title_pending`` immediately so concurrent
-        leave triggers never run duplicate title generations.
+        When *force* is ``False`` (automatic trigger after the user's first
+        question), returns ``(original_name, "claimed")`` only when *chat_id*
+        still holds its default name (``auto_title_pending != 0``), is not the
+        tutorial chat, and has at least one visible user message. Clears
+        ``auto_title_pending`` immediately so concurrent triggers never run
+        duplicate title generations.
+
+        When *force* is ``True`` (explicit user click on the auto-rename
+        button), any existing chat with at least one visible user message is
+        eligible, even if it was previously renamed or created with a custom
+        name.
 
         When the chat has no visible user messages yet, returns
-        ``(None, "no_messages")`` and preserves ``auto_title_pending = 1`` so
-        leaving an empty chat does not consume the first-leave auto-rename.
+        ``(None, "no_messages")`` and preserves ``auto_title_pending``.
         """
-        if not chat_id or chat_id == tutorial_chat_id(name):
+        if not chat_id:
+            return None, "not_eligible"
+        if not force and chat_id == tutorial_chat_id(name):
             return None, "not_eligible"
         with _conn(self.db_path) as conn:
             row = conn.execute(
                 "SELECT name, auto_title_pending FROM project_chats WHERE project = ? AND id = ?",
                 (name, chat_id),
             ).fetchone()
-            if row is None or not row["auto_title_pending"]:
+            if row is None:
+                return None, "not_eligible"
+            if not force and not row["auto_title_pending"]:
                 return None, "not_eligible"
             has_user_msg = conn.execute(
                 "SELECT 1 FROM project_history "
@@ -2168,13 +2180,20 @@ class ProjectStore:
             ).fetchone()
             if has_user_msg is None:
                 return None, "no_messages"
-            cursor = conn.execute(
-                "UPDATE project_chats SET auto_title_pending = 0 "
-                "WHERE project = ? AND id = ? AND auto_title_pending != 0",
-                (name, chat_id),
-            )
-            if not cursor.rowcount:
-                return None, "not_eligible"
+            if force:
+                conn.execute(
+                    "UPDATE project_chats SET auto_title_pending = 0 "
+                    "WHERE project = ? AND id = ?",
+                    (name, chat_id),
+                )
+            else:
+                cursor = conn.execute(
+                    "UPDATE project_chats SET auto_title_pending = 0 "
+                    "WHERE project = ? AND id = ? AND auto_title_pending != 0",
+                    (name, chat_id),
+                )
+                if not cursor.rowcount:
+                    return None, "not_eligible"
             return str(row["name"]), "claimed"
 
     def apply_auto_title(

@@ -60,7 +60,7 @@ def capture(state, line, width=200):
     "/history [n]",
     "/mode [auto | plan | edit]",
     "/thoughts [on|off]",
-    "/chat [list | new <name> | switch <name>]",
+    "/chat [list | new <name> | switch <name> | auto-rename]",
     "/providers [list | add key=value... | set <id> key=value... | remove <id>]",
 ])
 def test_the_listing_shows_the_argument_shape(state, fragment):

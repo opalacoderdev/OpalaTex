@@ -3535,8 +3535,9 @@ class AsyncHTTPServer:
                     "application/json",
                 )
                 return
+            force = bool(data.get("force", False))
             try:
-                result = await auto_title_chat(store, project_name, chat_id)
+                result = await auto_title_chat(store, project_name, chat_id, force=force)
                 self.send_response(
                     writer,
                     200,

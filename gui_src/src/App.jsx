@@ -89,8 +89,7 @@ import EditModelsModal from './components/modals/EditModelsModal';
 import { chatsUsingModel, resolveChatModels, withChatModel } from './utils/chatModels.js';
 import {
   applyAutoTitleResult,
-  detectLeftChat,
-  isChatSurfaceVisible,
+  shouldAutoTitleAfterUserMessage,
 } from './utils/chatAutoTitle.js';
 import { compactionMessage, compactionMessagesFromActivity } from './utils/chatCompaction.js';
 import AddModelModal from './components/modals/AddModelModal';
@@ -712,31 +711,36 @@ export default function App() {
   // two branches of one message.
   const editBranchInFlightRef = useRef(false);
   const [chats, setChats] = useState([]);
+  const [autoRenamingChatIds, setAutoRenamingChatIds] = useState([]);
   const activeProjectNameRef = useRef('');
-  useEffect(() => { activeProjectNameRef.current = activeProject?.name || ''; }, [activeProject?.name]);
+  activeProjectNameRef.current = activeProject?.name || '';
   const chatsRef = useRef([]);
-  useEffect(() => { chatsRef.current = chats; }, [chats]);
+  chatsRef.current = chats;
   const autoTitleInFlightRef = useRef(new Set());
-  const prevChatViewRef = useRef({
-    projectName: '',
-    chatId: '',
-    isChatShown: false,
-    autoTitlePending: false,
-  });
 
-  const requestAutoTitleForChat = useCallback((projectName, chatId, { keepalive = false } = {}) => {
+  const requestAutoTitleForChat = useCallback((projectName, chatId, { force = false } = {}) => {
     if (!projectName || !chatId) return;
     const key = `${projectName}::${chatId}`;
     if (autoTitleInFlightRef.current.has(key)) return;
     autoTitleInFlightRef.current.add(key);
+    if (force) {
+      setAutoRenamingChatIds((prev) => (prev.includes(chatId) ? prev : [...prev, chatId]));
+    }
 
     fetch('/api/chat/auto-title', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_name: projectName, chat_id: chatId }),
-      keepalive,
+      body: JSON.stringify({
+        project_name: projectName,
+        chat_id: chatId,
+        force: Boolean(force),
+      }),
     })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? res.json() : res.json().catch(() => null).then((err) => ({
+        renamed: false,
+        reason: 'error',
+        error: err?.error || `HTTP ${res.status}`,
+      }))))
       .then((data) => {
         if (!data || activeProjectNameRef.current !== projectName) return;
         setChats((prev) => applyAutoTitleResult(prev, {
@@ -745,52 +749,42 @@ export default function App() {
           name: data.name || '',
           autoTitlePending: Boolean(data.auto_title_pending),
         }));
+        if (force && !data.renamed) {
+          if (data.reason === 'no_messages') {
+            setAlertMessage(t(
+              'chatSidebar.autoRenameEmpty',
+              'Send at least one message before auto-renaming this chat.',
+            ));
+          } else if (data.reason === 'error' && data.error) {
+            setAlertMessage(t(
+              'chatSidebar.autoRenameFailed',
+              'Could not auto-rename chat: {{error}}',
+              { error: data.error },
+            ));
+          }
+        }
       })
-      .catch(() => {})
+      .catch((err) => {
+        if (force && activeProjectNameRef.current === projectName) {
+          setAlertMessage(t(
+            'chatSidebar.autoRenameFailed',
+            'Could not auto-rename chat: {{error}}',
+            { error: err?.message || String(err) },
+          ));
+        }
+      })
       .finally(() => {
         autoTitleInFlightRef.current.delete(key);
+        if (force) {
+          setAutoRenamingChatIds((prev) => prev.filter((id) => id !== chatId));
+        }
       });
-  }, []);
+  }, [t]);
 
-  const isChatShownNow = isChatSurfaceVisible({
-    layoutMode,
-    isChatVisible,
-    isEditorMaximized,
-    isBottomMaximized,
-  });
-
-  useEffect(() => {
-    const projectName = activeProject?.name || '';
-    const activeChat = chats.find((c) => c.id === activeChatId);
-    const nextView = {
-      projectName,
-      chatId: activeChatId || '',
-      isChatShown: isChatShownNow,
-      autoTitlePending: Boolean(activeChat?.auto_title_pending),
-    };
-    const prevView = prevChatViewRef.current;
-    const prevStillExists = prevView.projectName === projectName
-      && chats.some((c) => c.id === prevView.chatId);
-    const left = detectLeftChat(prevView, nextView, {
-      prevChatStillExistsInSameProject: prevStillExists,
-    });
-    prevChatViewRef.current = nextView;
-    if (left) {
-      requestAutoTitleForChat(left.projectName, left.chatId);
-    }
-  }, [activeProject?.name, activeChatId, isChatShownNow, chats, requestAutoTitleForChat]);
-
-  useEffect(() => {
-    const handlePageHide = () => {
-      const projectName = activeProjectNameRef.current;
-      const chatId = activeChatIdRef.current;
-      if (!projectName || !chatId) return;
-      const currentChat = chatsRef.current.find((c) => c.id === chatId);
-      if (!currentChat?.auto_title_pending) return;
-      requestAutoTitleForChat(projectName, chatId, { keepalive: true });
-    };
-    window.addEventListener('pagehide', handlePageHide);
-    return () => window.removeEventListener('pagehide', handlePageHide);
+  const handleAutoRenameChat = useCallback((chatId) => {
+    const projectName = activeProjectNameRef.current;
+    if (!projectName || !chatId) return;
+    requestAutoTitleForChat(projectName, chatId, { force: true });
   }, [requestAutoTitleForChat]);
   // The built-in tutorial lives in a reserved chat (`tutorial_<project>`). Its id and
   // question menu come from the backend so the front-end never has to guess either.
@@ -1298,6 +1292,9 @@ export default function App() {
     }
     const data = await res.json();
     const chatId = data.id;
+    chatsRef.current = chatsRef.current.some(chat => chat.id === chatId)
+      ? chatsRef.current
+      : [data, ...chatsRef.current];
     setChats(prev => prev.some(chat => chat.id === chatId) ? prev : [data, ...prev]);
     setActiveChatId(chatId);
     setActiveProject(prev => prev ? { ...prev, current_chat_id: chatId } : null);
@@ -3684,7 +3681,7 @@ export default function App() {
           }
         }
         break;
-      case 'user_message_saved':
+      case 'user_message_saved': {
         // Stamp the stored id on the optimistic user message so editing, retrying
         // and branching have a stable anchor during this session.
         setChatMessages(prev => prev.map(msg => (
@@ -3694,7 +3691,15 @@ export default function App() {
             ? { ...msg, id: data.message_id }
             : msg
         )));
+        // Automatically rename a default-named chat right after the user's
+        // first question is persisted.
+        const savedChatId = runChatIdRef.current || activeChatIdRef.current;
+        const savedProjectName = activeProjectNameRef.current;
+        if (savedProjectName && shouldAutoTitleAfterUserMessage(chatsRef.current, savedChatId)) {
+          requestAutoTitleForChat(savedProjectName, savedChatId, { force: false });
+        }
         break;
+      }
       case 'user_message_delivered':
         // The agent has taken the message off the queue and read it. This is the
         // one moment the user is waiting to see, so it is reported as its own
@@ -5430,6 +5435,8 @@ export default function App() {
                 activeProject={activeProject}
                 setChatMessages={setChatMessages}
                 onSwitchChat={handleSwitchChat}
+                onAutoRenameChat={handleAutoRenameChat}
+                autoRenamingChatIds={autoRenamingChatIds}
               />
             </div>
 
@@ -5663,6 +5670,8 @@ export default function App() {
               onEditModels={() => setShowEditModelsModal(true)}
               pendingChatModels={pendingChatModels}
               onPendingChatModelChange={handlePendingChatModelChange}
+              onAutoRenameChat={handleAutoRenameChat}
+              autoRenamingChatIds={autoRenamingChatIds}
             />
           )}
           <div
@@ -5764,6 +5773,8 @@ export default function App() {
               onEditModels={() => setShowEditModelsModal(true)}
               pendingChatModels={pendingChatModels}
               onPendingChatModelChange={handlePendingChatModelChange}
+              onAutoRenameChat={handleAutoRenameChat}
+              autoRenamingChatIds={autoRenamingChatIds}
             />
 
             {(isLoadingChat || isPending) && (
