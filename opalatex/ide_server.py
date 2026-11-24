@@ -3511,6 +3511,63 @@ class AsyncHTTPServer:
             store.rename_chat(project_name, chat_id, new_name)
             self.send_response(writer, 200, b'{"status":"ok"}', "application/json")
 
+        elif path == '/api/chat/auto-title' and method == 'POST':
+            from opalatex.chat_title import auto_title_chat
+            from opalatex.config import DEFAULT_DB_PATH
+            from opalatex.project import ChatNotFoundError, ProjectStore
+
+            store = ProjectStore(db_path=DEFAULT_DB_PATH)
+            project_name = str(data.get("project_name") or "").strip()
+            chat_id = str(data.get("chat_id") or "").strip()
+            if not project_name or not chat_id:
+                self.send_response(
+                    writer,
+                    400,
+                    b'{"error":"project_name and chat_id required"}',
+                    "application/json",
+                )
+                return
+            if not store.exists(project_name):
+                self.send_response(
+                    writer,
+                    404,
+                    b'{"error":"project not found"}',
+                    "application/json",
+                )
+                return
+            try:
+                result = await auto_title_chat(store, project_name, chat_id)
+                self.send_response(
+                    writer,
+                    200,
+                    json.dumps({"status": "ok", **result}).encode("utf-8"),
+                    "application/json",
+                )
+            except ChatNotFoundError as e:
+                self.send_response(
+                    writer,
+                    404,
+                    json.dumps({"error": str(e)}).encode("utf-8"),
+                    "application/json",
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Auto-title failed for %s/%s: %s", project_name, chat_id, e)
+                self.send_response(
+                    writer,
+                    200,
+                    json.dumps({
+                        "status": "ok",
+                        "renamed": False,
+                        "reason": "error",
+                        "chat_id": chat_id,
+                        "name": None,
+                        "auto_title_pending": False,
+                        "error": str(e),
+                    }).encode("utf-8"),
+                    "application/json",
+                )
+
         elif path == '/api/chat/reasoning-effort' and method == 'POST':
             # The reasoning effort of one chat, in place of its model's catalog
             # value. It is read from the store when the next turn builds its
@@ -3782,12 +3839,14 @@ class AsyncHTTPServer:
             efforts = store.list_chat_reasoning_efforts(project_name)
             # Likewise its models ("" = follow the project's default).
             chat_models = store.list_chat_models(project_name)
+            auto_title_pending = store.list_chat_auto_title_pending(project_name)
             chats = [
                 {
                     **chat,
                     "reasoning_effort": efforts.get(chat.get("id"), ""),
                     "model": chat_models.get(chat.get("id"), {}).get("model", ""),
                     "worker_model": chat_models.get(chat.get("id"), {}).get("worker_model", ""),
+                    "auto_title_pending": bool(auto_title_pending.get(chat.get("id"), False)),
                 }
                 for chat in (project.chats or [])
             ]
@@ -3875,11 +3934,13 @@ class AsyncHTTPServer:
             # A new chat names no model unless the caller supplies one: the
             # model picked in the chat toolbar before the chat existed (the
             # first message is what creates it). Empty follows the default.
+            auto_title_pending = bool(data.get("auto_title_pending", False))
             try:
                 effort = store.create_chat(
                     project_name, chat_id, chat_name,
                     model=data.get("model") or "",
                     worker_model=data.get("worker_model") or "",
+                    auto_title_pending=auto_title_pending,
                 )
             except ValueError as e:
                 self.send_response(writer, 400, json.dumps({"error": str(e)}).encode(), "application/json")
@@ -3892,6 +3953,7 @@ class AsyncHTTPServer:
             self.send_response(writer, 200, json.dumps({
                 "id": chat_id, "name": chat_name, "reasoning_effort": effort,
                 "model": model, "worker_model": worker_model,
+                "auto_title_pending": store.is_auto_title_pending(project_name, chat_id),
             }).encode(), "application/json")
 
         # 6a-bis. Built-in tutorial chat.

@@ -1047,6 +1047,14 @@ async def cmd_chat(state: REPLState, args: list[str]) -> str | None:
         T.error(_("cli_usage_chat"))
         return "continue"
 
+    prev_chat_id = state.project.current_chat_id
+    if prev_chat_id and prev_chat_id != target and state.store.is_auto_title_pending(state.project.name, prev_chat_id):
+        try:
+            from .chat_title import auto_title_chat
+            await auto_title_chat(state.store, state.project.name, prev_chat_id)
+        except Exception:
+            pass
+
     loaded = state.store.load(state.project.name, chat_id=target)
     if loaded is None:
         T.error(_("cli_chat_not_found", name=rest))

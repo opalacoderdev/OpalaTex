@@ -60,7 +60,7 @@ EXPORT_VERSION = 1
 
 # Columns of `project_chats` that describe this machine's working state and must
 # never be written from an incoming document.
-_MACHINE_LOCAL_CHAT_FIELDS = frozenset({"project", "external_turns"})
+_MACHINE_LOCAL_CHAT_FIELDS = frozenset({"project", "external_turns", "auto_title_pending"})
 
 # A device journal names itself, so a stray JSON file dropped into the devices
 # folder is not mistaken for conversation history.

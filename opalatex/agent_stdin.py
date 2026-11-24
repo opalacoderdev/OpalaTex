@@ -3637,7 +3637,7 @@ async def handle_stdin_run(data: dict) -> None:
 
         chat_id = str(uuid.uuid4())
         chat_name = _translate("default_chat_name")
-        store.create_chat(name, chat_id, chat_name)
+        store.create_chat(name, chat_id, chat_name, auto_title_pending=True)
         print_event("chat_created", {"project_name": name, "chat_id": chat_id, "name": chat_name})
         if names_project:
             # `handle_run` reloads the named project, now on this chat.

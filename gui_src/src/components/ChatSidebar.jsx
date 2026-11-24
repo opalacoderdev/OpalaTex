@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Plus, MessageSquare, Trash2, Pencil } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
+import { isDefaultNewChatName } from '../utils/chatAutoTitle.js';
 
 export default function ChatSidebar({
   chats,
@@ -16,6 +17,7 @@ export default function ChatSidebar({
   const { showPrompt } = useCustomDialog();
   const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
   const [newChatName, setNewChatName] = useState('');
+  const defaultNewChatNameRef = useRef('');
   const [chatToDelete, setChatToDelete] = useState(null);
 
   const handleRenameChatClick = async (id, currentName, e) => {
@@ -37,7 +39,9 @@ export default function ChatSidebar({
       });
       if (!res.ok) throw new Error('Failed to rename chat');
       
-      const newChats = chats.map(c => c.id === id ? { ...c, name: newName.trim() } : c);
+      const newChats = chats.map(c => (
+        c.id === id ? { ...c, name: newName.trim(), auto_title_pending: false } : c
+      ));
       setChats(newChats);
     } catch (err) {
       console.error(err);
@@ -48,19 +52,27 @@ export default function ChatSidebar({
 
   const handleCreateChatClick = () => {
     if (!activeProject) return;
-    setNewChatName(`Chat ${chats.length + 1}`);
+    const defaultName = `Chat ${chats.length + 1}`;
+    defaultNewChatNameRef.current = defaultName;
+    setNewChatName(defaultName);
     setShowNewChatPrompt(true);
   };
 
   const submitNewChat = async (e) => {
     e?.preventDefault();
-    if (!activeProject || !newChatName.trim()) return;
+    const trimmedName = newChatName.trim();
+    if (!activeProject || !trimmedName) return;
 
+    const autoTitlePending = isDefaultNewChatName(trimmedName, defaultNewChatNameRef.current);
     try {
       const res = await fetch('/api/chat/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name: activeProject.name, chat_name: newChatName.trim() })
+        body: JSON.stringify({
+          project_name: activeProject.name,
+          chat_name: trimmedName,
+          auto_title_pending: autoTitlePending,
+        })
       });
       if (!res.ok) throw new Error('Failed to create chat');
       const data = await res.json();

@@ -535,6 +535,16 @@ def _init_schema(db_path: str) -> None:
             except sqlite3.OperationalError:
                 pass
 
+        # Whether this chat still carries its initial default name and has not
+        # yet been auto-titled on first leave. Existing chats default to 0 so
+        # legacy conversations are never renamed unexpectedly.
+        try:
+            conn.execute(
+                "ALTER TABLE project_chats ADD COLUMN auto_title_pending INTEGER NOT NULL DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass
+
         try:
             conn.execute("ALTER TABLE project_history ADD COLUMN chat_id TEXT NOT NULL DEFAULT 'main'")
         except sqlite3.OperationalError:
@@ -2068,6 +2078,7 @@ class ProjectStore:
     def create_chat(
         self, name: str, chat_id: str, chat_name: str,
         model: str = "", worker_model: str = "",
+        auto_title_pending: bool = False,
     ) -> str:
         """Create an empty chat and return the reasoning effort it starts with.
 
@@ -2076,15 +2087,20 @@ class ProjectStore:
         the chat existed (the first message is what creates it) be stored with
         the chat itself. Both are validated like :meth:`set_chat_model` before
         anything is written, so a refused id leaves no chat behind.
+
+        *auto_title_pending* marks chats created with a default placeholder
+        name so they are automatically renamed from their conversation subject
+        the first time the user leaves them with messages.
         """
         stored_model = _validated_chat_model("model", model)
         stored_worker = _validated_chat_model("worker_model", worker_model)
         now = datetime.now(timezone.utc).isoformat()
         effort = NEW_CHAT_REASONING_EFFORT
+        pending_flag = 1 if (auto_title_pending and chat_id != tutorial_chat_id(name)) else 0
         with _conn(self.db_path) as conn:
             conn.execute(
-                "INSERT INTO project_chats (id, project, name, created_at, core_memory, reasoning_effort, model, worker_model) VALUES (?,?,?,?,?,?,?,?)",
-                (chat_id, name, chat_name, now, "", effort, stored_model, stored_worker),
+                "INSERT INTO project_chats (id, project, name, created_at, core_memory, reasoning_effort, model, worker_model, auto_title_pending) VALUES (?,?,?,?,?,?,?,?,?)",
+                (chat_id, name, chat_name, now, "", effort, stored_model, stored_worker, pending_flag),
             )
         return effort
 
@@ -2098,7 +2114,87 @@ class ProjectStore:
 
     def rename_chat(self, name: str, chat_id: str, new_name: str) -> None:
         with _conn(self.db_path) as conn:
-            conn.execute("UPDATE project_chats SET name = ? WHERE project = ? AND id = ?", (new_name, name, chat_id))
+            conn.execute(
+                "UPDATE project_chats SET name = ?, auto_title_pending = 0 WHERE project = ? AND id = ?",
+                (new_name, name, chat_id),
+            )
+
+    def list_chat_auto_title_pending(self, name: str) -> dict[str, bool]:
+        """Return ``{chat_id: True}`` for every chat awaiting first-leave auto-titling."""
+        with _conn(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id FROM project_chats WHERE project = ? AND auto_title_pending != 0",
+                (name,),
+            ).fetchall()
+        return {r["id"]: True for r in rows}
+
+    def is_auto_title_pending(self, name: str, chat_id: str) -> bool:
+        """Return True when *chat_id* is still awaiting first-leave auto-titling."""
+        if not chat_id or chat_id == tutorial_chat_id(name):
+            return False
+        with _conn(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT auto_title_pending FROM project_chats WHERE project = ? AND id = ?",
+                (name, chat_id),
+            ).fetchone()
+        return bool(row and row["auto_title_pending"])
+
+    def claim_auto_title(self, name: str, chat_id: str) -> tuple[str | None, str]:
+        """Atomically claim the one-time auto-title slot for *chat_id*.
+
+        Returns ``(original_name, "claimed")`` when *chat_id* still holds its
+        default name, is not the tutorial chat, and has at least one visible
+        user message. Clears ``auto_title_pending`` immediately so concurrent
+        leave triggers never run duplicate title generations.
+
+        When the chat has no visible user messages yet, returns
+        ``(None, "no_messages")`` and preserves ``auto_title_pending = 1`` so
+        leaving an empty chat does not consume the first-leave auto-rename.
+        """
+        if not chat_id or chat_id == tutorial_chat_id(name):
+            return None, "not_eligible"
+        with _conn(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT name, auto_title_pending FROM project_chats WHERE project = ? AND id = ?",
+                (name, chat_id),
+            ).fetchone()
+            if row is None or not row["auto_title_pending"]:
+                return None, "not_eligible"
+            has_user_msg = conn.execute(
+                "SELECT 1 FROM project_history "
+                "WHERE project = ? AND chat_id = ? AND role = 'user' AND deleted_at = '' "
+                "LIMIT 1",
+                (name, chat_id),
+            ).fetchone()
+            if has_user_msg is None:
+                return None, "no_messages"
+            cursor = conn.execute(
+                "UPDATE project_chats SET auto_title_pending = 0 "
+                "WHERE project = ? AND id = ? AND auto_title_pending != 0",
+                (name, chat_id),
+            )
+            if not cursor.rowcount:
+                return None, "not_eligible"
+            return str(row["name"]), "claimed"
+
+    def apply_auto_title(
+        self, name: str, chat_id: str, expected_name: str, new_name: str
+    ) -> bool:
+        """Apply an auto-generated title only if the chat still has *expected_name*.
+
+        If the user renamed or deleted the chat while title generation was in
+        flight, this returns ``False`` without overwriting the user's choice.
+        """
+        clean = str(new_name or "").strip()
+        if not clean:
+            return False
+        with _conn(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE project_chats SET name = ?, auto_title_pending = 0 "
+                "WHERE project = ? AND id = ? AND name = ?",
+                (clean, name, chat_id, expected_name),
+            )
+        return bool(cursor.rowcount)
 
     def _resolve_chat_message_id(
         self,

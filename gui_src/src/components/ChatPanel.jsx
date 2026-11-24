@@ -26,6 +26,7 @@ import { buildQuoteExcerptPrompt } from '../utils/askAboutPrompt.js';
 import SearchChatsModal from './modals/SearchChatsModal.jsx';
 import ModelSelect from './ModelSelect.jsx';
 import { chatModelChoice, resolveChatModels, withChatModel } from '../utils/chatModels.js';
+import { isDefaultNewChatName } from '../utils/chatAutoTitle.js';
 import TutorialMenu from './TutorialMenu.jsx';
 import SlashCommandMenu from './SlashCommandMenu.jsx';
 import { applySlashCompletion, filterSlashCommands, moveSelection, requiresArguments, slashTokenAt } from '../utils/slashCommands.js';
@@ -591,6 +592,7 @@ export default function ChatPanel({
   // Custom prompt state for new chat
   const [showNewChatPrompt, setShowNewChatPrompt] = useState(false);
   const [newChatName, setNewChatName] = useState('');
+  const defaultNewChatNameRef = useRef('');
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [editingMessageIndex, setEditingMessageIndex] = useState(null);
   const [editingMessageDraft, setEditingMessageDraft] = useState('');
@@ -1165,21 +1167,26 @@ export default function ChatPanel({
 
   const handleCreateChatClick = () => {
     if (!activeProject) return;
-    setNewChatName(`Chat ${chats.length + 1}`);
+    const defaultName = `Chat ${chats.length + 1}`;
+    defaultNewChatNameRef.current = defaultName;
+    setNewChatName(defaultName);
     setShowNewChatPrompt(true);
   };
 
   const submitNewChat = async (e) => {
     e?.preventDefault();
-    if (!activeProject || !newChatName.trim()) return;
+    const trimmedName = newChatName.trim();
+    if (!activeProject || !trimmedName) return;
 
+    const autoTitlePending = isDefaultNewChatName(trimmedName, defaultNewChatNameRef.current);
     try {
       const res = await fetch('/api/chat/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project_name: activeProject.name,
-          chat_name: newChatName.trim(),
+          chat_name: trimmedName,
+          auto_title_pending: autoTitlePending,
           ...(pendingChatModels || {}),
         })
       });

@@ -410,7 +410,7 @@ def _ensure_chat(state: REPLState) -> None:
 
     chat_id = str(uuid.uuid4())
     name = _("default_chat_name")
-    state.store.create_chat(state.project.name, chat_id, name)
+    state.store.create_chat(state.project.name, chat_id, name, auto_title_pending=True)
     state.project = state.store.load(state.project.name, chat_id=chat_id)
     set_project_context(state.project, state.store)
     state.invalidate_memgpt()
@@ -620,6 +620,14 @@ async def repl_loop(project: ProjectData, store: ProjectStore, args) -> None:
 
             traceback.print_exc()
             T.error(_("unexpected_error", err=e))
+
+    current_chat_id = getattr(state.project, "current_chat_id", "")
+    if current_chat_id and state.store.is_auto_title_pending(state.project.name, current_chat_id):
+        try:
+            from .chat_title import auto_title_chat
+            await auto_title_chat(state.store, state.project.name, current_chat_id)
+        except Exception:
+            pass
 
     _save_readline_history()
     cli_render.uninstall()

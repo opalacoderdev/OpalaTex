@@ -87,6 +87,11 @@ import { useCustomDialog } from './components/modals/CustomDialogProvider';
 
 import EditModelsModal from './components/modals/EditModelsModal';
 import { chatsUsingModel, resolveChatModels, withChatModel } from './utils/chatModels.js';
+import {
+  applyAutoTitleResult,
+  detectLeftChat,
+  isChatSurfaceVisible,
+} from './utils/chatAutoTitle.js';
 import { compactionMessage, compactionMessagesFromActivity } from './utils/chatCompaction.js';
 import AddModelModal from './components/modals/AddModelModal';
 import EditProvidersModal from './components/modals/EditProvidersModal';
@@ -707,6 +712,86 @@ export default function App() {
   // two branches of one message.
   const editBranchInFlightRef = useRef(false);
   const [chats, setChats] = useState([]);
+  const activeProjectNameRef = useRef('');
+  useEffect(() => { activeProjectNameRef.current = activeProject?.name || ''; }, [activeProject?.name]);
+  const chatsRef = useRef([]);
+  useEffect(() => { chatsRef.current = chats; }, [chats]);
+  const autoTitleInFlightRef = useRef(new Set());
+  const prevChatViewRef = useRef({
+    projectName: '',
+    chatId: '',
+    isChatShown: false,
+    autoTitlePending: false,
+  });
+
+  const requestAutoTitleForChat = useCallback((projectName, chatId, { keepalive = false } = {}) => {
+    if (!projectName || !chatId) return;
+    const key = `${projectName}::${chatId}`;
+    if (autoTitleInFlightRef.current.has(key)) return;
+    autoTitleInFlightRef.current.add(key);
+
+    fetch('/api/chat/auto-title', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_name: projectName, chat_id: chatId }),
+      keepalive,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || activeProjectNameRef.current !== projectName) return;
+        setChats((prev) => applyAutoTitleResult(prev, {
+          chatId,
+          renamed: Boolean(data.renamed),
+          name: data.name || '',
+          autoTitlePending: Boolean(data.auto_title_pending),
+        }));
+      })
+      .catch(() => {})
+      .finally(() => {
+        autoTitleInFlightRef.current.delete(key);
+      });
+  }, []);
+
+  const isChatShownNow = isChatSurfaceVisible({
+    layoutMode,
+    isChatVisible,
+    isEditorMaximized,
+    isBottomMaximized,
+  });
+
+  useEffect(() => {
+    const projectName = activeProject?.name || '';
+    const activeChat = chats.find((c) => c.id === activeChatId);
+    const nextView = {
+      projectName,
+      chatId: activeChatId || '',
+      isChatShown: isChatShownNow,
+      autoTitlePending: Boolean(activeChat?.auto_title_pending),
+    };
+    const prevView = prevChatViewRef.current;
+    const prevStillExists = prevView.projectName === projectName
+      && chats.some((c) => c.id === prevView.chatId);
+    const left = detectLeftChat(prevView, nextView, {
+      prevChatStillExistsInSameProject: prevStillExists,
+    });
+    prevChatViewRef.current = nextView;
+    if (left) {
+      requestAutoTitleForChat(left.projectName, left.chatId);
+    }
+  }, [activeProject?.name, activeChatId, isChatShownNow, chats, requestAutoTitleForChat]);
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      const projectName = activeProjectNameRef.current;
+      const chatId = activeChatIdRef.current;
+      if (!projectName || !chatId) return;
+      const currentChat = chatsRef.current.find((c) => c.id === chatId);
+      if (!currentChat?.auto_title_pending) return;
+      requestAutoTitleForChat(projectName, chatId, { keepalive: true });
+    };
+    window.addEventListener('pagehide', handlePageHide);
+    return () => window.removeEventListener('pagehide', handlePageHide);
+  }, [requestAutoTitleForChat]);
   // The built-in tutorial lives in a reserved chat (`tutorial_<project>`). Its id and
   // question menu come from the backend so the front-end never has to guess either.
   const [tutorialChatId, setTutorialChatId] = useState('');
@@ -1195,12 +1280,17 @@ export default function App() {
     }, 10);
   };
 
-  const createChatForTask = async (chatName) => {
+  const createChatForTask = async (chatName, { autoTitlePending = false } = {}) => {
     if (!activeProject) return null;
     const res = await fetch('/api/chat/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_name: activeProject.name, chat_name: chatName, ...pendingChatModels }),
+      body: JSON.stringify({
+        project_name: activeProject.name,
+        chat_name: chatName,
+        auto_title_pending: Boolean(autoTitlePending),
+        ...pendingChatModels,
+      }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -4071,7 +4161,10 @@ export default function App() {
     // A project may have no chat: the first message is what starts one.
     if (!targetChatId && !options.resumeInterrupted) {
       try {
-        const created = await createChatForTask(t('chatPanel.defaultChatName', 'New Chat'));
+        const created = await createChatForTask(
+          t('chatPanel.defaultChatName', 'New Chat'),
+          { autoTitlePending: true },
+        );
         targetChatId = created.chatId;
         if (!options.baseMessages) options = { ...options, baseMessages: created.baseMessages };
       } catch (err) {
