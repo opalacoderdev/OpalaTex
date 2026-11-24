@@ -252,3 +252,104 @@ def test_round_trip_through_disk(db, project_dir):
     stats = chats.apply_export("alpha", project_dir, db)
 
     assert stats.messages_added == 0  # already present locally
+
+
+# ─── Large imports share the database with the running server ────────────────
+
+def _export_with_a_chat_that_has_saved_state(tmp_path, activity_rows):
+    """An export from another machine: one chat whose agent already holds its
+    two messages in `agent_state`, plus `activity_rows` rows of activity."""
+    source_db = str(tmp_path / "source.db")
+    store = ProjectStore(source_db)
+    store.create("alpha", "plan", "ollama/test", project_name="alpha", project_path=str(tmp_path / "src"))
+    store.create_chat("alpha", "laptop-chat", "Laptop chat")
+    project = store.load("alpha", "laptop-chat")
+    store.append_message(project, "user", "question")
+    store.append_message(project, "assistant", "answer")
+    store.save_chat_agent_state("alpha", "laptop-chat", {
+        "internal_history": [
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": "answer"},
+        ],
+        "recursive_summary": "",
+    })
+    for index in range(activity_rows):
+        store.append_activity(project, "stream_chunk", content=f"token {index}")
+    store.close_activity_connection()
+    return chats.export_project("alpha", source_db)
+
+
+def _destination(tmp_path):
+    db_path = str(tmp_path / "destination.db")
+    store = ProjectStore(db_path)
+    store.create("alpha", "plan", "ollama/test", project_name="alpha", project_path=str(tmp_path / "dst"))
+    return store, db_path
+
+
+def _count(db_path, table):
+    with sqlite3.connect(db_path) as conn:
+        (count,) = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE project='alpha'").fetchone()
+    return count
+
+
+def test_activity_is_imported_in_batches_that_let_other_writers_in(tmp_path, monkeypatch):
+    payload = _export_with_a_chat_that_has_saved_state(tmp_path, activity_rows=7)
+    _, db_path = _destination(tmp_path)
+    monkeypatch.setattr(chats, "_ACTIVITY_BATCH_ROWS", 3)
+
+    # Runs in each pause between batches. A writer that will not wait at all
+    # (timeout 0) must get the write lock there: that is what keeps the
+    # server's own writes from queueing behind the whole import.
+    seen = []
+
+    def other_writer(_seconds):
+        conn = sqlite3.connect(db_path, timeout=0)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            seen.append(conn.execute(
+                "SELECT COUNT(*) FROM project_activity WHERE project='alpha'"
+            ).fetchone()[0])
+            conn.rollback()
+        finally:
+            conn.close()
+
+    monkeypatch.setattr(chats, "time", type("Clock", (), {"sleep": staticmethod(other_writer)}))
+
+    stats = chats.merge_into_database("alpha", payload, db_path, adopt_settings=True)
+
+    assert stats.activity_added == 7
+    assert seen == [3, 6, 7]
+    assert _count(db_path, "project_activity") == 7
+
+
+@pytest.mark.parametrize("failing_table, failing_call", [
+    ("project_history", 1),   # inside the chats-and-messages transaction
+    ("project_activity", 2),  # after the first activity batch committed
+])
+def test_a_merge_that_failed_part_way_can_be_run_again(tmp_path, monkeypatch, failing_table, failing_call):
+    payload = _export_with_a_chat_that_has_saved_state(tmp_path, activity_rows=7)
+    store, db_path = _destination(tmp_path)
+    monkeypatch.setattr(chats, "_ACTIVITY_BATCH_ROWS", 3)
+    real_insert = chats._insert_rows
+    calls = {"n": 0}
+
+    def flaky_insert(conn, table, rows):
+        if table == failing_table:
+            calls["n"] += 1
+            if calls["n"] == failing_call:
+                raise sqlite3.OperationalError("database is locked")
+        return real_insert(conn, table, rows)
+
+    monkeypatch.setattr(chats, "_insert_rows", flaky_insert)
+    with pytest.raises(sqlite3.OperationalError):
+        chats.merge_into_database("alpha", payload, db_path, adopt_settings=True)
+    monkeypatch.setattr(chats, "_insert_rows", real_insert)
+
+    chats.merge_into_database("alpha", payload, db_path, adopt_settings=True)
+
+    assert _count(db_path, "project_history") == 2
+    assert _count(db_path, "project_activity") == 7
+    # The chat arrived with an agent state that already holds both messages.
+    # Had the chat been committed without them, the retry would have counted
+    # it as a chat with saved state and queued them to its agent a second time.
+    assert store.get_chat_external_turns("alpha", "laptop-chat") == []

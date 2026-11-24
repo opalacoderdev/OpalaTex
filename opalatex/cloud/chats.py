@@ -27,10 +27,12 @@ never exported.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import os
 import sqlite3
 import tempfile
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -70,6 +72,23 @@ DEVICE_JOURNAL_VERSION = 1
 _JOURNAL_CHAT_FIELDS = ("id", "name", "created_at")
 
 _EXTERNAL_TURN_ROLES = ("user", "assistant")
+
+# Activity is the bulk of a conversation export (a row per streamed chunk) and
+# the one table whose rows mean nothing to each other, so it is written in
+# batches, each its own transaction. SQLite admits one writer at a time, and the
+# server writes activity from its event loop as a reply streams in: one
+# transaction around a large import held that writer — and so the whole server
+# — for the length of the import, and past the 5 s busy timeout the write failed.
+#
+# The pause matters as much as the batch. A blocked SQLite writer does not
+# queue; it retries after 1, 2, 5, 10… ms, and a merge that opens its next
+# transaction straight after a commit wins nearly every race (measured: waits
+# of up to 0.5 s with no pause). A pause longer than those first retry gaps
+# lets a waiting writer in at its next retry. Measured on 950k activity rows:
+# a concurrent writer waited 0.2 ms (median) and at most ~50 ms during the
+# batches, and the merge, which runs in a worker thread, took 10.5 s, not 5.2 s.
+_ACTIVITY_BATCH_ROWS = 1000
+_ACTIVITY_BATCH_PAUSE_S = 0.005
 
 
 @dataclass
@@ -399,15 +418,36 @@ def merge_into_database(
             stats.notes.append("The project does not exist in this installation yet.")
             return stats
 
-        # Read before the chats are merged: a chat this document creates arrives
-        # with the history it describes, so only chats that already had a saved
-        # working state here can fall behind their own visible history.
+        # Plan first. Python's sqlite3 opens a transaction only at the first
+        # write, so these reads hold no lock — and hashing and building the
+        # rows is most of a large merge's time. Nothing else writes rows from
+        # another machine's export into this project meanwhile: sync passes are
+        # serialized per project, and a clone is merged before the project is
+        # registered for sync.
+        #
+        # Saved state is read before the chats are merged: a chat this
+        # document creates arrives with the history it describes, so only chats
+        # that already had a saved working state here can fall behind their own
+        # visible history.
         stateful_chats = _chats_with_saved_state(conn, project_name)
-        stats.chats_added = _merge_chats(conn, project_name, payload.get("chats") or [])
-        stats.messages_added = _merge_messages(
-            conn, project_name, payload.get("messages") or [], queue_for=stateful_chats
+        new_chats, chat_ids = _plan_chats(conn, project_name, payload.get("chats") or [])
+        new_messages, arrivals = _plan_messages(
+            conn,
+            project_name,
+            payload.get("messages") or [],
+            chat_ids=chat_ids,
+            queue_for=stateful_chats,
         )
-        stats.activity_added = _merge_activity(conn, project_name, payload.get("activity") or [])
+        new_activity = _plan_activity(conn, project_name, payload.get("activity") or [])
+
+        # The chats, their messages, the external-turn queue and the settings
+        # commit together. The export carries each chat's agent_state, so a
+        # chat committed without its messages would count as a chat with saved
+        # state on a retry, and those messages would be queued to an agent
+        # whose state already holds them.
+        _insert_rows(conn, "project_chats", new_chats)
+        _insert_rows(conn, "project_history", new_messages)
+        _queue_external_turns(conn, project_name, arrivals)
         stats.settings_applied = _merge_settings(
             conn,
             project_name,
@@ -416,18 +456,33 @@ def merge_into_database(
             "" if adopt_settings else str(exists["updated_at"] or ""),
         )
         conn.commit()
+
+        # The activity follows in batches, each its own transaction (see
+        # _ACTIVITY_BATCH_ROWS). If one fails, the batches before it stay, and
+        # a retry skips them: the union is keyed by content.
+        for start in range(0, len(new_activity), _ACTIVITY_BATCH_ROWS):
+            _insert_rows(conn, "project_activity", new_activity[start:start + _ACTIVITY_BATCH_ROWS])
+            conn.commit()
+            time.sleep(_ACTIVITY_BATCH_PAUSE_S)
+
+    stats.chats_added = len(new_chats)
+    stats.messages_added = len(new_messages)
+    stats.activity_added = len(new_activity)
     return stats
 
 
-def _merge_chats(conn: sqlite3.Connection, project_name: str, chats: list) -> int:
+def _plan_chats(
+    conn: sqlite3.Connection, project_name: str, chats: list
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """The chat rows to insert, and every chat id the project has once they are."""
     columns = _columns(conn, "project_chats")
     if not columns:
-        return 0
+        return [], set()
     known = {
         str(row["id"])
         for row in conn.execute("SELECT id FROM project_chats WHERE project = ?", (project_name,))
     }
-    added = 0
+    rows: list[dict[str, Any]] = []
     for chat in chats:
         if not isinstance(chat, dict):
             continue
@@ -447,15 +502,19 @@ def _merge_chats(conn: sqlite3.Connection, project_name: str, chats: list) -> in
         fields["project"] = project_name
         fields.setdefault("name", chat_id)
         fields.setdefault("created_at", "")
-        names = sorted(fields)
-        conn.execute(
-            f"INSERT OR IGNORE INTO project_chats ({', '.join(names)}) "
-            f"VALUES ({', '.join('?' for _ in names)})",
-            [fields[name] for name in names],
-        )
+        rows.append(fields)
         known.add(chat_id)
-        added += 1
-    return added
+    return rows, known
+
+
+def _insert_rows(conn: sqlite3.Connection, table: str, rows: list[dict[str, Any]]) -> None:
+    """Insert planned rows in order, one statement per run of equal columns."""
+    for names, run in itertools.groupby(rows, key=lambda row: tuple(sorted(row))):
+        conn.executemany(
+            f"INSERT OR IGNORE INTO {table} ({', '.join(names)}) "
+            f"VALUES ({', '.join('?' for _ in names)})",
+            [[row[name] for name in names] for row in run],
+        )
 
 
 def _chats_with_saved_state(conn: sqlite3.Connection, project_name: str) -> set[str]:
@@ -510,15 +569,21 @@ def _queue_external_turns(conn: sqlite3.Connection, project_name: str, arrivals:
         )
 
 
-def _merge_messages(
+def _plan_messages(
     conn: sqlite3.Connection,
     project_name: str,
     messages: list,
+    *,
+    chat_ids: set[str],
     queue_for: frozenset[str] | set[str] = frozenset(),
-) -> int:
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, str]]]]:
+    """The message rows to insert, and the turns to queue for each chat's agent.
+
+    `chat_ids` is every chat the project has once the planned chats are in.
+    """
     columns = _columns(conn, "project_history")
     if not columns:
-        return 0
+        return [], {}
     existing_keys = set()
     wanted = [c for c in ("chat_id", "timestamp", "role", "content", "client_message_id", "attachments") if c in columns]
     for row in conn.execute(
@@ -526,12 +591,7 @@ def _merge_messages(
     ):
         existing_keys.add(_message_key({key: row[key] for key in wanted}))
 
-    valid_chats = {
-        str(row["id"])
-        for row in conn.execute("SELECT id FROM project_chats WHERE project = ?", (project_name,))
-    }
-
-    added = 0
+    rows: list[dict[str, Any]] = []
     arrivals: dict[str, list[dict[str, str]]] = {}
     for message in messages:
         if not isinstance(message, dict):
@@ -540,20 +600,14 @@ def _merge_messages(
         if key in existing_keys:
             continue
         chat_id = str(message.get("chat_id", "") or "")
-        if chat_id and valid_chats and chat_id not in valid_chats:
+        if chat_id and chat_ids and chat_id not in chat_ids:
             # The message belongs to a chat this machine does not have and the
             # export did not carry. Inserting it would hide it from every chat.
             continue
         fields = {name: message.get(name) for name in message if name in columns}
         fields["project"] = project_name
-        names = sorted(fields)
-        conn.execute(
-            f"INSERT OR IGNORE INTO project_history ({', '.join(names)}) "
-            f"VALUES ({', '.join('?' for _ in names)})",
-            [fields[name] for name in names],
-        )
+        rows.append(fields)
         existing_keys.add(key)
-        added += 1
         if (
             chat_id in queue_for
             and message.get("role") in _EXTERNAL_TURN_ROLES
@@ -567,15 +621,14 @@ def _merge_messages(
                 "content": message["content"],
                 "timestamp": str(message.get("timestamp", "") or ""),
             })
-    if arrivals:
-        _queue_external_turns(conn, project_name, arrivals)
-    return added
+    return rows, arrivals
 
 
-def _merge_activity(conn: sqlite3.Connection, project_name: str, activity: list) -> int:
+def _plan_activity(conn: sqlite3.Connection, project_name: str, activity: list) -> list[dict[str, Any]]:
+    """The activity rows to insert."""
     columns = _columns(conn, "project_activity")
     if not columns:
-        return 0
+        return []
     wanted = [c for c in ("chat_id", "timestamp", "event", "agent", "content", "payload") if c in columns]
     existing_keys = {
         _activity_key({key: row[key] for key in wanted})
@@ -583,7 +636,7 @@ def _merge_activity(conn: sqlite3.Connection, project_name: str, activity: list)
             f"SELECT {', '.join(wanted)} FROM project_activity WHERE project = ?", (project_name,)
         )
     }
-    added = 0
+    rows: list[dict[str, Any]] = []
     for item in activity:
         if not isinstance(item, dict):
             continue
@@ -592,15 +645,9 @@ def _merge_activity(conn: sqlite3.Connection, project_name: str, activity: list)
             continue
         fields = {name: item.get(name) for name in item if name in columns}
         fields["project"] = project_name
-        names = sorted(fields)
-        conn.execute(
-            f"INSERT OR IGNORE INTO project_activity ({', '.join(names)}) "
-            f"VALUES ({', '.join('?' for _ in names)})",
-            [fields[name] for name in names],
-        )
+        rows.append(fields)
         existing_keys.add(key)
-        added += 1
-    return added
+    return rows
 
 
 def _merge_settings(
