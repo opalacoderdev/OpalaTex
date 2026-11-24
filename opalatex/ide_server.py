@@ -909,6 +909,8 @@ class AsyncHTTPServer:
     EXCLUSIVE_WORK_PATHS = frozenset({
         '/api/latex/compile',
         '/api/latex/compile-pdf-source',
+        '/api/latex/excerpt-edit/apply',
+        '/api/latex/excerpt-edit/revert',
         '/api/git/status',
         '/api/files',
         # Every other Git endpoint runs git as well: a diff makes up to a dozen
@@ -1885,6 +1887,233 @@ class AsyncHTTPServer:
             self.send_response(writer, 200, json.dumps(result).encode('utf-8'), "application/json")
             return
 
+        # 0.d Propose a reviewable LaTeX edit from a selected PDF excerpt
+        #     (read-only: nothing is written to disk until the user confirms).
+        if path == '/api/latex/excerpt-edit/propose' and method == 'POST':
+            from opalatex.snippet_edit import (
+                SnippetEditError,
+                SnippetEditSource,
+                execute_snippet_edit_proposal,
+            )
+
+            excerpt = str(data.get("excerpt") or "")
+            instruction = str(data.get("instruction") or "")
+            project_path = str(data.get("projectPath") or "").strip()
+            model = str(data.get("model") or "").strip() or None
+            if not excerpt.strip() or not instruction.strip() or not project_path:
+                self.send_response(
+                    writer,
+                    400,
+                    b'{"error":"excerpt, instruction and projectPath are required"}',
+                    "application/json",
+                )
+                return
+
+            main_file = str(data.get("mainFile") or "").strip()
+            if not main_file:
+                try:
+                    from opalatex.project import ProjectStore
+                    from opalatex.config import DEFAULT_DB_PATH
+                    store = ProjectStore(db_path=DEFAULT_DB_PATH)
+                    norm_proj = os.path.normcase(os.path.abspath(os.path.expanduser(project_path)))
+                    for p in store.list_projects():
+                        if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == norm_proj:
+                            main_file = str(p.get("main_file") or "")
+                            break
+                except Exception:
+                    pass
+
+            try:
+                proposal = await execute_snippet_edit_proposal(
+                    excerpt,
+                    instruction,
+                    source=SnippetEditSource.from_payload(data.get("source")),
+                    project_path=project_path,
+                    model=model,
+                    main_file=main_file,
+                    last_synctex_path=str(getattr(self, "last_synctex_path", "") or ""),
+                )
+                self.send_response(
+                    writer,
+                    200,
+                    json.dumps({"success": True, "proposal": proposal.to_dict()}).encode("utf-8"),
+                    "application/json",
+                )
+            except SnippetEditError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode("utf-8"), "application/json")
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode("utf-8"), "application/json")
+            return
+
+        # 0.e Apply a confirmed PDF-excerpt LaTeX edit and recompile with SyncTeX.
+        #     Runs under EXCLUSIVE_WORK_PATHS so file writes and Tectonic never
+        #     interleave with other mutations.
+        if path == '/api/latex/excerpt-edit/apply' and method == 'POST':
+            from opalatex.snippet_edit import (
+                SnippetEditConflictError,
+                SnippetEditError,
+                apply_snippet_edit,
+            )
+
+            project_path = str(data.get("projectPath") or "").strip()
+            target_file = str(data.get("targetFile") or "").strip()
+            old_text = str(data.get("oldText") or "")
+            new_text = str(data.get("newText") or "")
+            base_sha256 = str(data.get("baseSha256") or "").strip()
+            pdf_path = str(data.get("pdfPath") or "").strip()
+            main_file = str(data.get("mainFile") or "").strip()
+
+            if not project_path or not target_file or not old_text or not base_sha256:
+                self.send_response(
+                    writer,
+                    400,
+                    b'{"error":"projectPath, targetFile, oldText and baseSha256 are required"}',
+                    "application/json",
+                )
+                return
+
+            if not main_file and not pdf_path:
+                try:
+                    from opalatex.project import ProjectStore
+                    from opalatex.config import DEFAULT_DB_PATH
+                    store = ProjectStore(db_path=DEFAULT_DB_PATH)
+                    norm_proj = os.path.normcase(os.path.abspath(os.path.expanduser(project_path)))
+                    for p in store.list_projects():
+                        if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == norm_proj:
+                            main_file = str(p.get("main_file") or "")
+                            break
+                except Exception:
+                    pass
+
+            try:
+                res = await asyncio.to_thread(
+                    apply_snippet_edit,
+                    project_path,
+                    target_file,
+                    old_text,
+                    new_text,
+                    base_sha256,
+                    pdf_path=pdf_path,
+                    main_file=main_file,
+                )
+            except SnippetEditConflictError as e:
+                self.send_response(writer, 409, json.dumps({"error": str(e)}).encode("utf-8"), "application/json")
+                return
+            except SnippetEditError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode("utf-8"), "application/json")
+                return
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode("utf-8"), "application/json")
+                return
+
+            pdf_url = ""
+            if res.compile_success and res.pdf_path:
+                self.last_pdf_path = res.pdf_path
+                self.last_synctex_path = res.synctex_path
+                self.last_pdf_bytes = None
+                pdf_url = f"/api/latex/pdf?ts={int(time.time() * 1000)}"
+
+            self.send_response(
+                writer,
+                200,
+                json.dumps({
+                    "success": True,
+                    "targetFile": res.target_file,
+                    "compiledMainFile": res.compiled_main_file,
+                    "compileSuccess": res.compile_success,
+                    "compileLog": res.compile_log,
+                    "newContent": res.new_content,
+                    "previousContent": res.previous_content,
+                    "newSha256": res.new_sha256,
+                    "startLine": res.start_line,
+                    "endLine": res.end_line,
+                    "pdfUrl": pdf_url,
+                }).encode("utf-8"),
+                "application/json",
+            )
+            return
+
+        # 0.f Revert an applied PDF-excerpt LaTeX edit and recompile.
+        if path == '/api/latex/excerpt-edit/revert' and method == 'POST':
+            from opalatex.snippet_edit import (
+                SnippetEditConflictError,
+                SnippetEditError,
+                revert_snippet_edit,
+            )
+
+            project_path = str(data.get("projectPath") or "").strip()
+            target_file = str(data.get("targetFile") or "").strip()
+            expected_sha256 = str(data.get("expectedSha256") or "").strip()
+            previous_content = data.get("previousContent")
+            pdf_path = str(data.get("pdfPath") or "").strip()
+            main_file = str(data.get("mainFile") or "").strip()
+
+            if not project_path or not target_file or not expected_sha256 or not isinstance(previous_content, str):
+                self.send_response(
+                    writer,
+                    400,
+                    b'{"error":"projectPath, targetFile, expectedSha256 and previousContent are required"}',
+                    "application/json",
+                )
+                return
+
+            if not main_file and not pdf_path:
+                try:
+                    from opalatex.project import ProjectStore
+                    from opalatex.config import DEFAULT_DB_PATH
+                    store = ProjectStore(db_path=DEFAULT_DB_PATH)
+                    norm_proj = os.path.normcase(os.path.abspath(os.path.expanduser(project_path)))
+                    for p in store.list_projects():
+                        if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == norm_proj:
+                            main_file = str(p.get("main_file") or "")
+                            break
+                except Exception:
+                    pass
+
+            try:
+                res = await asyncio.to_thread(
+                    revert_snippet_edit,
+                    project_path,
+                    target_file,
+                    expected_sha256,
+                    previous_content,
+                    pdf_path=pdf_path,
+                    main_file=main_file,
+                )
+            except SnippetEditConflictError as e:
+                self.send_response(writer, 409, json.dumps({"error": str(e)}).encode("utf-8"), "application/json")
+                return
+            except SnippetEditError as e:
+                self.send_response(writer, 400, json.dumps({"error": str(e)}).encode("utf-8"), "application/json")
+                return
+            except Exception as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode("utf-8"), "application/json")
+                return
+
+            pdf_url = ""
+            if res.compile_success and res.pdf_path:
+                self.last_pdf_path = res.pdf_path
+                self.last_synctex_path = res.synctex_path
+                self.last_pdf_bytes = None
+                pdf_url = f"/api/latex/pdf?ts={int(time.time() * 1000)}"
+
+            self.send_response(
+                writer,
+                200,
+                json.dumps({
+                    "success": True,
+                    "targetFile": res.target_file,
+                    "compiledMainFile": res.compiled_main_file,
+                    "compileSuccess": res.compile_success,
+                    "compileLog": res.compile_log,
+                    "newContent": res.new_content,
+                    "newSha256": res.new_sha256,
+                    "pdfUrl": pdf_url,
+                }).encode("utf-8"),
+                "application/json",
+            )
+            return
+
         # 0.0.c Render a single includegraphics file (PDF/PNG/JPG) to inline
         #      PNG/SVG so the Rich Text editor can show a preview of figures
         #      that simply embed a raster/vector image. PDF inputs are rasterized
@@ -2075,7 +2304,8 @@ class AsyncHTTPServer:
                     self.last_pdf_bytes = None
                     self.send_response(writer, 200, json.dumps({
                         "found": True,
-                        "pdf_url": f"/api/latex/pdf?ts={int(time.time() * 1000)}"
+                        "pdf_url": f"/api/latex/pdf?ts={int(time.time() * 1000)}",
+                        "main_file": main_file or file_path,
                     }).encode('utf-8'), "application/json")
                 else:
                     self.send_response(writer, 200, json.dumps({"found": False}).encode('utf-8'), "application/json")

@@ -1801,6 +1801,7 @@ export default function ChatPanel({
     >
       <TextContextMenu
         menu={menu}
+        onClose={closeMenu}
         onCopy={handleCopy}
         onPaste={handlePaste}
         onSelectAll={() => handleSelectAll(historyRef)}

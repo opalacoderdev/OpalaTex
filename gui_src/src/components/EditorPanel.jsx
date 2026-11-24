@@ -1,6 +1,6 @@
 import { Suspense, lazy, useRef, useEffect, useState, useCallback, useDeferredValue, useMemo } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, Trash2, FileText, HelpCircle, MoreHorizontal, Zap, PenLine, Columns2 } from 'lucide-react';
+import { Files, RefreshCw, Save, X, Maximize2, Minimize2, GitCompare, Eye, EyeOff, Printer, Download, ZoomIn, ZoomOut, PlusSquare, Type, Trash2, FileText, HelpCircle, MoreHorizontal, Zap, PenLine, Columns2, Code2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
 import { getLanguage } from '../utils/language';
@@ -12,6 +12,7 @@ import {
   resolveCountMode,
 } from '../utils/textStats';
 import { setPreference } from '../utils/preferences';
+import { shouldShowTexPdfOnly } from '../utils/texViewMode';
 import InlinePromptOverlay from './InlinePromptOverlay';
 import EditorContextMenuOverlay from './EditorContextMenuOverlay';
 import TabContextMenu from './TabContextMenu';
@@ -23,6 +24,7 @@ import { useSnippetTranslation } from '../hooks/useSnippetTranslation';
 import { useSnippetQuery } from '../hooks/useSnippetQuery';
 import { useSnippetSpeech } from '../hooks/useSnippetSpeech';
 import { findSelectionHeading, readSelectionWithin } from '../utils/documentSelection';
+import { writeClipboard } from '../utils/clipboard';
 import { FormattedMessage } from '../utils/formatMessage';
 import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 import { viewportPointToApp } from '../utils/uiScale';
@@ -57,6 +59,7 @@ export default function EditorPanel({
   editorTabSize,
   editorWordWrap,
   editorMinimap = 'on',
+  openTexInPdfView = 'on',
   handleFileSelect,
   handleCloseTab,
   handleCloseOtherTabs,
@@ -80,6 +83,7 @@ export default function EditorPanel({
   onCompileRequestHandled,
   onLatexCompileError,
   onLatexCompileSuccess,
+  onExternalFileUpdated,
   // The last compile an agent ran ({ seq, success, log, ... }); shown here as
   // if Compile had been pressed.
   agentCompile,
@@ -120,6 +124,8 @@ export default function EditorPanel({
   // running both would mean two models racing to write it.
   const [wysiwygFiles, setWysiwygFiles] = useState(() => new Set());
   const isWysiwygMode = !!selectedFile && wysiwygFiles.has(selectedFile);
+  // Per-file override ('pdf' | 'code') for LaTeX PDF-first view mode.
+  const [texViewOverrides, setTexViewOverrides] = useState({});
   const [isPdfPreviewCollapsed, setIsPdfPreviewCollapsed] = useState(true);
   const [showSnippetsPanel, setShowSnippetsPanel] = useState(false);
   const [showLatexHelp, setShowLatexHelp] = useState(false);
@@ -210,7 +216,7 @@ export default function EditorPanel({
 
   const handleCopyMarkdownSelection = (menu) => {
     if (!menu?.selectedText) return;
-    Promise.resolve(navigator.clipboard?.writeText?.(menu.selectedText)).catch(() => {});
+    writeClipboard(menu.selectedText);
   };
 
   const handleAskAboutMarkdown = (menu) => {
@@ -279,6 +285,41 @@ export default function EditorPanel({
   const [isCompiling, setIsCompiling] = useState(false);
   const [pdfErrorLog, setPdfErrorLog] = useState('');
   const [latexCompileProblem, setLatexCompileProblem] = useState(null);
+
+  const isTexPdfOnly = shouldShowTexPdfOnly({
+    isTexFile,
+    openTexInPdfView,
+    hasPdf: Boolean(pdfUrl),
+    hasCompileError: Boolean(pdfErrorLog),
+    explicitMode: selectedFile ? (texViewOverrides[selectedFile] || null) : null,
+    isRichTextMode,
+    isWysiwygMode,
+    isDiffMode,
+  });
+
+  const handleShowTexSourceCode = useCallback(() => {
+    if (!selectedFile) return;
+    setTexViewOverrides((prev) => ({ ...prev, [selectedFile]: 'code' }));
+  }, [selectedFile]);
+
+  const handleShowTexPdfOnly = useCallback(() => {
+    if (!selectedFile || !pdfUrl) return;
+    setRichTextFiles((prev) => {
+      if (!prev.has(selectedFile)) return prev;
+      const next = new Set(prev);
+      next.delete(selectedFile);
+      return next;
+    });
+    setWysiwygFiles((prev) => {
+      if (!prev.has(selectedFile)) return prev;
+      const next = new Set(prev);
+      next.delete(selectedFile);
+      return next;
+    });
+    setIsDiffMode(false);
+    setIsPdfPreviewCollapsed(false);
+    setTexViewOverrides((prev) => ({ ...prev, [selectedFile]: 'pdf' }));
+  }, [selectedFile, pdfUrl]);
   const [compileTiming, setCompileTiming] = useState(null);
   const [cleanMessage, setCleanMessage] = useState('');
   const [isTectonicAvailable, setIsTectonicAvailable] = useState(true);
@@ -321,7 +362,7 @@ export default function EditorPanel({
     localEditorRef.current?.getPosition?.()?.lineNumber || null
   );
 
-  const syncPdfToEditorLine = useCallback(async ({ line, filePath, projectPath }) => {
+  const syncPdfToEditorLine = useCallback(async ({ line, filePath, projectPath, silent = false }) => {
     if (!line || !filePath || !projectPath) return false;
     try {
       const res = await fetch(`/api/latex/synctex?action=tex2pdf&line=${line}&filePath=${encodeURIComponent(filePath)}&projectPath=${encodeURIComponent(projectPath)}`);
@@ -330,14 +371,31 @@ export default function EditorPanel({
         pdfPreviewRef.current.scrollTo(data.result.page, data.result.x, data.result.y, data.result.w, data.result.h);
         return true;
       }
-      if (!res.ok || data.error) {
+      if (!silent && (!res.ok || data.error)) {
         setPdfErrorLog(`SyncTeX Forward Search failed: ${data.error || 'No result found'}`);
       }
     } catch (err) {
-      setPdfErrorLog("SyncTeX request failed: " + err.message);
+      if (!silent) {
+        setPdfErrorLog("SyncTeX request failed: " + err.message);
+      }
     }
     return false;
   }, []);
+
+  const handleExcerptEditCompiled = useCallback((result) => {
+    if (!result?.compileSuccess) return;
+    setPdfErrorLog('');
+    setLatexCompileProblem(null);
+    if (result.targetFile && result.startLine && activeProject?.project_path) {
+      pendingPdfSyncRef.current = {
+        filePath: result.targetFile,
+        line: result.startLine,
+        projectPath: activeProject.project_path,
+        silent: true,
+      };
+    }
+    setPdfUrl(result.pdfUrl || `/api/latex/pdf?ts=${Date.now()}`);
+  }, [activeProject?.project_path]);
 
   const handlePdfDocumentReady = useCallback(() => {
     const reveal = pendingPdfRevealRef.current;
@@ -399,6 +457,7 @@ export default function EditorPanel({
     if (activeProject?.project_path !== prevProjectRef.current) {
       setPdfUrl(null);
       setPdfErrorLog('');
+      setTexViewOverrides({});
       prevProjectRef.current = activeProject?.project_path;
     }
   }, [activeProject?.project_path]);
@@ -425,9 +484,25 @@ export default function EditorPanel({
             setPdfUrl(data.pdf_url || `/api/latex/pdf?ts=${Date.now()}`);
             setPdfErrorLog('');
             // Opening a .tex that already has a compiled PDF shows it beside
-            // the source. The pane still starts collapsed for a file with no
-            // PDF yet, where it would only hold an empty viewer.
+            // the source (or full-width when openTexInPdfView is enabled).
+            // The pane still starts collapsed for a file with no PDF yet,
+            // where it would only hold an empty viewer.
             setIsPdfPreviewCollapsed(false);
+            const norm = (value) => String(value || '').replace(/\\/g, '/').toLowerCase();
+            if (
+              openTexInPdfView === 'on'
+              && data.main_file
+              && norm(data.main_file) !== norm(selectedFile)
+            ) {
+              // Included chapter/section opened in PDF-first view: jump gently
+              // to where that included file begins in the compiled PDF.
+              pendingPdfSyncRef.current = {
+                filePath: selectedFile,
+                line: 1,
+                projectPath: activeProject.project_path,
+                silent: true,
+              };
+            }
           }
           // If not found, do NOT clear pdfUrl, so the main document's PDF remains visible
           // when clicking into an included file (e.g., apendice.tex).
@@ -529,7 +604,13 @@ export default function EditorPanel({
 
   // Jump to line effect when switching files
   useEffect(() => {
-    if (jumpToLine && jumpToLine.file === selectedFile && localEditorRef.current) {
+    if (!jumpToLine || jumpToLine.file !== selectedFile) return;
+    // Jumping to a specific source line always reveals the code editor, even
+    // when openTexInPdfView is enabled.
+    if (selectedFile && selectedFile.toLowerCase().endsWith('.tex')) {
+      setTexViewOverrides((prev) => (prev[selectedFile] === 'code' ? prev : { ...prev, [selectedFile]: 'code' }));
+    }
+    if (localEditorRef.current) {
       // Small delay to ensure editor is mounted and file is loaded
       setTimeout(() => {
         if (localEditorRef.current) {
@@ -539,6 +620,9 @@ export default function EditorPanel({
         }
         setJumpToLine(null);
       }, 100);
+    } else {
+      pendingEditorLineRef.current = jumpToLine.line;
+      setJumpToLine(null);
     }
   }, [selectedFile, jumpToLine, setJumpToLine]);
 
@@ -798,6 +882,7 @@ export default function EditorPanel({
   );
 
   const localEditorRef = useRef(null);
+  const diffOriginalEditorRef = useRef(null);
   const monacoRef = useRef(null);
   const editorContainerRef = useRef(null);
   const pdfPreviewRef = useRef(null);
@@ -936,7 +1021,7 @@ export default function EditorPanel({
 
   // The PDF panel renders its own content — fileContent is not the text the
   // user sees, so no count is reported for it.
-  const supportsTextStats = !!selectedFile && !isPdfFile;
+  const supportsTextStats = !!selectedFile && !isPdfFile && !isTexPdfOnly;
 
   const documentTextStats = useMemo(
     () => (supportsTextStats ? countTextStats(fileContent ?? '', resolvedCountMode) : null),
@@ -1054,7 +1139,10 @@ export default function EditorPanel({
     // Guard against empty/invalid file paths from SyncTeX — these would
     // open a blank untitled tab in the editor.
     if (!file || !file.trim()) {
-      if (isRichTextMode) {
+      if (isTexPdfOnly && selectedFile) {
+        pendingEditorLineRef.current = line;
+        setTexViewOverrides((prev) => ({ ...prev, [selectedFile]: 'code' }));
+      } else if (isRichTextMode) {
         exitRichTextMode(line);
       } else if (localEditorRef.current) {
         localEditorRef.current.revealLineInCenter(line);
@@ -1066,10 +1154,14 @@ export default function EditorPanel({
 
     if (normalizedFile !== normalizedSelected) {
       // Switching to a different file — handleFileSelect sets jumpToLine so
-      // the editor navigates after the file loads. Exit Rich Text mode
-      // first so Monaco mounts and can consume the jump target.
+      // the editor navigates after the file loads. Exit Rich Text / PDF-only
+      // mode first so Monaco mounts and can consume the jump target.
       if (isRichTextMode) exitRichTextMode(line);
+      setTexViewOverrides((prev) => ({ ...prev, [file]: 'code' }));
       handleFileSelect(file, line);
+    } else if (isTexPdfOnly) {
+      pendingEditorLineRef.current = line;
+      setTexViewOverrides((prev) => ({ ...prev, [selectedFile]: 'code' }));
     } else if (isRichTextMode) {
       // Same file, but Monaco is not mounted in Rich Text mode — exit to
       // Monaco and let the mount handler reveal the target line.
@@ -1178,6 +1270,7 @@ export default function EditorPanel({
     const actualEditor = isDiff ? editor.getModifiedEditor() : editor;
 
     localEditorRef.current = actualEditor;
+    diffOriginalEditorRef.current = isDiff ? editor.getOriginalEditor() : null;
     monacoRef.current = monaco;
 
     if (!isDiff) {
@@ -1347,13 +1440,25 @@ export default function EditorPanel({
     if (!container) return;
 
     const handleContextMenu = (e) => {
-      const ed = localEditorRef.current;
+      const modifiedEd = localEditorRef.current;
+      const originalEd = diffOriginalEditorRef.current;
       const monaco = monacoRef.current;
-      if (!ed || !monaco) return;
+      if ((!modifiedEd && !originalEd) || !monaco) return;
 
-      // Only intercept right-clicks inside the editor area
-      const editorDom = ed.getDomNode();
-      if (!editorDom || !editorDom.contains(e.target)) return;
+      // Only intercept right-clicks inside the editor area (covering both panes in diff mode)
+      let ed = null;
+      let isReadOnly = false;
+      const modifiedDom = modifiedEd?.getDomNode?.();
+      const originalDom = originalEd?.getDomNode?.();
+      if (modifiedDom && modifiedDom.contains(e.target)) {
+        ed = modifiedEd;
+        isReadOnly = Boolean(modifiedEd.getOption?.(monaco.editor.EditorOption.readOnly));
+      } else if (originalDom && originalDom.contains(e.target)) {
+        ed = originalEd;
+        isReadOnly = true;
+      } else {
+        return;
+      }
 
       e.preventDefault();
       e.stopPropagation();
@@ -1361,8 +1466,8 @@ export default function EditorPanel({
       const model = ed.getModel();
       const sel = ed.getSelection();
       const pos = ed.getPosition();
-      const hasSelection = sel && !sel.isEmpty();
-      const selectedText = hasSelection ? model?.getValueInRange(sel) : '';
+      const hasSelection = Boolean(sel && !sel.isEmpty());
+      const selectedText = hasSelection ? (model?.getValueInRange(sel) ?? '') : '';
 
       // Positioned with left/top inside the zoomed app — see viewportPointToApp.
       const point = viewportPointToApp(e.clientX, e.clientY);
@@ -1375,6 +1480,7 @@ export default function EditorPanel({
         selectedText,
         pos,
         sel,
+        isReadOnly,
       });
     };
 
@@ -1677,7 +1783,19 @@ export default function EditorPanel({
         </div>
 
         <div className="vscode-editor-actions">
-          {isTexFile && (
+          {isTexFile && isTexPdfOnly && (
+            <button
+              onClick={handleShowTexSourceCode}
+              className="vscode-editor-action-btn vscode-editor-action-btn-primary"
+              style={{ width: 'auto', minWidth: '52px', padding: '0 6px', gap: '4px' }}
+              title={t('editorPanel.showLatexCode', 'View LaTeX code')}
+              aria-label={t('editorPanel.showLatexCode', 'View LaTeX code')}
+            >
+              <Code2 size={14} />
+              <span style={{ fontSize: '11px', fontWeight: 700, lineHeight: 1 }}>{t('editorPanel.codeButton', 'Code')}</span>
+            </button>
+          )}
+          {isTexFile && !isTexPdfOnly && (
             <button
               onClick={() => setIsPdfPreviewCollapsed(prev => !prev)}
               className={`vscode-editor-action-btn${!isPdfPreviewCollapsed ? ' vscode-editor-action-btn-primary' : ''}`}
@@ -1688,6 +1806,16 @@ export default function EditorPanel({
             >
               <FileText size={14} />
               <span style={{ fontSize: '11px', fontWeight: 700, lineHeight: 1 }}>PDF</span>
+            </button>
+          )}
+          {isTexFile && !isTexPdfOnly && Boolean(pdfUrl) && (
+            <button
+              onClick={handleShowTexPdfOnly}
+              className="vscode-editor-action-btn"
+              title={t('editorPanel.showPdfOnly', 'View PDF only')}
+              aria-label={t('editorPanel.showPdfOnly', 'View PDF only')}
+            >
+              <Eye size={14} />
             </button>
           )}
           {isTexFile && isTectonicAvailable && (
@@ -2066,10 +2194,47 @@ export default function EditorPanel({
               errorLog={''}
               activeProject={activeProject}
               selectedFile={selectedFile}
+              unsavedFiles={unsavedFiles}
               onSyncTexNavigate={handleSyncTexNavigate}
+              onOpenSourceTex={(texFile, line) => {
+                setTexViewOverrides((prev) => ({ ...prev, [texFile]: 'code' }));
+                handleFileSelect(texFile, line || 1);
+              }}
+              onExternalFileUpdated={onExternalFileUpdated}
               onFixLatexProblem={onFixLatexProblem}
               onLatexCompileError={onLatexCompileError}
               onLatexCompileSuccess={onLatexCompileSuccess}
+              onAskAboutPdf={onAskAboutPdf}
+              speechSettingsSignal={speechSettingsSignal}
+              isAgentRunning={isAgentRunning}
+              uiScale={uiScale}
+            />
+          </div>
+        ) : isTexPdfOnly ? (
+          <div style={{ height: '100%', background: 'var(--vscode-editor-bg)' }}>
+            <PdfPreview
+              key={pdfViewKey}
+              chatModel={chatModel}
+              ref={pdfPreviewRef}
+              initialViewState={pdfViewStatesRef.current[pdfViewKey]}
+              onViewStateChange={rememberPdfViewState}
+              base64Pdf={null}
+              sourceUrl={pdfUrl}
+              isCompiling={isCompiling}
+              errorLog={pdfErrorLog}
+              activeProject={activeProject}
+              selectedFile={selectedFile}
+              unsavedFiles={unsavedFiles}
+              onSyncTexNavigate={handleSyncTexNavigate}
+              onDocumentReady={handlePdfDocumentReady}
+              latexCompileProblem={latexCompileProblem}
+              onFixLatexProblem={onFixLatexProblem}
+              onLatexCompileError={onLatexCompileError}
+              onLatexCompileSuccess={onLatexCompileSuccess}
+              onExternalFileUpdated={onExternalFileUpdated}
+              onExcerptEditCompiled={handleExcerptEditCompiled}
+              isPdfOnlyMode={true}
+              onShowSourceCode={handleShowTexSourceCode}
               onAskAboutPdf={onAskAboutPdf}
               speechSettingsSignal={speechSettingsSignal}
               isAgentRunning={isAgentRunning}
@@ -2105,11 +2270,16 @@ export default function EditorPanel({
               errorLog={pdfErrorLog} 
               activeProject={activeProject}
               selectedFile={selectedFile}
+              unsavedFiles={unsavedFiles}
               onSyncTexNavigate={handleSyncTexNavigate}
               onDocumentReady={handlePdfDocumentReady}
               onCollapse={() => setIsPdfPreviewCollapsed(true)}
               latexCompileProblem={latexCompileProblem}
               onFixLatexProblem={onFixLatexProblem}
+              onLatexCompileError={onLatexCompileError}
+              onLatexCompileSuccess={onLatexCompileSuccess}
+              onExternalFileUpdated={onExternalFileUpdated}
+              onExcerptEditCompiled={handleExcerptEditCompiled}
               onAskAboutPdf={onAskAboutPdf}
               speechSettingsSignal={speechSettingsSignal}
               isAgentRunning={isAgentRunning}

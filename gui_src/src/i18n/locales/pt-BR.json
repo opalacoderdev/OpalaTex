@@ -299,7 +299,10 @@
     "latexHelpPartial": "Compila apenas o arquivo ou capitulo atual.",
     "latexHelpRichText": "Alterna para o modo rich text para editar texto corrido.",
     "latexHelpPreview": "Mostra um preview LaTeX ao vivo, somente leitura.",
-    "latexHelpSnippets": "Insere snippets LaTeX comuns."
+    "latexHelpSnippets": "Insere snippets LaTeX comuns.",
+    "showLatexCode": "Ver código LaTeX",
+    "codeButton": "Código",
+    "showPdfOnly": "Ver apenas o PDF"
   },
   "pdfPreview": {
     "annotationSelectionLost": "Não foi possível ler a área selecionada. Selecione o texto novamente e tente de novo.",
@@ -307,6 +310,7 @@
     "annotationsOn": "Ocultar anotações do PDF",
     "backToPreviousPosition": "Voltar para a posição anterior no PDF",
     "clearSearch": "Limpar busca",
+    "codeButton": "Código",
     "compileErrorDescription": "Encontramos problemas no codigo LaTeX que precisam ser corrigidos.",
     "compileErrorTitle": "Nao foi possivel compilar o documento",
     "compiling": "Compilando...",
@@ -318,6 +322,7 @@
     "nextMatch": "Proximo resultado",
     "noDocument": "Nenhum documento compilado. Escreva o LaTeX e compile.",
     "noSearchResults": "Sem resultados",
+    "openSourceTex": "Abrir código LaTeX ({{file}})",
     "pageDividerLabel": "Pagina {{page}} de {{total}}",
     "present": "Apresentar (tela cheia)",
     "presentationLabel": "Apresentação do PDF",
@@ -327,7 +332,8 @@
     "searchPdf": "Buscar no PDF",
     "searchPlaceholder": "Buscar no PDF...",
     "technicalDetails": "Ver detalhes tecnicos (log completo)",
-    "toggleAnnotations": "Alternar anotações do PDF"
+    "toggleAnnotations": "Alternar anotações do PDF",
+    "viewLatexCode": "Ver código LaTeX"
   },
   "graphicPreview": {
     "rendering": "renderizando...",
@@ -753,6 +759,8 @@
     "minimapHint": "Mostra a faixa de visão geral do código no lado direito do editor.",
     "latexCompilation": "Compilação LaTeX",
     "draftSynctexEnabled": "Gerar SyncTeX na compilação rascunho",
+    "openTexInPdfView": "Abrir arquivos .tex na visualização em PDF quando houver PDF compilado",
+    "openTexInPdfViewHint": "Mostra primeiro o PDF compilado em vez do código LaTeX bruto. Você pode alternar para o código a qualquer momento pelo botão da barra ou com Ctrl+duplo clique.",
     "graphics": "Gráficos da janela",
     "graphicsHardwareAcceleration": "Usar aceleração de hardware (GPU) na janela do aplicativo",
     "graphicsHint": "A janela do aplicativo é desenhada pelo driver gráfico, que roda dentro do processo do OpalaTex: se o driver falhar, a janela fecha sem nenhuma mensagem de erro. Desative isto se o OpalaTex fechar sozinho. Aplica-se após reiniciar.",
@@ -1428,6 +1436,9 @@
     "addNote": "Adicionar uma nota aqui",
     "annotateNeedsSelection": "Selecione um trecho no PDF primeiro.",
     "annotationNotEditable": "Esta anotação foi feita por outro programa e não pode ser editada aqui.",
+    "editLatexBusy": "Aguarde o assistente do chat terminar antes de editar o código LaTeX.",
+    "editLatexExcerpt": "Alterar trecho…",
+    "editLatexNeedsSelection": "Selecione um trecho no PDF primeiro.",
     "editNote": "Editar nota",
     "highlight": "Destacar",
     "highlightColor": "Cor do destaque",
@@ -1435,6 +1446,30 @@
     "strikeout": "Tachar",
     "underline": "Sublinhar",
     "label": "Ações do PDF"
+  },
+  "latexExcerptEdit": {
+    "title": "Alterar trecho no LaTeX",
+    "instructionLabel": "O que você deseja alterar?",
+    "instructionPlaceholder": "Descreva a alteração desejada neste trecho...",
+    "sendHint": "Ctrl+Enter para gerar o diff. Nada é gravado ou compilado antes da sua confirmação.",
+    "generateDiff": "Visualizar diff",
+    "needsInstruction": "Descreva a alteração primeiro.",
+    "loadingProposal": "Localizando o trecho no código LaTeX e preparando o diff...",
+    "applying": "Aplicando a alteração em {{file}} e recompilando o PDF...",
+    "reverting": "Revertendo {{file}} e recompilando o PDF...",
+    "diffLabel": "Diff proposto",
+    "lineSingle": "linha {{line}}",
+    "lineRange": "linhas {{start}}–{{end}}",
+    "annotationsWarning": "Recompilar substitui este PDF e descarta as {{count}} anotação(ões) incorporadas nele.",
+    "appliedSuccess": "Aplicado em {{file}} e recompilado.",
+    "compileFailed": "A alteração foi gravada em {{file}}, mas a compilação LaTeX falhou. Você pode revertê-la ou abrir o código.",
+    "failed": "Não foi possível preparar a alteração: {{error}}",
+    "unsavedTarget": "{{file}} tem alterações não salvas no editor. Salve ou descarte antes de aplicar esta mudança.",
+    "applyAndCompile": "Aplicar e compilar",
+    "editInstruction": "Editar pedido",
+    "undo": "Desfazer",
+    "revertEdit": "Reverter alteração",
+    "openSource": "Abrir código"
   },
   "snippetActions": {
     "askAboutDocument": "Perguntar sobre este documento",

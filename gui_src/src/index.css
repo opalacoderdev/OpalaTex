@@ -3058,6 +3058,151 @@ input:focus, select:focus, textarea:focus {
   cursor: default;
 }
 
+/* "Edit LaTeX excerpt" popup: shares SnippetQueryPopup's floating frame,
+   widened slightly so unified diff lines stay readable without excess wrapping. */
+.latex-edit-popup {
+  width: 520px;
+}
+
+.latex-edit-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--vscode-text-muted);
+}
+
+.latex-edit-target {
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--vscode-text-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.latex-edit-counts {
+  flex-shrink: 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-weight: 600;
+}
+
+.latex-edit-count-add {
+  color: var(--diff-text-added);
+}
+
+.latex-edit-count-remove {
+  color: var(--diff-text-removed);
+}
+
+.latex-edit-summary {
+  font-size: calc(12px * var(--snippet-translate-text-scale, 1));
+  line-height: 1.45;
+  color: var(--vscode-text-fg);
+}
+
+.latex-edit-diff {
+  max-height: calc(30 * var(--ui-vh));
+  overflow: auto;
+  border: 1px solid var(--vscode-border);
+  border-radius: 4px;
+  background-color: var(--vscode-editor-bg);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: calc(11.5px * var(--snippet-translate-text-scale, 1));
+  line-height: 1.45;
+  user-select: text;
+}
+
+.latex-edit-diff-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--diff-text-default);
+}
+
+.latex-edit-diff-line.is-header {
+  color: var(--diff-text-meta);
+  background-color: var(--vscode-sidebar-bg);
+  border-bottom: 1px solid var(--vscode-border);
+  padding: 3px 8px;
+  font-size: calc(11px * var(--snippet-translate-text-scale, 1));
+}
+
+.latex-edit-diff-line.is-add {
+  color: var(--diff-text-added);
+  background-color: color-mix(in srgb, var(--diff-text-added) 12%, transparent);
+}
+
+.latex-edit-diff-line.is-remove {
+  color: var(--diff-text-removed);
+  background-color: color-mix(in srgb, var(--diff-text-removed) 12%, transparent);
+}
+
+.latex-edit-diff-line.is-context {
+  color: var(--vscode-text-muted);
+}
+
+.latex-edit-diff-ln {
+  min-width: 28px;
+  text-align: right;
+  color: var(--vscode-text-muted);
+  user-select: none;
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.latex-edit-diff-sign {
+  width: 10px;
+  flex-shrink: 0;
+  user-select: none;
+  font-weight: 700;
+}
+
+.latex-edit-diff-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.latex-edit-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.latex-edit-compile-error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.latex-edit-log {
+  max-height: 140px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-border);
+  background-color: var(--vscode-editor-bg);
+  color: var(--vscode-text-fg);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.latex-edit-primary-btn {
+  background-color: var(--vscode-button-bg);
+  color: #ffffff;
+  border-color: var(--vscode-button-bg);
+}
+
+.latex-edit-primary-btn:hover:not(:disabled) {
+  background-color: var(--vscode-button-hover, var(--vscode-button-bg));
+  color: #ffffff;
+}
+
 /* Dictation: the composer's microphone. Recording is a state the user must be
    able to see at a glance, because the alternative is a hot microphone nobody
    noticed. */
@@ -4280,7 +4425,7 @@ select {
   font-size: 12px;
 }
 
-.editor-ctx-item:hover .editor-ctx-key {
+.editor-ctx-item:hover:not(:disabled) .editor-ctx-key {
   color: #bbbbbb;
 }
 

@@ -53,6 +53,8 @@ export default function SettingsModal({
   setEditorWordWrap,
   editorMinimap,
   setEditorMinimap,
+  openTexInPdfView,
+  setOpenTexInPdfView,
   isInstallingDeps,
   installDepsStatus,
   installDepsLog,
@@ -988,6 +990,21 @@ export default function SettingsModal({
               <div className="flex flex-col" style={{ gap: '6px' }}>
                 <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.latexCompilation')}</label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--vscode-text-fg)' }}>
+                  <input
+                    type="checkbox"
+                    checked={openTexInPdfView === 'on'}
+                    onChange={(e) => {
+                      const next = e.target.checked ? 'on' : 'off';
+                      setOpenTexInPdfView?.(next);
+                      setPreference('openTexInPdfView', next);
+                    }}
+                  />
+                  <span>{t('settingsModal.openTexInPdfView', 'Open .tex files in PDF view when a compiled PDF exists')}</span>
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.openTexInPdfViewHint', 'Shows the compiled PDF first instead of the raw LaTeX source. You can switch to the code at any time with the toolbar button or Ctrl+double-click.')}
+                </span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--vscode-text-fg)', marginTop: '4px' }}>
                   <input
                     type="checkbox"
                     checked={draftSynctexEnabled}

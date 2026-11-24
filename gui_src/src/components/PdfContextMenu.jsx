@@ -1,5 +1,5 @@
 import React from 'react';
-import { Highlighter, Underline, Strikethrough, StickyNote, Trash2, PenLine } from 'lucide-react';
+import { Copy, Highlighter, Underline, Strikethrough, StickyNote, Trash2, PenLine, Wand2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import ContextMenuSurface from './ContextMenuSurface';
 import SnippetActions from './SnippetActions';
@@ -8,15 +8,16 @@ import SnippetActions from './SnippetActions';
  * Right-click context menu for the PDF viewer.
  *
  * `menu` is { x, y, selectedText, page, point, annotation } for the spot that was
- * right-clicked, or null when no menu is open. "Translate" and the markup tools
- * only apply to a selected excerpt, so they stay disabled while the selection is
- * empty. When the click landed on an existing annotation, `menu.annotation` holds
- * it and the menu leads with the actions for that mark.
+ * right-clicked, or null when no menu is open. Copy, "Translate" and the markup
+ * tools only apply to a selected excerpt, so they stay disabled while the
+ * selection is empty. When the click landed on an existing annotation,
+ * `menu.annotation` holds it and the menu offers the actions for that mark.
  *
- * What is left here is what is genuinely PDF-specific: the annotations. The
- * excerpt actions below the separator are shared with every other document
- * surface (SnippetActions), and the frame — placement, viewport clamp,
- * dismissal, keeping the selection alive — is shared too (ContextMenuSurface).
+ * What is left here is Copy plus what is genuinely PDF-specific: the
+ * annotations and LaTeX excerpt editing. The excerpt actions below the
+ * separator are shared with every other document surface (SnippetActions), and
+ * the frame — placement, viewport clamp, dismissal, keeping the selection alive
+ * — is shared too (ContextMenuSurface).
  */
 
 // Highlighter colors offered for a new mark. Kept deliberately short: a long
@@ -26,10 +27,13 @@ export const ANNOTATION_COLORS = ['#facc15', '#4ade80', '#60a5fa', '#f472b6', '#
 export default function PdfContextMenu({
   menu,
   onClose,
+  onCopy,
   onAskAbout,
   onLookUp,
   onTranslate,
   onPronounce,
+  onEditLatex,
+  editLatexDisabledReason = '',
   canAsk = true,
   canPronounce = false,
   pronounceUnavailableHint = '',
@@ -74,6 +78,22 @@ export default function PdfContextMenu({
       onClose={onClose}
       ariaLabel={t('pdfContextMenu.label', 'PDF actions')}
     >
+      {onCopy && (
+        <>
+          <div
+            className={`vscode-context-menu-item${hasSelection ? '' : ' vscode-context-menu-item-disabled'}`}
+            role="menuitem"
+            aria-disabled={!hasSelection}
+            title={hasSelection ? undefined : t('snippetActions.needsSelection', 'Select some text first.')}
+            onClick={() => { if (hasSelection) run(onCopy); }}
+          >
+            <Copy size={13} />
+            <span>{t('contextMenu.copy', 'Copy')}</span>
+          </div>
+          <div className="vscode-context-menu-separator" role="separator" />
+        </>
+      )}
+
       {canAnnotate && target && (
         <>
           <div
@@ -124,6 +144,26 @@ export default function PdfContextMenu({
           >
             <StickyNote size={13} style={{ color: 'var(--vscode-fg-warning)' }} />
             <span>{t('pdfContextMenu.addNote', 'Add a note here')}</span>
+          </div>
+          <div className="vscode-context-menu-separator" role="separator" />
+        </>
+      )}
+
+      {onEditLatex && (
+        <>
+          <div
+            className={`vscode-context-menu-item${hasSelection && !editLatexDisabledReason ? '' : ' vscode-context-menu-item-disabled'}`}
+            role="menuitem"
+            aria-disabled={!hasSelection || Boolean(editLatexDisabledReason)}
+            title={
+              !hasSelection
+                ? t('pdfContextMenu.editLatexNeedsSelection', 'Select some text in the PDF first.')
+                : (editLatexDisabledReason || undefined)
+            }
+            onClick={() => { if (hasSelection && !editLatexDisabledReason) run(onEditLatex); }}
+          >
+            <Wand2 size={13} style={{ color: 'var(--vscode-fg-teal)' }} />
+            <span>{t('pdfContextMenu.editLatexExcerpt', 'Edit excerpt…')}</span>
           </div>
           <div className="vscode-context-menu-separator" role="separator" />
         </>

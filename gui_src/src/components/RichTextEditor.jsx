@@ -9,6 +9,9 @@ import { stripTransparentGroups } from '../utils/latexBraceGroups';
 import {
   NOTE_COMMANDS, findCommandWithArgument, latexToPlainText, reduceCommandsToArguments,
 } from '../utils/latexInlineCommands';
+import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
+import { writeClipboard } from '../utils/clipboard.js';
+import TextContextMenu from './TextContextMenu.jsx';
 
 // ── Module-level cache: keyed by (projectPath, graphic-source-hash) ────────
 // This avoids re-compiling identical TikZ snippets on every keystroke. The
@@ -255,11 +258,32 @@ export default function RichTextEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const {
+    menu: contextMenu,
+    onContextMenu: handleContextMenu,
+    handleCopy: handleContextCopy,
+    handlePaste: handleContextPaste,
+    close: closeContextMenu,
+  } = useTextContextMenu({
+    getMeta: (e) => ({
+      isEditable: Boolean(e.target?.closest?.('[contenteditable="true"]')),
+    }),
+  });
+
+  const handleContextCut = useCallback((m) => {
+    if (!m?.selectedText || !m?.isEditable) return;
+    const cutOk = document.execCommand('cut');
+    if (!cutOk) writeClipboard(m.selectedText);
+    closeContextMenu();
+  }, [closeContextMenu]);
+
   return (
+    <>
     <div
       ref={containerRef}
       className="rich-text-editor-container"
       onScroll={handleScroll}
+      onContextMenu={handleContextMenu}
       style={{
         overflowY: 'auto',
         position: 'absolute',
@@ -304,6 +328,14 @@ export default function RichTextEditor({
         )}
       </div>
     </div>
+    <TextContextMenu
+      menu={contextMenu}
+      onClose={closeContextMenu}
+      onCopy={handleContextCopy}
+      onCut={contextMenu?.isEditable ? handleContextCut : undefined}
+      onPaste={contextMenu?.isEditable ? handleContextPaste : undefined}
+    />
+    </>
   );
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, useEffect } from 'react';
 import { AlertCircle, Trash, Maximize2, Minimize2, ChevronUp, ChevronDown, Plus, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
+import { readSelectionWithin } from '../utils/documentSelection.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import TerminalInstance from './TerminalInstance.jsx';
 import { getPreference, setPreference } from '../utils/preferences';
@@ -48,7 +49,14 @@ export default function BottomPanel({
   const [terminals, setTerminals] = useState(['main-1']);
   const [activeTermId, setActiveTermId] = useState('main-1');
   const [termCounter, setTermCounter] = useState(1);
-  const { menu, onContextMenu, handleCopy, handlePaste, handleSelectAll } = useTextContextMenu();
+  const { menu, onContextMenu, handleCopy, handlePaste, handleSelectAll, close } = useTextContextMenu({
+    getSelection: (e) => {
+      if (activeBottomTab === 'terminal') {
+        return terminalInstancesRef.current[activeTermId]?.getSelection?.() || '';
+      }
+      return readSelectionWithin(e.currentTarget);
+    },
+  });
   const [autoScroll, setAutoScroll] = useState(true);
   // One font size shared by every terminal in the panel: a per-instance size
   // would leave the hidden tabs behind and change under the user on switching.
@@ -106,6 +114,7 @@ export default function BottomPanel({
     <>
       <TextContextMenu
         menu={menu}
+        onClose={close}
         onCopy={handleCopy}
         onPaste={handlePaste}
         onSelectAll={

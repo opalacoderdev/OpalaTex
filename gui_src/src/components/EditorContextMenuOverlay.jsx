@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { readUiScale, viewportPxToApp } from '../utils/uiScale';
+import { writeClipboard } from '../utils/clipboard';
 import { pastePlainTextIntoMonaco } from '../utils/monacoPaste';
 
 /**
@@ -41,7 +42,11 @@ export default function EditorContextMenuOverlay({ menu, onClose, setInlinePromp
     if (rect.bottom > vh) ref.current.style.top = `${viewportPxToApp(vh - rect.height, scale) - 4}px`;
   }, [menu]);
 
-  const { editor, monaco, hasSelection, selectedText, pos, sel } = menu;
+  const { editor, monaco, hasSelection, selectedText, pos, sel, isReadOnly = false } = menu;
+  const canCopy = Boolean(hasSelection);
+  const canCut = Boolean(hasSelection && !isReadOnly);
+  const canPaste = !isReadOnly;
+  const needsSelectionHint = t('snippetActions.needsSelection', 'Select some text first.');
 
   // Helper to get inline prompt coordinates from the editor
   const getPromptCoords = () => {
@@ -59,18 +64,25 @@ export default function EditorContextMenuOverlay({ menu, onClose, setInlinePromp
   };
 
   const handleCut = () => {
+    if (!canCut) return;
     editor.focus();
-    document.execCommand('cut');
+    const copiedByExec = document.execCommand('cut');
+    if (!copiedByExec && selectedText) {
+      writeClipboard(selectedText);
+      if (sel) editor.executeEdits('context-menu-cut', [{ range: sel, text: '' }]);
+    }
     onClose();
   };
 
   const handleCopy = () => {
+    if (!canCopy) return;
     editor.focus();
-    document.execCommand('copy');
+    writeClipboard(selectedText);
     onClose();
   };
 
   const handlePaste = async () => {
+    if (!canPaste) return;
     try {
       const res = await fetch('/api/clipboard/read');
       const data = await res.json();
@@ -137,40 +149,69 @@ export default function EditorContextMenuOverlay({ menu, onClose, setInlinePromp
     <div
       ref={ref}
       className="editor-ctx-menu"
+      role="menu"
       style={{ left: menu.x, top: menu.y }}
+      onMouseDown={(e) => e.preventDefault()}
     >
-      <button className="editor-ctx-item" onClick={handleCut}>
+      <button
+        type="button"
+        className="editor-ctx-item"
+        role="menuitem"
+        disabled={!canCut}
+        aria-disabled={!canCut}
+        title={!hasSelection ? needsSelectionHint : undefined}
+        onClick={handleCut}
+      >
         <span className="editor-ctx-label">{t('contextMenu.cut', 'Cut')}</span>
         <span className="editor-ctx-key">Ctrl+X</span>
       </button>
-      <button className="editor-ctx-item" onClick={handleCopy}>
+      <button
+        type="button"
+        className="editor-ctx-item"
+        role="menuitem"
+        disabled={!canCopy}
+        aria-disabled={!canCopy}
+        title={canCopy ? undefined : needsSelectionHint}
+        onClick={handleCopy}
+      >
         <span className="editor-ctx-label">{t('contextMenu.copy', 'Copy')}</span>
         <span className="editor-ctx-key">Ctrl+C</span>
       </button>
-      <button className="editor-ctx-item" onClick={handlePaste}>
+      <button
+        type="button"
+        className="editor-ctx-item"
+        role="menuitem"
+        disabled={!canPaste}
+        aria-disabled={!canPaste}
+        onClick={handlePaste}
+      >
         <span className="editor-ctx-label">{t('contextMenu.paste', 'Paste')}</span>
         <span className="editor-ctx-key">Ctrl+V</span>
       </button>
 
-      <div className="editor-ctx-separator" />
-
-      {hasSelection && (
+      {!isReadOnly && (
         <>
-          <button className="editor-ctx-item" onClick={handleRefine}>
-            <span className="editor-ctx-label">{t('editorPanel.refineSelection', 'Refine Selection (OpalaTex)')}</span>
-          </button>
-          <button className="editor-ctx-item" onClick={handleCreateIllustration}>
-            <span className="editor-ctx-label">{t('editorPanel.createIllustration', 'Create Illustration (OpalaTex)')}</span>
+          <div className="editor-ctx-separator" role="separator" />
+
+          {hasSelection && (
+            <>
+              <button type="button" className="editor-ctx-item" role="menuitem" onClick={handleRefine}>
+                <span className="editor-ctx-label">{t('editorPanel.refineSelection', 'Refine Selection (OpalaTex)')}</span>
+              </button>
+              <button type="button" className="editor-ctx-item" role="menuitem" onClick={handleCreateIllustration}>
+                <span className="editor-ctx-label">{t('editorPanel.createIllustration', 'Create Illustration (OpalaTex)')}</span>
+              </button>
+            </>
+          )}
+          <button type="button" className="editor-ctx-item" role="menuitem" onClick={handleGenerate}>
+            <span className="editor-ctx-label">{t('editorPanel.generateCode', 'Generate Content (OpalaTex)')}</span>
           </button>
         </>
       )}
-      <button className="editor-ctx-item" onClick={handleGenerate}>
-        <span className="editor-ctx-label">{t('editorPanel.generateCode', 'Generate Content (OpalaTex)')}</span>
-      </button>
 
-      <div className="editor-ctx-separator" />
+      <div className="editor-ctx-separator" role="separator" />
 
-      <button className="editor-ctx-item" onClick={handleCommandPalette}>
+      <button type="button" className="editor-ctx-item" role="menuitem" onClick={handleCommandPalette}>
         <span className="editor-ctx-label">{t('contextMenu.commandPalette', 'Command Palette')}</span>
         <span className="editor-ctx-key">F1</span>
       </button>

@@ -299,7 +299,10 @@
     "latexHelpPartial": "Compile only the current file or chapter.",
     "latexHelpRichText": "Switch to rich text mode for prose-focused editing.",
     "latexHelpPreview": "Show a live read-only LaTeX preview.",
-    "latexHelpSnippets": "Insert common LaTeX snippets."
+    "latexHelpSnippets": "Insert common LaTeX snippets.",
+    "showLatexCode": "View LaTeX code",
+    "codeButton": "Code",
+    "showPdfOnly": "View PDF only"
   },
   "pdfPreview": {
     "annotationSelectionLost": "Could not read the selected area. Select the text again and retry.",
@@ -307,6 +310,7 @@
     "annotationsOn": "Hide PDF annotations",
     "backToPreviousPosition": "Back to previous PDF position",
     "clearSearch": "Clear search",
+    "codeButton": "Code",
     "compileErrorDescription": "We found some issues in your LaTeX code that need to be fixed.",
     "compileErrorTitle": "Oops! We couldn't compile your document",
     "compiling": "Compiling...",
@@ -318,6 +322,7 @@
     "nextMatch": "Next match",
     "noDocument": "No document compiled yet. Write some LaTeX and compile!",
     "noSearchResults": "No results",
+    "openSourceTex": "Open LaTeX source ({{file}})",
     "pageDividerLabel": "Page {{page}} of {{total}}",
     "present": "Present (full screen)",
     "presentationLabel": "PDF presentation",
@@ -327,7 +332,8 @@
     "searchPdf": "Search PDF",
     "searchPlaceholder": "Search PDF...",
     "technicalDetails": "View Technical Details (Full Log)",
-    "toggleAnnotations": "Toggle PDF annotations"
+    "toggleAnnotations": "Toggle PDF annotations",
+    "viewLatexCode": "View LaTeX code"
   },
   "graphicPreview": {
     "rendering": "rendering...",
@@ -753,6 +759,8 @@
     "minimapHint": "Shows the code overview strip on the right side of the editor.",
     "latexCompilation": "LaTeX Compilation",
     "draftSynctexEnabled": "Generate SyncTeX in draft compile",
+    "openTexInPdfView": "Open .tex files in PDF view when a compiled PDF exists",
+    "openTexInPdfViewHint": "Shows the compiled PDF first instead of the raw LaTeX source. You can switch to the code at any time with the toolbar button or Ctrl+double-click.",
     "graphics": "Window graphics",
     "graphicsHardwareAcceleration": "Use hardware acceleration (GPU) for the app window",
     "graphicsHint": "The app window renders through the graphics driver, which runs inside the OpalaTex process: if the driver faults, the window closes with no error message. Turn this off if OpalaTex closes by itself. Takes effect after a restart.",
@@ -1428,6 +1436,9 @@
     "addNote": "Add a note here",
     "annotateNeedsSelection": "Select some text in the PDF first.",
     "annotationNotEditable": "This annotation was made by other software and cannot be edited here.",
+    "editLatexBusy": "Wait for the chat assistant to finish before editing the LaTeX source.",
+    "editLatexExcerpt": "Edit excerpt…",
+    "editLatexNeedsSelection": "Select some text in the PDF first.",
     "editNote": "Edit note",
     "highlight": "Highlight",
     "highlightColor": "Highlight color",
@@ -1435,6 +1446,30 @@
     "strikeout": "Strike through",
     "underline": "Underline",
     "label": "PDF actions"
+  },
+  "latexExcerptEdit": {
+    "title": "Edit LaTeX excerpt",
+    "instructionLabel": "What would you like to change?",
+    "instructionPlaceholder": "Describe the change you want in this excerpt...",
+    "sendHint": "Ctrl+Enter to generate a diff. Nothing is written or compiled until you confirm.",
+    "generateDiff": "Preview diff",
+    "needsInstruction": "Describe the change first.",
+    "loadingProposal": "Locating the passage in LaTeX source and preparing a diff...",
+    "applying": "Applying the change to {{file}} and recompiling PDF...",
+    "reverting": "Reverting {{file}} and recompiling PDF...",
+    "diffLabel": "Proposed diff",
+    "lineSingle": "line {{line}}",
+    "lineRange": "lines {{start}}–{{end}}",
+    "annotationsWarning": "Recompiling replaces this PDF and discards its {{count}} embedded annotation(s).",
+    "appliedSuccess": "Applied to {{file}} and recompiled.",
+    "compileFailed": "The edit was written to {{file}}, but LaTeX compilation failed. You can revert it or inspect the source.",
+    "failed": "Could not prepare the edit: {{error}}",
+    "unsavedTarget": "{{file}} has unsaved edits in the editor. Save or discard them before applying this change.",
+    "applyAndCompile": "Apply & compile",
+    "editInstruction": "Edit request",
+    "undo": "Undo",
+    "revertEdit": "Revert edit",
+    "openSource": "Open source"
   },
   "snippetActions": {
     "askAboutDocument": "Ask about this document",

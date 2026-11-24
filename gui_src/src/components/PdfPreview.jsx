@@ -6,15 +6,18 @@ import { viewportPointToApp, viewportPxToApp } from '../utils/uiScale';
 import { clampViewAnchor, isAnchorLaidOut, scrollTopForAnchor, viewAnchorAt } from '../utils/pdfViewState';
 import { useTranslation } from 'react-i18next';
 import { useCustomDialog } from './modals/CustomDialogProvider';
-import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare, Sparkles, MonitorPlay, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Download, PanelRightClose, ZoomIn, ZoomOut, RotateCcw, ChevronUp, ChevronDown, Search, X, MessageSquareOff, MessageSquare, Sparkles, MonitorPlay, RefreshCw, Code2 } from 'lucide-react';
 import PdfContextMenu, { ANNOTATION_COLORS } from './PdfContextMenu';
 import TranslationPopup from './TranslationPopup';
 import SpeechPopup from './SpeechPopup';
 import SnippetQueryPopup from './SnippetQueryPopup';
+import LatexExcerptEditPopup from './LatexExcerptEditPopup';
 import { useSnippetTranslation } from '../hooks/useSnippetTranslation';
 import { useSnippetQuery } from '../hooks/useSnippetQuery';
 import { useSnippetSpeech } from '../hooks/useSnippetSpeech';
+import { useLatexExcerptEdit } from '../hooks/useLatexExcerptEdit';
 import { readSelectionWithin } from '../utils/documentSelection';
+import { writeClipboard } from '../utils/clipboard';
 import PdfAnnotationLayer from './PdfAnnotationLayer';
 import PdfNotePopup from './PdfNotePopup';
 import PdfPresentMode from './PdfPresentMode';
@@ -42,7 +45,7 @@ const VIEW_RESTORE_ATTEMPTS = 100;
 // `onViewStateChange` reports the same shape as the user scrolls and zooms. The
 // owner keeps it per document so a viewer unmounted by a tab switch comes back
 // where it was left (see utils/pdfViewState.js).
-const PdfPreview = forwardRef(({ chatModel = '', base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onLatexCompileError, onLatexCompileSuccess, onAskAboutPdf, speechSettingsSignal = 0, isAgentRunning = false, uiScale = 1, initialViewState = null, onViewStateChange }, ref) => {
+const PdfPreview = forwardRef(({ chatModel = '', base64Pdf, sourceUrl, directUrl, isCompiling, errorLog, activeProject, selectedFile, unsavedFiles = null, onSyncTexNavigate, onCollapse, onDocumentReady, latexCompileProblem, onFixLatexProblem, onLatexCompileError, onLatexCompileSuccess, onExternalFileUpdated, onExcerptEditCompiled, onOpenSourceTex, isPdfOnlyMode = false, onShowSourceCode, onAskAboutPdf, speechSettingsSignal = 0, isAgentRunning = false, uiScale = 1, initialViewState = null, onViewStateChange }, ref) => {
   const { t, i18n } = useTranslation();
   const { showAlert, showConfirm } = useCustomDialog();
   const [numPages, setNumPages] = useState(null);
@@ -518,6 +521,59 @@ const PdfPreview = forwardRef(({ chatModel = '', base64Pdf, sourceUrl, directUrl
   const [sourceTexFile, setSourceTexFile] = useState('');
   const [isRecompiling, setIsRecompiling] = useState(false);
 
+  const hasAssociatedLatex = Boolean(activeProject?.project_path)
+    && (isStandalonePdf ? Boolean(sourceTexFile) : Boolean(selectedFile));
+  const editLatexDisabledReason = isAgentRunning
+    ? t('pdfContextMenu.editLatexBusy', 'Wait for the chat assistant to finish before editing the LaTeX source.')
+    : '';
+
+  const {
+    editState: latexEdit,
+    open: openLatexEdit,
+    setInstruction: setLatexEditInstruction,
+    submitProposal: submitLatexEditProposal,
+    applyProposal: applyLatexEditProposal,
+    revertApplied: revertLatexEdit,
+    compose: composeLatexEdit,
+    close: closeLatexEdit,
+  } = useLatexExcerptEdit({
+    model: chatModel,
+    projectPath: activeProject?.project_path || '',
+    mainFile: isStandalonePdf ? sourceTexFile : (activeProject?.main_file || ''),
+    isStandalonePdf,
+    selectedPdfPath: isStandalonePdf ? (selectedFile || '') : '',
+    unsavedFiles,
+    onExternalFileUpdated,
+    onCompiled: (result) => {
+      if (result.compileSuccess) {
+        onLatexCompileSuccess?.({
+          filePath: result.targetFile,
+          compiledMainFile: result.compiledMainFile || result.targetFile,
+        });
+        if (isStandalonePdf) {
+          reloadRenderedPdf();
+        } else {
+          onExcerptEditCompiled?.(result);
+        }
+      } else {
+        onLatexCompileError?.({
+          source: 'latex_compile',
+          filePath: result.targetFile,
+          fileContent: result.newContent || '',
+          projectPath: activeProject?.project_path || '',
+          projectName: activeProject?.name || '',
+          mainFile: activeProject?.main_file || '',
+          compiledMainFile: result.compiledMainFile || '',
+          log: result.compileLog || 'LaTeX compilation failed.',
+          message: result.compileLog || 'LaTeX compilation failed.',
+          compileDebug: {},
+          partial: false,
+          draft: false,
+        });
+      }
+    },
+  });
+
   useEffect(() => {
     setSourceTexFile('');
     if (!isStandalonePdf || !activeProject?.project_path) return undefined;
@@ -836,10 +892,50 @@ const PdfPreview = forwardRef(({ chatModel = '', base64Pdf, sourceUrl, directUrl
     if (saved && ANNOTATION_COLORS.includes(saved)) setAnnotationColor(saved);
   }, []);
 
+  const readSelectionPdfPoint = (fallbackEvent, fallbackPage) => {
+    const selection = window.getSelection?.();
+    const container = containerRef.current;
+    if (selection && !selection.isCollapsed && selection.rangeCount > 0 && container) {
+      const range = selection.getRangeAt(0);
+      if (container.contains(range.commonAncestorContainer)) {
+        const firstRect = Array.from(range.getClientRects()).find((r) => r.width > 0.5 && r.height > 0.5);
+        if (firstRect) {
+          const cx = firstRect.left + firstRect.width / 2;
+          const cy = firstRect.top + firstRect.height / 2;
+          const pageWrappers = Array.from(container.querySelectorAll('.pdf-page-wrapper[data-page-number]'));
+          for (const wrapper of pageWrappers) {
+            const rect = wrapper.getBoundingClientRect();
+            if (cx >= rect.left && cx <= rect.right && cy >= rect.top && cy <= rect.bottom) {
+              const p = parseInt(wrapper.getAttribute('data-page-number'), 10);
+              return {
+                page: Number.isNaN(p) ? fallbackPage : p,
+                pdfX: viewportPxToApp(cx - rect.left) / scale,
+                pdfY: viewportPxToApp(cy - rect.top) / scale,
+              };
+            }
+          }
+        }
+      }
+    }
+    const pageWrapper = fallbackEvent.target?.closest?.('.pdf-page-wrapper[data-page-number]');
+    if (pageWrapper) {
+      const rect = pageWrapper.getBoundingClientRect();
+      const p = parseInt(pageWrapper.getAttribute('data-page-number'), 10);
+      return {
+        page: Number.isNaN(p) ? fallbackPage : p,
+        pdfX: viewportPxToApp(fallbackEvent.clientX - rect.left) / scale,
+        pdfY: viewportPxToApp(fallbackEvent.clientY - rect.top) / scale,
+      };
+    }
+    return { page: fallbackPage, pdfX: null, pdfY: null };
+  };
+
   const handlePdfContextMenu = (event) => {
     event.preventDefault();
     const pageEl = event.target?.closest?.('[data-page-number]');
     const page = pageEl ? parseInt(pageEl.getAttribute('data-page-number'), 10) : currentPage;
+    const resolvedPage = Number.isNaN(page) ? currentPage : page;
+    const pdfPoint = readSelectionPdfPoint(event, resolvedPage);
     closeTranslation();
     // Re-read at menu-open time rather than cached for the session, so
     // configuring speech in Settings takes effect without reopening the PDF.
@@ -847,7 +943,9 @@ const PdfPreview = forwardRef(({ chatModel = '', base64Pdf, sourceUrl, directUrl
     setNotePopup(null);
     setContextMenu({
       ...viewportPointToApp(event.clientX, event.clientY),
-      page: Number.isNaN(page) ? currentPage : page,
+      page: pdfPoint.page,
+      pdfX: pdfPoint.pdfX,
+      pdfY: pdfPoint.pdfY,
       selectedText: readPdfSelection(),
       // Captured here, not when the menu item is clicked: clicking an item (a
       // color swatch especially, since a <button> takes focus) collapses the
@@ -857,6 +955,11 @@ const PdfPreview = forwardRef(({ chatModel = '', base64Pdf, sourceUrl, directUrl
       selectionRects: canAnnotate ? readSelectionRectsByPage() : [],
       annotation: canAnnotate ? annotationAtPoint(event.clientX, event.clientY) : null,
     });
+  };
+
+  const handleCopyPdfSelection = (menu) => {
+    if (!menu?.selectedText) return;
+    writeClipboard(menu.selectedText);
   };
 
   const handleAskAboutPdf = (menu) => {
@@ -922,6 +1025,19 @@ const PdfPreview = forwardRef(({ chatModel = '', base64Pdf, sourceUrl, directUrl
 
   const handlePronounceSelection = (menu) => {
     speak(menu.selectedText, { x: menu.x, y: menu.y });
+  };
+
+  const handleEditLatexSelection = (menu) => {
+    openLatexEdit(menu.selectedText, { x: menu.x, y: menu.y }, {
+      surface: 'pdf',
+      documentPath: resolvePdfDocumentPath(),
+      sourceFile: isStandalonePdf ? sourceTexFile : (selectedFile || ''),
+      page: menu.page,
+      totalPages: numPages || 0,
+      pdfX: menu.pdfX,
+      pdfY: menu.pdfY,
+      isStandalonePdf,
+    });
   };
 
   const handleZoomIn = () => {
@@ -1570,6 +1686,51 @@ const PdfPreview = forwardRef(({ chatModel = '', base64Pdf, sourceUrl, directUrl
             <RefreshCw size={18} className={isRecompiling ? 'animate-spin' : ''} />
           </button>
         )}
+        {sourceTexFile && onOpenSourceTex && (
+          <button
+            type="button"
+            onClick={() => onOpenSourceTex(sourceTexFile)}
+            className="flex items-center justify-center rounded-md transition-colors"
+            style={{
+              width: '32px',
+              height: '32px',
+              background: 'var(--vscode-input-bg)',
+              border: '1px solid var(--vscode-border)',
+              color: 'var(--vscode-text-fg)',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+            title={t('pdfPreview.openSourceTex', 'Open LaTeX source ({{file}})', { file: sourceTexFile })}
+            aria-label={t('pdfPreview.openSourceTex', 'Open LaTeX source ({{file}})', { file: sourceTexFile })}
+          >
+            <Code2 size={18} />
+          </button>
+        )}
+        {isPdfOnlyMode && onShowSourceCode && (
+          <button
+            type="button"
+            onClick={onShowSourceCode}
+            className="flex items-center justify-center gap-1 rounded-md transition-colors"
+            style={{
+              height: '32px',
+              padding: '0 8px',
+              background: 'var(--vscode-input-bg)',
+              border: '1px solid var(--vscode-border)',
+              color: 'var(--vscode-text-fg)',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--vscode-button-bg)'; e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.borderColor = 'var(--vscode-button-bg)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--vscode-input-bg)'; e.currentTarget.style.color = 'var(--vscode-text-fg)'; e.currentTarget.style.borderColor = 'var(--vscode-border)'; }}
+            title={t('pdfPreview.viewLatexCode', 'View LaTeX code')}
+            aria-label={t('pdfPreview.viewLatexCode', 'View LaTeX code')}
+          >
+            <Code2 size={15} />
+            <span>{t('pdfPreview.codeButton', 'Code')}</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={handleStartPresentation}
@@ -2022,10 +2183,13 @@ const PdfPreview = forwardRef(({ chatModel = '', base64Pdf, sourceUrl, directUrl
       <PdfContextMenu
         menu={contextMenu}
         onClose={() => setContextMenu(null)}
+        onCopy={handleCopyPdfSelection}
         onAskAbout={handleAskAboutPdf}
         onLookUp={handleLookUpSelection}
         onTranslate={handleTranslateSelection}
         onPronounce={handlePronounceSelection}
+        onEditLatex={hasAssociatedLatex ? handleEditLatexSelection : undefined}
+        editLatexDisabledReason={editLatexDisabledReason}
         canPronounce={speechAvailability.ready}
         pronounceUnavailableHint={speechAvailability.problem}
         canAsk={Boolean(onAskAboutPdf)}
@@ -2098,6 +2262,21 @@ const PdfPreview = forwardRef(({ chatModel = '', base64Pdf, sourceUrl, directUrl
           available: !lookupNoteReason,
           reason: lookupNoteReason,
           onSave: handleSaveLookupNote,
+        }}
+      />
+
+      <LatexExcerptEditPopup
+        state={latexEdit}
+        standaloneAnnotationCount={isStandalonePdf ? annotations.length : 0}
+        onClose={closeLatexEdit}
+        onInstructionChange={setLatexEditInstruction}
+        onPropose={submitLatexEditProposal}
+        onApply={applyLatexEditProposal}
+        onRevert={revertLatexEdit}
+        onCompose={composeLatexEdit}
+        onOpenSource={(file, line) => {
+          if (onSyncTexNavigate) onSyncTexNavigate(line || 1, file);
+          else if (onOpenSourceTex) onOpenSourceTex(file, line || 1);
         }}
       />
 

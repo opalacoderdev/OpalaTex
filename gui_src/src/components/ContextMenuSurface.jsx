@@ -29,6 +29,7 @@ export default function ContextMenuSurface({
   const menuRef = useRef(null);
 
   useEffect(() => {
+    if (!onClose) return undefined;
     const handleClick = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
     };

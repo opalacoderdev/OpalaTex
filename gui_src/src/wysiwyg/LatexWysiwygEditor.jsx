@@ -38,6 +38,10 @@ import {
   buildKeymap, insertMathBlock, setHeading, setParagraph,
   toggleBold, toggleItalic, toggleList, toggleMono, toggleUnderline,
 } from './commands.js';
+import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
+import { readSelectionWithin } from '../utils/documentSelection.js';
+import { readClipboard, writeClipboard } from '../utils/clipboard.js';
+import TextContextMenu from '../components/TextContextMenu.jsx';
 import './wysiwyg.css';
 
 export default function LatexWysiwygEditor({
@@ -151,6 +155,51 @@ export default function LatexWysiwygEditor({
     view.focus();
   }, []);
 
+  const {
+    menu: contextMenu,
+    onContextMenu: handleContextMenu,
+    handleCopy: handleContextCopy,
+    close: closeContextMenu,
+  } = useTextContextMenu({
+    getSelection: () => {
+      const domSelection = readSelectionWithin(hostRef.current);
+      if (domSelection) return domSelection;
+      const view = viewRef.current;
+      if (!view || view.state.selection.empty) return '';
+      const { from, to } = view.state.selection;
+      return view.state.doc.textBetween(from, to, '\n').trim();
+    },
+    getMeta: (e) => {
+      const view = viewRef.current;
+      const inReadOnlyNode = Boolean(e.target?.closest?.('[contenteditable="false"]'));
+      return {
+        canCut: Boolean(!inReadOnlyNode && view && !view.state.selection.empty),
+        canPaste: !inReadOnlyNode,
+      };
+    },
+  });
+
+  const handleContextCut = useCallback((m) => {
+    const view = viewRef.current;
+    if (!m?.selectedText || !m?.canCut || !view || view.state.selection.empty) return;
+    writeClipboard(m.selectedText);
+    view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
+    view.focus();
+    closeContextMenu();
+  }, [closeContextMenu]);
+
+  const handleContextPaste = useCallback((m) => {
+    if (!m?.canPaste) return;
+    readClipboard().then((text) => {
+      const view = viewRef.current;
+      if (text && view) {
+        view.dispatch(view.state.tr.insertText(text).scrollIntoView());
+        view.focus();
+      }
+    });
+    closeContextMenu();
+  }, [closeContextMenu]);
+
   return (
     <div className="ltx-wysiwyg" style={{ fontSize: `${Math.round(15 * zoomLevel)}px` }}>
       <div className="ltx-toolbar">
@@ -213,7 +262,16 @@ export default function LatexWysiwygEditor({
         ><Sigma size={13} /></ToolbarButton>
       </div>
 
-      <div className="ltx-wysiwyg-page" ref={hostRef} />
+      <div className="ltx-wysiwyg-page" ref={hostRef} onContextMenu={handleContextMenu} />
+      <TextContextMenu
+        menu={contextMenu}
+        onClose={closeContextMenu}
+        onCopy={handleContextCopy}
+        onCut={handleContextCut}
+        onPaste={handleContextPaste}
+        canCut={Boolean(contextMenu?.canCut)}
+        canPaste={Boolean(contextMenu?.canPaste)}
+      />
     </div>
   );
 }

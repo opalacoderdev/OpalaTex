@@ -721,6 +721,7 @@ export default function App() {
   const [editorTabSize, setEditorTabSize] = useState(() => Number(getPreference('editorTabSize', 4)));
   const [editorWordWrap, setEditorWordWrap] = useState(() => getPreference('editorWordWrap', 'on'));
   const [editorMinimap, setEditorMinimap] = useState(() => getPreference('editorMinimap', 'on'));
+  const [openTexInPdfView, setOpenTexInPdfView] = useState(() => getPreference('openTexInPdfView', 'on'));
   const [showHiddenWorkspaceFiles, setShowHiddenWorkspaceFiles] = useState(false);
 
   // ── Accessibility interface scale ───────────────────────────────────────
@@ -2322,6 +2323,24 @@ export default function App() {
       handleFileSelect(nodePath);
     }
   };
+
+  // Synchronize open editor buffers after an out-of-editor write (for example,
+  // applying or reverting a PDF-excerpt LaTeX edit).
+  const handleExternalFileUpdated = useCallback((filePath, content) => {
+    if (!filePath || typeof content !== 'string') return;
+    setFileContents((prev) => {
+      const existingKey = Object.keys(prev).find((key) => sameFilePath(key, filePath));
+      if (!existingKey) return prev;
+      diskFileContentsRef.current[existingKey] = content;
+      return { ...prev, [existingKey]: content };
+    });
+    diskFileContentsRef.current[filePath] = content;
+    if (sameFilePath(documentContextRef.current?.selectedFile, filePath)) {
+      fileContentRef.current = content;
+      setFileContent(content);
+    }
+    loadHeadBaseline(filePath);
+  }, []);
 
   // Opening a file has to put the editor on screen, but only the layouts that
   // hide it need leaving: forcing 'ide' from the studio or the document layout
@@ -5411,6 +5430,7 @@ export default function App() {
               editorTabSize={editorTabSize}
               editorWordWrap={editorWordWrap}
               editorMinimap={editorMinimap}
+              openTexInPdfView={openTexInPdfView}
               handleFileSelect={handleFileSelect}
               handleCloseTab={handleCloseTab}
               handleCloseOtherTabs={handleCloseOtherTabs}
@@ -5456,6 +5476,7 @@ export default function App() {
               }}
               onLatexCompileError={handleLatexCompileError}
               onLatexCompileSuccess={handleLatexCompileSuccess}
+              onExternalFileUpdated={handleExternalFileUpdated}
               agentCompile={agentCompile}
               pdfRevealRequest={pdfRevealRequest}
               onFixLatexProblem={handleFixLatexProblem}
@@ -5753,6 +5774,7 @@ export default function App() {
           editorTabSize={editorTabSize} setEditorTabSize={setEditorTabSize}
           editorWordWrap={editorWordWrap} setEditorWordWrap={setEditorWordWrap}
           editorMinimap={editorMinimap} setEditorMinimap={setEditorMinimap}
+          openTexInPdfView={openTexInPdfView} setOpenTexInPdfView={setOpenTexInPdfView}
           isInstallingDeps={isInstallingDeps}
           installDepsStatus={installDepsStatus}
           installDepsLog={installDepsLog}
