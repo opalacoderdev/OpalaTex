@@ -424,6 +424,21 @@ export default function CloudDownloadModal({
                         </div>
                       )}
 
+                      {job.status === 'completed' && job.project?.chats_import_error && (
+                        <div
+                          role="status"
+                          style={{ fontSize: '11px', color: 'var(--vscode-fg-warning)', display: 'flex', gap: '6px', alignItems: 'flex-start' }}
+                        >
+                          <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: '1px' }} />
+                          <span>
+                            {t('cloudDownload.chatsImportFailed', {
+                              error: job.project.chats_import_error,
+                              defaultValue: 'The conversations could not be imported: {{error}}. The conversation files are still in the project folder.',
+                            })}
+                          </span>
+                        </div>
+                      )}
+
                       {job.status === 'cancelled' && (
                         <div style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>
                           {t('cloudDownload.cancelled', 'Download cancelled. The partial copy was removed; nothing was added to your projects.')}

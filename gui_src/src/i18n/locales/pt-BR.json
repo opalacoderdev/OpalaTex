@@ -1697,6 +1697,8 @@
     "activeDownloads": "Downloads",
     "finalizing": "Finalizando configuração e importando conversas…",
     "completedSummary": "Baixado ({{count}} arquivo(s))",
+    "chatsImportFailed": "As conversas não puderam ser importadas: {{error}}. Os arquivos de conversa continuam na pasta do projeto.",
+    "chatsImportFailedLog": "{{name}} foi baixado, mas as conversas não puderam ser importadas: {{error}}. Os arquivos de conversa continuam na pasta do projeto.",
     "openProject": "Abrir projeto",
     "dismiss": "Dispensar",
     "cancelledLog": "O download de {{name}} foi cancelado.",

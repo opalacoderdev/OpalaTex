@@ -233,10 +233,19 @@ export default function StatusBar({
     );
   } else if (completedDownload) {
     const jobName = completedDownload.project?.project_name || completedDownload.folder_name || completedDownload.remote_name;
-    const dlTooltip = t('statusBar.cloudDownloadTooltipDone', {
-      defaultValue: '{{name}} finished downloading. Click to open this project.',
-      name: jobName,
-    });
+    const chatsImportError = completedDownload.project?.chats_import_error || '';
+    const dlTooltip = [
+      t('statusBar.cloudDownloadTooltipDone', {
+        defaultValue: '{{name}} finished downloading. Click to open this project.',
+        name: jobName,
+      }),
+      chatsImportError
+        ? t('cloudDownload.chatsImportFailed', {
+          error: chatsImportError,
+          defaultValue: 'The conversations could not be imported: {{error}}. The conversation files are still in the project folder.',
+        })
+        : null,
+    ].filter(Boolean).join('\n');
     downloadIndicator = (
       <span className="flex items-center" style={{ gap: '2px' }}>
         <button
@@ -247,7 +256,9 @@ export default function StatusBar({
           aria-label={dlTooltip}
         >
           <CloudDownload size={12} />
-          <Check size={11} />
+          {chatsImportError
+            ? <AlertTriangle size={11} style={{ color: 'var(--vscode-fg-warning)' }} />
+            : <Check size={11} />}
           <span>{t('statusBar.cloudDownloadDone', { defaultValue: 'Downloaded {{name}} — Open', name: jobName })}</span>
         </button>
         <button

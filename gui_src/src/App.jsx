@@ -2050,6 +2050,13 @@ export default function App() {
           count: downloaded,
           defaultValue: '{{name}} downloaded from the cloud ({{count}} file(s)).',
         }));
+        if (job.project.chats_import_error) {
+          addLog('error', t('cloudDownload.chatsImportFailedLog', {
+            name: jobName,
+            error: job.project.chats_import_error,
+            defaultValue: '{{name}} was downloaded, but its conversations could not be imported: {{error}}. The conversation files are still in the project folder.',
+          }));
+        }
         if (isCloudDownloadOpen && watchingCloneJobIdRef.current === job.id) {
           // The user kept the download modal open waiting for this project:
           // open it immediately and close the modal, matching the classic flow.

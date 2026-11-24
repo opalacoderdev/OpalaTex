@@ -550,6 +550,7 @@ async def test_background_clone_returns_202_and_completes_without_blocking_serve
     finished = jobs_payload["jobs"][0]
     assert finished["status"] == "completed", finished
     assert finished["project"]["project_name"] == "thesis"
+    assert finished["project"]["chats_import_error"] == ""
     assert read(finished["project"]["project_path"], "main.tex") == "\\section{Intro}"
 
     # Conversations and settings arrived, and chats.json was parsed only once.
@@ -718,3 +719,47 @@ async def test_background_clone_honours_a_cancel_sent_before_the_transfer_regist
     assert finished["partial_copy_removed"] is True
     assert not os.path.exists(destination)
     assert ProjectStore(db_path).find_by_path(destination) is None
+
+
+@pytest.mark.asyncio
+async def test_a_failed_conversation_import_is_reported_not_just_printed(
+    tmp_path, remote_base, monkeypatch
+):
+    """The download still completes, but the job says the history did not arrive."""
+    import sqlite3
+
+    source_machine(tmp_path, remote_base, monkeypatch)
+    db_path = str(tmp_path / "machine-b" / "sessions.db")
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(chats, "_default_db_path", lambda: db_path)
+    parent = tmp_path / "machine-b" / "projects"
+    parent.mkdir(parents=True)
+
+    def locked(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(chats, "merge_into_database", locked)
+    server, responses = make_server()
+
+    await call(server, "/api/cloud/clone", {
+        "provider": "local_folder",
+        "config": {"base_dir": remote_base},
+        "name": "thesis",
+        "parentPath": str(parent),
+        "folderName": "thesis",
+        "background": True,
+    })
+    assert responses[-1][0] == 202
+    job_id = responses[-1][1]["job"]["id"]
+    task = server._clone_tasks.get(job_id)
+    if task is not None:
+        await task
+
+    await call_get(server, "/api/cloud/clone/jobs")
+    finished = responses[-1][1]["jobs"][0]
+    assert finished["status"] == "completed", finished
+    assert finished["project"]["chats_import_error"] == "database is locked"
+    # The files and the registration are kept; only the history is missing.
+    assert read(finished["project"]["project_path"], "main.tex") == "\\section{Intro}"
+    assert ProjectStore(db_path).find_by_path(finished["project"]["project_path"])

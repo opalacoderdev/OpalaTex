@@ -1697,6 +1697,8 @@
     "activeDownloads": "Downloads",
     "finalizing": "Finishing setup and importing chats…",
     "completedSummary": "Downloaded ({{count}} file(s))",
+    "chatsImportFailed": "The conversations could not be imported: {{error}}. The conversation files are still in the project folder.",
+    "chatsImportFailedLog": "{{name}} was downloaded, but its conversations could not be imported: {{error}}. The conversation files are still in the project folder.",
     "openProject": "Open project",
     "dismiss": "Dismiss",
     "cancelledLog": "Download of {{name}} was cancelled.",

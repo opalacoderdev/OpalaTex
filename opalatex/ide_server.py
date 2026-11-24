@@ -1293,7 +1293,12 @@ class AsyncHTTPServer:
         # local database. `adopt_settings` is right here and nowhere else:
         # the row was created seconds ago, so last-writer-wins would always
         # prefer the empty local settings over the ones that were synced.
+        #
+        # A failed import does not undo the download — the files are here and
+        # the project is registered — but it is reported to the caller rather
+        # than only printed, so the user learns the history did not arrive.
         merge = None
+        chats_import_error = ""
         try:
             merge = cloud_chats.MergeStats()
             if export is not None:
@@ -1305,12 +1310,14 @@ class AsyncHTTPServer:
             merge.absorb(cloud_chats.apply_device_journals(db_key, destination))
         except Exception as e:
             print(f"[cloud] Failed to import the project's conversations: {e}")
+            # The raw cause; the UI words the message around it (i18n).
+            chats_import_error = str(e) or e.__class__.__name__
 
         reloaded = store.load(db_key) or project
-        return reloaded, merge
+        return reloaded, merge, chats_import_error
 
     @staticmethod
-    def _activate_cloned_project(reloaded, outcome, merge) -> dict:
+    def _activate_cloned_project(reloaded, outcome, merge, chats_import_error: str = "") -> dict:
         from opalatex.cloud.service import MANAGER
 
         MANAGER.activate(reloaded.name, reloaded.project_path)
@@ -1333,6 +1340,7 @@ class AsyncHTTPServer:
             "model": reloaded.model,
             "report": outcome.report.to_dict() if outcome.report else None,
             "merge": merge.to_dict() if merge else None,
+            "chats_import_error": chats_import_error,
         }
 
     async def _run_background_clone_job(
@@ -1411,13 +1419,13 @@ class AsyncHTTPServer:
                 return
 
             job["status"] = "finalizing"
-            reloaded, merge = await loop.run_in_executor(
+            reloaded, merge, chats_import_error = await loop.run_in_executor(
                 None,
                 lambda: self._register_cloned_project_blocking(
                     destination, folder_name, db_path
                 ),
             )
-            payload = self._activate_cloned_project(reloaded, outcome, merge)
+            payload = self._activate_cloned_project(reloaded, outcome, merge, chats_import_error)
             job["project"] = payload
             job["report"] = payload.get("report")
             job["status"] = "completed"
@@ -6123,7 +6131,7 @@ class AsyncHTTPServer:
                 return
 
             try:
-                reloaded, merge = await loop.run_in_executor(
+                reloaded, merge, chats_import_error = await loop.run_in_executor(
                     None,
                     lambda: self._register_cloned_project_blocking(
                         destination, folder_name, DEFAULT_DB_PATH
@@ -6135,7 +6143,7 @@ class AsyncHTTPServer:
                 self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
                 return
 
-            payload = self._activate_cloned_project(reloaded, outcome, merge)
+            payload = self._activate_cloned_project(reloaded, outcome, merge, chats_import_error)
             self.send_response(writer, 200, json.dumps(payload).encode('utf-8'), "application/json")
 
         # 7i13b. Cloud sync — list active and recently finished background clones
