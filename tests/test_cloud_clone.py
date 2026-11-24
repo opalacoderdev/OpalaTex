@@ -654,3 +654,67 @@ async def test_background_clone_validates_synchronously_before_queuing(
     assert "not empty" in responses[-1][1]["error"]
     await call_get(server, "/api/cloud/clone/jobs")
     assert responses[-1] == (200, {"jobs": []})
+
+
+@pytest.mark.asyncio
+async def test_background_clone_honours_a_cancel_sent_before_the_transfer_registered(
+    tmp_path, remote_base, monkeypatch
+):
+    """A cancel that `request_cancel` could not flag yet must not be lost."""
+    import asyncio
+    import threading
+
+    from opalatex.cloud import service as cloud_service
+
+    seed_remote(remote_base, "thesis", {"main.tex": "body"})
+    db_path = str(tmp_path / "machine-b.db")
+    monkeypatch.setattr("opalatex.config.DEFAULT_DB_PATH", db_path)
+    parent = tmp_path / "projects"
+    parent.mkdir()
+    destination = str(parent / "thesis")
+
+    reached = threading.Event()
+    release = threading.Event()
+    original_begin = cloud_service._begin_progress
+
+    def gated_begin(project_path, dry_run):
+        reached.set()
+        assert release.wait(timeout=5.0)
+        return original_begin(project_path, dry_run)
+
+    monkeypatch.setattr(cloud_service, "_begin_progress", gated_begin)
+    server, responses = make_server()
+
+    await call(server, "/api/cloud/clone", {
+        "provider": "local_folder",
+        "config": {"base_dir": remote_base},
+        "name": "thesis",
+        "parentPath": str(parent),
+        "folderName": "thesis",
+        "background": True,
+    })
+    assert responses[-1][0] == 202
+    job_id = responses[-1][1]["job"]["id"]
+
+    for _ in range(100):
+        if reached.is_set():
+            break
+        await asyncio.sleep(0.02)
+    assert reached.is_set()
+
+    # Nothing is registered under the destination yet, so only the job flag
+    # can carry this request.
+    await call(server, "/api/cloud/cancel", {"projectPath": destination})
+    assert responses[-1] == (200, {"cancel_requested": True})
+
+    release.set()
+    task = server._clone_tasks.get(job_id)
+    if task is not None:
+        await task
+
+    await call_get(server, "/api/cloud/clone/jobs")
+    finished = responses[-1][1]["jobs"][0]
+    assert finished["status"] == "cancelled", finished
+    assert finished["partial_copy_removed"] is True
+    assert not os.path.exists(destination)
+    assert ProjectStore(db_path).find_by_path(destination) is None

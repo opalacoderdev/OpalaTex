@@ -54,6 +54,14 @@ export default function CloudDownloadModal({
       .filter((job) => !provider || job.provider === provider)
       .map((job) => job.remote_name)
   );
+  // A download that finished while this modal stayed open is not reflected in
+  // the listing's `local` annotation until the list is fetched again; without
+  // this, the same remote project could be picked and cloned a second time.
+  const downloadedNamesForProvider = new Set(
+    downloads
+      .filter((job) => job.status === 'completed' && (!provider || job.provider === provider))
+      .map((job) => job.remote_name)
+  );
 
   useEffect(() => {
     (async () => {
@@ -184,7 +192,8 @@ export default function CloudDownloadModal({
   };
 
   const pick = (project) => {
-    if (project.local || project.downloading || activeNamesForProvider.has(project.name)) return;
+    if (project.local || downloadedNamesForProvider.has(project.name)
+      || project.downloading || activeNamesForProvider.has(project.name)) return;
     setSelected(project);
     setFolderName(project.name);
     setError('');
@@ -544,7 +553,8 @@ export default function CloudDownloadModal({
                 )}
                 {busy !== 'list' && (projects || []).map((project) => {
                   const isDownloadingProject = !!project.downloading || activeNamesForProvider.has(project.name);
-                  const unavailable = !!project.local || isDownloadingProject;
+                  const isAlreadyHere = !!project.local || downloadedNamesForProvider.has(project.name);
+                  const unavailable = isAlreadyHere || isDownloadingProject;
                   const isSelected = selected?.name === project.name;
                   return (
                     <div
@@ -563,10 +573,10 @@ export default function CloudDownloadModal({
                         {isSelected ? <Check size={12} style={{ flexShrink: 0 }} /> : <Cloud size={12} style={{ flexShrink: 0, opacity: 0.7 }} />}
                         <span className="truncate">{project.name}</span>
                       </span>
-                      {project.local ? (
+                      {isAlreadyHere ? (
                         <span
                           style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)', flexShrink: 0 }}
-                          title={project.local.project_path}
+                          title={project.local?.project_path}
                         >
                           {t('cloudDownload.alreadyHere', 'already on this computer')}
                         </span>

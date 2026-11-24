@@ -70,6 +70,23 @@ def _same_project_root(path: str, root: str) -> bool:
     return os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(root))
 
 
+def _stored_project_main_file(project_path: str) -> str:
+    """Return the main file recorded in the project store for *project_path*.
+
+    Matches on the normalized project path only; returns "" when the project
+    is not registered or has no main file. Store errors propagate.
+    """
+    from opalatex.project import ProjectStore
+    from opalatex.config import DEFAULT_DB_PATH
+
+    wanted = os.path.normcase(os.path.abspath(os.path.expanduser(project_path)))
+    for p in ProjectStore(db_path=DEFAULT_DB_PATH).list_projects():
+        stored = p.get("project_path")
+        if stored and os.path.normcase(os.path.abspath(os.path.expanduser(stored))) == wanted:
+            return str(p.get("main_file") or "")
+    return ""
+
+
 def _normalize_rel_path(path: str) -> str:
     return path.replace("\\", "/").strip("/")
 
@@ -1335,22 +1352,26 @@ class AsyncHTTPServer:
         from opalatex.cloud.service import clone_project, discard_partial_clone, progress_for
 
         loop = asyncio.get_running_loop()
+
+        async def finish_cancelled() -> None:
+            removed = await loop.run_in_executor(
+                None,
+                lambda: discard_partial_clone(
+                    destination, remove_directory=destination_is_new
+                ),
+            )
+            job["status"] = "cancelled"
+            job["partial_copy_removed"] = removed
+            if not removed:
+                job["error"] = (
+                    f"Download cancelled, but the partial copy in {destination} could "
+                    f"not be removed. Delete that folder before downloading again."
+                )
+            job["finished_at"] = time.time()
+
         try:
             if job.get("cancel_requested"):
-                removed = await loop.run_in_executor(
-                    None,
-                    lambda: discard_partial_clone(
-                        destination, remove_directory=destination_is_new
-                    ),
-                )
-                job["status"] = "cancelled"
-                job["partial_copy_removed"] = removed
-                if not removed:
-                    job["error"] = (
-                        f"Download cancelled, but the partial copy in {destination} could "
-                        f"not be removed. Delete that folder before downloading again."
-                    )
-                job["finished_at"] = time.time()
+                await finish_cancelled()
                 return
 
             outcome = await loop.run_in_executor(
@@ -1379,6 +1400,14 @@ class AsyncHTTPServer:
                 job["error"] = message
                 job["report"] = report
                 job["finished_at"] = time.time()
+                return
+
+            # A cancel that arrived after the job started but before the
+            # transfer registered its progress could not reach the engine
+            # (`request_cancel` had nothing to flag), so the pass ran to the
+            # end. Honour it here, before the project is registered.
+            if job.get("cancel_requested"):
+                await finish_cancelled()
                 return
 
             job["status"] = "finalizing"
@@ -1910,20 +1939,10 @@ class AsyncHTTPServer:
                 return
 
             main_file = str(data.get("mainFile") or "").strip()
-            if not main_file:
-                try:
-                    from opalatex.project import ProjectStore
-                    from opalatex.config import DEFAULT_DB_PATH
-                    store = ProjectStore(db_path=DEFAULT_DB_PATH)
-                    norm_proj = os.path.normcase(os.path.abspath(os.path.expanduser(project_path)))
-                    for p in store.list_projects():
-                        if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == norm_proj:
-                            main_file = str(p.get("main_file") or "")
-                            break
-                except Exception:
-                    pass
 
             try:
+                if not main_file:
+                    main_file = _stored_project_main_file(project_path)
                 proposal = await execute_snippet_edit_proposal(
                     excerpt,
                     instruction,
@@ -1972,20 +1991,9 @@ class AsyncHTTPServer:
                 )
                 return
 
-            if not main_file and not pdf_path:
-                try:
-                    from opalatex.project import ProjectStore
-                    from opalatex.config import DEFAULT_DB_PATH
-                    store = ProjectStore(db_path=DEFAULT_DB_PATH)
-                    norm_proj = os.path.normcase(os.path.abspath(os.path.expanduser(project_path)))
-                    for p in store.list_projects():
-                        if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == norm_proj:
-                            main_file = str(p.get("main_file") or "")
-                            break
-                except Exception:
-                    pass
-
             try:
+                if not main_file and not pdf_path:
+                    main_file = _stored_project_main_file(project_path)
                 res = await asyncio.to_thread(
                     apply_snippet_edit,
                     project_path,
@@ -2057,20 +2065,9 @@ class AsyncHTTPServer:
                 )
                 return
 
-            if not main_file and not pdf_path:
-                try:
-                    from opalatex.project import ProjectStore
-                    from opalatex.config import DEFAULT_DB_PATH
-                    store = ProjectStore(db_path=DEFAULT_DB_PATH)
-                    norm_proj = os.path.normcase(os.path.abspath(os.path.expanduser(project_path)))
-                    for p in store.list_projects():
-                        if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == norm_proj:
-                            main_file = str(p.get("main_file") or "")
-                            break
-                except Exception:
-                    pass
-
             try:
+                if not main_file and not pdf_path:
+                    main_file = _stored_project_main_file(project_path)
                 res = await asyncio.to_thread(
                     revert_snippet_edit,
                     project_path,
@@ -2271,15 +2268,7 @@ class AsyncHTTPServer:
                 return
             
             try:
-                # Find main_file
-                main_file = ""
-                from opalatex.project import ProjectStore
-                from opalatex.config import DEFAULT_DB_PATH
-                store = ProjectStore(db_path=DEFAULT_DB_PATH)
-                for p in store.list_projects():
-                    if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == os.path.normcase(os.path.abspath(os.path.expanduser(project_path))):
-                        main_file = p.get("main_file", "")
-                        break
+                main_file = _stored_project_main_file(project_path)
 
                 full_path = os.path.abspath(os.path.join(project_path, file_path))
                 file_content = ""
@@ -2363,14 +2352,7 @@ class AsyncHTTPServer:
                     return
 
                 # Resolve main_file from project settings if available
-                main_file = ""
-                from opalatex.project import ProjectStore
-                from opalatex.config import DEFAULT_DB_PATH
-                store = ProjectStore(db_path=DEFAULT_DB_PATH)
-                for p in store.list_projects():
-                    if p.get("project_path") and os.path.normcase(os.path.abspath(os.path.expanduser(p["project_path"]))) == os.path.normcase(os.path.abspath(os.path.expanduser(project_path))):
-                        main_file = p.get("main_file", "")
-                        break
+                main_file = _stored_project_main_file(project_path)
 
                 target_full_path = os.path.abspath(os.path.join(project_path, file_path))
                 file_content = ""

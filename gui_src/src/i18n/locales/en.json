@@ -624,6 +624,7 @@
     "closeAll": "Close All"
   },
   "textContextMenu": {
+    "label": "Text actions",
     "copy": "Copy",
     "paste": "Paste",
     "selectAll": "Select All"
@@ -1469,6 +1470,7 @@
     "editInstruction": "Edit request",
     "undo": "Undo",
     "revertEdit": "Revert edit",
+    "revertCompileFailed": "{{file}} was restored, but LaTeX compilation failed. See the Problems panel for the compile log.",
     "openSource": "Open source"
   },
   "snippetActions": {

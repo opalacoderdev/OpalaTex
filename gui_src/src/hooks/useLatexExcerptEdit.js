@@ -235,23 +235,32 @@ export function useLatexExcerptEdit({
         throw new Error(data.error || res.statusText || 'Could not revert LaTeX edit.');
       }
 
-      onExternalFileUpdated?.(data.targetFile || applied.targetFile, data.newContent);
+      const revertedFile = data.targetFile || applied.targetFile;
+      const compileSuccess = Boolean(data.compileSuccess);
+      onExternalFileUpdated?.(revertedFile, data.newContent);
       onCompiled?.({
-        targetFile: data.targetFile || applied.targetFile,
+        targetFile: revertedFile,
         compiledMainFile: data.compiledMainFile || '',
-        compileSuccess: Boolean(data.compileSuccess),
+        compileSuccess,
         compileLog: data.compileLog || '',
+        newContent: data.newContent,
         pdfUrl: data.pdfUrl || '',
         startLine: applied.startLine || 1,
         reverted: true,
       });
 
+      // The file is restored either way, so the card returns to composing; a
+      // failed recompile is still reported instead of being dropped silently.
       setEditState((prev) => (prev ? {
         ...prev,
         status: 'compose',
         proposal: null,
         applyResult: null,
-        error: '',
+        error: compileSuccess ? '' : t(
+          'latexExcerptEdit.revertCompileFailed',
+          '{{file}} was restored, but LaTeX compilation failed. See the Problems panel for the compile log.',
+          { file: revertedFile },
+        ),
         isReverting: false,
       } : prev));
     } catch (err) {
@@ -262,7 +271,7 @@ export function useLatexExcerptEdit({
         error: err.message || String(err),
       } : prev));
     }
-  }, [projectPath, isStandalonePdf, selectedPdfPath, mainFile, onExternalFileUpdated, onCompiled]);
+  }, [projectPath, isStandalonePdf, selectedPdfPath, mainFile, onExternalFileUpdated, onCompiled, t]);
 
   const compose = useCallback((keepInstruction = true) => {
     requestRef.current += 1;

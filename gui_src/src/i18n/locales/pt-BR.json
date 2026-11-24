@@ -624,6 +624,7 @@
     "closeAll": "Fechar todas"
   },
   "textContextMenu": {
+    "label": "Ações de texto",
     "copy": "Copiar",
     "paste": "Colar",
     "selectAll": "Selecionar tudo"
@@ -1469,6 +1470,7 @@
     "editInstruction": "Editar pedido",
     "undo": "Desfazer",
     "revertEdit": "Reverter alteração",
+    "revertCompileFailed": "{{file}} foi restaurado, mas a compilação LaTeX falhou. Veja o log de compilação no painel Problemas.",
     "openSource": "Abrir código"
   },
   "snippetActions": {

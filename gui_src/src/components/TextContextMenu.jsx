@@ -48,7 +48,7 @@ export default function TextContextMenu({
       x={menu.x}
       y={menu.y}
       onClose={onClose}
-      ariaLabel={t('textContextMenu.copy', 'Copy')}
+      ariaLabel={t('textContextMenu.label', 'Text actions')}
     >
       {onCut && (
         <div
