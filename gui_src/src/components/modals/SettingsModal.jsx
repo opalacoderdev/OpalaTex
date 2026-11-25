@@ -14,6 +14,12 @@ import i18n from '../../i18n/index.js';
 import { setPreference } from '../../utils/preferences';
 import { writeClipboard } from '../../utils/clipboard';
 import { openExternal } from '../../utils/openExternal';
+import {
+  EXTERNAL_ACCESS_CHANGED_EVENT,
+  EXTERNAL_ACCESS_SETTINGS_PATH,
+  agentRegistrationCommands,
+} from '../../utils/windowCommandChannel.js';
+import { snapWarning } from '../../utils/agentLauncher.js';
 
 // Target languages offered by the "Translate to" setting. The values are the
 // locale codes persisted by /api/settings/translation; "" follows the UI
@@ -92,6 +98,7 @@ export default function SettingsModal({
   const [translateTargetLang, setTranslateTargetLang] = React.useState('');
   const [isCustomTranslateLang, setIsCustomTranslateLang] = React.useState(false);
   const [imageGen, setImageGen] = React.useState({ enabled: true, model: '', size: '1024x1024', output_dir: 'figures' });
+  const [externalAccess, setExternalAccess] = React.useState({ enabled: false, mcp_command: [], error: '' });
   const [imageModels, setImageModels] = React.useState([]);
   const [speech, setSpeech] = React.useState({
     enabled: false, engine: 'local', local_voice: '',
@@ -161,6 +168,11 @@ export default function SettingsModal({
         if (cfg?.webengine_gpu) setWebengineGpu(cfg.webengine_gpu);
         if (cfg?.engine) setBrowserEngine(cfg.engine);
       })
+      .catch(() => { });
+
+    fetch(EXTERNAL_ACCESS_SETTINGS_PATH)
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => { if (cfg) setExternalAccess({ ...cfg, error: '' }); })
       .catch(() => { });
 
     fetch('/api/settings/image-generation')
@@ -287,6 +299,24 @@ export default function SettingsModal({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ draft_synctex_enabled: draftSynctexValue }),
     }).catch(() => { });
+  };
+
+  // Agents outside OpalaTex (docs/specs/external_agents.md). The window's
+  // command stream follows the setting (useWindowCommandChannel), so the
+  // stored answer is announced rather than the requested value.
+  const saveExternalAccess = (enabled) => {
+    fetch(EXTERNAL_ACCESS_SETTINGS_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
+      .then(async (r) => {
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+        setExternalAccess({ ...body, error: '' });
+        window.dispatchEvent(new CustomEvent(EXTERNAL_ACCESS_CHANGED_EVENT, { detail: { enabled: body.enabled === true } }));
+      })
+      .catch((err) => setExternalAccess(prev => ({ ...prev, error: err.message })));
   };
 
   const saveImageGenSettings = (next) => {
@@ -1102,6 +1132,53 @@ export default function SettingsModal({
                 <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
                   {t('settingsModal.imageGenerationHint')}
                 </span>
+              </div>
+
+              {/* External agents over MCP */}
+              <div className="flex flex-col" style={{ gap: '6px' }}>
+                <label className="vscode-sidebar-section-title" style={{ padding: 0 }}>{t('settingsModal.externalAgents', 'External agents (MCP)')}</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--vscode-text-fg)' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!externalAccess.enabled}
+                    onChange={(e) => saveExternalAccess(e.target.checked)}
+                  />
+                  {t('settingsModal.externalAgentsEnabled', 'Let coding agents on this computer control this window')}
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--vscode-descriptionForeground)' }}>
+                  {t('settingsModal.externalAgentsHint', 'Agents such as Claude Code and Antigravity CLI connect through the MCP server "opalatex mcp", started from the project folder. They can open and close tabs, change the layout, show a LaTeX line in the PDF, and read the open tabs, the cursor and selection (and, when they ask, the text of the focused tab), the Problems panel and the main terminal. Compiling the document, which writes the PDF, runs only after you approve it in this window. They cannot otherwise change files through OpalaTex. Off by default.')}
+                </span>
+                {externalAccess.error && (
+                  <span style={{ fontSize: '11px', color: 'var(--vscode-errorForeground)' }}>{externalAccess.error}</span>
+                )}
+                {externalAccess.enabled && externalAccess.snap === true && (
+                  <span role="alert" style={{ fontSize: '11px', color: 'var(--vscode-fg-warning)' }}>
+                    {snapWarning(t)}
+                  </span>
+                )}
+                {externalAccess.enabled && (externalAccess.mcp_command || []).length > 0 && (() => {
+                  const commands = agentRegistrationCommands(externalAccess.mcp_command);
+                  return (
+                    <div className="flex flex-col" style={{ gap: '4px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>
+                        {t('settingsModal.externalAgentsRegister', 'Register the server once in your agent (run in a terminal):')}
+                      </span>
+                      {[['Claude Code', commands.claude], ['Antigravity CLI', commands.antigravity]].map(([label, line]) => (
+                        <div key={label} className="flex flex-col" style={{ gap: '2px' }}>
+                          <label style={{ fontSize: '11px', color: 'var(--vscode-text-subtle)' }}>{label}</label>
+                          <input
+                            type="text"
+                            readOnly
+                            className="vscode-settings-input"
+                            style={{ fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: '11px' }}
+                            value={line}
+                            onFocus={(e) => e.target.select()}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Docker Sandbox */}

@@ -9,13 +9,18 @@ from urllib.parse import urlsplit
 _active_api: tuple[str, "LocalSession"] | None = None
 
 
-def register_local_api(host: str, port: int, session: "LocalSession") -> None:
-    """Give in-process agent tools the same authenticated API as the frontend."""
-    global _active_api
+def loopback_url(host: str, port: int) -> str:
+    """The URL a process on this machine uses to reach a server bound to *host*."""
     address = "127.0.0.1" if host == "0.0.0.0" else "::1" if host == "::" else host
     if ":" in address:
         address = f"[{address}]"
-    _active_api = (f"http://{address}:{port}", session)
+    return f"http://{address}:{port}"
+
+
+def register_local_api(host: str, port: int, session: "LocalSession") -> None:
+    """Give in-process agent tools the same authenticated API as the frontend."""
+    global _active_api
+    _active_api = (loopback_url(host, port), session)
 
 
 def unregister_local_api(session: "LocalSession") -> None:

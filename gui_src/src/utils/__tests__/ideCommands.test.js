@@ -18,6 +18,7 @@ function fakeWindow({
   project = '/p/thesis',
   reveal = { ok: true, page: 4 },
   problems = [],
+  snapshot = { cursor: { line: 3, column: 5 }, selection: { text: 'two', start_line: 2, end_line: 2 }, content: 'one\ntwo\nthree\n' },
 } = {}) {
   const calls = [];
   const deps = {
@@ -38,6 +39,7 @@ function fakeWindow({
     },
     setLayout: (mode) => { calls.push(['layout', mode]); },
     problems: () => problems,
+    editorSnapshot: () => { calls.push(['snapshot']); return snapshot; },
   };
   return { run: createIdeCommandRunner(deps), calls };
 }
@@ -213,4 +215,33 @@ test('commands that name no file still belong to the project on screen', async (
   assert.match(result.error, /showing another project/);
   assert.doesNotMatch(result.error, /which file/);
   assert.deepEqual(calls, []);
+});
+
+test('get_editor_state reads the window live, with the buffer only when asked', async () => {
+  const { run } = fakeWindow({ tabs: ['main.tex', 'ch.tex'], selected: 'main.tex', unsaved: ['main.tex'] });
+  assert.deepEqual(await run(command('get_editor_state', {})), {
+    ok: true,
+    open_files: ['main.tex', 'ch.tex'],
+    current_file: 'main.tex',
+    unsaved: true,
+    cursor: { line: 3, column: 5 },
+    selection: { text: 'two', start_line: 2, end_line: 2 },
+    content_chars: 14,
+  });
+  const withContent = await run(command('get_editor_state', { include_content: true }));
+  assert.equal(withContent.content, 'one\ntwo\nthree\n');
+});
+
+test('get_editor_state has no cursor, selection or buffer for a viewer tab or no tab', async () => {
+  const pdf = fakeWindow({ tabs: ['out.pdf'], selected: 'out.pdf' });
+  const viewer = await pdf.run(command('get_editor_state', { include_content: true }));
+  assert.deepEqual(
+    [viewer.cursor, viewer.selection, viewer.content, viewer.content_chars],
+    [null, null, '', 0],
+  );
+  assert.deepEqual(pdf.calls, []);
+
+  const empty = fakeWindow({ tabs: [], selected: '' });
+  const none = await empty.run(command('get_editor_state', {}));
+  assert.deepEqual([none.current_file, none.unsaved, none.cursor], ['', false, null]);
 });

@@ -341,8 +341,25 @@ def set_project_context(session, store=None) -> None:
         _PROJECT_PATH = os.getcwd()
 
 
+#: The project of a call made outside any agent turn (an external agent's,
+#: opalatex/external_agent_tools.py). A context variable rather than
+#: `_PROJECT_PATH`, which belongs to the turn that may be running at the same
+#: time; unset -- always, for the built-in agent -- it changes nothing.
+_CALL_PROJECT_PATH: contextvars.ContextVar = contextvars.ContextVar("opalatex_call_project_path", default=None)
+
+
+@contextlib.contextmanager
+def project_path_for_call(path: str):
+    """Make *path* the project of the tools called inside this block."""
+    token = _CALL_PROJECT_PATH.set(os.path.abspath(path))
+    try:
+        yield
+    finally:
+        _CALL_PROJECT_PATH.reset(token)
+
+
 def get_project_path() -> str:
-    return _PROJECT_PATH or os.getcwd()
+    return _CALL_PROJECT_PATH.get() or _PROJECT_PATH or os.getcwd()
 
 
 def _collect_python_files(root: str, base_dir: str | None = None) -> list[str]:
@@ -555,15 +572,41 @@ def tool_stop_event() -> threading.Event | None:
     return _TOOL_STOP.get()
 
 
+#: Whether each OpalaTex tool is safe (changes nothing outside what the window
+#: shows), by name, as its `opalatex_tool` declared it. Read by the external
+#: agents' gate (external_agent_tools.py), which asks the window before any
+#: tool that is not.
+TOOL_SAFETY: dict[str, bool] = {}
+
+#: Set around a call of an agent outside OpalaTex once that call passed the
+#: external gate (external_agent_tools.call). The chat's mode and remembered
+#: answers belong to the built-in agent's turn and do not apply to such a call;
+#: unset -- always, for the built-in agent -- it changes nothing.
+_EXTERNAL_CALL_APPROVED: contextvars.ContextVar = contextvars.ContextVar("opalatex_external_call_approved", default=False)
+
+
+@contextlib.contextmanager
+def external_call_approved():
+    token = _EXTERNAL_CALL_APPROVED.set(True)
+    try:
+        yield
+    finally:
+        _EXTERNAL_CALL_APPROVED.reset(token)
+
+
 def opalatex_tool(name: str, description: str, is_safe: bool = False):
     """
     Decorator that wraps the agenticblocks tool.
     Enforces 'plan', 'edit', and 'auto' mode safety rules.
     """
+    TOOL_SAFETY[name] = bool(is_safe)
+
     def decorator(func):
         is_async = asyncio.iscoroutinefunction(func)
 
         def _check_permission(*args, **kwargs):
+            if _EXTERNAL_CALL_APPROVED.get():
+                return True
             mode = getattr(_PROJECT_SESSION, "mode", "auto") if _PROJECT_SESSION else "auto"
             
             # Auto mode or safe tool -> always execute
@@ -1395,7 +1438,15 @@ def _compile_target(path: str) -> tuple[str, str]:
     from .latex_compiler import determine_main_file_for_compilation, guess_main_file
 
     project_dir = get_project_path()
-    project_main = str(getattr(_PROJECT_SESSION, "main_file", "") or "")
+    if _CALL_PROJECT_PATH.get():
+        # A call outside any turn (an external agent's): the session bound
+        # here belongs to the built-in agent's last turn, maybe of another
+        # project. The main file is the one stored for this call's project,
+        # as the Compile button reads it.
+        from .project import stored_main_file
+        project_main = stored_main_file(project_dir)
+    else:
+        project_main = str(getattr(_PROJECT_SESSION, "main_file", "") or "")
     if not path:
         main = project_main or guess_main_file(project_dir)
         if not main:
@@ -1485,9 +1536,11 @@ def compile_latex(path: str = "", draft: bool = False) -> str:
     # The IDE shows the outcome as if its Compile button had been pressed: the
     # PDF pane reloads, a failure fills the error card and Problems. Without it
     # the agent compiled out of the user's sight and the pane kept the old PDF.
+    # Through the channel of the call: the turn's stream for the built-in
+    # agent, the window's own stream for an agent outside OpalaTex.
     try:
-        from opalatex.agent_stdin import print_event
-        print_event("latex_compiled", {
+        from opalatex.ide_control import publish_ide_event
+        publish_ide_event("latex_compiled", {
             "project_path": project_dir,
             "main_file": main,
             "success": bool(result.get("success")),
@@ -3594,6 +3647,71 @@ async def read_terminal(lines: int = _TERMINAL_DEFAULT_LINES) -> str:
     if data.get("truncated") and not earlier:
         note += "; older output is no longer kept"
     return f"Main terminal ({note}):\n```text\n" + "\n".join(tail) + "\n```"
+
+
+#: Longest selection or buffer `get_window_state` returns, in characters.
+_WINDOW_STATE_MAX_CHARS = 100_000
+
+
+def _clip_window_text(text: str) -> str:
+    if len(text) <= _WINDOW_STATE_MAX_CHARS:
+        return text
+    return text[:_WINDOW_STATE_MAX_CHARS] + f"\n... [TRUNCATED: {len(text) - _WINDOW_STATE_MAX_CHARS:,} more chars]"
+
+
+@opalatex_tool(
+    name="get_window_state",
+    is_safe=True,
+    description=(
+        "Report what the user's OpalaTex window shows right now: the open editor tabs, the focused "
+        "tab and whether it has unsaved edits, the cursor position and the selected text. Call it "
+        "when the user points at the editor ('this file', 'the selected text', 'here') instead of "
+        "guessing. Pass include_content=true to also get the focused tab's live buffer, which may "
+        "hold edits not saved to disk yet; to read the saved file, read it from disk instead."
+    ),
+)
+async def get_window_state(include_content: bool = False) -> str:
+    AGENT_PROGRESS.update("get_window_state", f"include_content={include_content}")
+    from .ide_control import send_ide_command
+
+    project_dir = os.path.abspath(get_project_path())
+    result = await send_ide_command(
+        "get_editor_state", {"include_content": bool(include_content)}, project_path=project_dir,
+    )
+    open_files = [str(p) for p in result.get("open_files") or [] if str(p).strip()]
+    current = str(result.get("current_file") or "")
+    lines = ["## OpalaTex window"]
+    if open_files:
+        lines.append(f"- **Open tabs ({len(open_files)})**: " + ", ".join(
+            f"`{p}`" + (" (focused)" if p == current else "") for p in open_files))
+    else:
+        lines.append("- **Open tabs**: none")
+    if current:
+        lines.append(f"- **Focused file**: `{current}`" + (" — has unsaved edits" if result.get("unsaved") else ""))
+    cursor = result.get("cursor") or None
+    if isinstance(cursor, dict) and cursor.get("line"):
+        lines.append(f"- **Cursor**: line {cursor['line']}, column {cursor.get('column') or 1}")
+    selection = result.get("selection") or None
+    if isinstance(selection, dict) and selection.get("text"):
+        text = str(selection["text"])
+        lines.append(
+            f"\n### Selected text (lines {selection.get('start_line')}–{selection.get('end_line')}, "
+            f"{len(text):,} chars)\n```\n{_clip_window_text(text)}\n```")
+    else:
+        lines.append("- **Selection**: (nothing selected)")
+    if include_content:
+        content = str(result.get("content") or "")
+        if content:
+            lines.append(
+                f"\n### Live buffer of `{current}` ({len(content):,} chars; may differ from the "
+                f"file on disk)\n```\n{_clip_window_text(content)}\n```")
+        else:
+            lines.append("\n- **Live buffer**: (no text editor is focused)")
+    elif result.get("content_chars"):
+        lines.append(
+            f"- **Live buffer**: {int(result['content_chars']):,} chars — call "
+            "get_window_state(include_content=true) to read it.")
+    return "\n".join(lines)
 
 
 def get_ide_control_tools():

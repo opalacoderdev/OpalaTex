@@ -60,6 +60,24 @@ It downloads the Linux release into `~/.local/share/OpalaTex` and creates a desk
 launcher and the command `~/.local/bin/opalatex`. If `curl` is missing, install it
 first with `sudo apt update && sudo apt install curl`.
 
+**Debian, Ubuntu 22.04+ or Linux Mint 21+ (`.deb` package)**: download
+`opalatex_<version>_amd64.deb` from the
+[GitHub Releases](https://github.com/opalacoderdev/OpalaTex/releases/latest) page and
+install it with
+
+```bash
+sudo apt install ./opalatex_*_amd64.deb
+```
+
+The package installs system-wide (it asks for your password through `sudo`) and adds
+OpalaTex to the applications menu and the command `opalatex`.
+
+**Snap package**: OpalaTex also exists as a snap, but the snap's confinement limits what
+the integrated terminal can reach. In particular **external agents** (Claude Code,
+Antigravity CLI connected to OpalaTex, see *How do I use Claude Code or Antigravity CLI
+with OpalaTex?*) may not work there. If you want them, use the `.deb` package or the
+installer above.
+
 **Windows 11**: open PowerShell and run
 
 ```powershell
@@ -85,6 +103,9 @@ This removes the application and preserves global settings, chats, caches,
 credentials, and all project directories. Use `opalatex-uninstall --purge` only
 when you also want to delete the global application data; the command shows the
 exact directory and asks for confirmation. Project directories are never removed.
+
+If you installed the `.deb` package, remove it with `sudo apt remove opalatex`; your
+data and projects are kept as well.
 
 On Windows, use **Settings > Apps > Installed apps > OpalaTex** or the
 **Uninstall OpalaTex** shortcut in the Start menu.
@@ -818,6 +839,92 @@ catalog entry takes your app's bearer token instead.
 - If a connector says it needs authorization, open Connectors and click **Connect** again.
   **Sign out** deletes the stored credentials.
 - From the terminal: `/connectors` (see `/help /connectors`).
+
+## external-agents :: How do I use Claude Code or Antigravity CLI with OpalaTex?
+
+Coding agents that run in a terminal, such as **Claude Code** and **Antigravity CLI**,
+can connect to OpalaTex as clients of its **MCP server** and drive the window: open and
+close tabs, change the layout, show where a LaTeX line lands in the PDF, read the open
+tabs, the cursor and selection, the Problems panel and the main terminal, and compile
+the document with OpalaTex's own Tectonic. The agent keeps editing files with its own
+tools; OpalaTex gives it what only the window has. If you do not use these agents,
+nothing changes: the feature is **off by default**.
+
+**Turning it on.** Settings (gear icon) → **External agents (MCP)** → *Let coding agents
+on this computer control this window*. Turn it off there at any time.
+
+**The best way to start an agent: from OpalaTex.** In the terminal panel, the robot
+button next to **+** lists Claude Code and Antigravity CLI, and says which ones are
+installed. Choosing one opens a new terminal tab in the project folder with the agent
+already connected to this window, nothing to configure. Start your external agents this
+way: only then does OpalaTex also take **checkpoints of Claude Code's turns**, so Review
+can show and undo them (see below). If the access is off, OpalaTex asks to turn it on
+first. Antigravity CLI has no per-session setting, so the first time OpalaTex asks to
+register its server once in Antigravity's configuration, and runs `agy mcp add` only if
+you agree.
+
+**From another terminal.** It works too, without checkpoints. Once the access is on,
+Settings shows the exact command to register the server in each agent
+(`claude mcp add opalatex -- …`, `agy mcp add opalatex …`). Run it once; then start the
+agent inside the project folder. The server finds the OpalaTex window that has that
+project open, so keep the project open in OpalaTex.
+
+**Claude Code and Antigravity CLI connect differently.**
+
+- **Claude Code**: the button gives the connection to that session only
+  (`--mcp-config`, plus `--settings` for the checkpoints); nothing is written into Claude
+  Code's configuration. Typing `claude` yourself, in any terminal, loads OpalaTex only if
+  you registered the server with `claude mcp add`, and without checkpoints.
+- **Antigravity CLI**: it has no per-session option, so the registration the button asks
+  for the first time (`agy mcp add`, in `~/.gemini/config/mcp_config.json`) applies to
+  **every** `agy` session, also one you start in any other terminal. In a folder that is
+  not a project open in OpalaTex, or with OpalaTex closed, the server stops with a message
+  and `agy` goes on without it. If that entry later points to another command (OpalaTex
+  reinstalled elsewhere) or is disabled, the button asks again before replacing it. Its
+  turns get no checkpoints.
+
+**Your approval.** Reading the window and changing what it shows run directly. Anything
+that writes, such as compiling (which writes the PDF), first shows a dialog in the
+OpalaTex window, whatever the agent's own permission settings: **Yes**, **No**, or
+**Always Allow** (for that tool in that project, until you turn the access off or
+restart OpalaTex). A request you do not answer within 5 minutes counts as a refusal.
+
+**Checkpoints and Review of Claude Code's turns.** When Claude Code was opened with the
+robot button, every request you send it is wrapped in OpalaTex checkpoints, like a turn
+of the built-in assistant: **Review** shows it as one row, *Agent checkpoint — Claude
+Code*, with the whole diff of that turn and the option to undo it. A turn that changed
+nothing leaves no row. If you interrupt a response, what it changed gets a row of its own
+when you send the next request or leave Claude Code. Claude Code runs these hooks only in
+a folder you trusted (it asks the first time). Good to know:
+
+- The checkpoints are snapshots of the whole project. If the built-in assistant, or
+  another agent session, works on the same project at the same time, the row also holds
+  their changes, and undoing it undoes theirs too. Let one agent work at a time.
+- For **Antigravity CLI**, and for any agent started outside OpalaTex, OpalaTex takes no
+  checkpoints yet.
+
+**What you give up.** Apart from those checkpoints, OpalaTex's safeguards cover its own
+assistant's turns, not the work an external agent does with its own tools:
+
+- **No chat mode.** Plan, edit and auto, and the approvals of file writes and commands,
+  apply to the built-in assistant only. OpalaTex asks only before the OpalaTex tools that
+  write (such as compiling); everything else follows the external agent's own permission
+  settings.
+- **No Docker sandbox**: the agent's commands run wherever the agent runs.
+- **None of the built-in assistant's context**: its chats and memory, skills, connectors,
+  monitors and the models you registered stay with the built-in assistant.
+
+Where OpalaTex takes no checkpoints, whether you can review and undo what an external
+agent did, and how, is up to **that agent**: some keep checkpoints of their own or offer
+an undo command; see its documentation. If the project is a Git repository, the
+**Source Control** sidebar still shows every change on disk, whoever made it.
+
+**Snap.** If you installed OpalaTex as a **snap**, external agents may not work: the
+snap's confinement hides the hidden folders of your home (`~/.local/bin`, `~/.claude`,
+`~/.gemini`) where these agents install themselves, so the button may not find them and
+an agent started outside OpalaTex may fail to connect. OpalaTex warns about this when you
+turn the access on. To use external agents, install OpalaTex from the `.deb` package or
+with the installer (see *Which systems are supported, and how do I install OpalaTex?*).
 
 ## cloud-for-big-data :: When should I use cloud models?
 

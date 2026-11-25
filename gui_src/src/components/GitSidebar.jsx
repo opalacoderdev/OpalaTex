@@ -518,6 +518,7 @@ export default function GitSidebar({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ color: 'var(--vscode-text-fg)', fontWeight: 600 }}>
               {t('gitSidebar.agentCheckpoint')}
+              {item.label ? ` — ${item.label}` : ''}
             </div>
             <div style={{ color: 'var(--vscode-descriptionForeground)', fontSize: '11px', marginTop: '2px' }}>
               {item.end.author}

@@ -859,6 +859,10 @@
     "imageGenerationSize": "Tamanho padrão",
     "imageGenerationOutputDir": "Pasta de saída",
     "imageGenerationHint": "As imagens geradas são salvas dentro do projeto, na pasta acima, e podem ser incluídas no LaTeX com \\includegraphics.",
+    "externalAgents": "Agentes externos (MCP)",
+    "externalAgentsEnabled": "Permitir que agentes de programação deste computador controlem esta janela",
+    "externalAgentsHint": "Agentes como Claude Code e Antigravity CLI se conectam pelo servidor MCP \"opalatex mcp\", iniciado na pasta do projeto. Eles podem abrir e fechar abas, mudar o layout, mostrar uma linha LaTeX no PDF, e ler as abas abertas, o cursor e a seleção (e, quando pedirem, o texto da aba em foco), o painel Problemas e o terminal principal. Compilar o documento, que grava o PDF, só acontece depois que você aprova nesta janela. Fora isso, não podem alterar arquivos pelo OpalaTex. Desligado por padrão.",
+    "externalAgentsRegister": "Registre o servidor uma vez no seu agente (execute em um terminal):",
     "sandboxTitle": "Docker Sandbox",
     "sandboxStatusReady": "Pronto",
     "sandboxStatusIssue": "Requer Atenção",
@@ -1181,6 +1185,10 @@
     "ideCommandDone": "Agente: {{action}} {{path}}",
     "ideCommandRefused": "Comando {{action}} do agente não executado: {{error}}",
     "ideCommandFailed": "Não foi possível responder ao comando de IDE do agente: {{error}}",
+    "externalIdeCommandDone": "Agente externo: {{action}} {{path}}",
+    "externalIdeCommandRefused": "Comando {{action}} do agente externo não executado: {{error}}",
+    "externalIdeCommandFailed": "Não foi possível responder ao comando de IDE do agente externo: {{error}}",
+    "externalIdeCommandMalformed": "Comando malformado no canal do agente externo: {{error}}",
     "agentChangedUnsavedTitle": "Arquivo alterado pelo agente",
     "agentChangedUnsavedPrompt": "O agente alterou \"{{path}}\" no disco, mas este arquivo também tem edições não salvas no editor.\n\nManter minhas edições: a versão do agente fica no disco até você salvar; salvar a substitui.\nCarregar a versão do agente: suas edições não salvas são descartadas.",
     "loadAgentVersion": "Carregar a versão do agente",
@@ -2062,5 +2070,28 @@
     "menuLabel": "Comandos",
     "menuHint": "↑↓ para navegar · Enter para executar · Tab para completar · Esc para fechar",
     "skillBadge": "skill"
+  },
+  "agentLauncher": {
+    "settingsUnreadable": "Não foi possível ler a configuração de agentes externos.",
+    "enableAccess": "Abrir o {{agent}} conectado ao OpalaTex liga o acesso de agentes externos: agentes de programação deste computador poderão abrir e fechar abas, mudar o layout e ler a janela, e compilar o documento depois que você aprovar cada compilação nesta janela. Você pode desligá-lo em Configurações > Agentes externos. Ligar?",
+    "enableAccessTitle": "Acesso de agentes externos",
+    "turnOn": "Ligar",
+    "enableFailed": "Não foi possível ligar o acesso de agentes externos.",
+    "register": "O {{agent}} não tem configuração MCP por sessão, então o OpalaTex precisa registrar seu servidor uma vez na configuração de usuário do {{agent}} ({{path}}), executando:\n\n{{command}}\n\nO registro passa a valer para todas as sessões do {{agent}}; numa pasta que não seja um projeto aberto no OpalaTex, o servidor não inicia e informa o motivo. Registrar?",
+    "replaces": "Isso substitui a entrada \"opalatex\" existente.",
+    "registerTitle": "Registrar o OpalaTex no {{agent}}",
+    "registerOk": "Registrar",
+    "tooManyTerminals": "Feche um terminal antes: o painel comporta no máximo 3.",
+    "failedTitle": "Não foi possível abrir o {{agent}}",
+    "buttonTitle": "Abrir um agente de programação em um novo terminal, conectado ao OpalaTex",
+    "looking": "Procurando agentes instalados…",
+    "notFoundHint": "{{command}} não foi encontrado no PATH do terminal",
+    "notInstalled": "não encontrado"
+  },
+  "externalApproval": {
+    "prompt": "Um agente externo (pelo servidor MCP do OpalaTex) quer executar {{tool}} neste projeto.{{details}}\n\nPermitir? \"Sempre Permitir\" vale para {{tool}} neste projeto até o acesso de agentes externos ser desligado ou o OpalaTex reiniciar."
+  },
+  "externalAgents": {
+    "snapWarning": "O OpalaTex está rodando como snap. O confinamento do snap esconde as pastas ocultas da sua pasta pessoal (como ~/.local/bin, ~/.claude e ~/.gemini), onde o Claude Code e o Antigravity CLI se instalam, então os agentes externos podem não funcionar: o botão de agentes pode não encontrá-los, e um agente iniciado fora do OpalaTex pode não conseguir se conectar. Para usar agentes externos, instale o OpalaTex pelo pacote .deb ou com o install.sh."
   }
 }

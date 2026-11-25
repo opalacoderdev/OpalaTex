@@ -61,6 +61,24 @@ Ele baixa a versão para Linux em `~/.local/share/OpalaTex` e cria um atalho na 
 trabalho e o comando `~/.local/bin/opalatex`. Se o `curl` não estiver instalado, instale-o
 antes com `sudo apt update && sudo apt install curl`.
 
+**Debian, Ubuntu 22.04+ ou Linux Mint 21+ (pacote `.deb`)**: baixe
+`opalatex_<versão>_amd64.deb` na página de
+[GitHub Releases](https://github.com/opalacoderdev/OpalaTex/releases/latest) e instale
+com
+
+```bash
+sudo apt install ./opalatex_*_amd64.deb
+```
+
+O pacote instala para todo o sistema (pede sua senha via `sudo`) e adiciona o OpalaTex ao
+menu de aplicativos e o comando `opalatex`.
+
+**Pacote snap**: o OpalaTex também existe como snap, mas o confinamento do snap limita o
+que o terminal integrado alcança. Em especial, os **agentes externos** (Claude Code,
+Antigravity CLI conectados ao OpalaTex, veja *Como uso o Claude Code ou o Antigravity CLI
+com o OpalaTex?*) podem não funcionar nele. Se você quer usá-los, prefira o pacote `.deb`
+ou o instalador acima.
+
 **Windows 11**: abra o PowerShell e execute
 
 ```powershell
@@ -86,6 +104,9 @@ Esse comando remove o aplicativo e preserva configurações globais, chats, cach
 credenciais e todos os diretórios de projetos. Use `opalatex-uninstall --purge`
 somente se também quiser apagar os dados globais do aplicativo; o comando mostra
 o diretório exato e pede confirmação. Os diretórios dos projetos nunca são removidos.
+
+Se você instalou o pacote `.deb`, remova-o com `sudo apt remove opalatex`; seus dados e
+projetos também são preservados.
 
 No Windows, use **Configurações > Aplicativos > Aplicativos instalados > OpalaTex**
 ou o atalho **Desinstalar OpalaTex** no menu Iniciar.
@@ -850,6 +871,97 @@ entrada **X (somente leitura)** do catálogo usa o bearer token do seu app.
 - Se um conector disser que precisa de autorização, abra Conectores e clique em **Conectar**
   de novo. **Sair** apaga as credenciais salvas.
 - No terminal: `/connectors` (veja `/help /connectors`).
+
+## external-agents :: Como uso o Claude Code ou o Antigravity CLI com o OpalaTex?
+
+Agentes de programação que rodam no terminal, como o **Claude Code** e o **Antigravity
+CLI**, podem se conectar ao OpalaTex como clientes do seu **servidor MCP** e controlar a
+janela: abrir e fechar abas, mudar o layout, mostrar onde uma linha do LaTeX cai no PDF,
+ler as abas abertas, o cursor e a seleção, o painel Problemas e o terminal principal, e
+compilar o documento com o Tectonic do próprio OpalaTex. O agente continua editando os
+arquivos com as ferramentas dele; o OpalaTex oferece o que só a janela tem. Se você não
+usa esses agentes, nada muda: o recurso vem **desligado**.
+
+**Como ligar.** Configurações (ícone de engrenagem) → **Agentes externos (MCP)** →
+*Permitir que agentes de programação deste computador controlem esta janela*. Desligue
+ali quando quiser.
+
+**A melhor forma de iniciar um agente: pelo OpalaTex.** No painel do terminal, o botão
+de robô ao lado do **+** lista o Claude Code e o Antigravity CLI e diz quais estão
+instalados. Ao escolher um, abre-se uma nova aba de terminal na pasta do projeto com o
+agente já conectado a esta janela, sem nada para configurar. Inicie seus agentes externos
+assim: só desse jeito o OpalaTex também tira **checkpoints dos turnos do Claude Code**,
+para o Review mostrá-los e desfazê-los (veja abaixo). Se o acesso estiver desligado, o
+OpalaTex pede para ligá-lo antes. O Antigravity CLI não tem configuração por sessão, então
+na primeira vez o OpalaTex pede para registrar o servidor uma única vez na configuração do
+Antigravity, e só roda `agy mcp add` se você concordar.
+
+**De outro terminal.** Também funciona, sem checkpoints. Com o acesso ligado, as
+Configurações mostram o comando exato para registrar o servidor em cada agente
+(`claude mcp add opalatex -- …`, `agy mcp add opalatex …`). Rode-o uma vez; depois inicie
+o agente dentro da pasta do projeto. O servidor encontra a janela do OpalaTex que tem esse
+projeto aberto, então mantenha o projeto aberto no OpalaTex.
+
+**O Claude Code e o Antigravity CLI se conectam de formas diferentes.**
+
+- **Claude Code**: o botão passa a conexão só para aquela sessão (`--mcp-config`, mais
+  `--settings` para os checkpoints); nada é gravado na configuração do Claude Code. Se você
+  mesmo digitar `claude`, em qualquer terminal, o OpalaTex só é carregado se você registrou
+  o servidor com `claude mcp add`, e sem checkpoints.
+- **Antigravity CLI**: ele não tem opção por sessão, então o registro que o botão pede na
+  primeira vez (`agy mcp add`, em `~/.gemini/config/mcp_config.json`) vale para **toda**
+  sessão do `agy`, inclusive as que você iniciar em qualquer outro terminal. Numa pasta que
+  não é um projeto aberto no OpalaTex, ou com o OpalaTex fechado, o servidor para com uma
+  mensagem e o `agy` segue sem ele. Se depois essa entrada apontar para outro comando (o
+  OpalaTex reinstalado em outro lugar) ou estiver desativada, o botão pergunta de novo antes
+  de substituí-la. Os turnos dele não têm checkpoints.
+
+**Sua aprovação.** Ler a janela e mudar o que ela mostra acontece direto. O que grava
+algo, como compilar (que grava o PDF), primeiro mostra um diálogo na janela do OpalaTex,
+sejam quais forem as permissões do próprio agente: **Sim**, **Não** ou **Sempre permitir**
+(para aquela ferramenta naquele projeto, até você desligar o acesso ou reiniciar o
+OpalaTex). Um pedido sem resposta em 5 minutos conta como recusa.
+
+**Checkpoints e Review dos turnos do Claude Code.** Quando o Claude Code foi aberto pelo
+botão de robô, cada pedido que você faz a ele fica entre checkpoints do OpalaTex, como um
+turno do assistente interno: o **Review** o mostra como uma linha, *Checkpoint do agente —
+Claude Code*, com o diff inteiro daquele turno e a opção de desfazê-lo. Um turno que não
+mudou nada não deixa linha. Se você interromper uma resposta, o que ela mudou ganha uma
+linha própria quando você fizer o próximo pedido ou sair do Claude Code. O Claude Code só
+roda esses hooks numa pasta em que você confiou (ele pergunta na primeira vez). Bom saber:
+
+- Os checkpoints são fotografias do projeto inteiro. Se o assistente interno, ou outra
+  sessão de agente, trabalhar no mesmo projeto ao mesmo tempo, a linha também contém as
+  alterações deles, e desfazê-la desfaz as deles também. Deixe um agente trabalhar de
+  cada vez.
+- Para o **Antigravity CLI**, e para qualquer agente iniciado fora do OpalaTex, o OpalaTex
+  ainda não tira checkpoints.
+
+**O que você deixa de ter.** Fora esses checkpoints, as proteções do OpalaTex valem para
+os turnos do assistente dele, não para o trabalho que um agente externo faz com as
+próprias ferramentas:
+
+- **Sem modo do chat.** Plan, edit e auto, e as aprovações de gravação de arquivos e de
+  comandos, valem só para o assistente interno. O OpalaTex só pergunta antes das
+  ferramentas do OpalaTex que gravam algo (como compilar); o resto segue as permissões do
+  próprio agente externo.
+- **Sem sandbox Docker**: os comandos do agente rodam onde o agente roda.
+- **Nada do contexto do assistente interno**: os chats e a memória, as skills, os
+  conectores, os monitores e os modelos que você cadastrou ficam com o assistente interno.
+
+Onde o OpalaTex não tira checkpoints, se e como você pode revisar e desfazer o que um
+agente externo fez depende **desse agente**: alguns guardam checkpoints próprios ou
+oferecem um comando para desfazer; veja a documentação dele. Se o projeto for um
+repositório Git, a barra lateral de **Controle de Versão** continua mostrando toda
+alteração no disco, seja de quem for.
+
+**Snap.** Se você instalou o OpalaTex como **snap**, os agentes externos podem não
+funcionar: o confinamento do snap esconde as pastas ocultas da sua pasta pessoal
+(`~/.local/bin`, `~/.claude`, `~/.gemini`), onde esses agentes se instalam, então o botão
+pode não encontrá-los e um agente iniciado fora do OpalaTex pode não conseguir se
+conectar. O OpalaTex avisa sobre isso quando você liga o acesso. Para usar agentes
+externos, instale o OpalaTex pelo pacote `.deb` ou pelo instalador (veja *Quais sistemas
+são suportados e como instalo o OpalaTex?*).
 
 ## cloud-for-big-data :: Quando devo usar modelos em nuvem?
 

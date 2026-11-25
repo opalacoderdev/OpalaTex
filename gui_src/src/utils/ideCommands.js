@@ -14,7 +14,7 @@
 
 import { LAYOUT_MODES } from './layoutModes.js';
 
-export const IDE_COMMAND_ACTIONS = ['open_file', 'close_file', 'reveal_in_pdf', 'set_layout', 'get_problems'];
+export const IDE_COMMAND_ACTIONS = ['open_file', 'close_file', 'reveal_in_pdf', 'set_layout', 'get_problems', 'get_editor_state'];
 
 // Commands that act on one file of the project and so carry its path.
 const FILE_ACTIONS = new Set(['open_file', 'close_file', 'reveal_in_pdf']);
@@ -68,6 +68,9 @@ const listTabs = (tabs) => (tabs.length ? `Open tabs: ${tabs.join(', ')}.` : 'No
  *                          `{ ok: true, page }` or `{ ok: false, error }`
  *   setLayout(mode)        what the layout's Activity Bar button does
  *   problems()             the entries of the Problems panel
+ *   editorSnapshot()       the focused text tab's `{ cursor, selection, content }`
+ *                          right now (cursor/selection null when there is no
+ *                          text editor or nothing is selected)
  *
  * Resolves to `{ ok: false, error }` or `{ ok: true, ... }`: a command on a
  * file adds the resulting `open_files` and `current_file`, `reveal_in_pdf` the
@@ -117,6 +120,24 @@ export function createIdeCommandRunner(deps) {
           message: String(problem.message || ''),
         }));
         return { ok: true, problems };
+      }
+
+      if (action === 'get_editor_state') {
+        // Read live, unlike the state staged at the start of the built-in
+        // agent's turn: the caller (an agent outside OpalaTex) runs no turn.
+        const snapshot = (currentFile && !deps.hasNoLines(currentFile) ? deps.editorSnapshot() : null) || {};
+        const content = typeof snapshot.content === 'string' ? snapshot.content : '';
+        const answer = {
+          ok: true,
+          open_files: tabs,
+          current_file: currentFile,
+          unsaved: currentFile ? Boolean(deps.isUnsaved(currentFile)) : false,
+          cursor: snapshot.cursor || null,
+          selection: snapshot.selection || null,
+          content_chars: content.length,
+        };
+        if (args.include_content) answer.content = content;
+        return answer;
       }
 
       if (action === 'open_file') {

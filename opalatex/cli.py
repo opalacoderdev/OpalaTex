@@ -815,7 +815,25 @@ def _monitors_argv(argv: list[str]) -> list[str] | None:
     return None
 
 
+def _mcp_argv(argv: list[str]) -> list[str] | None:
+    from .protocol_stdio import mcp_argv
+
+    return mcp_argv(argv)
+
+
 def main() -> None:
+    # Before anything that could print: stdout is the MCP protocol channel.
+    mcp_args = _mcp_argv(sys.argv[1:])
+    if mcp_args is not None:
+        from .external_mcp import main as mcp_main
+
+        sys.exit(mcp_main(mcp_args))
+    hook_args = [arg for arg in sys.argv[1:] if arg != "--gui"]
+    if hook_args[:1] == ["agent-hook"]:
+        # Run by an external agent's hooks; prints nothing on stdout.
+        from .agent_hook import main as agent_hook_main
+
+        sys.exit(agent_hook_main(hook_args[1:]))
     monitors_args = _monitors_argv(sys.argv[1:])
     if monitors_args is not None:
         from .monitors.cli import main as monitors_main

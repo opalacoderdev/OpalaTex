@@ -1,10 +1,12 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { AlertCircle, Trash, Maximize2, Minimize2, ChevronUp, ChevronDown, Plus, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlertCircle, Bot, Trash, Maximize2, Minimize2, ChevronUp, ChevronDown, Plus, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTextContextMenu } from '../hooks/useTextContextMenu.js';
 import { readSelectionWithin } from '../utils/documentSelection.js';
 import TextContextMenu from './TextContextMenu.jsx';
 import TerminalInstance from './TerminalInstance.jsx';
+import { useCustomDialog } from './modals/CustomDialogProvider';
+import { AGENT_CLIS_PATH, announceExternalAccess, launchAgentInTerminal } from '../utils/agentLauncher.js';
 import { getPreference, setPreference } from '../utils/preferences';
 import {
   TERMINAL_FONT_SIZE_DEFAULT,
@@ -49,6 +51,49 @@ export default function BottomPanel({
   const [terminals, setTerminals] = useState(['main-1']);
   const [activeTermId, setActiveTermId] = useState('main-1');
   const [termCounter, setTermCounter] = useState(1);
+  // Tabs that run a coding agent's CLI (agentLauncher.js) show its name.
+  const [terminalLabels, setTerminalLabels] = useState({});
+  const [agentMenu, setAgentMenu] = useState(null); // null (closed) | { agents: [...] | null }
+  const [agentLaunching, setAgentLaunching] = useState(false);
+  const { showAlert, showConfirm } = useCustomDialog();
+
+  const openAgentMenu = () => {
+    if (agentMenu) { setAgentMenu(null); return; }
+    setAgentMenu({ agents: null });
+    fetch(AGENT_CLIS_PATH)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => setAgentMenu(prev => (prev ? { agents: data?.agents || [] } : prev)))
+      .catch(() => setAgentMenu(prev => (prev ? { agents: [] } : prev)));
+  };
+
+  const launchAgent = async (agent) => {
+    setAgentMenu(null);
+    if (terminals.length >= 3) {
+      await showAlert(t('agentLauncher.tooManyTerminals', 'Close a terminal first: the panel holds at most 3.'));
+      return;
+    }
+    const nextId = termCounter + 1;
+    const termId = `main-${nextId}`;
+    setAgentLaunching(true);
+    try {
+      const result = await launchAgentInTerminal(
+        { agent, projectPath: activeProject.project_path, termId },
+        { fetchImpl: (...args) => fetch(...args), confirm: showConfirm, t, notify: announceExternalAccess },
+      );
+      if (result.ok) {
+        // The tab is added only now: its stream attaches to the shell the
+        // launch started. Added earlier, it would have started a shell of its own.
+        setTermCounter(nextId);
+        setTerminals(prev => [...prev, termId]);
+        setTerminalLabels(prev => ({ ...prev, [termId]: result.label }));
+        setActiveTermId(termId);
+      } else if (!result.cancelled) {
+        await showAlert(result.error, t('agentLauncher.failedTitle', 'Could not open {{agent}}', { agent: agent.label }));
+      }
+    } finally {
+      setAgentLaunching(false);
+    }
+  };
   const { menu, onContextMenu, handleCopy, handlePaste, handleSelectAll, close } = useTextContextMenu({
     getSelection: (e) => {
       if (activeBottomTab === 'terminal') {
@@ -428,7 +473,7 @@ export default function BottomPanel({
                       style={{ background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', border: '1px solid var(--vscode-input-border)', padding: '2px 4px', fontSize: '12px', minWidth: '100px' }}
                     >
                       {terminals.map(id => (
-                        <option key={id} value={id}>Terminal {id.split('-')[1]}</option>
+                        <option key={id} value={id}>{terminalLabels[id] ? `${terminalLabels[id]} (${id.split('-')[1]})` : `Terminal ${id.split('-')[1]}`}</option>
                       ))}
                     </select>
                     <button
@@ -455,6 +500,44 @@ export default function BottomPanel({
                     >
                       +
                     </button>
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        className="vscode-button"
+                        style={{ padding: '2px 6px', fontSize: '12px', background: 'transparent', color: 'var(--vscode-foreground)', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        onClick={openAgentMenu}
+                        disabled={agentLaunching}
+                        title={t('agentLauncher.buttonTitle', 'Open a coding agent in a new terminal, connected to OpalaTex')}
+                        aria-haspopup="menu"
+                        aria-expanded={Boolean(agentMenu)}
+                      >
+                        <Bot size={13} />
+                      </button>
+                      {agentMenu && (
+                        <div
+                          role="menu"
+                          style={{ position: 'absolute', top: '100%', left: 0, zIndex: 50, minWidth: '220px', background: 'var(--vscode-menu-background, var(--vscode-editor-bg))', border: '1px solid var(--vscode-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', padding: '4px 0', fontSize: '12px' }}
+                          onMouseLeave={() => setAgentMenu(null)}
+                        >
+                          {agentMenu.agents === null ? (
+                            <div style={{ padding: '4px 10px', color: 'var(--vscode-descriptionForeground)' }}>{t('agentLauncher.looking', 'Looking for installed agents…')}</div>
+                          ) : agentMenu.agents.map(agent => (
+                            <button
+                              key={agent.id}
+                              role="menuitem"
+                              className="vscode-button"
+                              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '4px 10px', background: 'transparent', color: 'var(--vscode-foreground)', border: 'none' }}
+                              onClick={() => launchAgent(agent)}
+                              title={agent.path || t('agentLauncher.notFoundHint', '{{command}} was not found on the terminal\'s PATH', { command: agent.executable })}
+                            >
+                              {agent.label}
+                              {!agent.path && (
+                                <span style={{ color: 'var(--vscode-descriptionForeground)' }}> — {t('agentLauncher.notInstalled', 'not found')}</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     {terminals.length > 1 && (
                       <button
                         className="vscode-button"
@@ -464,6 +547,16 @@ export default function BottomPanel({
                           setTerminals(newTerms);
                           setActiveTermId(newTerms[newTerms.length - 1]);
                           delete terminalInstancesRef.current[activeTermId];
+                          // An agent's tab ends its session with the tab, so no
+                          // agent keeps running out of sight. Plain shells keep
+                          // their existing behaviour.
+                          if (terminalLabels[activeTermId]) {
+                            fetch('/api/terminal/temp/kill', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ term_id: activeTermId }),
+                            }).catch(() => {});
+                          }
                         }}
                         title="Close Terminal"
                       >

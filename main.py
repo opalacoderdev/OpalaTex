@@ -36,6 +36,15 @@ def _ensure_utf8_stream(stream, fallback_name="devnull"):
     # Case 4: replace with devnull (in windowed mode nobody reads these anyway)
     return open(os.devnull, "w", encoding="utf-8", errors="replace")
 
+# `opalatex mcp` speaks MCP over stdin/stdout. A windowed build may start
+# with those set to None; replacing stdout with devnull below would silence the
+# protocol, so its streams are first reopened from the process's standard
+# handles, and the command stops with a diagnostic if there are none
+# (opalatex/protocol_stdio.py).
+from opalatex.protocol_stdio import mcp_argv as _mcp_argv, require_protocol_stdio as _require_protocol_stdio
+if _mcp_argv(sys.argv[1:]) is not None:
+    _require_protocol_stdio("opalatex mcp")
+
 sys.stdout = _ensure_utf8_stream(sys.stdout)
 sys.stderr = _ensure_utf8_stream(sys.stderr)
 

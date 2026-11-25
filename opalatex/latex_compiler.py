@@ -7,6 +7,8 @@ import base64
 import time
 import hashlib
 import json
+import functools
+import threading
 
 def get_tectonic_path():
     """Find tectonic in the user tools dir, the project bin directory, or PATH."""
@@ -15,6 +17,39 @@ def get_tectonic_path():
     return find_tool("tectonic", [os.path.join(os.path.dirname(os.path.dirname(__file__)), "bin")])
 
 import re
+
+
+# One Tectonic run at a time per project. Every compile writes the PDF, the
+# SyncTeX file and the aux files next to the main file, and a partial compile
+# also writes its preview file there; two runs on one project (the Compile
+# button, the built-in agent's compile_latex, an external agent's, an excerpt
+# edit) would overwrite each other's outputs. Compiles of different projects
+# still run side by side. Reentrant, because a partial compile of the main file
+# is a full compile on the same thread.
+_PROJECT_COMPILE_LOCKS: dict[str, threading.RLock] = {}
+_PROJECT_COMPILE_LOCKS_GUARD = threading.Lock()
+
+
+def _compile_lock_key(file_path, project_dir) -> str:
+    base = project_dir or (os.path.dirname(file_path) if file_path else "") or os.getcwd()
+    return os.path.normcase(os.path.abspath(base))
+
+
+def project_compile_lock(project_dir: str) -> threading.RLock:
+    """The lock that serializes Tectonic runs on *project_dir*."""
+    key = _compile_lock_key(None, project_dir)
+    with _PROJECT_COMPILE_LOCKS_GUARD:
+        return _PROJECT_COMPILE_LOCKS.setdefault(key, threading.RLock())
+
+
+def _serialized_per_project(func):
+    """Run *func* (whose 2nd and 4th parameters are file_path and project_dir)
+    under its project's compile lock."""
+    @functools.wraps(func)
+    def wrapper(tex_content, file_path=None, main_file="", project_dir="", *args, **kwargs):
+        with project_compile_lock(_compile_lock_key(file_path, project_dir)):
+            return func(tex_content, file_path, main_file, project_dir, *args, **kwargs)
+    return wrapper
 
 
 LATEX_ERROR_LOCATION_RE = re.compile(
@@ -478,6 +513,7 @@ def _disable_non_target_direct_includes(main_content: str, main_dir: str, target
     return main_content[:begin_doc] + pattern.sub(replace, main_content[begin_doc:])
 
 
+@_serialized_per_project
 def compile_latex_partial(tex_content: str, file_path: str, main_file: str, project_dir: str,
                           include_pdf_base64: bool = True, draft: bool = False,
                           synctex: bool | None = None) -> dict:
@@ -686,6 +722,7 @@ def compile_latex_partial(tex_content: str, file_path: str, main_file: str, proj
         }
 
 
+@_serialized_per_project
 def compile_latex(tex_content: str, file_path: str = None, main_file: str = "", project_dir: str = "",
                   include_pdf_base64: bool = True, draft: bool = False,
                   synctex: bool | None = None) -> dict:

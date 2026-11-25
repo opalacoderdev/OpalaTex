@@ -76,15 +76,9 @@ def _stored_project_main_file(project_path: str) -> str:
     Matches on the normalized project path only; returns "" when the project
     is not registered or has no main file. Store errors propagate.
     """
-    from opalatex.project import ProjectStore
-    from opalatex.config import DEFAULT_DB_PATH
+    from opalatex.project import stored_main_file
 
-    wanted = os.path.normcase(os.path.abspath(os.path.expanduser(project_path)))
-    for p in ProjectStore(db_path=DEFAULT_DB_PATH).list_projects():
-        stored = p.get("project_path")
-        if stored and os.path.normcase(os.path.abspath(os.path.expanduser(stored))) == wanted:
-            return str(p.get("main_file") or "")
-    return ""
+    return stored_main_file(project_path)
 
 
 def _normalize_rel_path(path: str) -> str:
@@ -891,6 +885,11 @@ def _write_clipboard(text: str):
         return False, str(e)
 
 
+#: Seconds between keepalive comments on the window's command stream. A write
+#: is what reveals a window that went away without closing its socket.
+WINDOW_STREAM_KEEPALIVE = 20.0
+
+
 class AsyncHTTPServer:
     def __init__(self, host="127.0.0.1", port=3000, static_dir=None):
         self.host = host
@@ -914,6 +913,9 @@ class AsyncHTTPServer:
         # working (and chatting) while large projects are pulled from the cloud.
         self._clone_jobs = {}
         self._clone_tasks = {}
+        # Agents outside OpalaTex (docs/specs/external_agents.md); created by
+        # start() once the port is known, inert while the setting is off.
+        self.external_access = None
 
     # Requests whose slow, blocking part (a Tectonic run, `git status`, a walk of
     # the project tree) runs in a worker thread instead of on the event loop.
@@ -1139,13 +1141,39 @@ class AsyncHTTPServer:
         self.server = await asyncio.start_server(self.handle_request, self.host, self.port)
         self.port = self.server.sockets[0].getsockname()[1]
         self.local_session.port = self.port
-        from .local_auth import register_local_api
+        from .local_auth import loopback_url, register_local_api
         register_local_api(self.host, self.port, self.local_session)
+        from . import external_access
+        self.external_access = external_access.ExternalAccess(
+            loopback_url(self.host, self.port), self.port,
+        )
+        external_access.register_current(self.external_access)
+        if external_access.is_enabled():
+            try:
+                self.external_access.publish()
+            except OSError as e:
+                print(f"[IDE Backend] Could not publish external agent access: {e}")
         print(f"[IDE Backend] Python Async server running on http://{self.host}:{self.port}")
 
     def stop(self):
         from .local_auth import unregister_local_api
         unregister_local_api(self.local_session)
+        if self.external_access is not None:
+            self.external_access.withdraw()
+            # An external agent's turn still open keeps its changes in a turn
+            # of its own (opalatex/external_turns.py).
+            from opalatex.external_turns import EXTERNAL_TURNS
+            try:
+                EXTERNAL_TURNS.close_all_now()
+            except Exception:
+                pass
+            from opalatex.ide_control import WINDOW_BUS
+            loop = self.loop
+            if loop is not None and not loop.is_closed():
+                try:
+                    loop.call_soon_threadsafe(WINDOW_BUS.close_all)
+                except RuntimeError:
+                    pass
         # Fecha o terminal principal
         if self.active_terminal:
             try:
@@ -1502,7 +1530,16 @@ class AsyncHTTPServer:
                 })
                 return
 
-            if path.startswith('/api/') and not self.local_session.authenticated(headers):
+            # Agents outside OpalaTex (docs/specs/external_agents.md) carry the
+            # external token instead of the window's cookie. Each credential
+            # opens only its own endpoints: the cookie never reaches
+            # /api/external/, and the token never reaches the rest of /api/.
+            external = path.startswith('/api/external/')
+            if external:
+                if not (self.external_access and self.external_access.authenticated(headers)):
+                    self.send_response(writer, 401, b'{"error":"External agent token required, or external agent access is turned off."}', "application/json")
+                    return
+            elif path.startswith('/api/') and not self.local_session.authenticated(headers):
                 self.send_response(writer, 401, b'{"error":"Local session required. Reload the application."}', "application/json")
                 return
             if path == '/api/session' and method == 'GET':
@@ -1521,7 +1558,9 @@ class AsyncHTTPServer:
                 return
                 
             # Route API paths
-            if path.startswith('/api/'):
+            if external:
+                await self._dispatch(path, lambda: self.route_external(method, path, body, writer))
+            elif path.startswith('/api/'):
                 await self._dispatch(path, lambda: self.route_api(method, path, query, headers, body, writer))
             else:
                 # Serve static files
@@ -1641,6 +1680,58 @@ class AsyncHTTPServer:
             writer.close()
         except Exception as e:
             self.send_response(writer, 500, f"Error: {e}".encode('utf-8'))
+
+    async def route_external(self, method, path, body, writer):
+        """Endpoints of agents outside OpalaTex, which `opalatex mcp` forwards to.
+
+        Authenticated by the external token (handle_request). They act only on
+        a project open in a window that listens for external commands
+        (opalatex/external_agent_tools.py).
+        """
+        from opalatex import external_agent_tools
+        from opalatex.ide_control import WINDOW_BUS
+
+        def reply(status, payload):
+            self.send_response(writer, status, json.dumps(payload).encode('utf-8'), "application/json")
+
+        if path == '/api/external/windows' and method == 'GET':
+            reply(200, {"windows": [
+                {"project_path": c.project_path} for c in WINDOW_BUS.windows() if c.project_path
+            ]})
+            return
+        if path == '/api/external/tools' and method == 'GET':
+            reply(200, {"tools": external_agent_tools.catalog(),
+                        "instructions": external_agent_tools.SERVER_INSTRUCTIONS})
+            return
+        if path == '/api/external/call' and method == 'POST':
+            try:
+                data = json.loads(body.decode('utf-8') or "null")
+            except (UnicodeDecodeError, ValueError):
+                data = None
+            if (not isinstance(data, dict) or not isinstance(data.get("tool"), str)
+                    or not isinstance(data.get("project_path"), str)
+                    or not isinstance(data.get("arguments", {}), dict)):
+                reply(400, {"error": "Expected a JSON object with 'tool', 'project_path' and an 'arguments' object."})
+                return
+            result = await external_agent_tools.call(data["tool"], data.get("arguments") or {}, data["project_path"])
+            reply(200, {"content": result.content, "is_error": result.is_error})
+            return
+        if path == '/api/external/turn' and method == 'POST':
+            # `opalatex agent-hook`: an external agent's turn starts or ends
+            # (opalatex/external_turns.py).
+            from opalatex.external_turns import EXTERNAL_TURNS
+            try:
+                data = json.loads(body.decode('utf-8') or "null")
+            except (UnicodeDecodeError, ValueError):
+                data = None
+            fields = ("event", "agent", "session", "project_path")
+            if not isinstance(data, dict) or not all(isinstance(data.get(f), str) for f in fields):
+                reply(400, {"error": "Expected a JSON object with string 'event', 'agent', 'session' and 'project_path'."})
+                return
+            status, payload = await EXTERNAL_TURNS.handle(data["event"], data["agent"], data["session"], data["project_path"])
+            reply(status, payload)
+            return
+        reply(404, {"error": f"No external endpoint {method} {path}."})
 
     async def route_api(self, method, path, query, headers, body, writer):
         # Parse JSON body if present
@@ -4316,6 +4407,180 @@ class AsyncHTTPServer:
                 self.send_response(writer, 200, b'{"ok":true}', "application/json")
             else:
                 self.send_response(writer, 404, b'{"error":"No pending IDE command with that id"}', "application/json")
+            return
+
+        # 7a1b. External agent access (docs/specs/external_agents.md): the setting.
+        elif path == '/api/settings/external-access' and method == 'GET':
+            from opalatex import external_access
+            state = {
+                "enabled": external_access.is_enabled(),
+                "published": bool(self.external_access and self.external_access.published),
+                "mcp_command": external_access.mcp_command(),
+                # The window warns that external agents may not work in the snap.
+                "snap": external_access.running_in_snap(),
+            }
+            self.send_response(writer, 200, json.dumps(state).encode('utf-8'), "application/json")
+            return
+
+        elif path == '/api/settings/external-access' and method == 'POST':
+            from opalatex import external_access
+            from opalatex.ide_control import WINDOW_BUS
+            enabled = data.get("enabled")
+            if not isinstance(enabled, bool):
+                self.send_response(writer, 400, b'{"error":"enabled must be true or false"}', "application/json")
+                return
+            try:
+                stored = external_access.save_config({"enabled": enabled})
+                if self.external_access is not None:
+                    self.external_access.apply(stored["enabled"])
+            except OSError as e:
+                self.send_response(writer, 500, json.dumps({"error": str(e)}).encode('utf-8'), "application/json")
+                return
+            if not stored["enabled"]:
+                # Turns still open are closed while their window can still be
+                # told, then the windows' streams end.
+                from opalatex.external_turns import EXTERNAL_TURNS
+                await EXTERNAL_TURNS.close_all()
+                WINDOW_BUS.close_all()
+                # "Always allow" answers last while the access stays on.
+                from opalatex import external_agent_tools
+                external_agent_tools.forget_approvals()
+            state = {
+                "enabled": stored["enabled"],
+                "published": bool(self.external_access and self.external_access.published),
+                "mcp_command": external_access.mcp_command(),
+                # The window warns that external agents may not work in the snap.
+                "snap": external_access.running_in_snap(),
+            }
+            self.send_response(writer, 200, json.dumps(state).encode('utf-8'), "application/json")
+            return
+
+        # 7a1b2. Coding agents opened in a terminal tab, connected to
+        # `opalatex mcp` (opalatex/agent_clis.py).
+        elif path == '/api/external-agents/clis' and method == 'GET':
+            from opalatex import agent_clis, external_access
+            # Asks the terminal's shell for its PATH: off the event loop.
+            agents = await asyncio.to_thread(agent_clis.describe)
+            payload = {"access_enabled": external_access.is_enabled(), "agents": agents}
+            self.send_response(writer, 200, json.dumps(payload).encode('utf-8'), "application/json")
+            return
+
+        elif path == '/api/external-agents/launch' and method == 'POST':
+            from opalatex import agent_clis, external_access
+
+            def refuse(status, code, message, **details):
+                payload = {"error": message, "code": code, **details}
+                self.send_response(writer, status, json.dumps(payload).encode('utf-8'), "application/json")
+
+            agent = agent_clis.AGENT_CLIS.get(str(data.get("agent") or ""))
+            term_id = str(data.get("term_id") or "")
+            project_path = str(data.get("projectPath") or "")
+            if agent is None:
+                refuse(400, "unknown_agent", f"Unknown agent {data.get('agent')!r}.")
+                return
+            if not self._is_project_terminal(term_id) or term_id == 'main':
+                refuse(400, "bad_terminal", "term_id must name a new bottom-panel terminal tab (main-N).")
+                return
+            if not project_path or not os.path.isdir(project_path):
+                refuse(400, "bad_project", "projectPath must be an existing project folder.")
+                return
+            if not external_access.is_enabled():
+                refuse(409, "access_off", "External agent access is turned off.")
+                return
+            command = external_access.mcp_command()
+            executable = await asyncio.to_thread(agent_clis.find_cli, agent)
+            if not executable:
+                refuse(404, "not_found", agent_clis.not_found_message(agent))
+                return
+            if agent.id == "antigravity":
+                registration = agent_clis.antigravity_registration(command)
+                if registration["state"] != "registered":
+                    if data.get("register") is not True:
+                        refuse(409, "needs_registration",
+                               "Antigravity CLI has no per-session MCP setting, so OpalaTex's server must be "
+                               "registered in its user configuration once.",
+                               registration=registration["state"], current=registration["current"],
+                               config_path=str(agent_clis.antigravity_config_path()),
+                               command_line=agent_clis.shell_line(
+                                   [executable, "mcp", "add", agent_clis.SERVER_NAME, "--", *command]))
+                        return
+                    try:
+                        await asyncio.to_thread(agent_clis.register_antigravity, executable, command)
+                    except agent_clis.AgentCliError as e:
+                        refuse(500, e.code, str(e))
+                        return
+            try:
+                line = agent_clis.shell_line(agent_clis.launch_argv(
+                    agent, executable, command,
+                    hook_command=lambda event: external_access.agent_hook_command(event, agent.id),
+                ))
+                from opalatex.terminal_manager import TerminalSession
+                term = TerminalSession(project_path)
+                term.start_reading(asyncio.get_running_loop())
+            except Exception as e:
+                refuse(500, "terminal_failed", f"Could not start the terminal: {e}")
+                return
+            previous = self.temp_terminals.get(term_id)
+            self.temp_terminals[term_id] = term
+            if previous is not None:
+                previous.close()
+            term.write(line + "\r")
+            payload = {"ok": True, "term_id": term_id, "command_line": line, "label": agent.label}
+            self.send_response(writer, 200, json.dumps(payload).encode('utf-8'), "application/json")
+            return
+
+        # 7a1c. The window's command stream: commands of agents outside
+        # OpalaTex, which call when no agent turn (and so no turn stream) is
+        # running. Open only while external access is on.
+        elif path == '/api/ide/window/stream' and method == 'GET':
+            from opalatex import external_access
+            from opalatex.ide_control import WINDOW_BUS
+            window_id = (query.get('windowId', [''])[0] or '').strip()
+            project_path = (query.get('projectPath', [''])[0] or '').strip()
+            if not window_id:
+                self.send_response(writer, 400, b'{"error":"windowId required"}', "application/json")
+                return
+            if not external_access.is_enabled():
+                self.send_response(writer, 409, b'{"error":"External agent access is turned off."}', "application/json")
+                return
+            writer.write((
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/event-stream\r\n"
+                "Cache-Control: no-cache\r\n"
+                "X-Content-Type-Options: nosniff\r\n"
+                "Connection: keep-alive\r\n\r\n"
+                "retry: 3000\n\n"
+                "event: ready\ndata: {}\n\n"
+            ).encode('utf-8'))
+            connection = WINDOW_BUS.connect(window_id, project_path)
+            try:
+                await writer.drain()
+                while True:
+                    try:
+                        item = await asyncio.wait_for(connection.queue.get(), timeout=WINDOW_STREAM_KEEPALIVE)
+                    except asyncio.TimeoutError:
+                        # A write to a socket the window has dropped fails
+                        # here, which is how a vanished window is noticed.
+                        writer.write(b": keepalive\n\n")
+                        await writer.drain()
+                        continue
+                    if item is None:
+                        break
+                    # Commands are answered; other events (latex_compiled) are only shown.
+                    kind = "ide_command" if item.get("event") == "ide_command" else "ide_event"
+                    writer.write(f"event: {kind}\ndata: {json.dumps(item)}\n\n".encode('utf-8'))
+                    await writer.drain()
+            except (ConnectionResetError, BrokenPipeError):
+                pass
+            except OSError as e:
+                if getattr(e, "winerror", None) != 10053:
+                    print(f"Window command stream error: {e}")
+            finally:
+                WINDOW_BUS.disconnect(connection)
+                try:
+                    writer.close()
+                except Exception:
+                    pass
             return
 
         # 7a2. Message to a running agent turn
@@ -7197,6 +7462,9 @@ def schedule_app_restart(delay=0.6):
         # marker — otherwise every restart looks like a crash to the next launch.
         from opalatex import crash_report
         crash_report.mark_clean_exit()
+        # ... and the discovery file external agents read (external_access.py).
+        from opalatex import external_access
+        external_access.withdraw_current()
         os._exit(0)
 
     timer = threading.Timer(delay, _restart)

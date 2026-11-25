@@ -400,3 +400,18 @@ def test_pilot_skill_no_longer_advertises_unimplemented_commands():
         # `/name` / `/nome` are the placeholder; `/workspace` is the sandbox's mount path.
         advertised -= {"name", "nome", "workspace"}
         assert advertised - known == set(), f"[{lang}] unknown commands advertised"
+
+
+@pytest.mark.parametrize("lang", ["en", "pt"])
+def test_external_agents_topic_says_what_is_lost_and_warns_about_the_snap(lang):
+    """External agents work outside OpalaTex's turns: only Claude Code opened
+    from OpalaTex is checkpointed, otherwise undo is up to the agent; and in the
+    snap they may not work at all."""
+    text = get_topic("external-agents", lang)["answer"]
+    assert "Review" in text and "checkpoint" in text
+    assert "snap" in text and ".deb" in text
+    # The recommended start is OpalaTex's own button, which also checkpoints Claude Code.
+    assert ("robot button" if lang == "en" else "botão de robô") in text
+    assert ("Agent checkpoint — Claude" if lang == "en" else "Checkpoint do agente —") in text
+    # Claude Code's connection is per session; Antigravity's registration applies everywhere.
+    assert "--mcp-config" in text and "~/.gemini/config/mcp_config.json" in text

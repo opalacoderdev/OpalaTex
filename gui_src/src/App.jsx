@@ -77,6 +77,9 @@ import HardwareModal from './components/modals/HardwareModal';
 import MonitorsModal from './components/modals/MonitorsModal';
 import ConnectorsModal from './components/modals/ConnectorsModal';
 import useMonitorBridge from './hooks/useMonitorBridge';
+import useWindowCommandChannel from './hooks/useWindowCommandChannel';
+import { answerIdeCommand } from './utils/windowCommandChannel.js';
+import { APPROVAL_OPTIONS, createApprovalQueue, describeArguments } from './utils/externalApprovals.js';
 import AssetStoreModal from './components/modals/AssetStoreModal';
 import CloudSyncModal from './components/modals/CloudSyncModal';
 import CloudDownloadModal from './components/modals/CloudDownloadModal';
@@ -2801,12 +2804,131 @@ export default function App() {
       setActiveBottomTab,
     }),
     problems: () => problems,
+    // The focused text tab as Monaco holds it now (get_editor_state of an
+    // external agent). Same guard as getCurrentTextFileContent: a binary or
+    // viewer tab has no Monaco model of its own.
+    editorSnapshot: () => {
+      const live = documentContextRef.current;
+      if (!live?.selectedFile || isBinaryEditorFile(live.selectedFile)) return null;
+      const editor = editorRef.current;
+      let cursor = null;
+      let selection = null;
+      try {
+        const position = editor?.getPosition?.();
+        if (position) cursor = { line: position.lineNumber, column: position.column };
+        const model = editor?.getModel?.();
+        const range = editor?.getSelection?.();
+        if (model && range && !range.isEmpty()) {
+          selection = { text: model.getValueInRange(range), start_line: range.startLineNumber, end_line: range.endLineNumber };
+        }
+      } catch {
+        cursor = null;
+        selection = null;
+      }
+      return { cursor, selection, content: live.getContent() };
+    },
   };
+  // compile_latex is the editor's own Compile, so its outcome is shown the
+  // same way: the PDF pane reloads and a failure fills the error card and
+  // Problems. A compile of a project the user has left changes nothing. From
+  // the built-in agent's turn stream and from an external agent's window stream.
+  // A turn's checkpoints were closed: the built-in agent's (on its turn
+  // stream, with the paths its write tools reported) or an external agent's
+  // (on the window's own stream, opalatex/external_turns.py, which has none).
+  const applyCheckpointFinalized = (data, { withTurnWrites }) => {
+    setCheckpointRevision(value => value + 1);
+    // A turn of a project the user has since left must not mark files of
+    // the one on screen. The ref is read because this handler may be a
+    // closure from when the turn's stream started.
+    const turnProject = String(data.project_path || '').replace(/[\\/]+$/, '');
+    const shownProject = String(documentContextRef.current?.projectPath || '').replace(/[\\/]+$/, '');
+    if (data.success && turnProject && turnProject === shownProject && data.changed_files?.length) {
+      setAgentChangedFiles(prev => withAgentChangedFiles(prev, data.changed_files));
+    }
+    // The checkpoint also sees what no tool event reports: workers' writes,
+    // run_command, scripts. Open buffers of all of them are brought up to date.
+    if (turnProject && turnProject === shownProject) {
+      const turnWrites = withTurnWrites ? [...turnWrittenPathsRef.current] : [];
+      agentFileSyncRef.current?.([...(data.changed_files || []), ...turnWrites]);
+      if (withTurnWrites) turnWrittenPathsRef.current = new Set();
+    }
+  };
+
+  const showAgentCompile = (data) => {
+    const shownProject = documentContextRef.current?.projectPath || '';
+    const caseInsensitive = ideCommandDepsRef.current.caseInsensitive();
+    if (!sameProjectPath(data.project_path, shownProject, { caseInsensitive })) return;
+    const details = {
+      filePath: data.main_file || '',
+      fileContent: '',
+      projectPath: data.project_path || '',
+      mainFile: data.main_file || '',
+      compiledMainFile: data.main_file || '',
+      log: data.log || '',
+      compileDebug: {},
+      partial: false,
+      draft: Boolean(data.draft),
+    };
+    if (data.success) handleLatexCompileSuccess();
+    else handleLatexCompileError(details);
+    setAgentCompile(prev => ({ ...details, success: Boolean(data.success), seq: (prev?.seq || 0) + 1 }));
+  };
+
+  // An external agent's call of a tool that is not safe waits for the user's
+  // answer here (externalApprovals.js). Own state: never replaces a question
+  // of the built-in agent, which stays in `confirmRequest`.
+  const [externalApproval, setExternalApproval] = useState(null);
+  const externalApprovalsRef = useRef(null);
+  if (!externalApprovalsRef.current) externalApprovalsRef.current = createApprovalQueue(setExternalApproval);
+
   const ideCommandRunnerRef = useRef(null);
   if (!ideCommandRunnerRef.current) {
     const deps = new Proxy({}, { get: (_, name) => ideCommandDepsRef.current[name] });
     ideCommandRunnerRef.current = createIdeCommandRunner(deps);
   }
+
+  // Commands of agents outside OpalaTex (Claude Code, Antigravity CLI... through
+  // `opalatex mcp`; docs/specs/external_agents.md). They arrive on a stream of
+  // their own, open only while external agent access is on, and run through the
+  // same runner as the built-in agent's. With the access off nothing is opened.
+  useWindowCommandChannel({
+    projectPath: activeProject?.project_path || '',
+    onEvent: (event) => {
+      if (event.event === 'latex_compiled') showAgentCompile(event);
+      if (event.event === 'checkpoint_finalized') applyCheckpointFinalized(event, { withTurnWrites: false });
+    },
+    onCommand: (command) => {
+      const externalRunner = (cmd) => {
+        if (cmd.action !== 'request_approval') return ideCommandRunnerRef.current(cmd);
+        const args = cmd.args || {};
+        const described = describeArguments(args.arguments);
+        const prompt = t('externalApproval.prompt', 'An external agent (through OpalaTex\'s MCP server) wants to run {{tool}} on this project.{{details}}\n\nAllow it? "Always Allow" applies to {{tool}} in this project until external agent access is turned off or OpalaTex restarts.', {
+          tool: args.tool,
+          details: described ? `\n\n${described}` : '',
+        });
+        return externalApprovalsRef.current
+          .ask({ prompt, options: APPROVAL_OPTIONS, external: true }, args.timeout_ms)
+          .then((answer) => ({ ok: true, answer }));
+      };
+      answerIdeCommand(command, {
+        runner: externalRunner,
+        post: (result) => fetch('/api/opalatex/ide_command_result', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(result),
+        }),
+      })
+        .then((result) => {
+          if (result.ok) {
+            addLog('info', t('app.externalIdeCommandDone', 'External agent: {{action}} {{path}}', { action: command.action, path: command.args?.path || command.args?.layout || '' }));
+          } else {
+            addLog('error', t('app.externalIdeCommandRefused', 'External agent command {{action}} not carried out: {{error}}', { action: command.action, error: result.error }));
+          }
+        })
+        .catch((err) => addLog('error', t('app.externalIdeCommandFailed', 'Could not answer the external agent\'s IDE command: {{error}}', { error: err.message })));
+    },
+    onError: (err) => addLog('error', t('app.externalIdeCommandMalformed', 'Malformed command on the external agent stream: {{error}}', { error: err.message })),
+  });
 
   // Keeps only `filePath` open. When it is not the active tab we go through
   // handleFileSelect first, so its content is loaded/persisted exactly like a
@@ -3724,24 +3846,9 @@ export default function App() {
         agentFileSyncRef.current?.([...turnWrittenPathsRef.current]);
         turnWrittenPathsRef.current = new Set();
         break;
-      case 'checkpoint_finalized': {
-        setCheckpointRevision(value => value + 1);
-        // A turn of a project the user has since left must not mark files of
-        // the one on screen. The ref is read because this handler may be a
-        // closure from when the turn's stream started.
-        const turnProject = String(data.project_path || '').replace(/[\\/]+$/, '');
-        const shownProject = String(documentContextRef.current?.projectPath || '').replace(/[\\/]+$/, '');
-        if (data.success && turnProject && turnProject === shownProject && data.changed_files?.length) {
-          setAgentChangedFiles(prev => withAgentChangedFiles(prev, data.changed_files));
-        }
-        // The checkpoint also sees what no tool event reports: workers' writes,
-        // run_command, scripts. Open buffers of all of them are brought up to date.
-        if (turnProject && turnProject === shownProject) {
-          agentFileSyncRef.current?.([...(data.changed_files || []), ...turnWrittenPathsRef.current]);
-          turnWrittenPathsRef.current = new Set();
-        }
+      case 'checkpoint_finalized':
+        applyCheckpointFinalized(data, { withTurnWrites: true });
         break;
-      }
       case 'ide_command': {
         // The agent waits for this answer (opalatex/ide_control.py); a refusal
         // is posted too, so it fails with the reason instead of timing out.
@@ -3762,29 +3869,9 @@ export default function App() {
           .catch((err) => addLog('error', t('app.ideCommandFailed', 'Could not answer the agent\'s IDE command: {{error}}', { error: err.message })));
         break;
       }
-      case 'latex_compiled': {
-        // compile_latex is the editor's own Compile, so its outcome is shown the
-        // same way: the PDF pane reloads and a failure fills the error card and
-        // Problems. A compile of a project the user has left changes nothing.
-        const shownProject = documentContextRef.current?.projectPath || '';
-        const caseInsensitive = ideCommandDepsRef.current.caseInsensitive();
-        if (!sameProjectPath(data.project_path, shownProject, { caseInsensitive })) break;
-        const details = {
-          filePath: data.main_file || '',
-          fileContent: '',
-          projectPath: data.project_path || '',
-          mainFile: data.main_file || '',
-          compiledMainFile: data.main_file || '',
-          log: data.log || '',
-          compileDebug: {},
-          partial: false,
-          draft: Boolean(data.draft),
-        };
-        if (data.success) handleLatexCompileSuccess();
-        else handleLatexCompileError(details);
-        setAgentCompile(prev => ({ ...details, success: Boolean(data.success), seq: (prev?.seq || 0) + 1 }));
+      case 'latex_compiled':
+        showAgentCompile(data);
         break;
-      }
       case 'input_request_closed':
         setPlanRequest(prev => prev?.id === data.id ? null : prev);
         setAskRequest(prev => prev?.id === data.id ? null : prev);
@@ -5972,6 +6059,12 @@ export default function App() {
       ) : confirmRequest ? (
         <ConfirmModal confirmRequest={confirmRequest} onConfirm={sendConfirmResponse} />
       ) : null}
+      {externalApproval && (
+        <ConfirmModal
+          confirmRequest={externalApproval}
+          onConfirm={(value) => externalApprovalsRef.current.answer(value)}
+        />
+      )}
 
       <DeleteProjectModal
         projectToDelete={projectToDelete}

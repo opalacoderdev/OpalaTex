@@ -859,6 +859,10 @@
     "imageGenerationSize": "Default size",
     "imageGenerationOutputDir": "Output folder",
     "imageGenerationHint": "Generated images are saved inside the project, under the folder above, and can be included in LaTeX with \\includegraphics.",
+    "externalAgents": "External agents (MCP)",
+    "externalAgentsEnabled": "Let coding agents on this computer control this window",
+    "externalAgentsHint": "Agents such as Claude Code and Antigravity CLI connect through the MCP server \"opalatex mcp\", started from the project folder. They can open and close tabs, change the layout, show a LaTeX line in the PDF, and read the open tabs, the cursor and selection (and, when they ask, the text of the focused tab), the Problems panel and the main terminal. Compiling the document, which writes the PDF, runs only after you approve it in this window. They cannot otherwise change files through OpalaTex. Off by default.",
+    "externalAgentsRegister": "Register the server once in your agent (run in a terminal):",
     "sandboxTitle": "Docker Sandbox",
     "sandboxStatusReady": "Ready",
     "sandboxStatusIssue": "Needs Attention",
@@ -1181,6 +1185,10 @@
     "ideCommandDone": "Agent: {{action}} {{path}}",
     "ideCommandRefused": "Agent command {{action}} not carried out: {{error}}",
     "ideCommandFailed": "Could not answer the agent's IDE command: {{error}}",
+    "externalIdeCommandDone": "External agent: {{action}} {{path}}",
+    "externalIdeCommandRefused": "External agent command {{action}} not carried out: {{error}}",
+    "externalIdeCommandFailed": "Could not answer the external agent's IDE command: {{error}}",
+    "externalIdeCommandMalformed": "Malformed command on the external agent stream: {{error}}",
     "agentChangedUnsavedTitle": "File changed by the agent",
     "agentChangedUnsavedPrompt": "The agent changed \"{{path}}\" on disk, but this file also has unsaved edits in the editor.\n\nKeep my edits: the agent's version stays on disk until you save; saving replaces it.\nLoad the agent's version: your unsaved edits are discarded.",
     "loadAgentVersion": "Load the agent's version",
@@ -2009,5 +2017,28 @@
     "menuLabel": "Commands",
     "menuHint": "↑↓ to navigate · Enter to run · Tab to complete · Esc to close",
     "skillBadge": "skill"
+  },
+  "agentLauncher": {
+    "settingsUnreadable": "Could not read the external agent setting.",
+    "enableAccess": "Opening {{agent}} connected to OpalaTex turns on external agent access: coding agents on this computer will be able to open and close tabs, change the layout and read the window, and compile the document after you approve each compile in this window. You can turn it off in Settings > External agents. Turn it on?",
+    "enableAccessTitle": "External agent access",
+    "turnOn": "Turn on",
+    "enableFailed": "Could not turn on external agent access.",
+    "register": "{{agent}} has no per-session MCP setting, so OpalaTex must register its server once in {{agent}}'s user configuration ({{path}}), by running:\n\n{{command}}\n\nIt then applies to every {{agent}} session; in a folder that is not a project open in OpalaTex, the server does not start and says why. Register it?",
+    "replaces": "This replaces the existing \"opalatex\" entry.",
+    "registerTitle": "Register OpalaTex in {{agent}}",
+    "registerOk": "Register",
+    "tooManyTerminals": "Close a terminal first: the panel holds at most 3.",
+    "failedTitle": "Could not open {{agent}}",
+    "buttonTitle": "Open a coding agent in a new terminal, connected to OpalaTex",
+    "looking": "Looking for installed agents…",
+    "notFoundHint": "{{command}} was not found on the terminal's PATH",
+    "notInstalled": "not found"
+  },
+  "externalApproval": {
+    "prompt": "An external agent (through OpalaTex's MCP server) wants to run {{tool}} on this project.{{details}}\n\nAllow it? \"Always Allow\" applies to {{tool}} in this project until external agent access is turned off or OpalaTex restarts."
+  },
+  "externalAgents": {
+    "snapWarning": "OpalaTex is running as a snap. Its confinement hides the hidden folders of your home (such as ~/.local/bin, ~/.claude and ~/.gemini), where Claude Code and Antigravity CLI install themselves, so external agents may not work: the agent button may not find them, and an agent started outside OpalaTex may fail to connect. To use external agents, install OpalaTex from the .deb package or with install.sh."
   }
 }

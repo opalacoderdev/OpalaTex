@@ -2580,3 +2580,19 @@ def create_contextual_skills_defaults(project_path: str) -> None:
                 except Exception as e:
                     import sys
                     print(f"Warning: Failed to copy {fname} template: {e}", file=sys.stderr)
+
+
+def stored_main_file(project_path: str) -> str:
+    """The main file recorded in the project store for *project_path*.
+
+    Matches on the normalized project path only; returns "" when the project
+    is not registered or has no main file. Store errors propagate.
+    """
+    from . import config  # read at call time, as callers and tests may repoint it
+
+    wanted = os.path.normcase(os.path.abspath(os.path.expanduser(project_path)))
+    for p in ProjectStore(db_path=config.DEFAULT_DB_PATH).list_projects():
+        stored = p.get("project_path")
+        if stored and os.path.normcase(os.path.abspath(os.path.expanduser(stored))) == wanted:
+            return str(p.get("main_file") or "")
+    return ""

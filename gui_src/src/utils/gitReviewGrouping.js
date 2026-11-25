@@ -60,7 +60,9 @@ export function groupAgentTurns(commits) {
     used.add(commitKey);
     used.add(startKey);
     tools.forEach(tool => used.add(tool.key));
-    out.push({ type: 'agent_turn', start, end: commit, tools: tools.map(tool => tool.commit) });
+    // `label` names who worked: '' for the built-in agent's turn, a worker
+    // skill, or an external agent such as 'Claude Code' (opalatex/external_turns.py).
+    out.push({ type: 'agent_turn', label: endMeta.label, start, end: commit, tools: tools.map(tool => tool.commit) });
   }
 
   return out;
