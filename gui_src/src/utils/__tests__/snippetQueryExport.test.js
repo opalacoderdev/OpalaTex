@@ -57,20 +57,33 @@ test('the source line names a page, a section, or the conversation', () => {
 
 test('the note carries the question and then the answer', () => {
   assert.equal(
-    buildLookupNoteText(t, { question: ' What kind? ', answer: 'A rainforest.\n' }),
+    buildLookupNoteText(t, [{ question: ' What kind? ', answer: 'A rainforest.\n' }]),
     'Question: What kind?\n\nA rainforest.',
+  );
+});
+
+test('the note keeps every question asked in the card, numbered and in order', () => {
+  assert.equal(
+    buildLookupNoteText(t, [
+      { question: 'What kind?', answer: 'A rainforest.' },
+      { question: 'How big?', answer: 'About 5.5 million km².' },
+      { question: '   ', answer: '' },
+    ]),
+    'Question 1: What kind?\n\nA rainforest.\n\nQuestion 2: How big?\n\nAbout 5.5 million km².',
   );
 });
 
 test('the Markdown file quotes the excerpt and records where it came from', () => {
   const md = buildLookupMarkdown(t, {
     excerpt: 'The Amazon is the largest forest.\n\nSecond paragraph.',
-    question: 'What kind of forest is it?',
-    answer: 'A **tropical rainforest**.',
+    exchanges: [{
+      question: 'What kind of forest is it?',
+      answer: 'A **tropical rainforest**.',
+      filesRead: ['main.tex'],
+    }],
     source: { surface: 'pdf', documentPath: 'main.pdf', page: 2, totalPages: 9 },
     model: 'ollama/test',
     date: DATE,
-    filesRead: ['main.tex'],
   });
   assert.equal(md, [
     '# What kind of forest is it?',
@@ -96,6 +109,48 @@ test('the Markdown file quotes the excerpt and records where it came from', () =
 });
 
 test('a truncated answer says so in the saved file', () => {
-  const md = buildLookupMarkdown(t, { excerpt: 'x', question: 'y', answer: 'z', date: DATE, truncated: true });
+  const md = buildLookupMarkdown(t, {
+    excerpt: 'x', exchanges: [{ question: 'y', answer: 'z', truncated: true }], date: DATE,
+  });
   assert.match(md, /may be incomplete/);
+});
+
+test('the Markdown file keeps the whole history of questions, not only the last', () => {
+  const md = buildLookupMarkdown(t, {
+    excerpt: 'The Amazon is the largest forest.',
+    exchanges: [
+      { question: 'What kind of forest is it?', answer: 'A rainforest.', filesRead: ['main.tex', 'refs.bib'] },
+      { question: 'How big is it?', answer: 'About 5.5 million km².', truncated: true, filesRead: ['main.tex'] },
+    ],
+    date: DATE,
+  });
+  assert.equal(md, [
+    '# What kind of forest is it?',
+    '',
+    '- **Date:** 2026-10-23 09:05',
+    '- **Files read:** `main.tex`, `refs.bib`',
+    '',
+    '## Excerpt',
+    '',
+    '> The Amazon is the largest forest.',
+    '',
+    '## Question 1',
+    '',
+    'What kind of forest is it?',
+    '',
+    '## Answer 1',
+    '',
+    'A rainforest.',
+    '',
+    '## Question 2',
+    '',
+    'How big is it?',
+    '',
+    '## Answer 2',
+    '',
+    'About 5.5 million km².',
+    '',
+    '_The answer reached the length limit and may be incomplete._',
+    '',
+  ].join('\n'));
 });

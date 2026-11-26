@@ -1518,7 +1518,7 @@
     "savedTo": "Saved to {{path}}",
     "saveNote": "Save as PDF note",
     "noteSaved": "Saved as PDF note",
-    "noteTooLong": "This answer is too long for a PDF note ({{length}} of {{max}} characters). Save it as Markdown instead.",
+    "noteTooLong": "These questions and answers are too long for a PDF note ({{length}} of {{max}} characters). Save them as Markdown instead.",
     "noteCompiledPreview": "Notes can only be saved in a PDF opened on its own. The compiled preview is regenerated on every build.",
     "noteAnnotationsHidden": "Show annotations to save a note.",
     "noteQuestionLabel": "Question",
@@ -1532,7 +1532,10 @@
     "mdFilesRead": "Files read",
     "mdExcerpt": "Excerpt",
     "mdQuestion": "Question",
-    "mdAnswer": "Answer"
+    "mdAnswer": "Answer",
+    "noteQuestionNumberedLabel": "Question {{n}}",
+    "mdQuestionNumbered": "Question {{n}}",
+    "mdAnswerNumbered": "Answer {{n}}"
   },
   "markdownContextMenu": {
     "label": "Preview actions"

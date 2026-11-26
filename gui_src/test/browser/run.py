@@ -517,6 +517,51 @@ async def check_pdf_lookup(page: Page, check: Checks) -> None:
                                          " return s && s.textContent; })()")
         check("the card says where it was saved", suggested and suggested in (saved_line or ""), repr(saved_line))
 
+    # A further question about the same excerpt adds to the card's history;
+    # saving afterwards keeps every question, not only the last one.
+    new_question = await page.js(element_with_text(".snippet-query-footer button", "New question"))
+    if check("the card offers a new question", new_question is not None and not new_question["disabled"]):
+        await page.click(new_question["x"], new_question["y"])
+        await wait_js(page, "document.activeElement && document.activeElement.id === 'snippet-query-question'")
+        await page.type_text("How big is it?")
+        await page.key("Enter", 13, modifiers=2)        # Ctrl+Enter
+        await wait_js(page, "window.__requests.filter(r => r.path === '/api/snippet-query').length === 2"
+                            " && !!document.querySelector('.snippet-query-answer strong')")
+        save_md = await page.js(element_with_text(".snippet-query-footer button", "Save as Markdown"))
+        if save_md:
+            dialog_input = "document.querySelector('.vscode-modal-content input[type=text]')"
+            await page.click(save_md["x"], save_md["y"])
+            suggested = await wait_js(page, f"(() => {{ const i = {dialog_input};"
+                                            " return i && document.activeElement === i && i.value; })()")
+            check("the second save is still named after the first question",
+                  bool(re.fullmatch(r"lookups/\d{4}-\d{2}-\d{2}-\d{4}-what-kind-of-forest-is-it\.md", suggested or "")),
+                  repr(suggested))
+            # The first file exists now; save this one under a name of its own.
+            await page.js(f"(() => {{ const i = {dialog_input};"
+                          " Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, 'lookups/history.md');"
+                          " i.dispatchEvent(new Event('input', { bubbles: true })); })()")
+            await page.key("Enter", 13, text="\r")
+            written = await wait_js(page, "window.__requests.filter(r => r.path === '/api/file/write')"
+                                          ".map(r => r.body)[1] || null")
+            content = str((written or {}).get("content", ""))
+            check("the saved file keeps both questions, in order",
+                  "## Question 1\n\nWhat kind of forest is it?" in content
+                  and "## Question 2\n\nHow big is it?" in content
+                  and content.index("## Question 1") < content.index("## Question 2")
+                  and "## Answer 2" in content,
+                  repr(content[:400]))
+        note = await page.js(element_with_text(".snippet-query-footer button", "Save as PDF note"))
+        if note and not note["disabled"]:
+            await page.click(note["x"], note["y"])
+            notes = await wait_js(page, "(() => { const n = window.__requests.filter(r => r.path === '/api/pdf/annotations')"
+                                        ".map(r => r.body); return n.length === 2 ? n[1] : null; })()")
+            note_text = str((notes or {}).get("content", ""))
+            check("the PDF note keeps both questions too",
+                  note_text.startswith("Question 1: What kind of forest is it?") and "Question 2: How big is it?" in note_text,
+                  repr(note_text[:200]))
+        else:
+            check("the PDF note can be saved again after a new question", False, repr(note))
+
     await page.key("Escape", 27)
     await asyncio.sleep(SETTLE)
     check("Escape closes the card", await page.js("!document.querySelector('.snippet-query-popup')"))

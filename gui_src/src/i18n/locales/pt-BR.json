@@ -1518,7 +1518,7 @@
     "savedTo": "Salvo em {{path}}",
     "saveNote": "Salvar como nota no PDF",
     "noteSaved": "Salvo como nota no PDF",
-    "noteTooLong": "Esta resposta é longa demais para uma nota de PDF ({{length}} de {{max}} caracteres). Salve-a como Markdown.",
+    "noteTooLong": "Estas perguntas e respostas são longas demais para uma nota de PDF ({{length}} de {{max}} caracteres). Salve-as como Markdown.",
     "noteCompiledPreview": "Notas só podem ser salvas em um PDF aberto diretamente. A pré-visualização compilada é regerada a cada compilação.",
     "noteAnnotationsHidden": "Mostre as anotações para salvar uma nota.",
     "noteQuestionLabel": "Pergunta",
@@ -1532,7 +1532,10 @@
     "mdFilesRead": "Arquivos lidos",
     "mdExcerpt": "Trecho",
     "mdQuestion": "Pergunta",
-    "mdAnswer": "Resposta"
+    "mdAnswer": "Resposta",
+    "noteQuestionNumberedLabel": "Pergunta {{n}}",
+    "mdQuestionNumbered": "Pergunta {{n}}",
+    "mdAnswerNumbered": "Resposta {{n}}"
   },
   "markdownContextMenu": {
     "label": "Ações da pré-visualização"

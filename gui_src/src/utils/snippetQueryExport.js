@@ -1,5 +1,6 @@
 /**
- * What a "Look up" answer becomes when the user keeps it (§2.13.4).
+ * What a "Look up" card becomes when the user keeps it (§2.13.4): the excerpt
+ * and every question asked about it in the card, each with its answer.
  *
  * The card itself is ephemeral; keeping an answer is always an explicit action,
  * either a note inside the PDF or a Markdown file in the project. Both shapes
@@ -77,9 +78,35 @@ export function formatLookupSource(t, source = {}) {
   return document;
 }
 
-/** The text stored in a PDF note: the question, then the answer. */
-export function buildLookupNoteText(t, { question, answer }) {
-  return `${t('snippetQuery.noteQuestionLabel', 'Question')}: ${String(question || '').trim()}\n\n${String(answer || '').trim()}`;
+/**
+ * The exchanges of one look-up card, in the order they were asked: every
+ * question that received an answer, each with its answer. Blank entries are
+ * dropped so a stray call cannot write an empty "Question" heading.
+ */
+function answeredExchanges(exchanges) {
+  return (Array.isArray(exchanges) ? exchanges : [])
+    .map((exchange) => ({
+      question: String(exchange?.question || '').trim(),
+      answer: String(exchange?.answer || '').trim(),
+      truncated: Boolean(exchange?.truncated),
+      filesRead: Array.isArray(exchange?.filesRead) ? exchange.filesRead : [],
+    }))
+    .filter((exchange) => exchange.question);
+}
+
+/**
+ * The text stored in a PDF note: each question, then its answer. A card with
+ * several questions numbers them so the note reads as the sequence it was.
+ */
+export function buildLookupNoteText(t, exchanges) {
+  const items = answeredExchanges(exchanges);
+  const numbered = items.length > 1;
+  return items.map((exchange, index) => {
+    const label = numbered
+      ? t('snippetQuery.noteQuestionNumberedLabel', 'Question {{n}}', { n: index + 1 })
+      : t('snippetQuery.noteQuestionLabel', 'Question');
+    return `${label}: ${exchange.question}\n\n${exchange.answer}`;
+  }).join('\n\n');
 }
 
 const quote = (text) => String(text || '')
@@ -88,21 +115,24 @@ const quote = (text) => String(text || '')
   .map((line) => (line ? `> ${line}` : '>'))
   .join('\n');
 
-/** The Markdown document written by "Save as Markdown". */
+/**
+ * The Markdown document written by "Save as Markdown": the excerpt once, then
+ * every question asked in the card with its answer, in order. A single
+ * question keeps the plain "Question" / "Answer" headings; several are numbered.
+ */
 export function buildLookupMarkdown(t, {
   excerpt,
-  question,
-  answer,
+  exchanges = [],
   source = {},
   model = '',
   date = new Date(),
-  truncated = false,
-  filesRead = [],
 }) {
-  const asked = String(question || '').trim();
-  const firstLine = asked.split('\n')[0];
+  const items = answeredExchanges(exchanges);
+  const firstLine = (items[0]?.question || '').split('\n')[0];
   const title = firstLine.length > 90 ? `${firstLine.slice(0, 87).trimEnd()}...` : firstLine;
   const sourceLine = formatLookupSource(t, source);
+  // Every file any answer relied on, once, in the order first read.
+  const filesRead = [...new Set(items.flatMap((exchange) => exchange.filesRead))];
 
   const meta = [
     sourceLine ? `- **${t('snippetQuery.mdSource', 'Source')}:** ${sourceLine}` : '',
@@ -118,13 +148,23 @@ export function buildLookupMarkdown(t, {
     meta.join('\n'),
     `## ${t('snippetQuery.mdExcerpt', 'Excerpt')}`,
     quote(excerpt),
-    `## ${t('snippetQuery.mdQuestion', 'Question')}`,
-    asked,
-    `## ${t('snippetQuery.mdAnswer', 'Answer')}`,
-    String(answer || '').trim(),
   ];
-  if (truncated) {
-    parts.push(`_${t('snippetQuery.truncatedNotice', 'The answer reached the length limit and may be incomplete.')}_`);
-  }
+  const numbered = items.length > 1;
+  items.forEach((exchange, index) => {
+    const n = index + 1;
+    parts.push(
+      `## ${numbered
+        ? t('snippetQuery.mdQuestionNumbered', 'Question {{n}}', { n })
+        : t('snippetQuery.mdQuestion', 'Question')}`,
+      exchange.question,
+      `## ${numbered
+        ? t('snippetQuery.mdAnswerNumbered', 'Answer {{n}}', { n })
+        : t('snippetQuery.mdAnswer', 'Answer')}`,
+      exchange.answer,
+    );
+    if (exchange.truncated) {
+      parts.push(`_${t('snippetQuery.truncatedNotice', 'The answer reached the length limit and may be incomplete.')}_`);
+    }
+  });
   return `${parts.join('\n\n')}\n`;
 }

@@ -15,8 +15,8 @@ import { FormattedMessage } from '../utils/formatMessage';
 import { buildLookupNoteText, formatLookupSource, PDF_NOTE_MAX_CHARS } from '../utils/snippetQueryExport';
 
 /**
- * The "Look up" card: a one-off question about an excerpt and its answer,
- * kept apart from the chat (§2.13.4).
+ * The "Look up" card: questions about an excerpt and their answers, kept
+ * apart from the chat (§2.13.4). Saving keeps every question asked in the card.
  *
  * `state` comes from useSnippetQuery; this component only renders it. The card
  * is dismissed by its close button or Escape, never by a click elsewhere —
@@ -72,18 +72,21 @@ export default function SnippetQueryPopup({
 
   if (!state) return null;
 
-  const { excerpt, source, question, answer, truncated, filesRead, error, noteSaved, savedPath } = state;
+  const {
+    excerpt, source, question, answer, truncated, filesRead, exchanges, error, noteSaved, savedPath,
+  } = state;
   const sourceLine = formatLookupSource(t, source);
   const canSend = Boolean(String(question || '').trim());
 
-  const noteText = status === 'done' ? buildLookupNoteText(t, { question, answer }) : '';
+  // The note keeps every question asked in this card, like the Markdown file.
+  const noteText = status === 'done' ? buildLookupNoteText(t, exchanges) : '';
   const noteTooLong = noteText.length > PDF_NOTE_MAX_CHARS;
   let noteDisabledReason = '';
   if (noteAction && !noteAction.available) noteDisabledReason = noteAction.reason;
   else if (noteTooLong) {
     noteDisabledReason = t(
       'snippetQuery.noteTooLong',
-      'This answer is too long for a PDF note ({{length}} of {{max}} characters). Save it as Markdown instead.',
+      'These questions and answers are too long for a PDF note ({{length}} of {{max}} characters). Save them as Markdown instead.',
       { length: noteText.length, max: PDF_NOTE_MAX_CHARS },
     );
   }

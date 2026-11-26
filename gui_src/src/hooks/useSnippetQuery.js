@@ -11,8 +11,8 @@ import {
  * The lifecycle behind "Look up the selection…", shared by every surface that
  * offers it (§2.13.4).
  *
- * A look-up is a one-off question about an excerpt, answered in a card of its
- * own. It never touches the chat: no turn, no history, no memory. The answer
+ * A look-up is a question about an excerpt, answered in a card of its own;
+ * the card can take further questions about the same excerpt. It never touches the chat: no turn, no history, no memory. The answer
  * is kept only when the user saves it — as a Markdown file here, or as a PDF
  * note through the viewer, which owns the annotation endpoints.
  *
@@ -21,8 +21,14 @@ import {
  * Closing the card takes a ticket too, so a request in flight cannot reopen it.
  *
  * `state` is null or { x, y, excerpt, source, question, status, answer,
- * truncated, filesRead, error, noteSaved, savedPath, saving }, where status is
- * 'compose' | 'loading' | 'done' | 'error'.
+ * truncated, filesRead, exchanges, error, noteSaved, savedPath, saving }, where
+ * status is 'compose' | 'loading' | 'done' | 'error'.
+ *
+ * `exchanges` is the card's history: every question that was answered while
+ * the card stayed open, as { question, answer, truncated, filesRead }, in the
+ * order asked. "New question" starts a new entry instead of discarding the
+ * previous one, and saving keeps the whole sequence. A failed or superseded
+ * request adds nothing.
  */
 export function useSnippetQuery({ model = '', projectPath = '' } = {}) {
   const { t } = useTranslation();
@@ -47,6 +53,7 @@ export function useSnippetQuery({ model = '', projectPath = '' } = {}) {
       answer: '',
       truncated: false,
       filesRead: [],
+      exchanges: [],
       error: '',
       noteSaved: false,
       savedPath: '',
@@ -93,12 +100,19 @@ export function useSnippetQuery({ model = '', projectPath = '' } = {}) {
       if (!res.ok) {
         throw new Error(data.error || res.statusText || 'request failed');
       }
-      setQuery((prev) => (prev ? {
-        ...prev,
-        status: 'done',
+      const exchange = {
+        question,
         answer: data.answer || '',
         truncated: Boolean(data.truncated),
         filesRead: Array.isArray(data.files_read) ? data.files_read : [],
+      };
+      setQuery((prev) => (prev ? {
+        ...prev,
+        status: 'done',
+        answer: exchange.answer,
+        truncated: exchange.truncated,
+        filesRead: exchange.filesRead,
+        exchanges: [...(prev.exchanges || []), exchange],
       } : prev));
     } catch (err) {
       if (requestRef.current !== requestId) return;
@@ -144,17 +158,16 @@ export function useSnippetQuery({ model = '', projectPath = '' } = {}) {
     if (!current || current.status !== 'done' || !projectPath) return;
     setQuery((prev) => (prev ? { ...prev, saving: true } : prev));
     try {
+      const exchanges = current.exchanges || [];
       const content = buildLookupMarkdown(t, {
         excerpt: current.excerpt,
-        question: current.question,
-        answer: current.answer,
+        exchanges,
         source: current.source,
         model,
         date: new Date(),
-        truncated: current.truncated,
-        filesRead: current.filesRead,
       });
-      let suggestion = suggestLookupPath(current.question);
+      // Named after the first question: it is what the look-up was opened for.
+      let suggestion = suggestLookupPath(exchanges[0]?.question || current.question);
       let message = t('snippetQuery.savePrompt', 'Save the answer as a Markdown file in the project:');
       // Bounded: each pass is a user answering a dialog, and cancelling ends it.
       for (;;) {
